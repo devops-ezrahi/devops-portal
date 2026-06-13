@@ -59,6 +59,17 @@ Key variables (see `.env.example`):
 
 Adding a new env var: add to `.env.example`, expose it in `src/server/config.ts`, consume via the config object.
 
+## Branching
+
+Create a new branch when starting work on a distinct feature, fix, or refactor — especially before making changes that are non-trivial or unrelated to whatever branch is currently checked out.
+
+```bash
+git checkout -b feature/<short-description>   # new feature or module
+git checkout -b fix/<short-description>       # bug fix
+```
+
+Use the existing branch only if the work is a direct continuation of what that branch already contains.
+
 ## Committing
 
 Stage specific files — avoid `git add -A` (can accidentally include `.env` or build artifacts).
@@ -72,6 +83,17 @@ git commit -m "..."
 Never commit `.env`, secrets, or files from `dist/` or `node_modules/`. These are covered by `.gitignore` but always verify with `git status` before committing.
 
 Commit messages: imperative mood, ≤72 chars on the subject line. Describe _why_, not just what changed.
+
+## Pushing
+
+After committing, push the branch to origin so work is backed up and reviewable.
+
+```bash
+git push -u origin <branch-name>   # first push on a new branch
+git push                           # subsequent pushes
+```
+
+Run `npm run build` before pushing to catch type errors. Never force-push to `main`.
 
 ## Testing
 
