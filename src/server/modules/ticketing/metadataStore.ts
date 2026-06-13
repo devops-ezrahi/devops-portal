@@ -9,10 +9,6 @@ export class MetadataStore {
     this.ticketSummaries.set(ticket.id, ticket);
   }
 
-  listCachedTickets() {
-    return [...this.ticketSummaries.values()];
-  }
-
   getTicketIdForKey(key: string) {
     return this.idempotencyRecords.get(key);
   }

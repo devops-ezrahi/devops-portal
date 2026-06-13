@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mapInternalStatus } from "./status";
+import { mapInternalStatus } from "./modules/ticketing/status";
 
 describe("mapInternalStatus", () => {
   it("maps common internal and Jira statuses to customer stages", () => {
