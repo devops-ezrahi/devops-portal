@@ -32,6 +32,7 @@ export type TicketSummary = {
   teamGroups: string[];
   rawStatus: string;
   stage: CustomerStage;
+  assigneeId: string;
   createdAt: string;
   updatedAt: string;
   lastActivityAt: string;
@@ -80,7 +81,9 @@ export type AdminTicketUpdate = {
   stage?: CustomerStage;
   rawStatus?: string;
   title?: string;
+  description?: string;
   teamGroups?: string[];
+  assigneeId?: string;
 };
 
 export interface TicketingApi {
@@ -93,3 +96,64 @@ export interface TicketingApi {
   updateAdminTicket(ticketId: string, admin: PortalUser, update: AdminTicketUpdate): Promise<TicketDetail>;
   addAdminComment(ticketId: string, admin: PortalUser, body: string): Promise<TicketComment>;
 }
+
+// ---- Artifactory Module ----
+
+export type ArtifactoryJobKind = "url-copy" | "folder-upload";
+
+export type ArtifactoryJobStatus = "pending" | "in-progress" | "completed" | "failed";
+
+export type ArtifactoryJob = {
+  id: string;
+  kind: ArtifactoryJobKind;
+  status: ArtifactoryJobStatus;
+  submittedBy: string;
+  submittedByName: string;
+  createdAt: string;
+  updatedAt: string;
+  sourceUrl?: string;
+  folderName?: string;
+  fileCount?: number;
+  totalBytes?: number;
+  errorMessage?: string;
+  log: string[];
+};
+
+export type UrlCopyInput = {
+  sourceUrl: string;
+};
+
+export type UploadedFile = {
+  originalname: string;
+  mimetype: string;
+  buffer: Buffer;
+};
+
+export type FolderUploadInput = {
+  folderName: string;
+  fileCount: number;
+  totalBytes: number;
+  files?: UploadedFile[];
+};
+
+export interface ArtifactoryApi {
+  submitUrlCopy(input: UrlCopyInput, submitter: PortalUser): Promise<ArtifactoryJob>;
+  submitFolderUpload(input: FolderUploadInput, submitter: PortalUser): Promise<ArtifactoryJob>;
+  listJobs(user: PortalUser, allUsers?: boolean): Promise<ArtifactoryJob[]>;
+  getJob(jobId: string): Promise<ArtifactoryJob | null>;
+}
+
+// ---- RAGFlow / Chat Module ----
+
+export type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type ChatSession = {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: number;
+  updatedAt: number;
+};

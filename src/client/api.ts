@@ -1,6 +1,13 @@
-import type { AdminTicketUpdate, PortalUser, RequestTypeDefinition, TicketDetail, TicketSummary } from "../server/types";
+import type { PortalUser } from "../server/types";
 
 export type DemoUserRole = "regular" | "admin";
+
+export type PortalConfig = {
+  ssoRequired: boolean;
+  ssoUrl: string;
+  artifactoryEnabled: boolean;
+  chatEnabled: boolean;
+};
 
 export const demoUsers: Record<DemoUserRole, { label: string; headers: Record<string, string> }> = {
   regular: {
@@ -9,8 +16,8 @@ export const demoUsers: Record<DemoUserRole, { label: string; headers: Record<st
       "x-user-id": "u-alex",
       "x-user-name": "Alex Morgan",
       "x-user-email": "alex@example.com",
-      "x-user-groups": "team-alpha"
-    }
+      "x-user-groups": "team-alpha",
+    },
   },
   admin: {
     label: "Admin user",
@@ -18,9 +25,9 @@ export const demoUsers: Record<DemoUserRole, { label: string; headers: Record<st
       "x-user-id": "u-admin",
       "x-user-name": "Morgan Admin",
       "x-user-email": "morgan.admin@example.com",
-      "x-user-groups": "team-alpha,portal-admins"
-    }
-  }
+      "x-user-groups": "team-alpha,portal-admins",
+    },
+  },
 };
 
 const demoUserStorageKey = "devops-portal-demo-user";
@@ -34,19 +41,33 @@ export function setDemoUserRole(role: DemoUserRole) {
   window.localStorage.setItem(demoUserStorageKey, role);
 }
 
-function getDemoHeaders() {
+export function getDemoHeaders() {
   return demoUsers[getDemoUserRole()].headers;
 }
 
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
+export class UnauthenticatedError extends Error {
+  readonly ssoUrl: string;
+  constructor(ssoUrl: string) {
+    super("Authentication required");
+    this.name = "UnauthenticatedError";
+    this.ssoUrl = ssoUrl;
+  }
+}
+
+export async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...options,
     headers: {
       "Content-Type": "application/json",
       ...getDemoHeaders(),
-      ...options?.headers
-    }
+      ...options?.headers,
+    },
   });
+
+  if (response.status === 401) {
+    const body = await response.json().catch(() => ({}));
+    throw new UnauthenticatedError(body.ssoUrl ?? "");
+  }
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
@@ -56,68 +77,30 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export async function requestFormData<T>(url: string, body: FormData): Promise<T> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: getDemoHeaders(), // no Content-Type — browser sets multipart boundary
+    body,
+  });
+
+  if (response.status === 401) {
+    const data = await response.json().catch(() => ({}));
+    throw new UnauthenticatedError(data.ssoUrl ?? "");
+  }
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error ?? `Request failed: ${response.status}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
 export function getMe() {
   return request<{ user: PortalUser; isAdmin: boolean }>("/api/me");
 }
 
-export function getRequestTypes() {
-  return request<{ requestTypes: RequestTypeDefinition[] }>("/api/request-types");
-}
-
-export function listTickets(params: { scope: "mine" | "team"; status?: string; query?: string }) {
-  const search = new URLSearchParams({ scope: params.scope });
-  if (params.status) {
-    search.set("status", params.status);
-  }
-  if (params.query) {
-    search.set("query", params.query);
-  }
-  return request<{ tickets: TicketSummary[] }>(`/api/tickets?${search}`);
-}
-
-export function getTicket(id: string) {
-  return request<{ ticket: TicketDetail }>(`/api/tickets/${id}`);
-}
-
-export function createTicket(payload: { requestType: string; fields: Record<string, string>; idempotencyKey: string }) {
-  return request<{ ticket: TicketDetail }>("/api/tickets", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
-}
-
-export function addComment(ticketId: string, body: string) {
-  return request<{ comment: TicketDetail["comments"][number] }>(`/api/tickets/${ticketId}/comments`, {
-    method: "POST",
-    body: JSON.stringify({ body })
-  });
-}
-
-export function listAdminTickets(params: { status?: string; query?: string }) {
-  const search = new URLSearchParams();
-  if (params.status) {
-    search.set("status", params.status);
-  }
-  if (params.query) {
-    search.set("query", params.query);
-  }
-  return request<{ tickets: TicketSummary[] }>(`/api/admin/tickets?${search}`);
-}
-
-export function getAdminTicket(id: string) {
-  return request<{ ticket: TicketDetail }>(`/api/admin/tickets/${id}`);
-}
-
-export function updateAdminTicket(ticketId: string, payload: AdminTicketUpdate) {
-  return request<{ ticket: TicketDetail }>(`/api/admin/tickets/${ticketId}`, {
-    method: "PATCH",
-    body: JSON.stringify(payload)
-  });
-}
-
-export function addAdminComment(ticketId: string, body: string) {
-  return request<{ comment: TicketDetail["comments"][number] }>(`/api/admin/tickets/${ticketId}/comments`, {
-    method: "POST",
-    body: JSON.stringify({ body })
-  });
+export function getPortalConfig() {
+  return fetch("/api/config").then((r) => r.json() as Promise<PortalConfig>);
 }
