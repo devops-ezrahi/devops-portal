@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
-import "highlight.js/styles/atom-one-dark.css";
 import { getPortalConfig } from "../../api";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ChatMessage, ChatSession } from "../../../server/types";
