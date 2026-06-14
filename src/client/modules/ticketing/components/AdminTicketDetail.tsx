@@ -2,20 +2,20 @@ import { Check, MessageSquarePlus, Pencil } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { addAdminComment, updateAdminTicket } from "../api";
-import { devopsAdmins, stages } from "../config";
+import { stages } from "../config";
 import type { CustomerStage, TicketDetail } from "../../../../server/types";
 import { formatDate, isStatusMessage, statusMessage, statusMessageText, stageClass } from "../utils";
 
 export function AdminTicketDetail({
   assignee,
-  currentUserName,
+  currentUserId,
   onAssigneeChange,
   onReload,
   onUpdated,
   ticket
 }: {
   assignee: string;
-  currentUserName: string;
+  currentUserId: string;
   onAssigneeChange: (assignee: string) => Promise<void>;
   onReload: () => Promise<void>;
   onUpdated: () => void;
@@ -160,21 +160,16 @@ export function AdminTicketDetail({
         <label className="owner-select">
           <span>Owner</span>
           <div className="owner-controls">
-            <select value={assignee} onChange={(e) => onAssigneeChange(e.target.value).catch(() => undefined)}>
-              <option value="">Unassigned</option>
-              {devopsAdmins.map((admin) => (
-                <option key={admin.id} value={admin.id}>
-                  {admin.name}
-                </option>
-              ))}
-            </select>
+            <input
+              type="text"
+              value={assignee}
+              placeholder="Unassigned"
+              onChange={(e) => onAssigneeChange(e.target.value).catch(() => undefined)}
+            />
             <button
               className="ghost-button"
               type="button"
-              onClick={() => {
-                const me = devopsAdmins.find((admin) => admin.name === currentUserName) ?? devopsAdmins[0];
-                onAssigneeChange(me.id).catch(() => undefined);
-              }}
+              onClick={() => onAssigneeChange(currentUserId).catch(() => undefined)}
             >
               Me
             </button>
