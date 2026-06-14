@@ -19,34 +19,54 @@ src/
     index-prod.ts     # prod entry — no dotenv (env comes from k8s ConfigMap)
     app.ts            # Express app, mounts all module routers
     config.ts         # reads process.env once; all feature code consumes this object
-    auth.ts           # SSO header parsing, 401 handling
+    auth.ts           # SSO header parsing, group access control, admin check
     env.ts            # runtime env validation/defaults
+    types.ts          # shared cross-module types (API interfaces, DTOs)
     modules/
-      ticketing/      # Ticketing module (router.ts + domain files)
-      artifactory/    # Artifactory module
-      ragflow/        # RAGflow module
+      ticketing/      # router.ts + JiraTicketingApi.ts + InMemoryTicketingApi.ts + domain files
+      artifactory/    # router.ts + RealArtifactoryApi.ts
+      ragflow/        # router.ts (single real backend, reads config.chat)
+      argocd/         # router.ts + service.ts
+      branchdiff/     # router.ts + service.ts
   client/
     App.tsx           # thin shell: loads /api/me, renders nav, mounts active module View
-    api.ts            # shared fetch helpers
+    api.ts            # cross-cutting fetch helpers only (request, getMe, getPortalConfig, demo users)
     modules/
-      ticketing/      # index.tsx (PortalModule def), api.ts, views, components
-      artifactory/
-      ragflow/
+      <name>/
+        index.tsx     # PortalModule def (id, userNav, adminNav, View)
+        api.ts        # this module's fetch calls only
+        <Name>View.tsx
+        components/   # one file per sub-component
 ```
 
 ## Module pattern
 
-Each feature is a self-contained module in two mirrored folders.
+Each feature is a self-contained module in two mirrored folders. **Conform new modules to this exact layout** so the codebase stays uniform.
 
-**Server** — create `src/server/modules/<name>/router.ts` exporting `create<Name>Router(api)`, then mount it in `src/server/app.ts`.
+**Server** — `src/server/modules/<name>/`:
+- `router.ts` exports `create<Name>Router(...)` and is mounted in `src/server/app.ts`.
+- The data layer lives **inside the module folder** — never add data files at `src/server/*.ts`.
+- **Inject the data API into the router only when more than one implementation exists.** Ticketing (`JiraTicketingApi` / `InMemoryTicketingApi`) and Artifactory (`RealArtifactoryApi`) take an injected API instance — this keeps them swappable and unit-testable. Single-backend modules (`argocd`, `branchdiff`, `ragflow`) keep their logic in a sibling `service.ts` (or inline in the router for `ragflow`) that the router imports directly; no DI ceremony.
+- `app.ts` selects the implementation by config, e.g. `config.jira.enabled ? new JiraTicketingApi(config.jira) : new InMemoryTicketingApi()`.
 
-**Client** — create `src/client/modules/<name>/index.tsx` exporting a `PortalModule` object (`id`, `userNav`, `adminNav`, `View`), then add it to the `modules` array in `src/client/App.tsx`.
+**Client** — `src/client/modules/<name>/`:
+- `index.tsx` exports a `PortalModule` object (`id`, `userNav`, `adminNav`, `View`); add it to the `modules` array in `src/client/App.tsx`.
+- `api.ts` holds **only this module's** fetch calls (built on the shared `request`/`requestFormData` helpers from `src/client/api.ts`).
+- Sub-components live in `components/`, one per file — don't inline large components in the View.
 
 The shell passes `refreshKey` as a prop; modules use it as a React `key` to remount and reload on the Refresh button.
 
+## No mock data in production code
+
+Shipped code must use real data sources only — no seed/demo data baked into modules. Test fixtures belong under `__tests__/` (e.g. `modules/ticketing/__tests__/seedTickets.ts`) and are injected into the in-memory API by tests, never loaded by default.
+
+Two **intentional, temporary** exceptions remain for local dev/demo and are slated for replacement:
+- `src/client/api.ts` `demoUsers` + role switcher, and the dev fallback user in `auth.ts` — let the app run locally without an SSO proxy in front.
+- `branchdiff` reads fake YAML from `fake-repos/` instead of a real git checkout.
+
 ## Config & environment
 
-All config is read from environment variables via `src/server/config.ts`. Never read `process.env` directly in feature code — always go through the config object.
+Startup config is read from environment variables **once** via `src/server/config.ts`. Never read `process.env` directly in feature code — always go through the frozen `config` object. The one documented exception is `argocd`: it forwards the caller's auth per request and is configured at request time, so it centralizes its env reads in a single `configuredArgoCd()` function inside `modules/argocd/service.ts` (this also lets tests mutate `ARGOCD_*` at runtime).
 
 Key variables (see `.env.example`):
 
@@ -54,8 +74,13 @@ Key variables (see `.env.example`):
 |---|---|---|
 | `SSO_REQUIRED` | `false` | Enforce SSO proxy headers; returns 401 if absent |
 | `SSO_URL` | — | SSO login URL sent to the client on 401 |
-| `ADMIN_GROUP` | `portal-admins` | Group that grants admin access |
-| `ARTIFACTORY_URL` / `ARTIFACTORY_REPO` / `ARTIFACTORY_TOKEN` | — | All three required to activate `RealArtifactoryApi`; otherwise `InMemoryArtifactoryApi` |
+| `ALLOWED_GROUPS` | — | Pipe-separated groups allowed to use the portal at all (empty = allow everyone); 403 otherwise |
+| `ADMIN_GROUP` | `portal-admins` | Pipe-separated groups that grant admin access |
+| `ARTIFACTORY_URL` / `ARTIFACTORY_REPO` / `ARTIFACTORY_TOKEN` | — | All three required to activate `RealArtifactoryApi` |
+| `JIRA_URL` / `JIRA_TOKEN` / `JIRA_PROJECT_KEY` | — | All three required to activate `JiraTicketingApi` (Jira Data Center, Bearer PAT); otherwise `InMemoryTicketingApi` fallback |
+| `CHAT_API_URL` / `CHAT_API_KEY` | — | Both required to enable the chat proxy; otherwise `/api/ragflow/chat` returns 503 |
+
+Groups are pipe-separated (not comma) so LDAP-style DNs containing commas work.
 
 Adding a new env var: add to `.env.example`, expose it in `src/server/config.ts`, consume via the config object.
 
