@@ -8,13 +8,15 @@ import {
   UnauthenticatedError,
 } from "./api";
 import type { DemoUserRole, PortalConfig } from "./api";
+import { argoCdModule } from "./modules/argocd";
 import { artifactoryModule } from "./modules/artifactory";
+import { branchDiffModule } from "./modules/branchdiff";
 import { ragflowModule } from "./modules/ragflow";
 import { ticketingModule } from "./modules/ticketing";
 import type { PortalModule } from "./moduleTypes";
 import type { PortalUser } from "../server/types";
 
-const modules: PortalModule[] = [ticketingModule, artifactoryModule, ragflowModule];
+const modules: PortalModule[] = [ticketingModule, artifactoryModule, ragflowModule, argoCdModule, branchDiffModule];
 
 function slugFor(mod: PortalModule) {
   return mod.userNav.label.toLowerCase();
