@@ -1,4 +1,4 @@
-import type { ArgoCdDashboard, BranchDiffDashboard, PortalUser } from "../server/types";
+import type { PortalUser } from "../server/types";
 
 export type DemoUserRole = "regular" | "admin";
 
@@ -103,12 +103,4 @@ export function getMe() {
 
 export function getPortalConfig() {
   return fetch("/api/config").then((r) => r.json() as Promise<PortalConfig>);
-}
-
-export function listArgoCdProjects() {
-  return request<ArgoCdDashboard>("/api/argocd/projects");
-}
-
-export function getGitRepoDiff() {
-  return request<BranchDiffDashboard>("/api/git-repo-diff");
 }

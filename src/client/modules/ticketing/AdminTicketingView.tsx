@@ -6,7 +6,6 @@ import {
   updateAdminTicket
 } from "./api";
 import { AdminTicketDetail } from "./components/AdminTicketDetail";
-import { devopsAdmins } from "./config";
 import { isDone, stageClass, statusMessage } from "./utils";
 import type { PortalUser, TicketDetail, TicketSummary } from "../../../server/types";
 
@@ -32,7 +31,7 @@ function TicketRow({
       <div className="ticket-row-meta">
         <small>{ticket.id}</small>
         {ticket.assigneeId
-          ? <small className="ticket-row-assignee assigned">{devopsAdmins.find((a) => a.id === ticket.assigneeId)?.name}</small>
+          ? <small className="ticket-row-assignee assigned">{ticket.assigneeId}</small>
           : <small className="ticket-row-assignee unassigned">Unassigned</small>
         }
       </div>
@@ -82,11 +81,10 @@ export function AdminTicketingView({
     await refreshAdminTickets();
   }
 
-  const currentAdminEntry = devopsAdmins.find((a) => a.name === user.displayName);
   const filteredTickets = useMemo(() => {
     if (showAll) return adminTickets;
-    return adminTickets.filter((t) => !t.assigneeId || (currentAdminEntry && t.assigneeId === currentAdminEntry.id));
-  }, [adminTickets, showAll, currentAdminEntry?.id]);
+    return adminTickets.filter((t) => !t.assigneeId || t.assigneeId === user.id);
+  }, [adminTickets, showAll, user.id]);
 
   const activeTickets = useMemo(() => filteredTickets.filter((t) => !isDone(t)), [filteredTickets]);
   const doneTickets = useMemo(() => filteredTickets.filter(isDone), [filteredTickets]);
@@ -126,9 +124,9 @@ export function AdminTicketingView({
           <AdminTicketDetail
             key={selectedAdminTicket.id}
             assignee={selectedAdminTicket.assigneeId}
-            currentUserName={user.displayName}
+            currentUserId={user.id}
             onAssigneeChange={async (assignee) => {
-              const ownerName = devopsAdmins.find((a) => a.id === assignee)?.name ?? "Unassigned";
+              const ownerName = assignee || "Unassigned";
               await updateAdminTicket(selectedAdminTicket.id, { assigneeId: assignee });
               await addAdminComment(selectedAdminTicket.id, statusMessage(`Owner changed to ${ownerName}.`));
               await reloadAdminTicket(selectedAdminTicket.id);

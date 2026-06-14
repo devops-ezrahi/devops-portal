@@ -9,10 +9,3 @@ export const stages: Array<CustomerStage | ""> = [
   "Resolved",
   "Closed"
 ];
-
-export const devopsAdmins = [
-  { id: "morgan", name: "Morgan Admin" },
-  { id: "taylor", name: "Taylor DevOps" },
-  { id: "casey", name: "Casey Platform" },
-  { id: "sam", name: "Sam Release" }
-];

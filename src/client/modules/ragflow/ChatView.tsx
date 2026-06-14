@@ -1,12 +1,11 @@
-import { MessageSquare, Plus, Send, Trash2 } from "lucide-react";
+import { MessageSquare, Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import rehypeHighlight from "rehype-highlight";
-import remarkGfm from "remark-gfm";
 import { getPortalConfig } from "../../api";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ChatMessage, ChatSession } from "../../../server/types";
 import { streamChat } from "./api";
+import { MessageList } from "./components/MessageList";
+import { SessionSidebar } from "./components/SessionSidebar";
 
 const SESSIONS_KEY = "chat:sessions";
 const ACTIVE_KEY = "chat:activeId";
@@ -226,37 +225,13 @@ export function ChatView({ refreshKey, onError }: ModuleViewProps) {
 
   return (
     <div className="chat-module">
-      <div className="chat-sidebar">
-        <div className="chat-sidebar-header">
-          <button className="chat-new-btn" onClick={newChat}>
-            <Plus size={14} aria-hidden="true" />
-            New chat
-          </button>
-        </div>
-        <div className="chat-sidebar-list">
-          {sessions.length === 0 && (
-            <div className="chat-sidebar-empty">No chats yet</div>
-          )}
-          {sessions.map((s) => (
-            <button
-              key={s.id}
-              className={`chat-sidebar-item${s.id === activeId ? " active" : ""}`}
-              onClick={() => switchTo(s.id)}
-              title={s.title}
-            >
-              <span className="chat-sidebar-title">{s.title}</span>
-              <span
-                className="chat-sidebar-delete"
-                role="button"
-                aria-label="Delete chat"
-                onClick={(e) => deleteSession(s.id, e)}
-              >
-                <Trash2 size={13} />
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
+      <SessionSidebar
+        sessions={sessions}
+        activeId={activeId}
+        onNewChat={newChat}
+        onSwitchTo={switchTo}
+        onDeleteSession={deleteSession}
+      />
 
       <div className="chat-main">
         <div className="chat-topbar">
@@ -268,54 +243,7 @@ export function ChatView({ refreshKey, onError }: ModuleViewProps) {
           </div>
         </div>
 
-        <div className="chat-messages">
-          {messages.length === 0 && (
-            <div className="chat-empty">
-              <MessageSquare size={40} style={{ opacity: 0.18 }} aria-hidden="true" />
-              <p style={{ margin: 0, fontWeight: 700, color: "#c8d3d7" }}>Ask anything</p>
-              <p style={{ margin: 0, fontSize: 13, maxWidth: 360 }}>
-                Connected to your team's knowledge base. Ask about processes, runbooks, or how to
-                get things done.
-              </p>
-            </div>
-          )}
-
-          {messages.map((msg, i) => {
-            const isLastAssistant = msg.role === "assistant" && i === messages.length - 1 && isStreaming;
-            return (
-              <div
-                key={i}
-                className={`chat-msg ${msg.role === "user" ? "chat-msg-user" : "chat-msg-assistant"}`}
-              >
-                {msg.role === "user" ? (
-                  msg.content
-                ) : (
-                  <>
-                    {msg.content === "" && isLastAssistant ? (
-                      <span className="chat-typing" aria-label="Thinking">
-                        <span /><span /><span />
-                      </span>
-                    ) : (
-                      <div className="chat-md">
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          rehypePlugins={[[rehypeHighlight, { detect: true }]]}
-                        >
-                          {msg.content || " "}
-                        </ReactMarkdown>
-                      </div>
-                    )}
-                    {isLastAssistant && msg.content !== "" && (
-                      <span className="chat-cursor" aria-hidden="true" />
-                    )}
-                  </>
-                )}
-              </div>
-            );
-          })}
-
-          <div ref={bottomRef} />
-        </div>
+        <MessageList messages={messages} isStreaming={isStreaming} bottomRef={bottomRef} />
 
         <div className="chat-input-row">
           <textarea
