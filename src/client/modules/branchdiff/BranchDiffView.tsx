@@ -2,7 +2,7 @@ import { RefreshCcw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { getGitRepoDiff } from "../../api";
 import type { ModuleViewProps } from "../../moduleTypes";
-import type { BranchDiffDashboard, BranchDiffMicroservice } from "../../../server/types";
+import type { BranchDiffDashboard, BranchDiffItem, BranchDiffMicroservice } from "../../../server/types";
 
 function riskClass(risk: string) {
   return `diff-risk diff-risk-${risk}`;
@@ -200,6 +200,26 @@ export function BranchDiffView({ refreshKey, onError }: ModuleViewProps) {
   );
 }
 
+function DiffList({ items, branches, emptyText }: { items: BranchDiffItem[]; branches: string[]; emptyText: string }) {
+  if (items.length === 0) {
+    return <div className="diff-list-empty">{emptyText}</div>;
+  }
+  return (
+    <div className="diff-list">
+      <div className="diff-list-header">
+        <span>Field</span>
+        {branches.map((b) => <span key={b}>{b.replace("payments-", "")}</span>)}
+      </div>
+      {items.map((item) => (
+        <div key={item.field} className="diff-list-row">
+          <strong>{item.field}</strong>
+          {branches.map((b) => <span key={b}>{item.values[b] ?? "—"}</span>)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ServiceDetail({
   dashboard,
   service,
@@ -245,29 +265,19 @@ function ServiceDetail({
         </div>
       </section>
 
-      <section className="branch-detail-grid">
-        <div>
-          <h3>Values diff</h3>
-          {service.valuesDiffs.length > 0
-            ? service.valuesDiffs.map((item) => <p key={item}>{item}</p>)
-            : <p>No values drift.</p>}
-        </div>
-        <div>
-          <h3>Template diff</h3>
-          {service.templateDiffs.length > 0
-            ? service.templateDiffs.map((item) => <p key={item}>{item}</p>)
-            : <p>No template drift.</p>}
-        </div>
-        <div>
-          <h3>Resource diff</h3>
-          {service.resourceDiffs.length > 0
-            ? service.resourceDiffs.map((item) => <p key={item}>{item}</p>)
-            : <p>No resource drift.</p>}
-        </div>
-        <div>
-          <h3>Raw YAML</h3>
-          <p>Advanced raw YAML diff is intentionally secondary in this MVP.</p>
-        </div>
+      <section>
+        <h3>Values diff</h3>
+        <DiffList items={service.valuesDiffs} branches={dashboard.branches} emptyText="No values drift." />
+      </section>
+
+      <section>
+        <h3>Template diff</h3>
+        <DiffList items={service.templateDiffs} branches={dashboard.branches} emptyText="No template drift." />
+      </section>
+
+      <section>
+        <h3>Resource diff</h3>
+        <DiffList items={service.resourceDiffs} branches={dashboard.branches} emptyText="No resource drift." />
       </section>
     </article>
   );

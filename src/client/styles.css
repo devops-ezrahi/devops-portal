@@ -1978,6 +1978,10 @@ code {
   gap: 14px;
 }
 
+.branch-diff-space .topbar {
+  margin-bottom: 0;
+}
+
 .branch-diff-toolbar,
 .branch-summary {
   display: grid;
@@ -2025,15 +2029,15 @@ code {
 
 .branch-diff-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);
+  grid-template-columns: 1fr;
   gap: 14px;
-  align-items: start;
 }
 
 .branch-matrix,
 .branch-detail {
   min-width: 0;
 }
+
 
 .branch-matrix {
   border: 1px solid #202b31;
@@ -2125,6 +2129,8 @@ code {
 
 .diff-risk {
   width: max-content;
+  height: fit-content;
+  align-self: center;
   border-radius: 999px;
   padding: 4px 9px;
   font-size: 12px;
@@ -2163,6 +2169,50 @@ code {
   background: #0d1518;
   color: #dbe4e7;
   padding: 9px 10px;
+}
+
+.diff-list {
+  display: grid;
+  overflow: auto;
+}
+
+.diff-list-header,
+.diff-list-row {
+  display: grid;
+  grid-template-columns: 200px repeat(4, minmax(110px, 1fr));
+  gap: 8px;
+  min-width: 680px;
+}
+
+.diff-list-header {
+  color: #84949b;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  padding-bottom: 8px;
+}
+
+.diff-list-row {
+  border-top: 1px solid #202b31;
+  padding: 8px 0;
+  color: #dbe4e7;
+  font-size: 13px;
+}
+
+.diff-list-row strong {
+  color: #e6eef1;
+  overflow-wrap: anywhere;
+}
+
+.diff-list-row span {
+  overflow-wrap: anywhere;
+  color: #c8d3d7;
+}
+
+.diff-list-empty {
+  color: #5a7077;
+  font-size: 13px;
+  padding: 4px 0;
 }
 
 .important-fields {
@@ -2669,7 +2719,6 @@ code {
   .simple-app-grid,
   .branch-diff-toolbar,
   .branch-summary,
-  .branch-diff-layout,
   .branch-detail-grid,
   .argo-dashboard-grid,
   .argo-filter-grid,

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type {
   BranchDiffDashboard,
+  BranchDiffItem,
   BranchDiffMicroservice,
   BranchDiffRisk,
   BranchMicroserviceSnapshot
@@ -151,8 +152,8 @@ function yamlParameterDiffs(
     .filter((field) => new Set(Object.values(field.values)).size > 1);
 }
 
-function formatYamlParameterDiff(diff: { key: string; values: Record<string, string> }) {
-  return `${diff.key}: ${branches.map((branch) => `${branch.replace("payments-", "")}=${diff.values[branch]}`).join(", ")}.`;
+function toDiffItem(diff: { key: string; values: Record<string, string> }): BranchDiffItem {
+  return { field: diff.key, values: diff.values };
 }
 
 function extractSnapshot(branch: string, microservice: string): BranchMicroserviceSnapshot {
@@ -260,12 +261,16 @@ function analyzeMicroservice(name: string): BranchDiffMicroservice {
     fieldDiff("hpa.maxReplicas", "medium", snapshots, (snapshot) => snapshot.hpa?.maxReplicas)
   ].filter((field) => new Set(Object.values(field.values)).size > 1);
 
-  const valuesDiffs: string[] = [];
-  const templateDiffs: string[] = [];
-  const resourceDiffs: string[] = [];
+  const valuesDiffs: BranchDiffItem[] = [];
+  const templateDiffs: BranchDiffItem[] = [];
+  const resourceDiffs: BranchDiffItem[] = [];
   const badges: string[] = [];
   const summary: string[] = [];
   const risks: BranchDiffRisk[] = [];
+
+  function branchValues(getter: (s: BranchMicroserviceSnapshot) => string | number | boolean | undefined): Record<string, string> {
+    return Object.fromEntries(branches.map((b) => [b, String(getter(snapshots[b]) ?? "missing")]));
+  }
 
   if (missingBranches.length > 0) {
     badges.push("Missing");
@@ -275,42 +280,44 @@ function analyzeMicroservice(name: string): BranchDiffMicroservice {
   if (distinctValues(snapshots, (snapshot) => snapshot.imageTag).size > 1) {
     badges.push("Image differs");
     risks.push("low");
-    valuesDiffs.push("Image tag differs across branches.");
+    valuesDiffs.push({ field: "image.tag", values: branchValues((s) => s.imageTag) });
     summary.push("Image tag differs across namespace branches.");
   }
   if (distinctValues(snapshots, (snapshot) => snapshot.replicaCount).size > 1) {
     badges.push("Replica differs");
     risks.push("low");
-    valuesDiffs.push("Replica count differs across branches.");
+    valuesDiffs.push({ field: "replicaCount", values: branchValues((s) => s.replicaCount) });
     summary.push(`Replica count differs: ${branches.map((branch) => `${branch}=${snapshots[branch].replicaCount ?? "missing"}`).join(", ")}.`);
   }
   if (distinctValues(snapshots, (snapshot) => snapshot.routeHost).size > 1) {
     badges.push("Route changed");
     risks.push(name.includes("prd") ? "high" : "medium");
-    valuesDiffs.push("Route host differs across branches.");
+    valuesDiffs.push({ field: "route.host", values: branchValues((s) => s.routeHost) });
     summary.push("Route host differs between environments.");
   }
   if (distinctValues(snapshots, (snapshot) => snapshot.hasSecurityContext).size > 1) {
     badges.push("Security changed");
     risks.push("high");
-    templateDiffs.push("securityContext differs between branches.");
+    templateDiffs.push({ field: "securityContext", values: branchValues((s) => s.hasSecurityContext) });
     summary.push("Security context differs between namespace branches.");
   }
   if (distinctValues(snapshots, (snapshot) => snapshot.hasNetworkPolicy).size > 1) {
     badges.push("NetworkPolicy changed");
     risks.push("high");
-    resourceDiffs.push("NetworkPolicy presence differs between branches.");
+    resourceDiffs.push({ field: "networkPolicy", values: branchValues((s) => s.hasNetworkPolicy) });
     summary.push("NetworkPolicy exists only in some branches.");
   }
   if (templateDrift) {
     badges.push("Template changed");
-    templateDiffs.push("Template hash differs between branches.");
-    templateDiffs.push(...templateParameterDiffs.map(formatYamlParameterDiff));
+    templateDiffs.push(...(templateParameterDiffs.length > 0
+      ? templateParameterDiffs.map(toDiffItem)
+      : [{ field: "template.hash", values: branchValues((s) => s.templateHash) }]));
   }
   if (valuesDrift) {
     badges.push("Values changed");
-    valuesDiffs.push("Values hash differs between branches.");
-    valuesDiffs.push(...valuesParameterDiffs.map(formatYamlParameterDiff));
+    valuesDiffs.push(...(valuesParameterDiffs.length > 0
+      ? valuesParameterDiffs.map(toDiffItem)
+      : [{ field: "values.hash", values: branchValues((s) => s.valuesHash) }]));
   }
   if (snapshots["payments-prd"].templateHash !== snapshots["payments-preprod"].templateHash) {
     badges.push("Prod drift");

@@ -36,7 +36,7 @@ spec:
     app: payment-api
   ports:
     - port: 80
-      targetPort: 8080
+      targetPort: 8081
 ---
 apiVersion: route.openshift.io/v1
 kind: Route

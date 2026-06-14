@@ -131,7 +131,7 @@ describe("portal API", () => {
     expect(
       response.body.microservices
         .find((service: { name: string }) => service.name === "payment-api")
-        .templateDiffs.some((diff: string) => diff.includes("livenessProbe.httpGet.path"))
+        .templateDiffs.some((diff: { field: string }) => diff.field.includes("livenessProbe.httpGet.path"))
     ).toBe(true);
   });
 

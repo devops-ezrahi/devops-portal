@@ -246,6 +246,11 @@ export type BranchMicroserviceSnapshot = {
   };
 };
 
+export type BranchDiffItem = {
+  field: string;
+  values: Record<string, string>;
+};
+
 export type BranchDiffMicroservice = {
   name: string;
   branches: Record<string, BranchMicroserviceSnapshot>;
@@ -255,9 +260,9 @@ export type BranchDiffMicroservice = {
     values: Record<string, string>;
     risk: BranchDiffRisk;
   }>;
-  valuesDiffs: string[];
-  templateDiffs: string[];
-  resourceDiffs: string[];
+  valuesDiffs: BranchDiffItem[];
+  templateDiffs: BranchDiffItem[];
+  resourceDiffs: BranchDiffItem[];
   riskLevel: BranchDiffRisk;
   templateDrift: boolean;
   valuesDrift: boolean;
