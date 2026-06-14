@@ -1,0 +1,17 @@
+image:
+  repository: registry.example.local/payments/payment-worker
+  tag: "8.0.5-dev.12"
+replicaCount: 1
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+env:
+  WORKER_CONCURRENCY: "2"
+route:
+  host: ""
+featureFlags:
+  asyncCapture: true

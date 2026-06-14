@@ -1,5 +1,5 @@
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "./app";
 
 function authed() {
@@ -12,6 +12,14 @@ function authed() {
 }
 
 describe("portal API", () => {
+  afterEach(() => {
+    delete process.env.ARGOCD_URL;
+    delete process.env.ARGOCD_AUTH_TOKEN;
+    delete process.env.ARGOCD_USERNAME;
+    delete process.env.ARGOCD_PASSWORD;
+    delete process.env.ARGOCD_INSECURE;
+  });
+
   it("returns the SSO-backed current user", async () => {
     const response = await authed().expect(200);
     expect(response.body.user).toMatchObject({
@@ -102,6 +110,42 @@ describe("portal API", () => {
       .set("x-user-id", "u-alex")
       .set("x-user-groups", "team-alpha")
       .expect(403);
+  });
+
+  it("returns the fake Git repo branch diff dashboard", async () => {
+    const response = await request(createApp())
+      .get("/api/git-repo-diff")
+      .set("x-user-id", "u-alex")
+      .set("x-user-groups", "team-alpha")
+      .expect(200);
+
+    expect(response.body).toMatchObject({
+      app: "payments-app",
+      baselineBranch: "payments-prd"
+    });
+    expect(response.body.branches).toContain("payments-secure-prd");
+    expect(response.body.microservices.map((service: { name: string }) => service.name)).toContain("reports-api");
+    expect(
+      response.body.microservices.find((service: { name: string }) => service.name === "reports-api").missingBranches
+    ).toContain("payments-secure-prd");
+    expect(
+      response.body.microservices
+        .find((service: { name: string }) => service.name === "payment-api")
+        .templateDiffs.some((diff: string) => diff.includes("livenessProbe.httpGet.path"))
+    ).toBe(true);
+  });
+
+  it("returns a clear Argo CD error when the configured server is unavailable", async () => {
+    process.env.ARGOCD_URL = "https://127.0.0.1:1";
+    process.env.ARGOCD_INSECURE = "true";
+
+    const response = await request(createApp())
+      .get("/api/argocd/projects")
+      .set("x-user-id", "u-alex")
+      .set("x-user-groups", "team-alpha")
+      .expect(502);
+
+    expect(response.body.error).toContain("Argo CD");
   });
 
   it("lets admins list, update, and respond to any ticket", async () => {

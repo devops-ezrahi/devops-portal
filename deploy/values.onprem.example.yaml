@@ -1,0 +1,49 @@
+# Example Helm values for one on-prem/customer Argo CD.
+# The portal is deployed once per customer/environment and reads one Argo CD.
+# Configuration needed from the customer:
+# - ARGOCD_URL
+# - ARGOCD_AUTH_TOKEN stored in a Kubernetes/OpenShift Secret
+
+env:
+  ARGOCD_INSTANCE_NAME: "Customer Argo CD"
+  ARGOCD_URL: "https://argocd.apps.customer.example"
+
+  # Use only for lab clusters with self-signed certificates. Prefer trusted CA
+  # bundles in production.
+  ARGOCD_INSECURE: "false"
+
+  # Optional approved universal Helm chart baselines.
+  ARGOCD_BASELINE_DEV: "1.8.4"
+  ARGOCD_BASELINE_TST: "1.8.4"
+  ARGOCD_BASELINE_PREPROD: "1.8.4"
+  ARGOCD_BASELINE_PRD: "1.8.4"
+
+extraEnvFrom:
+  - secretRef:
+      name: devops-portal-argocd
+
+secretExample:
+  apiVersion: v1
+  kind: Secret
+  metadata:
+    name: devops-portal-argocd
+  type: Opaque
+  stringData:
+    # Recommended: dedicated Argo CD service account token.
+    # Read-only is enough for the dashboard.
+    ARGOCD_AUTH_TOKEN: "paste-token-here"
+
+route:
+  enabled: true
+  host: devops-portal.apps.customer.example
+
+argocdRbac:
+  # Recommended least-privilege Argo CD RBAC for dashboard mode.
+  # Add sync/update permissions later only if write actions are implemented
+  # behind approval controls.
+  policyCsv: |
+    p, role:portal-read, applications, get, */*, allow
+    p, role:portal-read, projects, get, *, allow
+    p, role:portal-read, repositories, get, *, allow
+    p, role:portal-read, clusters, get, *, allow
+    g, portal-dashboard, role:portal-read

@@ -1,0 +1,17 @@
+image:
+  repository: registry.example.local/payments/payment-api
+  tag: "8.0.5-rc.1"
+replicaCount: 2
+resources:
+  requests:
+    cpu: "250m"
+    memory: "256Mi"
+  limits:
+    cpu: "750m"
+    memory: "768Mi"
+env:
+  LOG_LEVEL: info
+route:
+  host: payment-api-preprod.apps.example.local
+featureFlags:
+  newCheckout: true

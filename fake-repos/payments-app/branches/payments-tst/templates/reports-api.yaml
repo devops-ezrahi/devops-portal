@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reports-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reports-api
+  template:
+    metadata:
+      labels:
+        app: reports-api
+    spec:
+      serviceAccountName: reports-api
+      containers:
+        - name: reports-api
+          image: registry.example.local/payments/reports-api:2.3.0-dev.4
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reports-api
+spec:
+  selector:
+    app: reports-api
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: reports-api
+spec:
+  host: reports-api-tst.apps.example.local

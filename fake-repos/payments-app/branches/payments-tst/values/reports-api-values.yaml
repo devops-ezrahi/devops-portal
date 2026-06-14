@@ -1,0 +1,17 @@
+image:
+  repository: registry.example.local/payments/reports-api
+  tag: "2.3.0-dev.4"
+replicaCount: 1
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "400m"
+    memory: "384Mi"
+env:
+  REPORT_CACHE: "false"
+route:
+  host: reports-api-tst.apps.example.local
+featureFlags:
+  csvExport: true

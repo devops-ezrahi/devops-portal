@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: payment-worker
+  template:
+    metadata:
+      labels:
+        app: payment-worker
+    spec:
+      serviceAccountName: payment-worker
+      containers:
+        - name: payment-worker
+          image: registry.example.local/payments/payment-worker:8.0.5-rc.1
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: payment-worker
+data:
+  queue: payments-preprod

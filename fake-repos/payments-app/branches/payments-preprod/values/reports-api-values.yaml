@@ -1,0 +1,17 @@
+image:
+  repository: registry.example.local/payments/reports-api
+  tag: "2.3.0-rc.1"
+replicaCount: 2
+resources:
+  requests:
+    cpu: "200m"
+    memory: "256Mi"
+  limits:
+    cpu: "600m"
+    memory: "512Mi"
+env:
+  REPORT_CACHE: "true"
+route:
+  host: reports-preprod-new.apps.example.local
+featureFlags:
+  csvExport: true

@@ -1,0 +1,17 @@
+image:
+  repository: registry.example.local/payments/payment-api
+  tag: "8.0.5-3"
+replicaCount: 3
+resources:
+  requests:
+    cpu: "500m"
+    memory: "512Mi"
+  limits:
+    cpu: "1"
+    memory: "1Gi"
+env:
+  LOG_LEVEL: warn
+route:
+  host: payment-api.apps.example.local
+featureFlags:
+  newCheckout: true

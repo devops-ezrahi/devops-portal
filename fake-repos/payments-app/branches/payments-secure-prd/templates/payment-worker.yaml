@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-worker
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: payment-worker
+  template:
+    metadata:
+      labels:
+        app: payment-worker
+    spec:
+      serviceAccountName: payment-worker-restricted
+      securityContext:
+        runAsNonRoot: true
+      volumes:
+        - name: scratch
+          emptyDir: {}
+      containers:
+        - name: payment-worker
+          image: registry.example.local/payments/payment-worker:8.0.5-3
+          securityContext:
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: scratch
+              mountPath: /tmp
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: payment-worker
+data:
+  queue: payments-secure-prd
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: payment-worker-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: payment-worker
+  policyTypes:
+    - Egress

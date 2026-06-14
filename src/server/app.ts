@@ -1,8 +1,10 @@
 import cors from "cors";
 import express from "express";
 import { z } from "zod";
+import { listArgoCdProjects } from "./argocd";
 import { isAdmin, requireSession } from "./auth";
 import { config } from "./config";
+import { getBranchDiffDashboard } from "./gitRepoDiff";
 import { RealArtifactoryApi } from "./modules/artifactory/RealArtifactoryApi";
 import { createArtifactoryRouter } from "./modules/artifactory/router";
 import { createRagflowRouter } from "./modules/ragflow/router";
@@ -22,6 +24,7 @@ export function createApp(
   } else {
     console.log("[chat] not configured (set CHAT_API_URL + CHAT_API_KEY)");
   }
+
   const app = express();
 
   app.use(cors());
@@ -43,6 +46,23 @@ export function createApp(
     res.json({ user: req.user, isAdmin: isAdmin(req.user!) });
   });
 
+  app.get("/api/argocd/projects", async (req, res, next) => {
+    try {
+      const dashboard = await listArgoCdProjects(req);
+      res.json(dashboard);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/git-repo-diff", (_req, res, next) => {
+    try {
+      res.json(getBranchDiffDashboard());
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.use(createTicketingRouter(ticketingApi));
   app.use(createArtifactoryRouter(artifactoryApi));
   app.use(createRagflowRouter());
@@ -62,6 +82,10 @@ export function createApp(
     }
     if (error instanceof Error && error.message === "Job not found") {
       res.status(404).json({ error: error.message });
+      return;
+    }
+    if (error instanceof Error && error.message.includes("Argo CD")) {
+      res.status(502).json({ error: error.message });
       return;
     }
     console.error("[server] Unexpected error:", error);
