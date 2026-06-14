@@ -1,6 +1,12 @@
 import request from "supertest";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "./app";
+import { InMemoryTicketingApi } from "./modules/ticketing/InMemoryTicketingApi";
+import { seedTickets } from "./modules/ticketing/__tests__/seedTickets";
+
+function ticketingApp() {
+  return createApp(new InMemoryTicketingApi(seedTickets()));
+}
 
 function authed() {
   return request(createApp())
@@ -30,7 +36,7 @@ describe("portal API", () => {
   });
 
   it("lists own and team-visible tickets", async () => {
-    const app = createApp();
+    const app = ticketingApp();
 
     const mine = await request(app)
       .get("/api/tickets?scope=mine")
@@ -48,7 +54,7 @@ describe("portal API", () => {
   });
 
   it("denies unauthorized ticket detail access", async () => {
-    await request(createApp())
+    await request(ticketingApp())
       .get("/api/tickets/DEVOPS-1003")
       .set("x-user-id", "u-alex")
       .set("x-user-groups", "team-alpha")
@@ -89,7 +95,7 @@ describe("portal API", () => {
   });
 
   it("adds comments to visible tickets", async () => {
-    const app = createApp();
+    const app = ticketingApp();
     const response = await request(app)
       .post("/api/tickets/DEVOPS-1001/comments")
       .set("x-user-id", "u-alex")
@@ -149,7 +155,7 @@ describe("portal API", () => {
   });
 
   it("lets admins list, update, and respond to any ticket", async () => {
-    const app = createApp();
+    const app = ticketingApp();
 
     const list = await request(app)
       .get("/api/admin/tickets")

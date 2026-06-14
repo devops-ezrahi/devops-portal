@@ -13,21 +13,6 @@ export function createRagflowRouter(): express.Router {
 
   router.post("/api/ragflow/chat", async (req, res, next) => {
     try {
-      if (config.chatMock) {
-        chatSchema.parse(req.body); // still validate input
-        res.setHeader("Content-Type", "text/event-stream");
-        res.setHeader("Cache-Control", "no-cache");
-        res.setHeader("Connection", "keep-alive");
-        const words = "This is a mock response from the AI assistant. Streaming is working correctly — each word arrives one at a time, just like a real model would send it. Replace CHAT_MOCK=true with your chat API credentials when you're ready to go live.".split(" ");
-        for (const word of words) {
-          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: word + " " } }] })}\n\n`);
-          await new Promise((r) => setTimeout(r, 55));
-        }
-        res.write("data: [DONE]\n\n");
-        res.end();
-        return;
-      }
-
       if (!config.chat.enabled) {
         res.status(503).json({ error: "Chat is not configured" });
         return;

@@ -1,25 +1,29 @@
 import cors from "cors";
 import express from "express";
 import { z } from "zod";
-import { listArgoCdProjects } from "./argocd";
 import { isAdmin, requireSession } from "./auth";
 import { config } from "./config";
-import { getBranchDiffDashboard } from "./gitRepoDiff";
+import { createArgoCdRouter } from "./modules/argocd/router";
 import { RealArtifactoryApi } from "./modules/artifactory/RealArtifactoryApi";
 import { createArtifactoryRouter } from "./modules/artifactory/router";
+import { createBranchDiffRouter } from "./modules/branchdiff/router";
 import { createRagflowRouter } from "./modules/ragflow/router";
 import { InMemoryTicketingApi } from "./modules/ticketing/InMemoryTicketingApi";
+import { JiraTicketingApi } from "./modules/ticketing/JiraTicketingApi";
 import { createTicketingRouter } from "./modules/ticketing/router";
 import type { ArtifactoryApi, TicketingApi } from "./types";
 
 export function createApp(
-  ticketingApi: TicketingApi = new InMemoryTicketingApi(),
+  ticketingApi: TicketingApi = config.jira.enabled ? new JiraTicketingApi(config.jira) : new InMemoryTicketingApi(),
   artifactoryApi: ArtifactoryApi = new RealArtifactoryApi()
 ) {
   console.log(`[artifactory] Using jf CLI — url: ${config.artifactory.url || "(not set)"}, repo: ${config.artifactory.repo || "(not set)"}`);
-  if (config.chatMock) {
-    console.log("[chat] mock mode (CHAT_MOCK=true)");
-  } else if (config.chat.enabled) {
+  if (config.jira.enabled) {
+    console.log(`[ticketing] Jira backend — url: ${config.jira.baseUrl}, project: ${config.jira.projectKey}`);
+  } else {
+    console.log("[ticketing] in-memory fallback (set JIRA_URL + JIRA_TOKEN + JIRA_PROJECT_KEY for Jira)");
+  }
+  if (config.chat.enabled) {
     console.log(`[chat] url: ${config.chat.apiUrl}, model: ${config.chat.model}`);
   } else {
     console.log("[chat] not configured (set CHAT_API_URL + CHAT_API_KEY)");
@@ -36,7 +40,7 @@ export function createApp(
       ssoRequired: config.ssoRequired,
       ssoUrl: config.ssoUrl,
       artifactoryEnabled: config.artifactory.enabled,
-      chatEnabled: config.chatMock || config.chat.enabled,
+      chatEnabled: config.chat.enabled,
     });
   });
 
@@ -46,26 +50,11 @@ export function createApp(
     res.json({ user: req.user, isAdmin: isAdmin(req.user!) });
   });
 
-  app.get("/api/argocd/projects", async (req, res, next) => {
-    try {
-      const dashboard = await listArgoCdProjects(req);
-      res.json(dashboard);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/git-repo-diff", (_req, res, next) => {
-    try {
-      res.json(getBranchDiffDashboard());
-    } catch (error) {
-      next(error);
-    }
-  });
-
   app.use(createTicketingRouter(ticketingApi));
   app.use(createArtifactoryRouter(artifactoryApi));
   app.use(createRagflowRouter());
+  app.use(createArgoCdRouter());
+  app.use(createBranchDiffRouter());
 
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (error instanceof z.ZodError) {
