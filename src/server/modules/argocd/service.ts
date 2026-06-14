@@ -5,7 +5,7 @@ import type {
   ArgoCdDashboardTotals,
   ArgoCdProjectSummary,
   ArgoCdPromotionGroup
-} from "./types";
+} from "../../types";
 
 type ArgoCdProject = {
   metadata?: {

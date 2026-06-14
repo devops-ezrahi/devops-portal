@@ -9,8 +9,11 @@ const artifactoryToken = requireEnv("ARTIFACTORY_TOKEN");
 const chatApiUrl = requireEnv("CHAT_API_URL");
 const chatApiKey = requireEnv("CHAT_API_KEY");
 
+const jiraUrl = requireEnv("JIRA_URL");
+const jiraToken = requireEnv("JIRA_TOKEN");
+const jiraProjectKey = requireEnv("JIRA_PROJECT_KEY");
+
 export const config = {
-  chatMock: process.env.CHAT_MOCK === "true",
   ssoRequired: process.env.SSO_REQUIRED === "true",
   ssoUrl: requireEnv("SSO_URL") ?? "",
   adminGroups: (requireEnv("ADMIN_GROUP") ?? "portal-admins")
@@ -26,6 +29,12 @@ export const config = {
     repo: artifactoryRepo ?? "",
     token: artifactoryToken ?? "",
     enabled: !!(artifactoryUrl && artifactoryRepo && artifactoryToken),
+  },
+  jira: {
+    baseUrl: jiraUrl ?? "",
+    token: jiraToken ?? "",
+    projectKey: jiraProjectKey ?? "",
+    enabled: !!(jiraUrl && jiraToken && jiraProjectKey),
   },
   chat: {
     apiUrl: chatApiUrl ?? "",

@@ -7,7 +7,7 @@ import type {
   BranchDiffMicroservice,
   BranchDiffRisk,
   BranchMicroserviceSnapshot
-} from "./types";
+} from "../../types";
 
 const appName = "payments-app";
 const branches = ["payments-tst", "payments-preprod", "payments-prd", "payments-secure-prd"];
