@@ -62,11 +62,20 @@ export function requireSession(req: Request, res: Response, next: NextFunction) 
     req.user = user;
   }
 
+  if (config.allowedGroups.length > 0) {
+    const userGroups = req.user!.groups;
+    const allowed = config.allowedGroups.some((g) => userGroups.includes(g));
+    if (!allowed) {
+      res.status(403).json({ error: "Access denied: your group is not permitted to use this portal" });
+      return;
+    }
+  }
+
   next();
 }
 
 export function isAdmin(user: PortalUser) {
-  return user.groups.includes(config.adminGroup);
+  return config.adminGroups.some((g) => user.groups.includes(g));
 }
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {

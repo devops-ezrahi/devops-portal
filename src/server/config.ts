@@ -13,7 +13,14 @@ export const config = {
   chatMock: process.env.CHAT_MOCK === "true",
   ssoRequired: process.env.SSO_REQUIRED === "true",
   ssoUrl: requireEnv("SSO_URL") ?? "",
-  adminGroup: requireEnv("ADMIN_GROUP") ?? "portal-admins",
+  adminGroups: (requireEnv("ADMIN_GROUP") ?? "portal-admins")
+    .split("|")
+    .map((g) => g.trim())
+    .filter(Boolean),
+  allowedGroups: (requireEnv("ALLOWED_GROUPS") ?? "")
+    .split("|")
+    .map((g) => g.trim())
+    .filter(Boolean),
   artifactory: {
     url: artifactoryUrl ?? "",
     repo: artifactoryRepo ?? "",
