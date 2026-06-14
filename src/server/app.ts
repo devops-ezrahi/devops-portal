@@ -73,7 +73,7 @@ export function createApp(
       res.status(404).json({ error: error.message });
       return;
     }
-    if (error instanceof Error && error.message.includes("Argo CD")) {
+    if (error instanceof Error && (error.message.includes("Argo CD") || error.message.includes("Jira request failed"))) {
       res.status(502).json({ error: error.message });
       return;
     }
