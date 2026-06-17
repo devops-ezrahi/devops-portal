@@ -37,14 +37,13 @@ export function createApp(
   // Public config — no secrets, no auth required
   app.get("/api/config", (_req, res) => {
     res.json({
-      ssoRequired: config.ssoRequired,
       ssoUrl: config.ssoUrl,
       artifactoryEnabled: config.artifactory.enabled,
       chatEnabled: config.chat.enabled,
     });
   });
 
-  app.use(requireSession);
+  app.use("/api", requireSession);
 
   app.get("/api/me", (req, res) => {
     res.json({ user: req.user, isAdmin: isAdmin(req.user!) });

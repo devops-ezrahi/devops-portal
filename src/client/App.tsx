@@ -1,13 +1,13 @@
 import { RefreshCcw } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
-  getDemoUserRole,
   getMe,
-  getPortalConfig,
-  setDemoUserRole,
+  ForbiddenError,
   UnauthenticatedError,
 } from "./api";
-import type { DemoUserRole, PortalConfig } from "./api";
+import { AccessDeniedScreen } from "./AccessDeniedScreen";
+import { ErrorScreen } from "./ErrorScreen";
+import { LoginScreen } from "./LoginScreen";
 import { argoCdModule } from "./modules/argocd";
 import { artifactoryModule } from "./modules/artifactory";
 import { branchDiffModule } from "./modules/branchdiff";
@@ -30,11 +30,13 @@ function moduleFromPath(pathname: string): string {
 export function App() {
   const [user, setUser] = useState<PortalUser | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [demoRole, setDemoRole] = useState<DemoUserRole>(() => getDemoUserRole());
-  const [portalConfig, setPortalConfig] = useState<PortalConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [unauthenticated, setUnauthenticated] = useState<{ ssoUrl: string } | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [forbidden, setForbidden] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
+  const [unauthenticated, setUnauthenticated] = useState(false);
+  const [ssoUrl, setSsoUrl] = useState("");
   const [activeModuleId, setActiveModuleId] = useState(() => moduleFromPath(window.location.pathname));
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -53,14 +55,12 @@ export function App() {
   }
 
   useEffect(() => {
-    getPortalConfig().then(setPortalConfig).catch(() => null);
-  }, []);
-
-  useEffect(() => {
     let mounted = true;
     setLoading(true);
     setError(null);
-    setUnauthenticated(null);
+    setLoadError(null);
+    setForbidden(false);
+    setUnauthenticated(false);
     getMe()
       .then(({ user: me, isAdmin: admin }) => {
         if (!mounted) return;
@@ -71,40 +71,32 @@ export function App() {
       .catch((err: Error) => {
         if (!mounted) return;
         if (err instanceof UnauthenticatedError) {
-          setUnauthenticated({ ssoUrl: err.ssoUrl });
+          setUnauthenticated(true);
+          setSsoUrl(err.ssoUrl);
+        } else if (err instanceof ForbiddenError) {
+          setForbidden(true);
         } else {
-          setError(err.message);
+          setLoadError(err.message);
         }
         setLoading(false);
       });
     return () => {
       mounted = false;
     };
-  }, [demoRole]);
-
-  function changeDemoRole(role: DemoUserRole) {
-    setDemoUserRole(role);
-    setDemoRole(role);
-  }
+  }, [retryKey]);
 
   const activeModule = modules.find((m) => m.id === activeModuleId) ?? modules[0];
-  const showDemoSwitcher = !portalConfig?.ssoRequired;
+
+  if (forbidden) {
+    return <AccessDeniedScreen />;
+  }
+
+  if (loadError) {
+    return <ErrorScreen message={loadError} onRetry={() => setRetryKey((k) => k + 1)} />;
+  }
 
   if (unauthenticated) {
-    return (
-      <div className="app-shell">
-        <div className="loading-state" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "1rem", justifyContent: "center", height: "100vh" }}>
-          <p>You must be signed in to use this portal.</p>
-          {unauthenticated.ssoUrl ? (
-            <a href={unauthenticated.ssoUrl} className="primary" style={{ padding: "0.5rem 1.5rem", borderRadius: "6px", textDecoration: "none" }}>
-              Sign in with SSO
-            </a>
-          ) : (
-            <p style={{ opacity: 0.6 }}>Contact your administrator for access.</p>
-          )}
-        </div>
-      </div>
-    );
+    return <LoginScreen ssoUrl={ssoUrl} />;
   }
 
   return (
@@ -132,25 +124,6 @@ export function App() {
           <div className="user-box">
             <span>{user?.displayName ?? "Signed in user"}</span>
           </div>
-
-          {showDemoSwitcher && (
-            <div className="demo-switch" aria-label="Demo user switcher">
-              <div className="role-toggle">
-                <button
-                  className={demoRole === "regular" ? "active" : ""}
-                  onClick={() => changeDemoRole("regular")}
-                >
-                  Regular
-                </button>
-                <button
-                  className={demoRole === "admin" ? "active" : ""}
-                  onClick={() => changeDemoRole("admin")}
-                >
-                  Admin
-                </button>
-              </div>
-            </div>
-          )}
 
           <button className="ghost-button" onClick={() => setRefreshKey((k) => k + 1)}>
             <RefreshCcw size={17} aria-hidden="true" /> Refresh
