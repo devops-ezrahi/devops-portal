@@ -2,21 +2,20 @@ import { RefreshCcw } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   getMe,
+  setDevRole,
   ForbiddenError,
   UnauthenticatedError,
 } from "./api";
 import { AccessDeniedScreen } from "./AccessDeniedScreen";
 import { ErrorScreen } from "./ErrorScreen";
 import { LoginScreen } from "./LoginScreen";
-import { argoCdModule } from "./modules/argocd";
 import { artifactoryModule } from "./modules/artifactory";
-import { branchDiffModule } from "./modules/branchdiff";
 import { ragflowModule } from "./modules/ragflow";
 import { ticketingModule } from "./modules/ticketing";
 import type { PortalModule } from "./moduleTypes";
 import type { PortalUser } from "../server/types";
 
-const modules: PortalModule[] = [ticketingModule, artifactoryModule, ragflowModule, argoCdModule, branchDiffModule];
+const modules: PortalModule[] = [ticketingModule, artifactoryModule, ragflowModule];
 
 function slugFor(mod: PortalModule) {
   return mod.userNav.label.toLowerCase();
@@ -101,6 +100,27 @@ export function App() {
 
   return (
     <div className="app-shell">
+      {user?.id === "dev" && (
+        <div className="dev-banner" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
+          <span>
+            Dev mode — SSO is off.{" "}
+            <a href="http://localhost:4180" className="dev-banner-link">
+              Open localhost:4180
+            </a>{" "}
+            to log in as a real user.
+          </span>
+          <div className="role-toggle">
+            <button
+              className={!isAdmin ? "active" : ""}
+              onClick={() => setDevRole("user").then(() => setRetryKey((k) => k + 1))}
+            >User</button>
+            <button
+              className={isAdmin ? "active" : ""}
+              onClick={() => setDevRole("admin").then(() => setRetryKey((k) => k + 1))}
+            >Admin</button>
+          </div>
+        </div>
+      )}
       <header className="app-header">
         <div className="brand">DevOps</div>
 
