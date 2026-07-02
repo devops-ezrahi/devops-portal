@@ -1,12 +1,10 @@
 import cors from "cors";
 import express from "express";
 import { z } from "zod";
-import { isAdmin, requireSession } from "./auth";
+import { isAdmin, requireSession, setDevRole } from "./auth";
 import { config } from "./config";
-import { createArgoCdRouter } from "./modules/argocd/router";
 import { RealArtifactoryApi } from "./modules/artifactory/RealArtifactoryApi";
 import { createArtifactoryRouter } from "./modules/artifactory/router";
-import { createBranchDiffRouter } from "./modules/branchdiff/router";
 import { createRagflowRouter } from "./modules/ragflow/router";
 import { InMemoryTicketingApi } from "./modules/ticketing/InMemoryTicketingApi";
 import { JiraTicketingApi } from "./modules/ticketing/JiraTicketingApi";
@@ -49,11 +47,17 @@ export function createApp(
     res.json({ user: req.user, isAdmin: isAdmin(req.user!) });
   });
 
+  app.post("/api/dev/role", (req, res) => {
+    if (config.ssoRequired) { res.status(403).json({ error: "Not available in SSO mode" }); return; }
+    const { role } = req.body as { role?: string };
+    if (role !== "user" && role !== "admin") { res.status(400).json({ error: "role must be 'user' or 'admin'" }); return; }
+    setDevRole(role);
+    res.json({ ok: true, role });
+  });
+
   app.use(createTicketingRouter(ticketingApi));
   app.use(createArtifactoryRouter(artifactoryApi));
   app.use(createRagflowRouter());
-  app.use(createArgoCdRouter());
-  app.use(createBranchDiffRouter());
 
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (error instanceof z.ZodError) {
@@ -72,7 +76,7 @@ export function createApp(
       res.status(404).json({ error: error.message });
       return;
     }
-    if (error instanceof Error && (error.message.includes("Argo CD") || error.message.includes("Jira request failed"))) {
+    if (error instanceof Error && error.message.includes("Jira request failed")) {
       res.status(502).json({ error: error.message });
       return;
     }
