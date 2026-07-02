@@ -129,3 +129,28 @@ Run `npm run build` before pushing to catch type errors.
 ## Deployment
 
 The app expects to run in a container behind an SSO proxy. `Dockerfile` builds from `dist/`. `Jenkinsfile` defines the CI pipeline. In k8s, env vars come from a ConfigMap/Secret mounted as pod env vars — no `.env` file is used in production.
+
+### Local k3s deploy (always do this after code changes)
+
+```bash
+bash scripts/deploy-k3s.sh
+```
+
+This script:
+1. Runs `npm run build`
+2. Builds the Docker image (`Dockerfile.update` if base image exists, `Dockerfile` otherwise)
+3. Tags and pushes the image to the local registry (`registry.localhost:5000/devops-portal:latest`), which is what `deployment.yaml` pulls
+4. Re-applies the manifests in `k3s-homelab/manifests/`
+5. Rolls out the deployment and waits for it to be ready
+
+The portal is then live at **http://localhost:4180** (oauth2-proxy → portal).
+
+## Finishing a task
+
+Always run every command needed to fully complete the task — don't stop at code changes and tell the user to do the rest. Concretely:
+
+- After editing k8s manifests in `k3s-homelab/`: `kubectl apply -f <file>` and wait for rollout (`kubectl rollout status …`).
+- After changing server code: the dev server (`tsx watch`) reloads automatically — verify with the Playwright driver or a quick `node -e "fetch(…)"` probe.
+- After changing client code: Vite HMR reloads automatically — take a screenshot with the driver to confirm the UI looks right.
+- After changing `config.ts` or env vars: restart the dev server (`pkill -f "tsx watch"` then `npm run dev`) to pick up the new values.
+- Run `npm run build` before any push to catch type errors.
