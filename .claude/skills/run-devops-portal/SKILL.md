@@ -38,7 +38,7 @@ node .claude/skills/run-devops-portal/driver.mjs [base-url] [screenshot-dir]
 ```
 
 The driver:
-1. Navigates to every module nav button (Tickets, Artifactory, Chat, Argo CD, Branch Diff)
+1. Navigates to every module nav button (Tickets, Artifactory, Chat)
 2. Opens the "New" ticket modal, fills Name + Description, submits
 3. Switches to Admin role and captures the queue view
 4. Saves numbered PNGs to `screenshot-dir` and exits 0
@@ -64,7 +64,7 @@ npm run dev
 ## Test
 
 ```bash
-npm test       # vitest run — 15 unit/integration tests, ~2 s
+npm test       # vitest run — unit/integration tests, ~2 s
 npm run build  # tsc --noEmit + vite build — catches type errors
 ```
 
@@ -78,8 +78,6 @@ npm run build  # tsc --noEmit + vite build — catches type errors
 
 - **Submit button has no `type="submit"`.** It's `<button class="primary">Submit</button>`. Use `page.locator('button.primary', { hasText: /submit/i })`.
 
-- **Argo CD always 502 in dev.** The module calls `https://127.0.0.1:8081/api/v1/projects` (configured via `ARGOCD_URL`). Without a real Argo CD instance, the server returns 502 and the UI shows an error banner — this is expected behaviour, not a bug.
-
 - **Tickets state is in-memory.** Each `npm run dev` restart clears all tickets. The seed ticket "DEVOPS-1001" comes from `InMemoryTicketingApi`.
 
 - **`curl` is not available** in this environment. Use `node` + Playwright, or `fetch` via Node 20+ (`node -e "fetch(...).then(r => r.json()).then(console.log)"`), to probe the API.
@@ -92,4 +90,3 @@ npm run build  # tsc --noEmit + vite build — catches type errors
 | `Cannot find module 'playwright-core'` | Run `npm install` from the project root |
 | `Nav failed to render` | Dev server not ready — wait another 2–3 s and retry |
 | Port 5173 refused | Vite chose 5174; check log and pass the correct URL to the driver |
-| Argo CD 502 in browser console | Expected — no Argo CD server configured locally |
