@@ -26,8 +26,6 @@ src/
       ticketing/      # router.ts + JiraTicketingApi.ts + InMemoryTicketingApi.ts + domain files
       artifactory/    # router.ts + RealArtifactoryApi.ts
       ragflow/        # router.ts (single real backend, reads config.chat)
-      argocd/         # router.ts + service.ts
-      branchdiff/     # router.ts + service.ts
   client/
     App.tsx           # thin shell: loads /api/me, renders nav, mounts active module View
     api.ts            # cross-cutting fetch helpers only (request, getMe, getPortalConfig, demo users)
@@ -46,7 +44,7 @@ Each feature is a self-contained module in two mirrored folders. **Conform new m
 **Server** — `src/server/modules/<name>/`:
 - `router.ts` exports `create<Name>Router(...)` and is mounted in `src/server/app.ts`.
 - The data layer lives **inside the module folder** — never add data files at `src/server/*.ts`.
-- **Inject the data API into the router only when more than one implementation exists.** Ticketing (`JiraTicketingApi` / `InMemoryTicketingApi`) and Artifactory (`RealArtifactoryApi`) take an injected API instance — this keeps them swappable and unit-testable. Single-backend modules (`argocd`, `branchdiff`, `ragflow`) keep their logic in a sibling `service.ts` (or inline in the router for `ragflow`) that the router imports directly; no DI ceremony.
+- **Inject the data API into the router only when more than one implementation exists.** Ticketing (`JiraTicketingApi` / `InMemoryTicketingApi`) and Artifactory (`RealArtifactoryApi`) take an injected API instance — this keeps them swappable and unit-testable. Single-backend modules (`ragflow`) keep their logic in a sibling `service.ts` (or inline in the router for `ragflow`) that the router imports directly; no DI ceremony.
 - `app.ts` selects the implementation by config, e.g. `config.jira.enabled ? new JiraTicketingApi(config.jira) : new InMemoryTicketingApi()`.
 
 **Client** — `src/client/modules/<name>/`:
@@ -60,13 +58,12 @@ The shell passes `refreshKey` as a prop; modules use it as a React `key` to remo
 
 Shipped code must use real data sources only — no seed/demo data baked into modules. Test fixtures belong under `__tests__/` (e.g. `modules/ticketing/__tests__/seedTickets.ts`) and are injected into the in-memory API by tests, never loaded by default.
 
-Two **intentional, temporary** exceptions remain for local dev/demo and are slated for replacement:
+One **intentional, temporary** exception remains for local dev/demo and is slated for replacement:
 - `src/client/api.ts` `demoUsers` + role switcher, and the dev fallback user in `auth.ts` — let the app run locally without an SSO proxy in front.
-- `branchdiff` reads fake YAML from `fake-repos/` instead of a real git checkout.
 
 ## Config & environment
 
-Startup config is read from environment variables **once** via `src/server/config.ts`. Never read `process.env` directly in feature code — always go through the frozen `config` object. The one documented exception is `argocd`: it forwards the caller's auth per request and is configured at request time, so it centralizes its env reads in a single `configuredArgoCd()` function inside `modules/argocd/service.ts` (this also lets tests mutate `ARGOCD_*` at runtime).
+Startup config is read from environment variables **once** via `src/server/config.ts`. Never read `process.env` directly in feature code — always go through the frozen `config` object.
 
 Key variables (see `.env.example`):
 
