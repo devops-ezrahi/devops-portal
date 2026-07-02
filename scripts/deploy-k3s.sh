@@ -4,6 +4,8 @@ set -e
 PORTAL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 HOMELAB_DIR="/home/ido/Desktop/k3s-homelab"
 DOCKER="/snap/bin/docker"
+IMAGE_LOCAL="devops-portal:latest"
+IMAGE_REMOTE="registry.localhost:5000/devops-portal:latest"
 
 cd "$PORTAL_DIR"
 
@@ -26,14 +28,15 @@ npx esbuild src/server/index-prod.ts \
     --external:multer
 
 echo "==> Building Docker image..."
-if sudo "$DOCKER" image inspect devops-portal:latest &>/dev/null; then
-  sudo "$DOCKER" build -f Dockerfile.update -t devops-portal:latest .
+if sudo "$DOCKER" image inspect "$IMAGE_LOCAL" &>/dev/null; then
+  sudo "$DOCKER" build -f Dockerfile.update -t "$IMAGE_LOCAL" .
 else
-  sudo "$DOCKER" build -f Dockerfile -t devops-portal:latest .
+  sudo "$DOCKER" build -f Dockerfile -t "$IMAGE_LOCAL" .
 fi
 
-echo "==> Importing into k3s..."
-sudo "$DOCKER" save devops-portal:latest | sudo k3s ctr images import -
+echo "==> Pushing to local registry..."
+sudo "$DOCKER" tag "$IMAGE_LOCAL" "$IMAGE_REMOTE"
+sudo "$DOCKER" push "$IMAGE_REMOTE"
 
 echo "==> Applying manifests..."
 kubectl apply -f "$HOMELAB_DIR/manifests/devops-portal/"
