@@ -1,0 +1,35 @@
+name: Build and Deploy
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["chart/**"]
+
+jobs:
+  build-and-deploy:
+    runs-on: docker
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Vars
+        id: vars
+        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: docker build -t localhost:5000/devops-portal:${{ steps.vars.outputs.sha }} .
+
+      - name: Push
+        run: docker push localhost:5000/devops-portal:${{ steps.vars.outputs.sha }}
+
+      - name: Bump chart tag
+        run: sed -i 's/^  tag: .*/  tag: "${{ steps.vars.outputs.sha }}"/' chart/values.yaml
+
+      - name: Commit and push
+        run: |
+          git config user.name "gitea-actions"
+          git config user.email "actions@devops.local"
+          git add chart/values.yaml
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: deploy ${{ steps.vars.outputs.sha }}"
+          git push http://gitea_admin:${{ secrets.GIT_PUSH_TOKEN }}@gitea-http.gitea.svc.cluster.local:3000/gitea_admin/devops-portal.git HEAD:main

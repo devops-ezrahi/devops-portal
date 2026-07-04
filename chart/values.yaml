@@ -1,0 +1,21 @@
+# image.tag is bumped by .gitea/workflows/deploy.yaml on every push to main —
+# do not hand-edit it as part of an unrelated change, and never set an inline
+# `helm.values` override on the ArgoCD Application for this chart, or it will
+# permanently pin this value and silently swallow every CI deploy.
+image:
+  repository: localhost:5000/devops-portal
+  tag: latest
+  pullPolicy: IfNotPresent
+
+oauth2Proxy:
+  image: quay.io/oauth2-proxy/oauth2-proxy:v7.6.0
+
+config:
+  ADMIN_GROUP: "devops-admins"
+  ALLOWED_GROUPS: "devops-admins|devops-platform"
+  SSO_REQUIRED: "true"
+  SSO_URL: "http://localhost:4180/oauth2/sign_in"
+  KEYCLOAK_URL: "http://keycloak.keycloak.svc.cluster.local"
+  KEYCLOAK_REALM: "devops"
+  KEYCLOAK_ADMIN_USER: "admin"
+  KEYCLOAK_ADMIN_PASS: "admin"

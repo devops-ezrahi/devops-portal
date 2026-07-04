@@ -14,6 +14,12 @@ function readHeader(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+let devRole: "user" | "admin" = "user";
+
+export function setDevRole(role: "user" | "admin") {
+  devRole = role;
+}
+
 export function userFromSsoHeaders(req: Request): PortalUser | null {
   // Prefer headers injected by an SSO proxy (oauth2-proxy, Keycloak, etc.)
   const id = readHeader(req.headers["x-forwarded-user"]) ?? readHeader(req.headers["x-user-id"]);
@@ -53,10 +59,10 @@ export function requireSession(req: Request, res: Response, next: NextFunction) 
     }
     // Dev fallback: synthesize a user so the app works without an SSO proxy
     req.user = {
-      id: "u-alex",
-      email: "alex@example.com",
-      displayName: "Alex Morgan",
-      groups: ["team-alpha"],
+      id: "dev",
+      email: "dev@example.com",
+      displayName: "Dev User",
+      groups: devRole === "admin" ? [config.adminGroups[0]] : [],
     };
   } else {
     req.user = user;

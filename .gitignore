@@ -27,3 +27,6 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Local deployment export bundle (large image tars, generated on demand)
+/deploy-export/
+

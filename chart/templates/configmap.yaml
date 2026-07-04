@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: devops-portal-config
+  namespace: {{ .Release.Namespace }}
+data:
+  {{- toYaml .Values.config | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oauth2-proxy-templates
+  namespace: {{ .Release.Namespace }}
+data:
+  error.html: |
+    <!DOCTYPE html>
+    <html>
+    <head><meta http-equiv="refresh" content="0;url=/" /></head>
+    <body><script>window.location.replace('/');</script></body>
+    </html>

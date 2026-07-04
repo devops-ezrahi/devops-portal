@@ -1,4 +1,3 @@
-import { getDemoHeaders } from "../../api";
 import type { ChatMessage } from "../../../server/types";
 
 export async function* streamChat(messages: ChatMessage[]): AsyncGenerator<string> {
@@ -6,7 +5,6 @@ export async function* streamChat(messages: ChatMessage[]): AsyncGenerator<strin
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...getDemoHeaders(),
     },
     body: JSON.stringify({ messages }),
   });

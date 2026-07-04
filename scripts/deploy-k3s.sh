@@ -2,10 +2,9 @@
 set -e
 
 PORTAL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-HOMELAB_DIR="/home/ido/Desktop/k3s-homelab"
-DOCKER="/snap/bin/docker"
-IMAGE_LOCAL="devops-portal:latest"
-IMAGE_REMOTE="registry.localhost:5000/devops-portal:latest"
+DOCKER="${DOCKER:-docker}"
+TAG="dev-$(date +%s)"
+IMAGE="localhost:5000/devops-portal:${TAG}"
 
 cd "$PORTAL_DIR"
 
@@ -28,22 +27,18 @@ npx esbuild src/server/index-prod.ts \
     --external:multer
 
 echo "==> Building Docker image..."
-if sudo "$DOCKER" image inspect "$IMAGE_LOCAL" &>/dev/null; then
-  sudo "$DOCKER" build -f Dockerfile.update -t "$IMAGE_LOCAL" .
+if [ -f Dockerfile.update ] && "$DOCKER" image inspect "localhost:5000/devops-portal:latest" &>/dev/null; then
+  "$DOCKER" build -f Dockerfile.update -t "$IMAGE" .
 else
-  sudo "$DOCKER" build -f Dockerfile -t "$IMAGE_LOCAL" .
+  "$DOCKER" build -f Dockerfile -t "$IMAGE" .
 fi
 
-echo "==> Pushing to local registry..."
-sudo "$DOCKER" tag "$IMAGE_LOCAL" "$IMAGE_REMOTE"
-sudo "$DOCKER" push "$IMAGE_REMOTE"
+echo "==> Pushing image to the in-cluster registry..."
+"$DOCKER" push "$IMAGE"
 
-echo "==> Applying manifests..."
-kubectl apply -f "$HOMELAB_DIR/manifests/devops-portal/"
-kubectl apply -f "$HOMELAB_DIR/manifests/oauth2-proxy.yaml"
-
-echo "==> Restarting deployment..."
-kubectl rollout restart deployment/devops-portal -n devops-portal
+echo "==> Deploying via helm..."
+helm upgrade --install devops-portal ./chart -n devops-portal --create-namespace \
+  --set image.tag="$TAG"
 kubectl rollout status deployment/devops-portal -n devops-portal
 
 echo ""

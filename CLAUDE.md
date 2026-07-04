@@ -108,11 +108,12 @@ Commit messages: imperative mood, ≤72 chars on the subject line. Describe _why
 
 ## Pushing
 
-After committing, push the branch to origin so work is backed up and reviewable.
+After committing, push the branch to origin so work is backed up and reviewable. Also push to the `gitea` remote (the in-cluster Gitea instance) — pushes that land on Gitea's `main` are what actually trigger the CI/CD pipeline (see Deployment below). A Stop hook does this automatically after every turn; the manual commands below are for pushing by hand.
 
 ```bash
 git push -u origin <branch-name>   # first push on a new branch
 git push                           # subsequent pushes
+git push gitea <branch-name>:<branch-name>   # feed the Gitea Actions pipeline
 ```
 
 Run `npm run build` before pushing to catch type errors. Never force-push to `main`.
@@ -128,20 +129,28 @@ Run `npm run build` before pushing to catch type errors.
 
 ## Deployment
 
-The app expects to run in a container behind an SSO proxy. `Dockerfile` builds from `dist/`. `Jenkinsfile` defines the CI pipeline. In k8s, env vars come from a ConfigMap/Secret mounted as pod env vars — no `.env` file is used in production.
+The app runs in a container behind an SSO proxy. `Dockerfile` builds from `dist/`. The k8s Helm chart lives in `chart/` in this repo (not in `k3s-homelab`) — `chart/values.yaml` holds the image tag and portal config; Secrets are deliberately not part of the chart (see below). In k8s, env vars come from a ConfigMap/Secret mounted as pod env vars — no `.env` file is used in production.
 
-### Local k3s deploy (always do this after code changes)
+There are two deploy paths:
+
+### Real pipeline: Gitea Actions → in-cluster registry → ArgoCD
+
+Push to `main` on the `gitea` remote (see "Pushing" below) and `.gitea/workflows/deploy.yaml` takes it from there: builds the image, pushes it to the in-cluster registry as `localhost:5000/devops-portal:<git-sha>`, bumps `chart/values.yaml`'s `image.tag` and commits that back to `main`. ArgoCD (`k3s-homelab/argocd-apps/devops-portal.yaml`) watches this repo's `chart/` path and auto-syncs. No manual step required once the pipeline is deployed and the repo is pushed to Gitea.
+
+### Manual local deploy (fast path while iterating)
 
 ```bash
 bash scripts/deploy-k3s.sh
 ```
 
 This script:
-1. Runs `npm run build`
-2. Builds the Docker image (`Dockerfile.update` if base image exists, `Dockerfile` otherwise)
-3. Tags and pushes the image to the local registry (`registry.localhost:5000/devops-portal:latest`), which is what `deployment.yaml` pulls
-4. Re-applies the manifests in `k3s-homelab/manifests/`
-5. Rolls out the deployment and waits for it to be ready
+1. Syncs `.env` → the `devops-portal-secrets` k8s Secret (`sync-env-to-k3s.sh`)
+2. Runs `npm run build`
+3. Builds the Docker image and pushes it to the in-cluster registry (`localhost:5000/devops-portal:dev-<timestamp>`)
+4. `helm upgrade --install` against `./chart` with that tag
+5. Waits for the rollout to be ready
+
+Secrets (`devops-portal-secrets`, `oauth2-proxy-secrets`) are never in the chart — they're owned solely by `scripts/sync-env-to-k3s.sh`'s direct `kubectl apply`, so ArgoCD's `selfHeal` can never revert real values back to a Git-committed placeholder.
 
 The portal is then live at **http://localhost:4180** (oauth2-proxy → portal).
 
