@@ -2,8 +2,13 @@
 # do not hand-edit it as part of an unrelated change, and never set an inline
 # `helm.values` override on the ArgoCD Application for this chart, or it will
 # permanently pin this value and silently swallow every CI deploy.
+#
+# repository uses the registry's NodePort address (10.42.0.1:30500), not
+# localhost:5000 — the registry is NodePort, not hostPort (see
+# k3s-homelab/manifests/registry.yaml), and this exact host:port must match
+# the mirror key in /etc/rancher/k3s/registries.yaml on the node.
 image:
-  repository: localhost:5000/devops-portal
+  repository: 10.42.0.1:30500/devops-portal
   tag: latest
   pullPolicy: IfNotPresent
 
