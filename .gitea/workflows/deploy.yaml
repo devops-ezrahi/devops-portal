@@ -23,7 +23,8 @@ jobs:
         run: docker push localhost:5000/devops-portal:${{ steps.vars.outputs.sha }}
 
       - name: Bump chart tag
-        run: sed -i 's/^  tag: .*/  tag: "${{ steps.vars.outputs.sha }}"/' chart/values.yaml
+        run: |
+          sed -i 's/^  tag: .*/  tag: "${{ steps.vars.outputs.sha }}"/' chart/values.yaml
 
       - name: Commit and push
         run: |
