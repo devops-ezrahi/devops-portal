@@ -3,3 +3,4 @@
 # pipeline test run 5
 # pipeline test run 6
 # pipeline test run 7 - after disabling docker desktop wsl integration
+# pipeline test run 8 - retry after docker was confirmed healthy
