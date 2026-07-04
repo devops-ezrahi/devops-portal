@@ -13,7 +13,10 @@ sudo k3s ctr images import "$DIR/images/devops-portal.tar"
 echo "==> Importing oauth2-proxy image into k3s containerd..."
 sudo k3s ctr images import "$DIR/images/oauth2-proxy.tar"
 
-echo "==> Applying manifests (namespace, config, secrets, sidecar deployment, service)..."
+echo "==> Applying namespace + placeholder secrets..."
+kubectl apply -f "$DIR/manifests/namespace-and-secrets.yaml"
+
+echo "==> Applying chart manifests (config, sidecar deployment, service)..."
 kubectl apply -f "$DIR/manifests/devops-portal.yaml"
 
 echo "==> Rolling out..."

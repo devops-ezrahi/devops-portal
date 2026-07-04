@@ -3,8 +3,9 @@ set -e
 
 PORTAL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DOCKER="${DOCKER:-docker}"
+REGISTRY="${REGISTRY:-10.42.0.1:30500}"
 TAG="dev-$(date +%s)"
-IMAGE="localhost:5000/devops-portal:${TAG}"
+IMAGE="${REGISTRY}/devops-portal:${TAG}"
 
 cd "$PORTAL_DIR"
 
@@ -27,7 +28,7 @@ npx esbuild src/server/index-prod.ts \
     --external:multer
 
 echo "==> Building Docker image..."
-if [ -f Dockerfile.update ] && "$DOCKER" image inspect "localhost:5000/devops-portal:latest" &>/dev/null; then
+if [ -f Dockerfile.update ] && "$DOCKER" image inspect "${REGISTRY}/devops-portal:latest" &>/dev/null; then
   "$DOCKER" build -f Dockerfile.update -t "$IMAGE" .
 else
   "$DOCKER" build -f Dockerfile -t "$IMAGE" .

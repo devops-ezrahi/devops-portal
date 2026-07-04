@@ -135,7 +135,7 @@ There are two deploy paths:
 
 ### Real pipeline: Gitea Actions → in-cluster registry → ArgoCD
 
-Push to `main` on the `gitea` remote (see "Pushing" below) and `.gitea/workflows/deploy.yaml` takes it from there: builds the image, pushes it to the in-cluster registry as `localhost:5000/devops-portal:<git-sha>`, bumps `chart/values.yaml`'s `image.tag` and commits that back to `main`. ArgoCD (`k3s-homelab/argocd-apps/devops-portal.yaml`) watches this repo's `chart/` path and auto-syncs. No manual step required once the pipeline is deployed and the repo is pushed to Gitea.
+Push to `main` on the `gitea` remote (see "Pushing" below) and `.gitea/workflows/deploy.yaml` takes it from there: builds the image, pushes it to the in-cluster registry as `10.42.0.1:30500/devops-portal:<git-sha>`, bumps `chart/values.yaml`'s `image.tag` and commits that back to `main`. ArgoCD (`k3s-homelab/argocd-apps/devops-portal.yaml`) watches this repo's `chart/` path and auto-syncs. No manual step required once the pipeline is deployed and the repo is pushed to Gitea.
 
 ### Manual local deploy (fast path while iterating)
 
@@ -146,7 +146,7 @@ bash scripts/deploy-k3s.sh
 This script:
 1. Syncs `.env` → the `devops-portal-secrets` k8s Secret (`sync-env-to-k3s.sh`)
 2. Runs `npm run build`
-3. Builds the Docker image and pushes it to the in-cluster registry (`localhost:5000/devops-portal:dev-<timestamp>`)
+3. Builds the Docker image and pushes it to the in-cluster registry (`10.42.0.1:30500/devops-portal:dev-<timestamp>`)
 4. `helm upgrade --install` against `./chart` with that tag
 5. Waits for the rollout to be ready
 

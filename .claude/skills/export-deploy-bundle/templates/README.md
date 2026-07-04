@@ -9,22 +9,24 @@ is pre-built.
 
 ```
 images/
-  devops-portal.tar    # app image, built from this repo's Dockerfile
-  oauth2-proxy.tar      # sidecar image, version pinned in manifests/devops-portal.yaml
+  devops-portal.tar          # app image, built from this repo's Dockerfile
+  oauth2-proxy.tar            # sidecar image, version pinned in the chart
 manifests/
-  devops-portal.yaml    # namespace, configmap, secrets, sidecar deployment, service
-load-and-deploy.sh       # imports both images + applies manifests + rolls out
+  namespace-and-secrets.yaml  # namespace + empty-placeholder secrets (chart excludes both)
+  devops-portal.yaml          # configmap, sidecar deployment, service — rendered from chart/
+load-and-deploy.sh             # applies namespace+secrets, then the chart manifest, imports images, rolls out
 ```
 
 ## Before running
 
-`manifests/devops-portal.yaml` ships with **empty placeholders** for
-`OAUTH2_PROXY_CLIENT_SECRET` and `OAUTH2_PROXY_COOKIE_SECRET` (same as the
-source manifest in `k3s-homelab/`). The oauth2-proxy sidecar will fail to
-start without a valid cookie secret. Either:
+`manifests/namespace-and-secrets.yaml` ships with **empty placeholders** for
+`OAUTH2_PROXY_CLIENT_SECRET` and `OAUTH2_PROXY_COOKIE_SECRET` (the source
+chart in this repo deliberately excludes Secrets with real values — see
+CLAUDE.md). The oauth2-proxy sidecar will fail to start without a valid
+cookie secret. Either:
 
-- edit `manifests/devops-portal.yaml`'s `oauth2-proxy-secrets` Secret with
-  real values before running the script, or
+- edit `manifests/namespace-and-secrets.yaml`'s `oauth2-proxy-secrets` Secret
+  with real values before running the script, or
 - apply the bundle once, then `kubectl edit secret oauth2-proxy-secrets -n devops-portal`
   and restart the deployment.
 
