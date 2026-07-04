@@ -33,4 +33,4 @@ jobs:
           git add chart/values.yaml
           git diff --cached --quiet && exit 0
           git commit -m "chore: deploy ${{ steps.vars.outputs.sha }}"
-          git push http://gitea_admin:${{ secrets.GIT_PUSH_TOKEN }}@gitea-http.gitea.svc.cluster.local:3000/gitea_admin/devops-portal.git HEAD:main
+          git push http://gitea_admin:${{ secrets.GIT_PUSH_TOKEN }}@10.42.0.1:30300/gitea_admin/devops-portal.git HEAD:main
