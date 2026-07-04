@@ -9,7 +9,7 @@
 # the mirror key in /etc/rancher/k3s/registries.yaml on the node.
 image:
   repository: 10.42.0.1:30500/devops-portal
-  tag: latest
+  tag: "db4563e"
   pullPolicy: IfNotPresent
 
 oauth2Proxy:
