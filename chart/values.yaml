@@ -12,15 +12,21 @@ image:
   tag: "28758f9"
   pullPolicy: IfNotPresent
 
+# Public URL the browser uses to reach the portal (oauth2-proxy's entrypoint).
+# This is the single source for both the client-side SSO redirect
+# (config.SSO_URL, derived in templates/configmap.yaml) and oauth2-proxy's
+# --redirect-url (templates/deployment.yaml) — change only this value when
+# moving to a different network instead of editing both places.
+externalUrl: "http://localhost:4180"
+
 oauth2Proxy:
   image: quay.io/oauth2-proxy/oauth2-proxy:v7.6.0
+  # Keycloak realm issuer this cluster's oauth2-proxy authenticates against.
+  oidcIssuerUrl: "http://10.42.0.1:30084/realms/devops"
+  clientId: "devops-portal"
+  cookieSecure: "false"
 
 config:
   ADMIN_GROUP: "devops-admins"
   ALLOWED_GROUPS: "devops-admins|devops-platform"
   SSO_REQUIRED: "true"
-  SSO_URL: "http://localhost:4180/oauth2/sign_in"
-  KEYCLOAK_URL: "http://keycloak.keycloak.svc.cluster.local"
-  KEYCLOAK_REALM: "devops"
-  KEYCLOAK_ADMIN_USER: "admin"
-  KEYCLOAK_ADMIN_PASS: "admin"

@@ -5,6 +5,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
 data:
   {{- toYaml .Values.config | nindent 2 }}
+  SSO_URL: "{{ .Values.externalUrl }}/oauth2/sign_in"
 ---
 apiVersion: v1
 kind: ConfigMap

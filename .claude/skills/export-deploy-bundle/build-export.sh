@@ -50,7 +50,13 @@ rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR/images" "$OUT_DIR/manifests"
 
 echo "==> Rendering chart (registry-free: image.pullPolicy=Never, side-loaded tag)..."
+VALUES_ARGS=()
+if [ -n "${VALUES_FILE:-}" ]; then
+  echo "    overlaying $VALUES_FILE (externalUrl / oauth2Proxy / config for this target network)"
+  VALUES_ARGS=(-f "$VALUES_FILE")
+fi
 "$HELM" template devops-portal "$PORTAL_DIR/chart" -n devops-portal \
+  "${VALUES_ARGS[@]}" \
   --set image.repository=devops-portal \
   --set image.tag=latest \
   --set image.pullPolicy=Never \

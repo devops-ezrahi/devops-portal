@@ -32,10 +32,17 @@ cookie secret. Either:
 
 Generate a cookie secret with: `python3 -c 'import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())'`
 
-The Keycloak issuer URL baked into the manifest assumes the same homelab
-cluster topology described in `k3s-homelab/CLUSTER.md` — update
-`--oidc-issuer-url` / `--client-id` in the oauth2-proxy container args if
-testing against a different Keycloak instance.
+The OIDC issuer URL / client-id / public redirect URL baked into this
+manifest come from `chart/values.yaml` (`externalUrl`, `oauth2Proxy.*`) at
+render time — they default to this repo's homelab Keycloak. To target a
+different Keycloak instance, don't hand-edit this file: rebuild the bundle
+with an overlay instead (see `chart/values.closed-network.yaml.example` in
+the source repo):
+
+```bash
+VALUES_FILE=chart/values.closed-network.yaml \
+  bash .claude/skills/export-deploy-bundle/build-export.sh
+```
 
 ## Running
 

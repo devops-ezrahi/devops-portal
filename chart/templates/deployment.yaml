@@ -28,13 +28,13 @@ spec:
           image: {{ .Values.oauth2Proxy.image }}
           args:
             - --provider=keycloak-oidc
-            - --oidc-issuer-url=http://10.42.0.1:30084/realms/devops
-            - --client-id=devops-portal
+            - --oidc-issuer-url={{ .Values.oauth2Proxy.oidcIssuerUrl }}
+            - --client-id={{ .Values.oauth2Proxy.clientId }}
             - --upstream=http://localhost:8080
             - --http-address=0.0.0.0:4180
-            - --redirect-url=http://localhost:4180/oauth2/callback
+            - --redirect-url={{ .Values.externalUrl }}/oauth2/callback
             - --email-domain=*
-            - --cookie-secure=false
+            - --cookie-secure={{ .Values.oauth2Proxy.cookieSecure }}
             - --pass-user-headers=true
             - --oidc-groups-claim=groups
             - --scope=openid profile email groups

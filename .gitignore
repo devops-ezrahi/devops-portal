@@ -30,3 +30,7 @@ Thumbs.db
 # Local deployment export bundle (large image tars, generated on demand)
 /deploy-export/
 
+# Per-network values overlay for the export bundle (copy from
+# chart/values.closed-network.yaml.example) — network-specific, not shared
+/chart/values.closed-network.yaml
+

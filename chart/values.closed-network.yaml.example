@@ -1,0 +1,28 @@
+# Overlay for building the deploy-export bundle against a different network
+# than this repo's homelab (chart/values.yaml stays the homelab default —
+# don't edit it for a one-off closed-network target). Copy this file to
+# chart/values.closed-network.yaml (gitignored), fill in the real values for
+# your network, then build the bundle with:
+#
+#   VALUES_FILE=chart/values.closed-network.yaml \
+#     bash .claude/skills/export-deploy-bundle/build-export.sh
+#
+# Only image.* is forced back to devops-portal:latest/Never by build-export.sh
+# regardless of what's set here — no registry needed on the target machine.
+
+# Public URL the browser will use to reach the portal on this network.
+# Drives both config.SSO_URL and oauth2-proxy's --redirect-url.
+externalUrl: "http://localhost:4180"
+
+oauth2Proxy:
+  # This network's Keycloak realm issuer.
+  oidcIssuerUrl: "http://<keycloak-host>/realms/<realm>"
+  # Client ID registered in that realm for this portal.
+  clientId: "devops-portal"
+  # Set "true" once the portal is served over https on this network.
+  cookieSecure: "false"
+
+config:
+  ADMIN_GROUP: "devops-admins"
+  ALLOWED_GROUPS: ""
+  SSO_REQUIRED: "true"

@@ -29,7 +29,11 @@ This:
    image.tag=latest image.pullPolicy=Never` (registry-free, matching how the
    bundle is loaded on the target machine) and reads the oauth2-proxy image
    tag out of that rendered output (so it never drifts from whatever the
-   chart actually pins) before `docker pull`ing it.
+   chart actually pins) before `docker pull`ing it. Pass
+   `VALUES_FILE=chart/values.closed-network.yaml` to overlay a different
+   network's `externalUrl` / `oauth2Proxy.oidcIssuerUrl` / `oauth2Proxy.clientId`
+   (see `chart/values.closed-network.yaml.example`) without touching
+   `chart/values.yaml`, which stays the homelab pipeline's default.
 5. Wipes and rewrites `deploy-export/` with both images as tars
    (`docker save`), the rendered manifest, and the `load-and-deploy.sh` /
    `README.md` templates from `templates/` in this skill folder.
