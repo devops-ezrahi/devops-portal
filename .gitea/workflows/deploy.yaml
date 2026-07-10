@@ -17,31 +17,24 @@ jobs:
         run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Build
-        run: docker build -t devops-portal:${{ steps.vars.outputs.sha }} .
+        run: docker build -t registry.homelab.local/devops-portal:${{ steps.vars.outputs.sha }} .
 
-      # No registry: import straight into the k3d node's containerd, same
-      # trick the homelab repo's mock services use (see
-      # homelab/scripts/01-build-mocks.sh). The job container reaches the
-      # node container directly via the bind-mounted host docker.sock (it's
-      # a sibling container on the same Docker daemon) — no network hostname
-      # needed for this step.
-      - name: Import into k3d node containerd
-        run: docker save devops-portal:${{ steps.vars.outputs.sha }} | docker exec -i k3d-homelab-server-0 ctr -n k8s.io images import -
+      # The runner executes this in a Docker-in-Docker sidecar (see
+      # ../../homelab/manifests/gitea-runner.yaml), isolated from the k3d
+      # node's containerd — so unlike the homelab repo's mock services
+      # (side-loaded directly, see homelab/scripts/01-build-mocks.sh), this
+      # image has to go through the in-cluster registry. DinD is a normal
+      # pod, so it resolves registry.homelab.local via the cluster's CoreDNS
+      # rewrite same as anything else — no hostname workaround needed here.
+      - name: Push
+        run: docker push registry.homelab.local/devops-portal:${{ steps.vars.outputs.sha }}
 
       - name: Bump chart tag
         run: |
           sed -i 's/^  tag: .*/  tag: "${{ steps.vars.outputs.sha }}"/' chart/values.yaml
 
-      # This step (unlike the import above) needs the git push to reach
-      # Gitea over HTTP through the homelab's Traefik ingress, which routes
-      # by Host header — and this job container runs on the host Docker
-      # network (network: host in the runner config), outside the k8s pod
-      # network, so it can't resolve *.homelab.local via the cluster's
-      # CoreDNS. It CAN reach 127.0.0.1:80 (Traefik's published port, same
-      # Docker Desktop VM), so map the hostname locally instead.
       - name: Commit and push
         run: |
-          echo "127.0.0.1 gitea.homelab.local" >> /etc/hosts
           git config user.name "gitea-actions"
           git config user.email "actions@devops.local"
           git add chart/values.yaml

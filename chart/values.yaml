@@ -3,15 +3,20 @@
 # `helm.values` override on the ArgoCD Application for this chart, or it will
 # permanently pin this value and silently swallow every CI deploy.
 #
-# No registry involved: CI builds with the host's docker daemon and imports
-# straight into the k3d node's containerd (`docker save | docker exec -i
-# k3d-homelab-server-0 ctr -n k8s.io images import -`), same mechanism the
-# homelab repo's mock services use — see ../homelab/scripts/01-build-mocks.sh
-# and .gitea/workflows/deploy.yaml. So `repository` is a bare image name, no
-# host:port prefix, and pullPolicy must stay IfNotPresent (nothing to pull
-# from — the image only exists in containerd, never a registry).
+# repository points at the in-cluster registry (../homelab/manifests/registry.yaml)
+# at registry.homelab.local — CI (.gitea/workflows/deploy.yaml) runs in a
+# Docker-in-Docker sidecar isolated from the k3d node's containerd, so unlike
+# the homelab repo's mock services (side-loaded directly, see
+# ../homelab/scripts/01-build-mocks.sh) it has to push through a registry.
+# The node's containerd needs to trust this registry too — see
+# ../homelab/registries.yaml.
+#
+# scripts/deploy-k3s.sh (the local fast-path deploy) runs with full host
+# Docker access, so it overrides this back to a bare `devops-portal` image
+# name via `--set image.repository=devops-portal` and side-loads directly —
+# no registry round-trip needed for local iteration.
 image:
-  repository: devops-portal
+  repository: registry.homelab.local/devops-portal
   tag: "28758f9"
   pullPolicy: IfNotPresent
 

@@ -39,6 +39,7 @@ echo "==> Importing image into ${K3D_NODE}'s containerd (no registry needed) ...
 
 echo "==> Deploying via helm..."
 helm upgrade --install devops-portal ./chart -n devops-portal --create-namespace \
+  --set image.repository=devops-portal \
   --set image.tag="$TAG"
 kubectl rollout status deployment/devops-portal -n devops-portal
 

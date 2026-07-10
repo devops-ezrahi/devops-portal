@@ -140,31 +140,29 @@ used in production.
 
 There are two deploy paths:
 
-### Real pipeline: Gitea Actions → k3d node containerd → ArgoCD
+### Real pipeline: Gitea Actions → in-cluster registry → ArgoCD
 
 Push to `main` on the `gitea` remote (see "Pushing" below) and
 `.gitea/workflows/deploy.yaml` takes it from there: builds the image with
-`docker build`, then imports it straight into the `k3d-homelab-server-0` node's
-containerd (`docker save | docker exec -i k3d-homelab-server-0 ctr -n k8s.io
-images import -`) — no registry involved. This is the same side-loading trick
-`../homelab/scripts/01-build-mocks.sh` uses for the mock services; it avoids
-having to trust an insecure HTTP registry on both the host's Docker Desktop
-daemon and the node's containerd, which is real friction on this Windows setup
-(the in-cluster registry in `../homelab/manifests/registry.yaml` exists but has
-no active consumer for the same reason). The workflow then bumps
+`docker build`, then pushes it to the in-cluster registry
+(`../homelab/manifests/registry.yaml`) at
+`registry.homelab.local/devops-portal:<git-sha>`. The workflow then bumps
 `chart/values.yaml`'s `image.tag` and commits that back to `main`. ArgoCD
 (`../homelab/argocd-apps/devops-portal.yaml`) watches this repo's `chart/` path
 and auto-syncs. No manual step required once the pipeline is deployed and the
 repo is pushed to Gitea.
 
-The runner (`../homelab/manifests/gitea-runner.yaml`) runs job containers with
-`network: host` against the host's bind-mounted docker.sock, so a job container
-can `docker exec` into the sibling `k3d-homelab-server-0` container directly
-(same Docker daemon) but can't resolve `*.homelab.local` (it's outside the k8s
-pod network CoreDNS reaches) — the workflow's push-back step works around that
-with a one-line `/etc/hosts` append pointing `gitea.homelab.local` at
-`127.0.0.1`, which reaches Traefik's published port on the same Docker Desktop
-VM. See that workflow file's comments for the full reasoning.
+The runner (`../homelab/manifests/gitea-runner.yaml`) builds inside a
+Docker-in-Docker sidecar rather than the host's docker.sock — this k3d
+cluster's node was never created with that socket bind-mounted, and there's
+no k3d CLI available in this environment to safely recreate it. DinD means
+job containers are isolated from the k3d node's containerd, so (unlike the
+homelab repo's mock services, side-loaded directly — see
+`../homelab/scripts/01-build-mocks.sh`) this pipeline has to go through a
+registry; the node's containerd separately needs to trust that registry to
+pull the image (`../homelab/registries.yaml`, applied by hand, requires
+restarting the `k3d-homelab-server-0` container). See that manifest file's
+comments for the full reasoning.
 
 ### Manual local deploy (fast path while iterating)
 
@@ -175,8 +173,9 @@ bash scripts/deploy-k3s.sh
 This script:
 1. Syncs `.env` → the `devops-portal-secrets` k8s Secret (`sync-env-to-k3s.sh`)
 2. Runs `npm run build`
-3. Builds the Docker image and imports it into the k3d node's containerd (same
-   no-registry mechanism as the CI pipeline, tagged `devops-portal:dev-<timestamp>`)
+3. Builds the Docker image and imports it into the k3d node's containerd
+   directly (bare `devops-portal:dev-<timestamp>` tag, no registry round-trip —
+   this script has full host Docker access, unlike CI's isolated DinD sidecar)
 4. `helm upgrade --install` against `./chart` with that tag
 5. Waits for the rollout to be ready
 
