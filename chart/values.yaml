@@ -3,26 +3,31 @@
 # `helm.values` override on the ArgoCD Application for this chart, or it will
 # permanently pin this value and silently swallow every CI deploy.
 #
-# repository uses the registry's NodePort address (10.42.0.1:30500), not
-# localhost:5000 — the registry is NodePort, not hostPort (see
-# k3s-homelab/manifests/registry.yaml), and this exact host:port must match
-# the mirror key in /etc/rancher/k3s/registries.yaml on the node.
+# No registry involved: CI builds with the host's docker daemon and imports
+# straight into the k3d node's containerd (`docker save | docker exec -i
+# k3d-homelab-server-0 ctr -n k8s.io images import -`), same mechanism the
+# homelab repo's mock services use — see ../homelab/scripts/01-build-mocks.sh
+# and .gitea/workflows/deploy.yaml. So `repository` is a bare image name, no
+# host:port prefix, and pullPolicy must stay IfNotPresent (nothing to pull
+# from — the image only exists in containerd, never a registry).
 image:
-  repository: 10.42.0.1:30500/devops-portal
+  repository: devops-portal
   tag: "28758f9"
   pullPolicy: IfNotPresent
 
-# Public URL the browser uses to reach the portal (oauth2-proxy's entrypoint).
+# Public URL the browser uses to reach the portal (Traefik Ingress hostname,
+# see templates/ingress.yaml — needs a homelab hosts-file entry, same as
+# every other *.homelab.local service; see ../homelab/CLAUDE.md).
 # This is the single source for both the client-side SSO redirect
 # (config.SSO_URL, derived in templates/configmap.yaml) and oauth2-proxy's
 # --redirect-url (templates/deployment.yaml) — change only this value when
 # moving to a different network instead of editing both places.
-externalUrl: "http://localhost:4180"
+externalUrl: "http://devops-portal.homelab.local"
 
 oauth2Proxy:
   image: quay.io/oauth2-proxy/oauth2-proxy:v7.6.0
   # Keycloak realm issuer this cluster's oauth2-proxy authenticates against.
-  oidcIssuerUrl: "http://10.42.0.1:30084/realms/devops"
+  oidcIssuerUrl: "http://keycloak.homelab.local/realms/devops"
   clientId: "devops-portal"
   cookieSecure: "false"
 

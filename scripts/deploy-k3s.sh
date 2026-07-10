@@ -3,9 +3,9 @@ set -e
 
 PORTAL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DOCKER="${DOCKER:-docker}"
-REGISTRY="${REGISTRY:-10.42.0.1:30500}"
+K3D_NODE="${K3D_NODE:-k3d-homelab-server-0}"
 TAG="dev-$(date +%s)"
-IMAGE="${REGISTRY}/devops-portal:${TAG}"
+IMAGE="devops-portal:${TAG}"
 
 cd "$PORTAL_DIR"
 
@@ -28,14 +28,14 @@ npx esbuild src/server/index-prod.ts \
     --external:multer
 
 echo "==> Building Docker image..."
-if [ -f Dockerfile.update ] && "$DOCKER" image inspect "${REGISTRY}/devops-portal:latest" &>/dev/null; then
+if [ -f Dockerfile.update ] && "$DOCKER" image inspect "devops-portal:latest" &>/dev/null; then
   "$DOCKER" build -f Dockerfile.update -t "$IMAGE" .
 else
   "$DOCKER" build -f Dockerfile -t "$IMAGE" .
 fi
 
-echo "==> Pushing image to the in-cluster registry..."
-"$DOCKER" push "$IMAGE"
+echo "==> Importing image into ${K3D_NODE}'s containerd (no registry needed) ..."
+"$DOCKER" save "$IMAGE" | docker exec -i "$K3D_NODE" ctr -n k8s.io images import -
 
 echo "==> Deploying via helm..."
 helm upgrade --install devops-portal ./chart -n devops-portal --create-namespace \
@@ -43,4 +43,4 @@ helm upgrade --install devops-portal ./chart -n devops-portal --create-namespace
 kubectl rollout status deployment/devops-portal -n devops-portal
 
 echo ""
-echo "Done. Portal: http://localhost:4180"
+echo "Done. Portal: http://devops-portal.homelab.local (needs a hosts-file entry, see ../homelab/CLAUDE.md)"

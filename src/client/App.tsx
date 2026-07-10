@@ -104,8 +104,8 @@ export function App() {
         <div className="dev-banner" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
           <span>
             Dev mode — SSO is off.{" "}
-            <a href="http://localhost:4180" className="dev-banner-link">
-              Open localhost:4180
+            <a href="http://devops-portal.homelab.local" className="dev-banner-link">
+              Open devops-portal.homelab.local
             </a>{" "}
             to log in as a real user.
           </span>

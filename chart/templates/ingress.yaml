@@ -1,0 +1,23 @@
+# Routes {{ .Values.externalUrl }} through the homelab's Traefik load
+# balancer to the oauth2-proxy sidecar (port 4180, the only port the Service
+# exposes). Requires a matching entry in the homelab repo's
+# manifests/coredns-rewrite.yaml (for in-cluster resolution) and a hosts-file
+# entry on the host (for the browser) — see ../../homelab/CLAUDE.md.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: devops-portal
+  namespace: {{ .Release.Namespace }}
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: devops-portal.homelab.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: devops-portal
+                port:
+                  number: 4180

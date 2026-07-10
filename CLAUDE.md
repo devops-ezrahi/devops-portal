@@ -129,13 +129,42 @@ Run `npm run build` before pushing to catch type errors.
 
 ## Deployment
 
-The app runs in a container behind an SSO proxy. `Dockerfile` builds from `dist/`. The k8s Helm chart lives in `chart/` in this repo (not in `k3s-homelab`) — `chart/values.yaml` holds the image tag and portal config; Secrets are deliberately not part of the chart (see below). In k8s, env vars come from a ConfigMap/Secret mounted as pod env vars — no `.env` file is used in production.
+The app runs in a container behind an SSO proxy, deployed onto the `k3d-homelab`
+cluster maintained in the sibling `../homelab` repo (see that repo's `CLAUDE.md`
+and `CLUSTER.md` for cluster-wide setup — Keycloak, Gitea, ArgoCD, hostnames).
+`Dockerfile` builds from `dist/`. The k8s Helm chart lives in `chart/` in this
+repo (not in `../homelab`) — `chart/values.yaml` holds the image tag and portal
+config; Secrets are deliberately not part of the chart (see below). In k8s, env
+vars come from a ConfigMap/Secret mounted as pod env vars — no `.env` file is
+used in production.
 
 There are two deploy paths:
 
-### Real pipeline: Gitea Actions → in-cluster registry → ArgoCD
+### Real pipeline: Gitea Actions → k3d node containerd → ArgoCD
 
-Push to `main` on the `gitea` remote (see "Pushing" below) and `.gitea/workflows/deploy.yaml` takes it from there: builds the image, pushes it to the in-cluster registry as `10.42.0.1:30500/devops-portal:<git-sha>`, bumps `chart/values.yaml`'s `image.tag` and commits that back to `main`. ArgoCD (`k3s-homelab/argocd-apps/devops-portal.yaml`) watches this repo's `chart/` path and auto-syncs. No manual step required once the pipeline is deployed and the repo is pushed to Gitea.
+Push to `main` on the `gitea` remote (see "Pushing" below) and
+`.gitea/workflows/deploy.yaml` takes it from there: builds the image with
+`docker build`, then imports it straight into the `k3d-homelab-server-0` node's
+containerd (`docker save | docker exec -i k3d-homelab-server-0 ctr -n k8s.io
+images import -`) — no registry involved. This is the same side-loading trick
+`../homelab/scripts/01-build-mocks.sh` uses for the mock services; it avoids
+having to trust an insecure HTTP registry on both the host's Docker Desktop
+daemon and the node's containerd, which is real friction on this Windows setup
+(the in-cluster registry in `../homelab/manifests/registry.yaml` exists but has
+no active consumer for the same reason). The workflow then bumps
+`chart/values.yaml`'s `image.tag` and commits that back to `main`. ArgoCD
+(`../homelab/argocd-apps/devops-portal.yaml`) watches this repo's `chart/` path
+and auto-syncs. No manual step required once the pipeline is deployed and the
+repo is pushed to Gitea.
+
+The runner (`../homelab/manifests/gitea-runner.yaml`) runs job containers with
+`network: host` against the host's bind-mounted docker.sock, so a job container
+can `docker exec` into the sibling `k3d-homelab-server-0` container directly
+(same Docker daemon) but can't resolve `*.homelab.local` (it's outside the k8s
+pod network CoreDNS reaches) — the workflow's push-back step works around that
+with a one-line `/etc/hosts` append pointing `gitea.homelab.local` at
+`127.0.0.1`, which reaches Traefik's published port on the same Docker Desktop
+VM. See that workflow file's comments for the full reasoning.
 
 ### Manual local deploy (fast path while iterating)
 
@@ -146,19 +175,20 @@ bash scripts/deploy-k3s.sh
 This script:
 1. Syncs `.env` → the `devops-portal-secrets` k8s Secret (`sync-env-to-k3s.sh`)
 2. Runs `npm run build`
-3. Builds the Docker image and pushes it to the in-cluster registry (`10.42.0.1:30500/devops-portal:dev-<timestamp>`)
+3. Builds the Docker image and imports it into the k3d node's containerd (same
+   no-registry mechanism as the CI pipeline, tagged `devops-portal:dev-<timestamp>`)
 4. `helm upgrade --install` against `./chart` with that tag
 5. Waits for the rollout to be ready
 
 Secrets (`devops-portal-secrets`, `oauth2-proxy-secrets`) are never in the chart — they're owned solely by `scripts/sync-env-to-k3s.sh`'s direct `kubectl apply`, so ArgoCD's `selfHeal` can never revert real values back to a Git-committed placeholder.
 
-The portal is then live at **http://localhost:4180** (oauth2-proxy → portal).
+The portal is then live at **http://devops-portal.homelab.local** (oauth2-proxy → portal) — needs a hosts-file entry, see `../homelab/CLAUDE.md` → Links.
 
 ## Finishing a task
 
 Always run every command needed to fully complete the task — don't stop at code changes and tell the user to do the rest. Concretely:
 
-- After editing k8s manifests in `k3s-homelab/`: `kubectl apply -f <file>` and wait for rollout (`kubectl rollout status …`).
+- After editing k8s manifests in `../homelab/`: `kubectl apply -f <file>` and wait for rollout (`kubectl rollout status …`).
 - After changing server code: the dev server (`tsx watch`) reloads automatically — verify with the Playwright driver or a quick `node -e "fetch(…)"` probe.
 - After changing client code: Vite HMR reloads automatically — take a screenshot with the driver to confirm the UI looks right.
 - After changing `config.ts` or env vars: restart the dev server (`pkill -f "tsx watch"` then `npm run dev`) to pick up the new values.
