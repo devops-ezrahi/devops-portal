@@ -17,7 +17,7 @@
 # no registry round-trip needed for local iteration.
 image:
   repository: registry.homelab.local/devops-portal
-  tag: "28758f9"
+  tag: "e90914d"
   pullPolicy: IfNotPresent
 
 # Public URL the browser uses to reach the portal (Traefik Ingress hostname,
