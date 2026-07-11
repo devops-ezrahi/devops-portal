@@ -36,7 +36,10 @@ export function CreateTicketView({
       const result = await createTicket({
         requestType: selected.id,
         fields,
-        idempotencyKey: crypto.randomUUID()
+        // ponytail: crypto.randomUUID() requires a secure context (https/localhost);
+        // this portal runs on plain http://*.homelab.local, so it's undefined there.
+        // getRandomValues has no such restriction.
+        idempotencyKey: crypto.randomUUID?.() ?? crypto.getRandomValues(new Uint32Array(4)).join("-")
       });
       await onCreated(result.ticket);
     } finally {
