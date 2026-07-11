@@ -1,6 +1,6 @@
 # DevOps Customer Portal
 
-Express + React + TypeScript + Vite portal intended for k8s deployment behind an SSO proxy (oauth2-proxy / Keycloak). The proxy injects `x-forwarded-user` / `x-forwarded-groups` headers; the server reads those to identify users and grant admin access.
+Express + React + TypeScript + Vite portal intended for k8s deployment fronted by oauth2-proxy (Keycloak OIDC), bundled into the same container image (see `Dockerfile` / `scripts/entrypoint.sh` — oauth2-proxy runs as a background process on :4180, proxying to the Express app on localhost:8080). The proxy injects `x-forwarded-user` / `x-forwarded-groups` headers; the server reads those to identify users and grant admin access.
 
 ## Dev setup
 
@@ -129,10 +129,11 @@ Run `npm run build` before pushing to catch type errors.
 
 ## Deployment
 
-The app runs in a container behind an SSO proxy, deployed onto the `k3d-homelab`
-cluster maintained in the sibling `../homelab` repo (see that repo's `CLAUDE.md`
-and `CLUSTER.md` for cluster-wide setup — Keycloak, Gitea, ArgoCD, hostnames).
-`Dockerfile` builds from `dist/`. The k8s Helm chart lives in
+The app runs in a single container fronted by oauth2-proxy (bundled into the
+same image, not a separate sidecar — see `scripts/entrypoint.sh`), deployed
+onto the `k3d-homelab` cluster maintained in the sibling `../homelab` repo
+(see that repo's `CLAUDE.md` and `CLUSTER.md` for cluster-wide setup —
+Keycloak, Gitea, ArgoCD, hostnames). `Dockerfile` builds from `dist/`. The k8s Helm chart lives in
 `../homelab/devops-portal/chart` (moved out of this repo on 2026-07-11 so
 `homelab` is the single source of truth for infra) —
 `chart/values.yaml` holds the image tag and portal config; Secrets are

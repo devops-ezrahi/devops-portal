@@ -1,16 +1,16 @@
 ---
 name: export-deploy-bundle
-description: Export a self-contained deploy-export/ bundle (app image + oauth2-proxy image as tars, current k3s manifests, and a load script) for testing the devops-portal k8s deployment on a machine with real kubectl/k3s access. Use when asked to export, package, or bundle the deployment for testing elsewhere.
+description: Export a self-contained deploy-export/ bundle (app image as a tar — oauth2-proxy is bundled into it, current k3s manifests, and a load script) for testing the devops-portal k8s deployment on a machine with real kubectl/k3s access. Use when asked to export, package, or bundle the deployment for testing elsewhere.
 ---
 
-Produces `deploy-export/` at the repo root: the `devops-portal` image and the
-`oauth2-proxy` sidecar image saved as tars, manifests rendered from this
-repo's own `chart/` (registry-free: `image.pullPolicy=Never`, tag `latest`,
-side-loaded into containerd — no in-cluster registry needed for this bundle),
-and a `load-and-deploy.sh` + `README.md` for running it on a machine that
-actually has k3s/kubectl access (this repo's dev environment may not — no
-cluster connectivity required to build the bundle itself; helm IS required
-locally to render the chart).
+Produces `deploy-export/` at the repo root: the `devops-portal` image (which
+bundles oauth2-proxy — see the app repo's Dockerfile) saved as a tar,
+manifests rendered from this repo's own `chart/` (registry-free:
+`image.pullPolicy=Never`, tag `latest`, side-loaded into containerd — no
+in-cluster registry needed for this bundle), and a `load-and-deploy.sh` +
+`README.md` for running it on a machine that actually has k3s/kubectl access
+(this repo's dev environment may not — no cluster connectivity required to
+build the bundle itself; helm IS required locally to render the chart).
 
 ## Run
 
@@ -27,19 +27,17 @@ This:
 3. `docker build`s `devops-portal:latest` from the repo's `Dockerfile`.
 4. Renders `chart/` via `helm template` with `image.repository=devops-portal
    image.tag=latest image.pullPolicy=Never` (registry-free, matching how the
-   bundle is loaded on the target machine) and reads the oauth2-proxy image
-   tag out of that rendered output (so it never drifts from whatever the
-   chart actually pins) before `docker pull`ing it. Pass
+   bundle is loaded on the target machine). Pass
    `VALUES_FILE=chart/values.closed-network.yaml` to overlay a different
    network's `externalUrl` / `oauth2Proxy.oidcIssuerUrl` / `oauth2Proxy.clientId`
    (see `chart/values.closed-network.yaml.example`) without touching
    `chart/values.yaml`, which stays the homelab pipeline's default.
-5. Wipes and rewrites `deploy-export/` with both images as tars
-   (`docker save`), the rendered manifest, and the `load-and-deploy.sh` /
-   `README.md` templates from `templates/` in this skill folder.
+5. Wipes and rewrites `deploy-export/` with the image as a tar (`docker
+   save`), the rendered manifest, and the `load-and-deploy.sh` / `README.md`
+   templates from `templates/` in this skill folder.
 
 `deploy-export/` is gitignored (`/deploy-export/` in `.gitignore`) — the
-image tars run 70-90MB combined and should never be committed.
+image tar runs 70-90MB and should never be committed.
 
 ## Assumptions / gotchas
 
@@ -53,8 +51,8 @@ image tars run 70-90MB combined and should never be committed.
   so `templates/namespace-and-secrets.yaml` supplies both as a separate file,
   applied before the rendered chart manifest — always with **empty
   placeholders** for `OAUTH2_PROXY_CLIENT_SECRET` / `OAUTH2_PROXY_COOKIE_SECRET`.
-  The bundle's README calls this out; the oauth2-proxy sidecar won't start
-  without a real cookie secret.
+  The bundle's README calls this out; oauth2-proxy (bundled into the app
+  image, see Dockerfile) won't start without a real cookie secret.
 - If `docker version` fails, don't try to work around it — it means Docker
   Desktop isn't running in this environment. Say so and stop; starting it
   (Windows: `Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"`

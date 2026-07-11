@@ -1,9 +1,9 @@
 #!/bin/bash
-# Builds deploy-export/: a self-contained bundle (app image + oauth2-proxy
-# image as tars, manifests rendered from the devops-portal Helm chart, and a
-# load script) that can be handed to any machine with real kubectl/k3s
-# access, with no registry, npm, docker build, or helm required there. See
-# SKILL.md.
+# Builds deploy-export/: a self-contained bundle (app image as a tar —
+# oauth2-proxy is bundled into it, see Dockerfile — manifests rendered from
+# the devops-portal Helm chart, and a load script) that can be handed to any
+# machine with real kubectl/k3s access, with no registry, npm, docker build,
+# or helm required there. See SKILL.md.
 set -e
 
 SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -62,20 +62,8 @@ fi
   --set image.pullPolicy=Never \
   > "$OUT_DIR/manifests/devops-portal.yaml"
 
-echo "==> Resolving oauth2-proxy image from the rendered chart..."
-OAUTH2_PROXY_IMAGE="$(grep -o 'quay\.io/oauth2-proxy/oauth2-proxy:[^\"[:space:]]*' "$OUT_DIR/manifests/devops-portal.yaml" | head -1)"
-if [ -z "$OAUTH2_PROXY_IMAGE" ]; then
-  echo "Could not find an oauth2-proxy image reference in the rendered chart" >&2
-  exit 1
-fi
-echo "    $OAUTH2_PROXY_IMAGE"
-"$DOCKER" pull "$OAUTH2_PROXY_IMAGE"
-
 echo "==> Saving devops-portal image..."
 "$DOCKER" save devops-portal:latest -o "$OUT_DIR/images/devops-portal.tar"
-
-echo "==> Saving oauth2-proxy image..."
-"$DOCKER" save "$OAUTH2_PROXY_IMAGE" -o "$OUT_DIR/images/oauth2-proxy.tar"
 
 cp "$SKILL_DIR/templates/namespace-and-secrets.yaml" "$OUT_DIR/manifests/namespace-and-secrets.yaml"
 cp "$SKILL_DIR/templates/load-and-deploy.sh" "$OUT_DIR/load-and-deploy.sh"
