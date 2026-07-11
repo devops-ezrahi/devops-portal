@@ -1,6 +1,85 @@
 import type { NextFunction, Request, Response } from "express";
+import { readFileSync } from "fs";
+import https from "https";
 import { config } from "./config";
 import type { AssigneeCandidate, PortalUser } from "./types";
+
+const SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token";
+const SA_CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt";
+
+// os4-chart's oauth-proxy sidecar (OpenShift's OAuthClient flow) has no
+// groups-claim equivalent to Keycloak's, so it forwards the user's OAuth
+// access token (X-Forwarded-Access-Token) instead of a groups header. We
+// resolve groups the same way the cluster's own RBAC does — a TokenReview
+// against the in-cluster API server, using this pod's own ServiceAccount as
+// the reviewer (needs the tokenreviews.authentication.k8s.io "create"
+// ClusterRole from os4-chart). status.user.groups includes AD-synced groups
+// regardless of how they got into OpenShift. Never tested against a real
+// OpenShift cluster — built from the TokenReview API shape and how
+// Jenkins' openshift-login-plugin does the equivalent lookup.
+// Best-effort only: returns [] on any failure so a TokenReview hiccup or
+// running outside OpenShift (Keycloak path, local dev) never breaks login.
+async function groupsViaTokenReview(accessToken: string): Promise<string[]> {
+  const host = process.env.KUBERNETES_SERVICE_HOST;
+  const port = process.env.KUBERNETES_SERVICE_PORT ?? "443";
+  if (!host) return [];
+
+  let reviewerToken: string;
+  let ca: Buffer;
+  try {
+    reviewerToken = readFileSync(SA_TOKEN_PATH, "utf8").trim();
+    ca = readFileSync(SA_CA_PATH);
+  } catch {
+    return [];
+  }
+
+  const body = JSON.stringify({
+    apiVersion: "authentication.k8s.io/v1",
+    kind: "TokenReview",
+    spec: { token: accessToken },
+  });
+
+  return new Promise((resolve) => {
+    const req = https.request(
+      {
+        host,
+        port,
+        path: "/apis/authentication.k8s.io/v1/tokenreviews",
+        method: "POST",
+        ca,
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+          Authorization: `Bearer ${reviewerToken}`,
+        },
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => {
+          if (res.statusCode !== 200 && res.statusCode !== 201) {
+            console.error(`[auth] TokenReview failed: HTTP ${res.statusCode}`);
+            resolve([]);
+            return;
+          }
+          try {
+            const parsed = JSON.parse(data);
+            resolve(parsed?.status?.authenticated ? (parsed.status.user?.groups ?? []) : []);
+          } catch (err) {
+            console.error("[auth] TokenReview response parse failed:", err);
+            resolve([]);
+          }
+        });
+      },
+    );
+    req.on("error", (err) => {
+      console.error("[auth] TokenReview request failed:", err);
+      resolve([]);
+    });
+    req.write(body);
+    req.end();
+  });
+}
 
 declare global {
   namespace Express {
@@ -49,7 +128,7 @@ export function userFromSsoHeaders(req: Request): PortalUser | null {
   };
 }
 
-export function requireSession(req: Request, res: Response, next: NextFunction) {
+export async function requireSession(req: Request, res: Response, next: NextFunction) {
   const user = userFromSsoHeaders(req);
 
   if (!user) {
@@ -66,6 +145,13 @@ export function requireSession(req: Request, res: Response, next: NextFunction) 
     };
   } else {
     req.user = user;
+
+    const hasGroupsHeader =
+      req.headers["x-forwarded-groups"] !== undefined || req.headers["x-user-groups"] !== undefined;
+    const accessToken = readHeader(req.headers["x-forwarded-access-token"]);
+    if (!hasGroupsHeader && accessToken) {
+      req.user.groups = await groupsViaTokenReview(accessToken);
+    }
   }
 
   if (config.allowedGroups.length > 0) {
