@@ -2,12 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import {
   addAdminComment,
   getAdminTicket,
+  getAssignees,
   listAdminTickets,
   updateAdminTicket
 } from "./api";
 import { AdminTicketDetail } from "./components/AdminTicketDetail";
 import { isDone, stageClass, statusMessage } from "./utils";
-import type { PortalUser, TicketDetail, TicketSummary } from "../../../server/types";
+import type { AssigneeCandidate, PortalUser, TicketDetail, TicketSummary } from "../../../server/types";
+
+const POLL_INTERVAL_MS = 8000;
 
 function TicketRow({
   ticket,
@@ -31,7 +34,7 @@ function TicketRow({
       <div className="ticket-row-meta">
         <small>{ticket.id}</small>
         {ticket.assigneeId
-          ? <small className="ticket-row-assignee assigned">{ticket.assigneeId}</small>
+          ? <small className="ticket-row-assignee assigned">{ticket.assigneeName || ticket.assigneeId}</small>
           : <small className="ticket-row-assignee unassigned">Unassigned</small>
         }
       </div>
@@ -48,6 +51,7 @@ export function AdminTicketingView({
 }) {
   const [adminTickets, setAdminTickets] = useState<TicketSummary[]>([]);
   const [selectedAdminTicket, setSelectedAdminTicket] = useState<TicketDetail | null>(null);
+  const [assignees, setAssignees] = useState<AssigneeCandidate[]>([]);
   const [unreadIds, setUnreadIds] = useState<Set<string>>(() => new Set());
   const [showAll, setShowAll] = useState(false);
 
@@ -55,7 +59,26 @@ export function AdminTicketingView({
     listAdminTickets({})
       .then((result) => setAdminTickets(result.tickets))
       .catch((err: Error) => onError(err.message));
+    getAssignees()
+      .then((result) => setAssignees(result.assignees))
+      .catch((err: Error) => onError(err.message));
   }, []);
+
+  // Short polling so an assignment/status change made by another admin (or
+  // status updates the requester sees) show up without a manual refresh.
+  // ponytail: a few lines beats a WebSocket server for this team's traffic —
+  // revisit only if "every few seconds" stops being live enough.
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      refreshAdminTickets().catch(() => undefined);
+      if (selectedAdminTicket) {
+        getAdminTicket(selectedAdminTicket.id)
+          .then((result) => setSelectedAdminTicket(result.ticket))
+          .catch(() => undefined);
+      }
+    }, POLL_INTERVAL_MS);
+    return () => window.clearInterval(interval);
+  }, [selectedAdminTicket?.id]);
 
   async function refreshAdminTickets() {
     const result = await listAdminTickets({});
@@ -124,10 +147,11 @@ export function AdminTicketingView({
           <AdminTicketDetail
             key={selectedAdminTicket.id}
             assignee={selectedAdminTicket.assigneeId}
+            assignees={assignees}
             currentUserId={user.id}
-            onAssigneeChange={async (assignee) => {
-              const ownerName = assignee || "Unassigned";
-              await updateAdminTicket(selectedAdminTicket.id, { assigneeId: assignee });
+            onAssigneeChange={async (assigneeId, assigneeName) => {
+              const ownerName = assigneeName || "Unassigned";
+              await updateAdminTicket(selectedAdminTicket.id, { assigneeId, assigneeName });
               await addAdminComment(selectedAdminTicket.id, statusMessage(`Owner changed to ${ownerName}.`));
               await reloadAdminTicket(selectedAdminTicket.id);
             }}

@@ -6,6 +6,8 @@ import { TicketDetailView } from "./components/TicketDetailView";
 import { isDone, stageClass } from "./utils";
 import type { RequestTypeDefinition, TicketDetail, TicketSummary } from "../../../server/types";
 
+const POLL_INTERVAL_MS = 8000;
+
 export function UserTicketingView({ onError }: { onError: (message: string) => void }) {
   const [tickets, setTickets] = useState<TicketSummary[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<TicketDetail | null>(null);
@@ -30,6 +32,21 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
       setSelectedTicket(null);
     }
   }
+
+  // Short polling so status/owner changes an admin makes show up here
+  // without the user having to hit refresh. See AdminTicketingView for the
+  // matching admin-side poll and why this isn't a WebSocket.
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      refreshTickets().catch(() => undefined);
+      if (selectedTicket) {
+        getTicket(selectedTicket.id)
+          .then((result) => setSelectedTicket(result.ticket))
+          .catch(() => undefined);
+      }
+    }, POLL_INTERVAL_MS);
+    return () => window.clearInterval(interval);
+  }, [selectedTicket?.id]);
 
   async function openTicket(id: string) {
     setUnreadIds((current) => {

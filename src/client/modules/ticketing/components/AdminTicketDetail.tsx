@@ -3,11 +3,12 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { addAdminComment, updateAdminTicket } from "../api";
 import { stages } from "../config";
-import type { CustomerStage, TicketDetail } from "../../../../server/types";
+import type { AssigneeCandidate, CustomerStage, TicketDetail } from "../../../../server/types";
 import { formatDate, isStatusMessage, statusMessage, statusMessageText, stageClass } from "../utils";
 
 export function AdminTicketDetail({
   assignee,
+  assignees,
   currentUserId,
   onAssigneeChange,
   onReload,
@@ -15,8 +16,9 @@ export function AdminTicketDetail({
   ticket
 }: {
   assignee: string;
+  assignees: AssigneeCandidate[];
   currentUserId: string;
-  onAssigneeChange: (assignee: string) => Promise<void>;
+  onAssigneeChange: (assigneeId: string, assigneeName: string) => Promise<void>;
   onReload: () => Promise<void>;
   onUpdated: () => void;
   ticket: TicketDetail;
@@ -159,21 +161,28 @@ export function AdminTicketDetail({
         </div>
         <label className="owner-select">
           <span>Owner</span>
-          <div className="owner-controls">
-            <input
-              type="text"
-              value={assignee}
-              placeholder="Unassigned"
-              onChange={(e) => onAssigneeChange(e.target.value).catch(() => undefined)}
-            />
-            <button
-              className="ghost-button"
-              type="button"
-              onClick={() => onAssigneeChange(currentUserId).catch(() => undefined)}
-            >
-              Me
-            </button>
-          </div>
+          <select
+            value={assignee}
+            onChange={(e) => {
+              const id = e.target.value;
+              const name = assignees.find((a) => a.id === id)?.displayName ?? "";
+              onAssigneeChange(id, name).catch(() => undefined);
+            }}
+          >
+            <option value="">Unassigned</option>
+            {assignee && !assignees.some((a) => a.id === assignee) && (
+              // Assigned to someone not in the known-admins roster (e.g. they
+              // haven't logged in since the last restart) — keep them selectable
+              // instead of silently blanking the dropdown.
+              <option value={assignee}>{ticket.assigneeName || assignee}</option>
+            )}
+            {assignees.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.displayName}
+                {a.id === currentUserId ? " (me)" : ""}
+              </option>
+            ))}
+          </select>
         </label>
       </div>
 

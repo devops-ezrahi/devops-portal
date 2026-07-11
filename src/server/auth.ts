@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { config } from "./config";
-import type { PortalUser } from "./types";
+import type { AssigneeCandidate, PortalUser } from "./types";
 
 declare global {
   namespace Express {
@@ -77,6 +77,7 @@ export function requireSession(req: Request, res: Response, next: NextFunction) 
     }
   }
 
+  rememberUser(req.user!);
   next();
 }
 
@@ -90,4 +91,23 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
     return;
   }
   next();
+}
+
+// ponytail: self-populating directory (who's logged in since this process
+// started) rather than querying Keycloak's group-membership admin API. Good
+// enough for "pick a ticket owner from the team" on a small roster; the
+// ceiling is that someone who hasn't logged in yet won't show up until they
+// do. Upgrade path: query GET /admin/realms/{realm}/groups/{id}/members via
+// a Keycloak service-account client if that gap ever actually matters.
+const knownUsers = new Map<string, PortalUser>();
+
+export function rememberUser(user: PortalUser) {
+  knownUsers.set(user.id, user);
+}
+
+export function listAdminCandidates(): AssigneeCandidate[] {
+  return [...knownUsers.values()]
+    .filter(isAdmin)
+    .map((user) => ({ id: user.id, displayName: user.displayName }))
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }

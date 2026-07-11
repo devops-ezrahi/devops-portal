@@ -33,6 +33,7 @@ export type TicketSummary = {
   rawStatus: string;
   stage: CustomerStage;
   assigneeId: string;
+  assigneeName: string;
   createdAt: string;
   updatedAt: string;
   lastActivityAt: string;
@@ -84,6 +85,12 @@ export type AdminTicketUpdate = {
   description?: string;
   teamGroups?: string[];
   assigneeId?: string;
+  assigneeName?: string;
+};
+
+export type AssigneeCandidate = {
+  id: string;
+  displayName: string;
 };
 
 export interface TicketingApi {

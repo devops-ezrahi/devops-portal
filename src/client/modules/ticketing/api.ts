@@ -1,5 +1,11 @@
 import { request } from "../../api";
-import type { AdminTicketUpdate, RequestTypeDefinition, TicketDetail, TicketSummary } from "../../../server/types";
+import type {
+  AdminTicketUpdate,
+  AssigneeCandidate,
+  RequestTypeDefinition,
+  TicketDetail,
+  TicketSummary
+} from "../../../server/types";
 
 export function getRequestTypes() {
   return request<{ requestTypes: RequestTypeDefinition[] }>("/api/request-types");
@@ -39,6 +45,10 @@ export function listAdminTickets(params: { status?: string; query?: string }) {
 
 export function getAdminTicket(id: string) {
   return request<{ ticket: TicketDetail }>(`/api/admin/tickets/${id}`);
+}
+
+export function getAssignees() {
+  return request<{ assignees: AssigneeCandidate[] }>("/api/admin/assignees");
 }
 
 export function updateAdminTicket(ticketId: string, payload: AdminTicketUpdate) {

@@ -62,6 +62,7 @@ export class InMemoryTicketingApi implements TicketingApi {
       rawStatus: "New",
       stage: mapInternalStatus("New"),
       assigneeId: "",
+      assigneeName: "",
       createdAt,
       updatedAt: createdAt,
       lastActivityAt: createdAt,
@@ -168,6 +169,7 @@ export class InMemoryTicketingApi implements TicketingApi {
     }
     if (update.assigneeId !== undefined) {
       ticket.assigneeId = update.assigneeId;
+      ticket.assigneeName = update.assigneeId ? (update.assigneeName ?? update.assigneeId) : "";
     }
     ticket.updatedAt = updatedAt;
     ticket.lastActivityAt = updatedAt;

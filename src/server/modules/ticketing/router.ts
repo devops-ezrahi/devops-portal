@@ -1,7 +1,7 @@
 import express from "express";
 import { z } from "zod";
 import { requestCatalog } from "./catalog";
-import { requireAdmin } from "../../auth";
+import { listAdminCandidates, requireAdmin } from "../../auth";
 import { customerStages } from "./status";
 import type { CustomerStage, TicketingApi } from "../../types";
 
@@ -21,7 +21,8 @@ const adminUpdateSchema = z.object({
   title: z.string().trim().min(1).optional(),
   description: z.string().trim().optional(),
   teamGroups: z.array(z.string().trim().min(1)).optional(),
-  assigneeId: z.string().optional()
+  assigneeId: z.string().optional(),
+  assigneeName: z.string().optional()
 });
 
 function parseCustomerStage(status: unknown): CustomerStage | undefined {
@@ -83,6 +84,10 @@ export function createTicketingRouter(ticketingApi: TicketingApi) {
     } catch (error) {
       next(error);
     }
+  });
+
+  router.get("/api/admin/assignees", requireAdmin, (_req, res) => {
+    res.json({ assignees: listAdminCandidates() });
   });
 
   router.get("/api/admin/tickets", requireAdmin, async (req, res, next) => {

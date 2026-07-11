@@ -142,6 +142,7 @@ export class JiraTicketingApi implements TicketingApi {
       rawStatus,
       stage: mapInternalStatus(rawStatus),
       assigneeId: this.userId(fields.assignee),
+      assigneeName: fields.assignee ? this.userName(fields.assignee) : "",
       createdAt: created,
       updatedAt: updated,
       lastActivityAt: updated
@@ -274,7 +275,9 @@ export class JiraTicketingApi implements TicketingApi {
       fields.description = update.description;
     }
     if (update.assigneeId !== undefined) {
-      fields.assignee = update.assigneeId ? { name: update.assigneeId } : null;
+      fields.assignee = update.assigneeId
+        ? { name: update.assigneeId, displayName: update.assigneeName ?? update.assigneeId }
+        : null;
     }
     if (update.teamGroups !== undefined) {
       fields.labels = update.teamGroups;
