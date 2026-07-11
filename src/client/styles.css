@@ -698,23 +698,17 @@ button:focus-visible {
 }
 
 .ticket-row.unread {
-  background: #1e1a0e;
-  box-shadow: inset 3px 0 0 #f59e0b;
-  transform: none;
-}
-
-.ticket-row.unread::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, rgb(245 158 11 / 12%), transparent 70%);
-  pointer-events: none;
-  border-radius: inherit;
+  border-radius: 8px;
+  animation: row-glow 2.4s ease-in-out infinite;
 }
 
 .ticket-row.unread.selected {
-  background: #1a1f14;
-  box-shadow: inset 3px 0 0 #f59e0b;
+  background: #132a2c;
+}
+
+@keyframes row-glow {
+  0%, 100% { box-shadow: 0 0 0 1px rgb(32 199 189 / 45%), 0 0 6px rgb(32 199 189 / 25%); }
+  50%       { box-shadow: 0 0 0 1px rgb(32 199 189 / 85%), 0 0 14px rgb(32 199 189 / 55%); }
 }
 
 .update-dot {

@@ -25,7 +25,11 @@ function TicketRow({
 }) {
   return (
     <button
-      className={isSelected ? "ticket-row selected" : "ticket-row"}
+      className={[
+        "ticket-row",
+        isSelected && "selected",
+        isUnread && "unread"
+      ].filter(Boolean).join(" ")}
       onClick={() => onOpen(ticket.id)}
     >
       {isUnread && <span className="update-dot" aria-label="Updated" />}

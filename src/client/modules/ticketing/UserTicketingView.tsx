@@ -119,7 +119,11 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
             <div className="ticket-list">
               {activeTickets.map((ticket) => (
                 <button
-                  className={selectedTicket?.id === ticket.id ? "ticket-row selected" : "ticket-row"}
+                  className={[
+                    "ticket-row",
+                    selectedTicket?.id === ticket.id && "selected",
+                    unreadIds.has(ticket.id) && "unread"
+                  ].filter(Boolean).join(" ")}
                   key={ticket.id}
                   onClick={() => openTicket(ticket.id).catch((err: Error) => onError(err.message))}
                 >
@@ -139,7 +143,11 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
               <div className="ticket-list">
                 {doneTickets.map((ticket) => (
                   <button
-                    className={selectedTicket?.id === ticket.id ? "ticket-row selected" : "ticket-row"}
+                    className={[
+                      "ticket-row",
+                      selectedTicket?.id === ticket.id && "selected",
+                      unreadIds.has(ticket.id) && "unread"
+                    ].filter(Boolean).join(" ")}
                     key={ticket.id}
                     onClick={() => openTicket(ticket.id).catch((err: Error) => onError(err.message))}
                   >
