@@ -2,7 +2,6 @@ name: Build and Deploy
 on:
   push:
     branches: [main]
-    paths-ignore: ["chart/**"]
 
 jobs:
   build-and-deploy:
@@ -39,15 +38,18 @@ jobs:
       - name: Push
         run: docker push registry.homelab.local/devops-portal:${{ steps.vars.outputs.sha }}
 
-      - name: Bump chart tag
+      # The chart lives in the homelab repo now (single source of truth for
+      # infra), not here — so the tag bump is a second checkout+commit+push
+      # against gitea_admin/homelab.git instead of this repo. Same
+      # GIT_PUSH_TOKEN works since gitea_admin owns both repos.
+      - name: Bump chart tag in homelab repo
         run: |
-          sed -i 's/^  tag: .*/  tag: "${{ steps.vars.outputs.sha }}"/' chart/values.yaml
-
-      - name: Commit and push
-        run: |
-          git config user.name "gitea-actions"
-          git config user.email "actions@devops.local"
-          git add chart/values.yaml
+          git config --global user.name "gitea-actions"
+          git config --global user.email "actions@devops.local"
+          git clone http://gitea_admin:${{ secrets.GIT_PUSH_TOKEN }}@gitea.homelab.local/gitea_admin/homelab.git /tmp/homelab
+          sed -i 's/^  tag: .*/  tag: "${{ steps.vars.outputs.sha }}"/' /tmp/homelab/devops-portal/chart/values.yaml
+          cd /tmp/homelab
+          git add devops-portal/chart/values.yaml
           git diff --cached --quiet && exit 0
-          git commit -m "chore: deploy ${{ steps.vars.outputs.sha }}"
-          git push http://gitea_admin:${{ secrets.GIT_PUSH_TOKEN }}@gitea.homelab.local/gitea_admin/devops-portal.git HEAD:main
+          git commit -m "chore: deploy devops-portal ${{ steps.vars.outputs.sha }}"
+          git push origin HEAD:main

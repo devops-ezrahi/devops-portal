@@ -132,11 +132,13 @@ Run `npm run build` before pushing to catch type errors.
 The app runs in a container behind an SSO proxy, deployed onto the `k3d-homelab`
 cluster maintained in the sibling `../homelab` repo (see that repo's `CLAUDE.md`
 and `CLUSTER.md` for cluster-wide setup — Keycloak, Gitea, ArgoCD, hostnames).
-`Dockerfile` builds from `dist/`. The k8s Helm chart lives in `chart/` in this
-repo (not in `../homelab`) — `chart/values.yaml` holds the image tag and portal
-config; Secrets are deliberately not part of the chart (see below). In k8s, env
-vars come from a ConfigMap/Secret mounted as pod env vars — no `.env` file is
-used in production.
+`Dockerfile` builds from `dist/`. The k8s Helm chart lives in
+`../homelab/devops-portal/chart` (moved out of this repo on 2026-07-11 so
+`homelab` is the single source of truth for infra) —
+`chart/values.yaml` holds the image tag and portal config; Secrets are
+deliberately not part of the chart (see below). In k8s, env vars come from a
+ConfigMap/Secret mounted as pod env vars — no `.env` file is used in
+production.
 
 There are two deploy paths:
 
@@ -146,11 +148,13 @@ Push to `main` on the `gitea` remote (see "Pushing" below) and
 `.gitea/workflows/deploy.yaml` takes it from there: builds the image with
 `docker build`, then pushes it to the in-cluster registry
 (`../homelab/manifests/registry.yaml`) at
-`registry.homelab.local/devops-portal:<git-sha>`. The workflow then bumps
-`chart/values.yaml`'s `image.tag` and commits that back to `main`. ArgoCD
-(`../homelab/argocd-apps/devops-portal.yaml`) watches this repo's `chart/` path
-and auto-syncs. No manual step required once the pipeline is deployed and the
-repo is pushed to Gitea.
+`registry.homelab.local/devops-portal:<git-sha>`. The workflow then clones
+`gitea_admin/homelab.git`, bumps `devops-portal/chart/values.yaml`'s
+`image.tag` there, and commits+pushes that as a second, separate commit into
+the `homelab` repo (same `GIT_PUSH_TOKEN`, since `gitea_admin` owns both
+repos). ArgoCD (`../homelab/argocd-apps/devops-portal.yaml`) watches the
+`homelab` repo's `devops-portal/chart` path and auto-syncs. No manual step
+required once the pipeline is deployed and both repos are pushed to Gitea.
 
 The runner (`../homelab/manifests/gitea-runner.yaml`) builds inside a
 Docker-in-Docker sidecar rather than the host's docker.sock — this k3d
@@ -176,7 +180,7 @@ This script:
 3. Builds the Docker image and imports it into the k3d node's containerd
    directly (bare `devops-portal:dev-<timestamp>` tag, no registry round-trip —
    this script has full host Docker access, unlike CI's isolated DinD sidecar)
-4. `helm upgrade --install` against `./chart` with that tag
+4. `helm upgrade --install` against `../homelab/devops-portal/chart` with that tag
 5. Waits for the rollout to be ready
 
 Secrets (`devops-portal-secrets`, `oauth2-proxy-secrets`) are never in the chart — they're owned solely by `scripts/sync-env-to-k3s.sh`'s direct `kubectl apply`, so ArgoCD's `selfHeal` can never revert real values back to a Git-committed placeholder.

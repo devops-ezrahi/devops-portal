@@ -38,7 +38,9 @@ echo "==> Importing image into ${K3D_NODE}'s containerd (no registry needed) ...
 "$DOCKER" save "$IMAGE" | docker exec -i "$K3D_NODE" ctr -n k8s.io images import -
 
 echo "==> Deploying via helm..."
-helm upgrade --install devops-portal ./chart -n devops-portal --create-namespace \
+# Chart lives in the homelab repo now (single source of truth for infra),
+# expected as a sibling directory to this one.
+helm upgrade --install devops-portal ../homelab/devops-portal/chart -n devops-portal --create-namespace \
   --set image.repository=devops-portal \
   --set image.tag="$TAG"
 kubectl rollout status deployment/devops-portal -n devops-portal
