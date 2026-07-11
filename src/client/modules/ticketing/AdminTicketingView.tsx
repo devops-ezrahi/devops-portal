@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addAdminComment,
   getAdminTicket,
@@ -54,11 +54,13 @@ export function AdminTicketingView({
   const [assignees, setAssignees] = useState<AssigneeCandidate[]>([]);
   const [unreadIds, setUnreadIds] = useState<Set<string>>(() => new Set());
   const [showAll, setShowAll] = useState(false);
+  const selectedIdRef = useRef<string | undefined>(undefined);
+  const lastActivityRef = useRef<Map<string, string>>(new Map());
+
+  selectedIdRef.current = selectedAdminTicket?.id;
 
   useEffect(() => {
-    listAdminTickets({})
-      .then((result) => setAdminTickets(result.tickets))
-      .catch((err: Error) => onError(err.message));
+    refreshAdminTickets().catch((err: Error) => onError(err.message));
     getAssignees()
       .then((result) => setAssignees(result.assignees))
       .catch((err: Error) => onError(err.message));
@@ -80,8 +82,32 @@ export function AdminTicketingView({
     return () => window.clearInterval(interval);
   }, [selectedAdminTicket?.id]);
 
+  // Diff against the last-seen activity timestamp per ticket so the unread
+  // dot reflects changes the *other side* made (a comment, a reassignment)
+  // while this ticket wasn't open here — not a ticket this admin is
+  // currently looking at or just edited themselves.
+  function markChangedSinceLastSeen(tickets: TicketSummary[]) {
+    const previous = lastActivityRef.current;
+    const currentlyOpenId = selectedIdRef.current;
+    const changedIds = tickets
+      .filter((t) => {
+        const before = previous.get(t.id);
+        return before !== undefined && before !== t.lastActivityAt && t.id !== currentlyOpenId;
+      })
+      .map((t) => t.id);
+    if (changedIds.length > 0) {
+      setUnreadIds((current) => {
+        const next = new Set(current);
+        changedIds.forEach((id) => next.add(id));
+        return next;
+      });
+    }
+    lastActivityRef.current = new Map(tickets.map((t) => [t.id, t.lastActivityAt]));
+  }
+
   async function refreshAdminTickets() {
     const result = await listAdminTickets({});
+    markChangedSinceLastSeen(result.tickets);
     setAdminTickets(result.tickets);
     if (selectedAdminTicket && !result.tickets.some((t) => t.id === selectedAdminTicket.id)) {
       setSelectedAdminTicket(null);
@@ -156,7 +182,6 @@ export function AdminTicketingView({
               await reloadAdminTicket(selectedAdminTicket.id);
             }}
             onReload={() => reloadAdminTicket(selectedAdminTicket.id)}
-            onUpdated={() => setUnreadIds((current) => new Set(current).add(selectedAdminTicket.id))}
             ticket={selectedAdminTicket}
           />
         ) : (

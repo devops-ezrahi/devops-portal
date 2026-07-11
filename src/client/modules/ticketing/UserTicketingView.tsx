@@ -1,5 +1,5 @@
 import { Plus, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getRequestTypes, getTicket, listTickets } from "./api";
 import { CreateTicketView } from "./components/CreateTicketView";
 import { TicketDetailView } from "./components/TicketDetailView";
@@ -15,18 +15,47 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
   const [unreadIds, setUnreadIds] = useState<Set<string>>(() => new Set());
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isModalClosing, setIsModalClosing] = useState(false);
+  const selectedIdRef = useRef<string | undefined>(undefined);
+  const lastActivityRef = useRef<Map<string, string>>(new Map());
+
+  selectedIdRef.current = selectedTicket?.id;
 
   useEffect(() => {
     Promise.all([getRequestTypes(), listTickets({ scope: "mine" })])
       .then(([catalog, result]) => {
         setRequestTypes(catalog.requestTypes);
+        markChangedSinceLastSeen(result.tickets);
         setTickets(result.tickets);
       })
       .catch((err: Error) => onError(err.message));
   }, []);
 
+  // Diff against the last-seen activity timestamp per ticket so the unread
+  // dot reflects changes an admin made (a status update, a message) while
+  // this ticket wasn't open here — see AdminTicketingView for the matching
+  // admin-side logic.
+  function markChangedSinceLastSeen(nextTickets: TicketSummary[]) {
+    const previous = lastActivityRef.current;
+    const currentlyOpenId = selectedIdRef.current;
+    const changedIds = nextTickets
+      .filter((t) => {
+        const before = previous.get(t.id);
+        return before !== undefined && before !== t.lastActivityAt && t.id !== currentlyOpenId;
+      })
+      .map((t) => t.id);
+    if (changedIds.length > 0) {
+      setUnreadIds((current) => {
+        const next = new Set(current);
+        changedIds.forEach((id) => next.add(id));
+        return next;
+      });
+    }
+    lastActivityRef.current = new Map(nextTickets.map((t) => [t.id, t.lastActivityAt]));
+  }
+
   async function refreshTickets() {
     const result = await listTickets({ scope: "mine" });
+    markChangedSinceLastSeen(result.tickets);
     setTickets(result.tickets);
     if (selectedTicket && !result.tickets.some((t) => t.id === selectedTicket.id)) {
       setSelectedTicket(null);

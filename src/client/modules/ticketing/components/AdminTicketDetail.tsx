@@ -12,7 +12,6 @@ export function AdminTicketDetail({
   currentUserId,
   onAssigneeChange,
   onReload,
-  onUpdated,
   ticket
 }: {
   assignee: string;
@@ -20,7 +19,6 @@ export function AdminTicketDetail({
   currentUserId: string;
   onAssigneeChange: (assigneeId: string, assigneeName: string) => Promise<void>;
   onReload: () => Promise<void>;
-  onUpdated: () => void;
   ticket: TicketDetail;
 }) {
   const [title, setTitle] = useState(ticket.title);
@@ -67,7 +65,6 @@ export function AdminTicketDetail({
       });
       await addAdminComment(ticket.id, statusMessage(`Stage changed to ${newStage}.`));
       await onReload();
-      onUpdated();
     } finally {
       setSubmitting(false);
     }
@@ -94,7 +91,6 @@ export function AdminTicketDetail({
         await addAdminComment(ticket.id, statusMessage("Description updated."));
       }
       await onReload();
-      onUpdated();
     } finally {
       setSubmitting(false);
     }
@@ -107,7 +103,6 @@ export function AdminTicketDetail({
       await addAdminComment(ticket.id, body);
       setBody("");
       await onReload();
-      onUpdated();
     } finally {
       setSubmitting(false);
     }

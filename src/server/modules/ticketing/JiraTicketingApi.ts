@@ -240,10 +240,18 @@ export class JiraTicketingApi implements TicketingApi {
     return detail;
   }
 
-  async addComment(ticketId: string, _user: PortalUser, body: string): Promise<TicketComment> {
+  async addComment(ticketId: string, user: PortalUser, body: string): Promise<TicketComment> {
     const comment = await this.request<JiraComment>(`/issue/${encodeURIComponent(ticketId)}/comment`, {
       method: "POST",
-      body: JSON.stringify({ body })
+      // ponytail: real Jira resolves the comment author from whichever
+      // user's OAuth/PAT made the request. This app authenticates to Jira
+      // with one shared service-level token (JIRA_TOKEN) for every portal
+      // user, so there's no per-request identity for Jira to resolve --
+      // `author` here is a jira-mock-only extension so it can echo the real
+      // portal user back instead of one hardcoded "Mock User" for everyone.
+      // A real Jira Data Center instance ignores unknown JSON properties on
+      // this endpoint, so this is harmless if ever pointed at a real Jira.
+      body: JSON.stringify({ body, author: { name: user.id, displayName: user.displayName } })
     });
     return this.mapComment(comment);
   }
@@ -297,10 +305,10 @@ export class JiraTicketingApi implements TicketingApi {
     return this.getAdminTicket(ticketId) as Promise<TicketDetail>;
   }
 
-  async addAdminComment(ticketId: string, _admin: PortalUser, body: string): Promise<TicketComment> {
+  async addAdminComment(ticketId: string, admin: PortalUser, body: string): Promise<TicketComment> {
     const comment = await this.request<JiraComment>(`/issue/${encodeURIComponent(ticketId)}/comment`, {
       method: "POST",
-      body: JSON.stringify({ body })
+      body: JSON.stringify({ body, author: { name: admin.id, displayName: admin.displayName } })
     });
     return this.mapComment(comment);
   }
