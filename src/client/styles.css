@@ -815,6 +815,11 @@ button:focus-visible {
   font-weight: 800;
 }
 
+.owner-select-row {
+  display: flex;
+  gap: 6px;
+}
+
 .owner-select select {
   width: 100%;
   border: 1px solid #2a3940;
@@ -823,6 +828,12 @@ button:focus-visible {
   padding: 7px 9px;
   background: #0d1316;
   color: #f4f7f8;
+}
+
+.me-button {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 7px 12px;
 }
 
 .team-label {

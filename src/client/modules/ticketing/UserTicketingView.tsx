@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getRequestTypes, getTicket, listTickets } from "./api";
 import { CreateTicketView } from "./components/CreateTicketView";
 import { TicketDetailView } from "./components/TicketDetailView";
-import { isDone, stageClass } from "./utils";
+import { getTicketIdFromUrl, isDone, setTicketIdInUrl, stageClass } from "./utils";
 import type { RequestTypeDefinition, TicketDetail, TicketSummary } from "../../../server/types";
 
 const POLL_INTERVAL_MS = 8000;
@@ -28,6 +28,10 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
         setTickets(result.tickets);
       })
       .catch((err: Error) => onError(err.message));
+    const deepLinkedId = getTicketIdFromUrl();
+    if (deepLinkedId) {
+      openTicket(deepLinkedId).catch((err: Error) => onError(err.message));
+    }
   }, []);
 
   // Diff against the last-seen activity timestamp per ticket so the unread
@@ -85,11 +89,13 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
     });
     const result = await getTicket(id);
     setSelectedTicket(result.ticket);
+    setTicketIdInUrl(id);
   }
 
   async function handleCreated(ticket: TicketDetail) {
     setIsCreateOpen(false);
     setSelectedTicket(ticket);
+    setTicketIdInUrl(ticket.id);
     await refreshTickets();
   }
 
@@ -119,11 +125,7 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
             <div className="ticket-list">
               {activeTickets.map((ticket) => (
                 <button
-                  className={[
-                    "ticket-row",
-                    selectedTicket?.id === ticket.id && "selected",
-                    unreadIds.has(ticket.id) && "unread"
-                  ].filter(Boolean).join(" ")}
+                  className={selectedTicket?.id === ticket.id ? "ticket-row selected" : "ticket-row"}
                   key={ticket.id}
                   onClick={() => openTicket(ticket.id).catch((err: Error) => onError(err.message))}
                 >
@@ -143,11 +145,7 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
               <div className="ticket-list">
                 {doneTickets.map((ticket) => (
                   <button
-                    className={[
-                      "ticket-row",
-                      selectedTicket?.id === ticket.id && "selected",
-                      unreadIds.has(ticket.id) && "unread"
-                    ].filter(Boolean).join(" ")}
+                    className={selectedTicket?.id === ticket.id ? "ticket-row selected" : "ticket-row"}
                     key={ticket.id}
                     onClick={() => openTicket(ticket.id).catch((err: Error) => onError(err.message))}
                   >

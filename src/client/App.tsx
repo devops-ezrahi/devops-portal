@@ -22,7 +22,7 @@ function slugFor(mod: PortalModule) {
 }
 
 function moduleFromPath(pathname: string): string {
-  const slug = pathname.replace(/^\//, "").toLowerCase();
+  const slug = pathname.replace(/^\//, "").split("/")[0].toLowerCase();
   return modules.find((m) => slugFor(m) === slug)?.id ?? modules[0].id;
 }
 

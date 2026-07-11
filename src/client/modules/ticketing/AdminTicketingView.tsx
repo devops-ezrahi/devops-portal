@@ -7,7 +7,7 @@ import {
   updateAdminTicket
 } from "./api";
 import { AdminTicketDetail } from "./components/AdminTicketDetail";
-import { isDone, stageClass, statusMessage } from "./utils";
+import { getTicketIdFromUrl, isDone, setTicketIdInUrl, stageClass, statusMessage } from "./utils";
 import type { AssigneeCandidate, PortalUser, TicketDetail, TicketSummary } from "../../../server/types";
 
 const POLL_INTERVAL_MS = 8000;
@@ -60,6 +60,7 @@ export function AdminTicketingView({
   const [showAll, setShowAll] = useState(false);
   const selectedIdRef = useRef<string | undefined>(undefined);
   const lastActivityRef = useRef<Map<string, string>>(new Map());
+  const hasLoadedRef = useRef(false);
 
   selectedIdRef.current = selectedAdminTicket?.id;
 
@@ -68,6 +69,10 @@ export function AdminTicketingView({
     getAssignees()
       .then((result) => setAssignees(result.assignees))
       .catch((err: Error) => onError(err.message));
+    const deepLinkedId = getTicketIdFromUrl();
+    if (deepLinkedId) {
+      openAdminTicket(deepLinkedId).catch((err: Error) => onError(err.message));
+    }
   }, []);
 
   // Short polling so an assignment/status change made by another admin (or
@@ -87,18 +92,24 @@ export function AdminTicketingView({
   }, [selectedAdminTicket?.id]);
 
   // Diff against the last-seen activity timestamp per ticket so the unread
-  // dot reflects changes the *other side* made (a comment, a reassignment)
-  // while this ticket wasn't open here — not a ticket this admin is
-  // currently looking at or just edited themselves.
+  // dot reflects changes the *other side* made (a comment, a reassignment,
+  // or a brand-new ticket) while this ticket wasn't open here — not a
+  // ticket this admin is currently looking at or just edited themselves.
+  // Skip flagging anything on the very first load (nothing was "previous"
+  // yet, so every existing ticket would otherwise light up as unread).
   function markChangedSinceLastSeen(tickets: TicketSummary[]) {
     const previous = lastActivityRef.current;
     const currentlyOpenId = selectedIdRef.current;
+    const isFirstLoad = !hasLoadedRef.current;
     const changedIds = tickets
       .filter((t) => {
+        if (t.id === currentlyOpenId) return false;
         const before = previous.get(t.id);
-        return before !== undefined && before !== t.lastActivityAt && t.id !== currentlyOpenId;
+        if (before === undefined) return !isFirstLoad;
+        return before !== t.lastActivityAt;
       })
       .map((t) => t.id);
+    hasLoadedRef.current = true;
     if (changedIds.length > 0) {
       setUnreadIds((current) => {
         const next = new Set(current);
@@ -126,6 +137,7 @@ export function AdminTicketingView({
     });
     const result = await getAdminTicket(id);
     setSelectedAdminTicket(result.ticket);
+    setTicketIdInUrl(id);
   }
 
   async function reloadAdminTicket(id: string) {
@@ -179,6 +191,7 @@ export function AdminTicketingView({
             assignee={selectedAdminTicket.assigneeId}
             assignees={assignees}
             currentUserId={user.id}
+            currentUserName={user.displayName}
             onAssigneeChange={async (assigneeId, assigneeName) => {
               const ownerName = assigneeName || "Unassigned";
               await updateAdminTicket(selectedAdminTicket.id, { assigneeId, assigneeName });

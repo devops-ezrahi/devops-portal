@@ -10,6 +10,7 @@ export function AdminTicketDetail({
   assignee,
   assignees,
   currentUserId,
+  currentUserName,
   onAssigneeChange,
   onReload,
   ticket
@@ -17,6 +18,7 @@ export function AdminTicketDetail({
   assignee: string;
   assignees: AssigneeCandidate[];
   currentUserId: string;
+  currentUserName: string;
   onAssigneeChange: (assigneeId: string, assigneeName: string) => Promise<void>;
   onReload: () => Promise<void>;
   ticket: TicketDetail;
@@ -156,28 +158,39 @@ export function AdminTicketDetail({
         </div>
         <label className="owner-select">
           <span>Owner</span>
-          <select
-            value={assignee}
-            onChange={(e) => {
-              const id = e.target.value;
-              const name = assignees.find((a) => a.id === id)?.displayName ?? "";
-              onAssigneeChange(id, name).catch(() => undefined);
-            }}
-          >
-            <option value="">Unassigned</option>
-            {assignee && !assignees.some((a) => a.id === assignee) && (
-              // Assigned to someone not in the known-admins roster (e.g. they
-              // haven't logged in since the last restart) — keep them selectable
-              // instead of silently blanking the dropdown.
-              <option value={assignee}>{ticket.assigneeName || assignee}</option>
+          <div className="owner-select-row">
+            <select
+              value={assignee}
+              onChange={(e) => {
+                const id = e.target.value;
+                const name = assignees.find((a) => a.id === id)?.displayName ?? "";
+                onAssigneeChange(id, name).catch(() => undefined);
+              }}
+            >
+              <option value="">Unassigned</option>
+              {assignee && !assignees.some((a) => a.id === assignee) && (
+                // Assigned to someone not in the known-admins roster (e.g. they
+                // haven't logged in since the last restart) — keep them selectable
+                // instead of silently blanking the dropdown.
+                <option value={assignee}>{ticket.assigneeName || assignee}</option>
+              )}
+              {assignees.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.displayName}
+                  {a.id === currentUserId ? " (me)" : ""}
+                </option>
+              ))}
+            </select>
+            {assignee !== currentUserId && (
+              <button
+                type="button"
+                className="ghost-button me-button"
+                onClick={() => onAssigneeChange(currentUserId, currentUserName).catch(() => undefined)}
+              >
+                Me
+              </button>
             )}
-            {assignees.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.displayName}
-                {a.id === currentUserId ? " (me)" : ""}
-              </option>
-            ))}
-          </select>
+          </div>
         </label>
       </div>
 
