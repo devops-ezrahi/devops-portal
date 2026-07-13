@@ -214,9 +214,8 @@ export function ChatView({ refreshKey, onError }: ModuleViewProps) {
           <MessageSquare size={40} style={{ opacity: 0.25 }} aria-hidden="true" />
           <p style={{ margin: 0, fontWeight: 700, color: "#c8d3d7" }}>AI Assistant not configured</p>
           <p style={{ margin: 0, fontSize: 13, maxWidth: 420 }}>
-            Configure either RAGFlow (<code>RAGFLOW_API_URL</code> + <code>RAGFLOW_API_KEY</code> +{" "}
-            <code>RAGFLOW_CHAT_ID</code>) or any OpenAI-compatible API (
-            <code>OPENAI_API_URL</code> + <code>OPENAI_API_KEY</code>).
+            Set <code>CHAT_API_URL</code> + <code>CHAT_API_KEY</code> (and optionally{" "}
+            <code>CHAT_MODEL</code>) — see <code>.env.example</code>.
           </p>
         </div>
       </div>
