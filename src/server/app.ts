@@ -81,6 +81,13 @@ export function createApp(
       return;
     }
     console.error("[server] Unexpected error:", error);
+    if (error instanceof Error) {
+      // Node's fetch() throws a bare "fetch failed" TypeError and buries the
+      // actual reason (ECONNREFUSED, ENOTFOUND, self-signed cert, ...) in .cause.
+      const cause = error.cause instanceof Error ? `: ${error.cause.message}` : "";
+      res.status(500).json({ error: `${error.message}${cause}` });
+      return;
+    }
     res.status(500).json({ error: "Unexpected server error" });
   });
 

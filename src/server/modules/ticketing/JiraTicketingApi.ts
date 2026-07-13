@@ -85,15 +85,21 @@ export class JiraTicketingApi implements TicketingApi {
   }
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
-    const response = await fetch(`${this.baseUrl}/rest/api/2${path}`, {
-      ...options,
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        ...(options.headers ?? {})
-      }
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}/rest/api/2${path}`, {
+        ...options,
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          ...(options.headers ?? {})
+        }
+      });
+    } catch (cause) {
+      const reason = cause instanceof Error ? cause.message : String(cause);
+      throw new Error(`Jira request failed: could not reach ${this.baseUrl}${path} (${reason})`);
+    }
 
     if (!response.ok) {
       const body = await response.text().catch(() => "");
@@ -101,7 +107,13 @@ export class JiraTicketingApi implements TicketingApi {
     }
 
     const text = await response.text();
-    return (text ? JSON.parse(text) : {}) as T;
+    try {
+      return (text ? JSON.parse(text) : {}) as T;
+    } catch {
+      throw new Error(
+        `Jira request failed: ${path} returned a non-JSON response (got "${text.slice(0, 120)}") — check JIRA_URL/JIRA_TOKEN`
+      );
+    }
   }
 
   private userId(user?: JiraUser | null): string {
