@@ -168,7 +168,7 @@ export async function requireSession(req: Request, res: Response, next: NextFunc
     }
   }
 
-  if (config.allowedGroups.length > 0) {
+  if (config.allowedGroups.length > 0 && !isAdmin(req.user!)) {
     const userGroups = req.user!.groups;
     const allowed = config.allowedGroups.some((g) => userGroups.includes(g));
     if (!allowed) {

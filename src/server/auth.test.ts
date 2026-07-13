@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { userFromSsoHeaders } from "./auth";
 
 function reqWithHeaders(headers: Record<string, string>) {
@@ -32,5 +32,41 @@ describe("userFromSsoHeaders groups parsing", () => {
       }),
     );
     expect(user?.groups).toEqual(["devops-admins", "devops-viewers"]);
+  });
+});
+
+describe("requireSession admin bypass of ALLOWED_GROUPS", () => {
+  afterEach(() => {
+    delete process.env.ADMIN_GROUP;
+    delete process.env.ALLOWED_GROUPS;
+  });
+
+  async function callRequireSession(groupsHeader: string) {
+    vi.resetModules();
+    const { requireSession } = await import("./auth");
+    const req = { headers: { "x-forwarded-user": "alice", "x-forwarded-groups": groupsHeader } } as any;
+    let statusCode: number | undefined;
+    const res = { status(code: number) { statusCode = code; return this; }, json() {} } as any;
+    let nextCalled = false;
+    await requireSession(req, res, () => {
+      nextCalled = true;
+    });
+    return { statusCode, nextCalled };
+  }
+
+  it("lets an admin through even when their group isn't in ALLOWED_GROUPS", async () => {
+    process.env.ADMIN_GROUP = "devops-admins";
+    process.env.ALLOWED_GROUPS = "devops-platform";
+    const { statusCode, nextCalled } = await callRequireSession("devops-admins");
+    expect(nextCalled).toBe(true);
+    expect(statusCode).toBeUndefined();
+  });
+
+  it("still denies a non-admin whose group isn't in ALLOWED_GROUPS", async () => {
+    process.env.ADMIN_GROUP = "devops-admins";
+    process.env.ALLOWED_GROUPS = "devops-platform";
+    const { statusCode, nextCalled } = await callRequireSession("some-other-group");
+    expect(nextCalled).toBe(false);
+    expect(statusCode).toBe(403);
   });
 });
