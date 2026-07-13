@@ -1,10 +1,5 @@
 FROM quay.io/oauth2-proxy/oauth2-proxy:v7.6.0 AS oauth2proxy
 
-# Used by os4-chart (OpenShift OAuthClient deployments) — the upstream
-# oauth2-proxy above doesn't speak OpenShift's internal OAuth server (no OIDC
-# discovery there). Same "extract the binary from a trusted image" approach.
-FROM quay.io/openshift/origin-oauth-proxy@sha256:502dc73e5438f0d61fb3d285e462dcabc82e705754dde53c644c02684f1c429b AS os4oauthproxy
-
 FROM node:20-alpine AS builder
 
 WORKDIR /app
@@ -27,9 +22,6 @@ RUN npx esbuild src/server/index-prod.ts \
     --external:zod \
     --external:multer
 
-# glibc, not Alpine/musl — origin-oauth-proxy is a dynamically-linked glibc
-# binary and won't run on musl (confirmed empirically). oauth2-proxy is
-# statically linked so it's unaffected by this switch either way.
 FROM node:20-slim AS production
 
 RUN groupadd --system appgroup && useradd --system --gid appgroup --no-create-home appuser
@@ -42,7 +34,6 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist/client ./dist/client
 COPY --from=builder /app/dist/server/index-prod.js ./dist/server/index-prod.js
 COPY --from=oauth2proxy /bin/oauth2-proxy /usr/local/bin/oauth2-proxy
-COPY --from=os4oauthproxy /usr/bin/oauth-proxy /usr/local/bin/os4-oauth-proxy
 COPY scripts/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

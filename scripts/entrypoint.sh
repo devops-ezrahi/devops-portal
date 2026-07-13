@@ -6,19 +6,12 @@ set -e
 # out on the pod's terminationGracePeriodSeconds SIGKILL sweep instead. Fine
 # for a homelab; upgrade path is `tini -s` as PID 1 if graceful-shutdown
 # timing ever matters.
-if [ "$AUTH_PROVIDER" = "openshift" ]; then
-  # os4-oauth-proxy doesn't bind -upstream to an env var (unlike every other
-  # scalar flag, see os4-chart's configmap.yaml) — hardcoded here since it's
-  # always localhost:8080, never a per-deployment value.
-  os4-oauth-proxy -upstream=http://localhost:8080 "$@" &
-else
-  # oauth2-proxy wants the issuer root (it appends
-  # /.well-known/openid-configuration itself), but a CRD-issued Keycloak
-  # client secret hands back the full discovery URL instead — strip the
-  # suffix here rather than requiring every such chart to duplicate it.
-  if [ -z "$OAUTH2_PROXY_OIDC_ISSUER_URL" ] && [ -n "$WELLKNOWN_URL" ]; then
-    export OAUTH2_PROXY_OIDC_ISSUER_URL="${WELLKNOWN_URL%/.well-known/openid-configuration}"
-  fi
-  oauth2-proxy "$@" &
+# oauth2-proxy wants the issuer root (it appends
+# /.well-known/openid-configuration itself), but a CRD-issued Keycloak
+# client secret hands back the full discovery URL instead — strip the
+# suffix here rather than requiring every such chart to duplicate it.
+if [ -z "$OAUTH2_PROXY_OIDC_ISSUER_URL" ] && [ -n "$WELLKNOWN_URL" ]; then
+  export OAUTH2_PROXY_OIDC_ISSUER_URL="${WELLKNOWN_URL%/.well-known/openid-configuration}"
 fi
+oauth2-proxy "$@" &
 exec node dist/server/index-prod.js

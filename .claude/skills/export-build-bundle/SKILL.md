@@ -17,9 +17,9 @@ bash .claude/skills/export-build-bundle/build-bundle.sh
 ```
 
 Add `WITH_BASE_IMAGES=1` to also pack the Dockerfile's base images
-(currently `oauth2-proxy`, `origin-oauth-proxy`, `node:20-alpine`,
-`node:20-slim` — parsed from the Dockerfile's `FROM` lines at run time, not
-hardcoded, so it stays correct if the Dockerfile changes):
+(currently `oauth2-proxy`, `node:20-alpine`, `node:20-slim` — parsed from the
+Dockerfile's `FROM` lines at run time, not hardcoded, so it stays correct if
+the Dockerfile changes):
 
 ```bash
 WITH_BASE_IMAGES=1 bash .claude/skills/export-build-bundle/build-bundle.sh
