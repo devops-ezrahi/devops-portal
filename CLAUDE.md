@@ -44,12 +44,14 @@ src/
 Each feature is a self-contained module in two mirrored folders. **Conform new modules to this exact layout** so the codebase stays uniform.
 
 **Server** — `src/server/modules/<name>/`:
+
 - `router.ts` exports `create<Name>Router(...)` and is mounted in `src/server/app.ts`.
 - The data layer lives **inside the module folder** — never add data files at `src/server/*.ts`.
 - **Inject the data API into the router only when more than one implementation exists.** Ticketing (`JiraTicketingApi` / `InMemoryTicketingApi`) and Artifactory (`RealArtifactoryApi`) take an injected API instance — this keeps them swappable and unit-testable. Single-backend modules (`ragflow`) keep their logic in a sibling `service.ts` (or inline in the router for `ragflow`) that the router imports directly; no DI ceremony.
 - `app.ts` selects the implementation by config, e.g. `config.jira.enabled ? new JiraTicketingApi(config.jira) : new InMemoryTicketingApi()`.
 
 **Client** — `src/client/modules/<name>/`:
+
 - `index.tsx` exports a `PortalModule` object (`id`, `userNav`, `adminNav`, `View`); add it to the `modules` array in `src/client/App.tsx`.
 - `api.ts` holds **only this module's** fetch calls (built on the shared `request`/`requestFormData` helpers from `src/client/api.ts`).
 - Sub-components live in `components/`, one per file — don't inline large components in the View.
@@ -61,6 +63,7 @@ The shell passes `refreshKey` as a prop; modules use it as a React `key` to remo
 Shipped code must use real data sources only — no seed/demo data baked into modules. Test fixtures belong under `__tests__/` (e.g. `modules/ticketing/__tests__/seedTickets.ts`) and are injected into the in-memory API by tests, never loaded by default.
 
 One **intentional, temporary** exception remains for local dev/demo and is slated for replacement:
+
 - `src/client/api.ts` `demoUsers` + role switcher, and the dev fallback user in `auth.ts` — let the app run locally without an SSO proxy in front.
 
 ## Config & environment
@@ -69,15 +72,15 @@ Startup config is read from environment variables **once** via `src/server/confi
 
 Key variables (see `.env.example`):
 
-| Variable | Default | Effect |
-|---|---|---|
-| `SSO_REQUIRED` | `false` | Enforce SSO proxy headers; returns 401 if absent |
-| `SSO_URL` | — | SSO login URL sent to the client on 401 |
-| `ALLOWED_GROUPS` | — | Pipe-separated groups allowed to use the portal at all (empty = allow everyone); 403 otherwise |
-| `ADMIN_GROUP` | `portal-admins` | Pipe-separated groups that grant admin access |
-| `ARTIFACTORY_URL` / `ARTIFACTORY_REPO` / `ARTIFACTORY_TOKEN` | — | All three required to activate `RealArtifactoryApi` |
-| `JIRA_URL` / `JIRA_TOKEN` / `JIRA_PROJECT_KEY` | — | All three required to activate `JiraTicketingApi` (Jira Data Center, Bearer PAT); otherwise `InMemoryTicketingApi` fallback |
-| `CHAT_API_URL` / `CHAT_API_KEY` | — | Both required to enable the chat proxy; otherwise `/api/ragflow/chat` returns 503 |
+| Variable                                                     | Default         | Effect                                                                                                                      |
+| ------------------------------------------------------------ | --------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `SSO_REQUIRED`                                               | `false`         | Enforce SSO proxy headers; returns 401 if absent                                                                            |
+| `SSO_URL`                                                    | —               | SSO login URL sent to the client on 401                                                                                     |
+| `ALLOWED_GROUPS`                                             | —               | Pipe-separated groups allowed to use the portal at all (empty = allow everyone); 403 otherwise                              |
+| `ADMIN_GROUP`                                                | `portal-admins` | Pipe-separated groups that grant admin access                                                                               |
+| `ARTIFACTORY_URL` / `ARTIFACTORY_REPO` / `ARTIFACTORY_TOKEN` | —               | All three required to activate `RealArtifactoryApi`                                                                         |
+| `JIRA_URL` / `JIRA_TOKEN` / `JIRA_PROJECT_KEY`               | —               | All three required to activate `JiraTicketingApi` (Jira Data Center, Bearer PAT); otherwise `InMemoryTicketingApi` fallback |
+| `CHAT_API_URL` / `CHAT_API_KEY`                              | —               | Both required to enable the chat proxy; otherwise `/api/ragflow/chat` returns 503                                           |
 
 Groups are pipe-separated (not comma) so LDAP-style DNs containing commas work. Set `ALLOWED_GROUPS`/`ADMIN_GROUP` to plain group names (e.g. `devops-admins`), even when the IdP's groups claim sends full DNs (`CN=devops-admins,OU=...,DC=...`) — `auth.ts`'s `parseGroups` detects `CN=` and extracts just the CN for matching, since oauth2-proxy comma-joins multiple groups into one `X-Forwarded-Groups` header value and a naive split can't tell a group boundary from a comma inside a DN.
 
