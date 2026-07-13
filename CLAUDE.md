@@ -2,7 +2,7 @@
 
 Express + React + TypeScript + Vite portal intended for k8s deployment fronted by oauth2-proxy (Keycloak OIDC), bundled into the same container image (see `Dockerfile` / `scripts/entrypoint.sh` — oauth2-proxy runs as a background process on :4180, proxying to the Express app on localhost:8080). The proxy injects `x-forwarded-user` / `x-forwarded-groups` headers; the server reads those to identify users and grant admin access.
 
-OpenShift 4 deployment uses the same chart and the same `oauth2-proxy` (Keycloak OIDC) path as everywhere else — the real OS4 cluster provisions its Keycloak client via a platform CRD, not a manually-registered one. That CRD hands back a Secret with `client`/`secret`/`wellknown` keys; `../homelab/devops-portal/chart`'s `oauth2Proxy.credentialsSecretName` (see `values.openshift.yaml.example`) points at it, and `entrypoint.sh` derives `OAUTH2_PROXY_OIDC_ISSUER_URL` from the `wellknown` URL by stripping its `/.well-known/openid-configuration` suffix. There used to be an `os4-chart` using OpenShift's own OAuth server (a cluster-scoped `OAuthClient` + the bundled `origin-oauth-proxy` binary, selected via `AUTH_PROVIDER=openshift`) — deleted 2026-07-13 once it was confirmed the real cluster's Keycloak-CRD flow needs Keycloak-issued credentials, which fail token exchange silently if pointed at OpenShift's own OAuth server instead. `origin-oauth-proxy`, the `AUTH_PROVIDER` branch in `entrypoint.sh`, and `auth.ts`'s `groupsViaTokenReview` TokenReview fallback were removed 2026-07-13 once confirmed unreferenced by any chart.
+OpenShift 4 deployment uses this same `oauth2-proxy`/Keycloak path, not OpenShift's own OAuth server — the real OS4 cluster's Keycloak CRD hands back Keycloak-issued credentials (`values.openshift.yaml.example` in the chart), which fail token exchange silently against OpenShift's native OAuth. (An earlier OpenShift-native path — `os4-chart`, `origin-oauth-proxy`, `AUTH_PROVIDER`, `auth.ts`'s TokenReview fallback — was removed for this reason.)
 
 ## Dev setup
 
@@ -118,7 +118,7 @@ git push                           # subsequent pushes
 git push gitea <branch-name>:<branch-name>   # feed the Gitea Actions pipeline
 ```
 
-Run `npm run build` before pushing to catch type errors. Never force-push to `main`.
+Never force-push to `main`.
 
 ## Testing
 
@@ -127,51 +127,30 @@ npm test          # vitest run (unit + integration)
 npm run build     # tsc --noEmit + vite build (type-check included)
 ```
 
-Run `npm run build` before pushing to catch type errors.
-
 ## Deployment
 
 The app runs in a single container fronted by oauth2-proxy (bundled into the
-same image, not a separate sidecar — see `scripts/entrypoint.sh`), deployed
-onto the `k3d-homelab` cluster maintained in the sibling `../homelab` repo
-(see that repo's `CLAUDE.md` and `CLUSTER.md` for cluster-wide setup —
-Keycloak, Gitea, ArgoCD, hostnames). `Dockerfile` builds from `dist/`. The k8s Helm chart lives in
-`../homelab/devops-portal/chart` (moved out of this repo on 2026-07-11 so
-`homelab` is the single source of truth for infra) —
-`chart/values.yaml` holds the image tag and portal config; Secrets are
-deliberately not part of the chart (see below). In k8s, env vars come from a
-ConfigMap/Secret mounted as pod env vars — no `.env` file is used in
+same image — see `scripts/entrypoint.sh`), deployed onto the `k3d-homelab`
+cluster maintained in the sibling `../homelab` repo (see that repo's
+`CLAUDE.md`/`CLUSTER.md` for cluster-wide setup). `Dockerfile` builds from
+`dist/`. The Helm chart lives in `../homelab/devops-portal/chart` (homelab is
+the single source of truth for infra) — Secrets are deliberately not part of
+the chart. In k8s, env vars come from a ConfigMap/Secret — no `.env` file in
 production.
 
 ### Gitea Actions → in-cluster registry → ArgoCD
 
-Push to `main` on the `gitea` remote (see "Pushing" below) and
-`.gitea/workflows/deploy.yaml` takes it from there: builds the image with
-`docker build`, then pushes it to the in-cluster registry
-(`../homelab/manifests/registry.yaml`) at
-`registry.homelab.local/devops-portal:<git-sha>`. The workflow then clones
-`gitea_admin/homelab.git`, bumps `devops-portal/chart/values.yaml`'s
-`image.tag` there, and commits+pushes that as a second, separate commit into
-the `homelab` repo (same `GIT_PUSH_TOKEN`, since `gitea_admin` owns both
-repos). ArgoCD (`../homelab/argocd-apps/devops-portal.yaml`) watches the
-`homelab` repo's `devops-portal/chart` path and auto-syncs. No manual step
-required once the pipeline is deployed and both repos are pushed to Gitea.
+Push to `main` on the `gitea` remote and `.gitea/workflows/deploy.yaml` takes
+it from there: builds the image, pushes it to the in-cluster registry, bumps
+`image.tag` in a commit to the `homelab` repo's `devops-portal/chart`, which
+ArgoCD auto-syncs. No manual step required once both repos are pushed to
+Gitea — see `../homelab/manifests/gitea-runner.yaml` for why the runner needs
+a registry hop (DinD, no host docker.sock) instead of a direct image load.
 
-The runner (`../homelab/manifests/gitea-runner.yaml`) builds inside a
-Docker-in-Docker sidecar rather than the host's docker.sock — this k3d
-cluster's node was never created with that socket bind-mounted, and there's
-no k3d CLI available in this environment to safely recreate it. DinD means
-job containers are isolated from the k3d node's containerd, so (unlike the
-homelab repo's mock services, side-loaded directly — see
-`../homelab/scripts/01-build-mocks.sh`) this pipeline has to go through a
-registry; the node's containerd separately needs to trust that registry to
-pull the image (`../homelab/registries.yaml`, applied by hand, requires
-restarting the `k3d-homelab-server-0` container). See that manifest file's
-comments for the full reasoning.
-
-There is no manual local deploy path — the Gitea Actions → registry → ArgoCD pipeline above is the only way code reaches the cluster. Secrets (`devops-portal-secrets`, `oauth2-proxy-secrets`) are never in the chart, so ArgoCD's `selfHeal` can never revert real values back to a Git-committed placeholder.
-
-The portal is then live at **http://devops-portal.homelab.local** (oauth2-proxy → portal) — needs a hosts-file entry, see `../homelab/CLAUDE.md` → Links.
+There is no manual local deploy path — this pipeline is the only way code
+reaches the cluster. The portal is then live at
+**http://devops-portal.homelab.local** — needs a hosts-file entry, see
+`../homelab/CLAUDE.md` → Links.
 
 ## Finishing a task
 
