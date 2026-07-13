@@ -79,7 +79,7 @@ Key variables (see `.env.example`):
 | `JIRA_URL` / `JIRA_TOKEN` / `JIRA_PROJECT_KEY` | — | All three required to activate `JiraTicketingApi` (Jira Data Center, Bearer PAT); otherwise `InMemoryTicketingApi` fallback |
 | `CHAT_API_URL` / `CHAT_API_KEY` | — | Both required to enable the chat proxy; otherwise `/api/ragflow/chat` returns 503 |
 
-Groups are pipe-separated (not comma) so LDAP-style DNs containing commas work.
+Groups are pipe-separated (not comma) so LDAP-style DNs containing commas work. Set `ALLOWED_GROUPS`/`ADMIN_GROUP` to plain group names (e.g. `devops-admins`), even when the IdP's groups claim sends full DNs (`CN=devops-admins,OU=...,DC=...`) — `auth.ts`'s `parseGroups` detects `CN=` and extracts just the CN for matching, since oauth2-proxy comma-joins multiple groups into one `X-Forwarded-Groups` header value and a naive split can't tell a group boundary from a comma inside a DN.
 
 Adding a new env var: add to `.env.example`, expose it in `src/server/config.ts`, consume via the config object.
 

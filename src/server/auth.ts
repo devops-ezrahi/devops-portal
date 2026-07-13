@@ -93,6 +93,23 @@ function readHeader(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+// oauth2-proxy comma-joins multiple groups into one X-Forwarded-Groups
+// header value, which collides with LDAP/AD-style group DNs
+// (CN=foo,OU=bar,DC=baz) that use commas as their own separator — naively
+// splitting on "," shreds each DN into unmatched fragments. CN is always a
+// DN's first component, so when DN syntax is present, pull group names out
+// by CN= boundary instead; otherwise keep the plain comma-split (homelab's
+// Keycloak groups aren't DNs).
+function parseGroups(raw: string): string[] {
+  if (/\bCN=/i.test(raw)) {
+    return [...raw.matchAll(/CN=([^,]+)/gi)].map((m) => m[1].trim());
+  }
+  return raw
+    .split(",")
+    .map((g) => g.trim())
+    .filter(Boolean);
+}
+
 let devRole: "user" | "admin" = "user";
 
 export function setDevRole(role: "user" | "admin") {
@@ -121,10 +138,7 @@ export function userFromSsoHeaders(req: Request): PortalUser | null {
     id,
     email,
     displayName,
-    groups: rawGroups
-      .split(",")
-      .map((g) => g.trim())
-      .filter(Boolean),
+    groups: parseGroups(rawGroups),
   };
 }
 
