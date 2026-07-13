@@ -1,16 +1,16 @@
 ---
 name: export-build-bundle
-description: Export a self-contained build-export/ bundle (source code + node_modules, optionally the Dockerfile's base images) for building devops-portal on a machine with no npm registry / container registry access, and pack it into a single build-export.tar.gz. Use when asked to package or bundle the source and dependencies for offline building.
+description: Export a self-contained build-export.tar.gz (source code + node_modules, optionally the Dockerfile's base images) for building devops-portal on a machine with no npm registry / container registry access. Use when asked to package or bundle the source and dependencies for offline building.
 ---
 
-Produces `build-export/` at the repo root: `source/` (git-tracked source,
-via `git archive HEAD`) and `node_modules/` (copied from this repo's own
-install, or a fresh `npm ci` if none exists) — everything needed to run
-`npm run build` / `docker build` without npm registry access. Optionally
-also pulls and saves the Dockerfile's base images as tars, for a target
-with no container registry access either. The whole `build-export/`
-directory is then packed into `build-export.tar.gz` at the repo root, for a
-single file to copy to the target machine.
+Assembles `source/` (git-tracked source, via `git archive HEAD`) and
+`node_modules/` (copied from this repo's own install, or a fresh `npm ci`
+if none exists) — everything needed to run `npm run build` / `docker build`
+without npm registry access. Optionally also pulls and saves the
+Dockerfile's base images as tars, for a target with no container registry
+access either. Everything is packed into a single `build-export.tar.gz` at
+the repo root; the working directory it was assembled in is deleted
+afterward, so only the tar is left behind.
 
 ## Run
 
