@@ -30,6 +30,7 @@ Thumbs.db
 # Local build export bundle (source + node_modules + optional base images,
 # generated on demand)
 /build-export/
+/build-export.tar.gz
 
 # Per-network values overlay for the export bundle (copy from
 # chart/values.closed-network.yaml.example) — network-specific, not shared

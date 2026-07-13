@@ -70,6 +70,12 @@ if [ -n "${WITH_BASE_IMAGES:-}" ]; then
   done < <(grep -E '^FROM' Dockerfile)
 fi
 
+echo "==> Packing $OUT_DIR into a single tar..."
+tar -czf "$PORTAL_DIR/build-export.tar.gz" -C "$PORTAL_DIR" build-export
+
 echo ""
 echo "Done. Bundle contents:"
 du -sh "$OUT_DIR"/source "$OUT_DIR"/node_modules "$OUT_DIR"/base-images 2>/dev/null
+echo ""
+echo "Tar: $PORTAL_DIR/build-export.tar.gz"
+du -sh "$PORTAL_DIR/build-export.tar.gz"
