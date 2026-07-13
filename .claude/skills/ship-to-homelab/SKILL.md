@@ -1,9 +1,9 @@
 ---
 name: ship-to-homelab
-description: Ship a devops-portal change through the real CI/CD path (Gitea Actions build+push, chart tag bump, ArgoCD sync) instead of the local fast-path deploy, and confirm it actually landed. Use when asked to deploy via the pipeline, verify CI/CD, or check whether a push made it to the cluster.
+description: Ship a devops-portal change through the CI/CD path (Gitea Actions build+push, chart tag bump, ArgoCD sync) and confirm it actually landed. Use when asked to deploy via the pipeline, verify CI/CD, or check whether a push made it to the cluster.
 ---
 
-Covers the **real pipeline** path (`../homelab/CLAUDE.md` → SSO/OIDC and
+Covers the CI/CD pipeline path (`../homelab/CLAUDE.md` → SSO/OIDC and
 Deployment sections), not local dev — for that, use the `run-devops-portal`
 skill. This one is for "did my change actually reach the running pod",
 end to end.
@@ -90,7 +90,3 @@ manifest before poking at the workload directly.
   actually `2/2 Running` in `-n gitea` — it needs the
   `act-runner-registration` Secret created by hand once (Gitea Admin →
   Actions → Runners), see `../homelab/manifests/gitea-runner.yaml` comments.
-- **Don't reach for `scripts/deploy-k3s.sh`** to "fix" a broken CI deploy —
-  that's the separate local fast-path (side-loads a `dev-<timestamp>` tag
-  directly, bypassing the registry entirely) and will mask whatever the
-  pipeline actually did.

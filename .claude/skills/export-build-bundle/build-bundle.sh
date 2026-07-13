@@ -4,8 +4,8 @@
 # npm registry / container registry access. See SKILL.md.
 #
 # Deliberately does NOT run npm run build, docker build, or produce a
-# devops-portal image itself — that's ../export-deploy-bundle's job. This
-# skill only packages the raw inputs a build would need offline.
+# devops-portal image itself — this skill only packages the raw inputs a
+# build would need offline.
 set -e
 
 SKILL_DIR="$(cd "$(dirname "$0")" && pwd)"

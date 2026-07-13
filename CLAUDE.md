@@ -143,9 +143,7 @@ deliberately not part of the chart (see below). In k8s, env vars come from a
 ConfigMap/Secret mounted as pod env vars — no `.env` file is used in
 production.
 
-There are two deploy paths:
-
-### Real pipeline: Gitea Actions → in-cluster registry → ArgoCD
+### Gitea Actions → in-cluster registry → ArgoCD
 
 Push to `main` on the `gitea` remote (see "Pushing" below) and
 `.gitea/workflows/deploy.yaml` takes it from there: builds the image with
@@ -171,22 +169,7 @@ pull the image (`../homelab/registries.yaml`, applied by hand, requires
 restarting the `k3d-homelab-server-0` container). See that manifest file's
 comments for the full reasoning.
 
-### Manual local deploy (fast path while iterating)
-
-```bash
-bash scripts/deploy-k3s.sh
-```
-
-This script:
-1. Syncs `.env` → the `devops-portal-secrets` k8s Secret (`sync-env-to-k3s.sh`)
-2. Runs `npm run build`
-3. Builds the Docker image and imports it into the k3d node's containerd
-   directly (bare `devops-portal:dev-<timestamp>` tag, no registry round-trip —
-   this script has full host Docker access, unlike CI's isolated DinD sidecar)
-4. `helm upgrade --install` against `../homelab/devops-portal/chart` with that tag
-5. Waits for the rollout to be ready
-
-Secrets (`devops-portal-secrets`, `oauth2-proxy-secrets`) are never in the chart — they're owned solely by `scripts/sync-env-to-k3s.sh`'s direct `kubectl apply`, so ArgoCD's `selfHeal` can never revert real values back to a Git-committed placeholder.
+There is no manual local deploy path — the Gitea Actions → registry → ArgoCD pipeline above is the only way code reaches the cluster. Secrets (`devops-portal-secrets`, `oauth2-proxy-secrets`) are never in the chart, so ArgoCD's `selfHeal` can never revert real values back to a Git-committed placeholder.
 
 The portal is then live at **http://devops-portal.homelab.local** (oauth2-proxy → portal) — needs a hosts-file entry, see `../homelab/CLAUDE.md` → Links.
 
