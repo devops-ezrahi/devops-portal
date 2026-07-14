@@ -76,6 +76,7 @@ tar -czf "$PORTAL_DIR/build-export.tar.gz" -C "$PORTAL_DIR" build-export
 echo "==> Cleaning up $OUT_DIR (kept only as the tar)..."
 rm -rf "$OUT_DIR"
 
+
 echo ""
 echo "Done. $PORTAL_DIR/build-export.tar.gz:"
 du -sh "$PORTAL_DIR/build-export.tar.gz"
