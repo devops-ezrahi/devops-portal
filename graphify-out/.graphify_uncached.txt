@@ -1,0 +1,7 @@
+D:\Coding\devops-portal\.claude\skills\export-build-bundle\SKILL.md
+D:\Coding\devops-portal\.claude\skills\run-devops-portal\SKILL.md
+D:\Coding\devops-portal\.claude\skills\ship-to-homelab\SKILL.md
+D:\Coding\devops-portal\.gitea\workflows\deploy.yaml
+D:\Coding\devops-portal\CLAUDE.md
+D:\Coding\devops-portal\index.html
+D:\Coding\devops-portal\build-export.tar.gz.png
