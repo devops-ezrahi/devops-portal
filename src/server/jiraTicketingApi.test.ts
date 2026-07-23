@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { JiraTicketingApi } from "./modules/ticketing/JiraTicketingApi";
+import type { PortalUser } from "./types";
 
 function jsonResponse(body: unknown) {
   return new Response(JSON.stringify(body), { status: 200 });
@@ -61,5 +62,21 @@ describe("JiraTicketingApi.listAdminTickets", () => {
     const searchCall = fetchMock.mock.calls.find(([url]) => url.includes("/search"));
     const jql = JSON.parse(searchCall![1]!.body as string).jql as string;
     expect(jql).not.toContain("sprint");
+  });
+});
+
+describe("JiraTicketingApi.listTickets", () => {
+  const user: PortalUser = { id: "jdoe", email: "jdoe@example.com", displayName: "J Doe", groups: [] };
+
+  it("scopes 'mine' to this project, not every project the user has reported in", async () => {
+    const fetchMock = vi.fn(async (_url: string, _options?: RequestInit) => jsonResponse({ issues: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await makeApi("").listTickets(user, { scope: "mine" });
+
+    const searchCall = fetchMock.mock.calls.find(([url]) => url.includes("/search"));
+    const jql = JSON.parse(searchCall![1]!.body as string).jql as string;
+    expect(jql).toContain(`project = "DEVOPS"`);
+    expect(jql).toContain(`reporter = "jdoe"`);
   });
 });

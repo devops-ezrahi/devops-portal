@@ -252,11 +252,9 @@ export class JiraTicketingApi implements TicketingApi {
   }
 
   async listTickets(user: PortalUser, filters: TicketFilters): Promise<TicketSummary[]> {
-    const clauses: string[] = [];
+    const clauses: string[] = [`project = ${quoteJql(this.projectKey)}`];
     if (filters.scope === "mine") {
       clauses.push(`reporter = ${quoteJql(user.id)}`);
-    } else {
-      clauses.push(`project = ${quoteJql(this.projectKey)}`);
     }
     if (filters.status) {
       clauses.push(`status = ${quoteJql(filters.status)}`);
