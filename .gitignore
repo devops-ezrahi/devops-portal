@@ -27,10 +27,9 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Local build export bundle (source + node_modules + optional base images,
-# generated on demand)
-/build-export/
-/build-export.tar.gz
+# Local whitening-packer output (source + node_modules + optional base
+# images, generated on demand — see the whitening-packer skill)
+/*.zip
 
 # Per-network values overlay for the export bundle (copy from
 # chart/values.closed-network.yaml.example) — network-specific, not shared
