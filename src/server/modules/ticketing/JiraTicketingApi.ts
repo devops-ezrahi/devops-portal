@@ -63,10 +63,21 @@ type JiraTransitionsResponse = {
   transitions?: JiraTransition[];
 };
 
+type JiraSprint = {
+  id: number;
+  state?: string;
+};
+
+type JiraSprintsResponse = {
+  values?: JiraSprint[];
+};
+
 export type JiraTicketingConfig = {
   baseUrl: string;
   token: string;
   projectKey: string;
+  boardId: string;
+  maintenanceIssueType: string;
 };
 
 function quoteJql(value: string) {
@@ -77,17 +88,21 @@ export class JiraTicketingApi implements TicketingApi {
   private readonly baseUrl: string;
   private readonly token: string;
   private readonly projectKey: string;
+  private readonly boardId: string;
+  private readonly maintenanceIssueType: string;
 
   constructor(config: JiraTicketingConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, "");
     this.token = config.token;
     this.projectKey = config.projectKey;
+    this.boardId = config.boardId;
+    this.maintenanceIssueType = config.maintenanceIssueType;
   }
 
-  private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  private async fetchJson<T>(fullPath: string, options: RequestInit = {}): Promise<T> {
     let response: Response;
     try {
-      response = await fetch(`${this.baseUrl}/rest/api/2${path}`, {
+      response = await fetch(`${this.baseUrl}${fullPath}`, {
         ...options,
         headers: {
           Authorization: `Bearer ${this.token}`,
@@ -98,7 +113,7 @@ export class JiraTicketingApi implements TicketingApi {
       });
     } catch (cause) {
       const reason = cause instanceof Error ? cause.message : String(cause);
-      throw new Error(`Jira request failed: could not reach ${this.baseUrl}${path} (${reason})`);
+      throw new Error(`Jira request failed: could not reach ${this.baseUrl}${fullPath} (${reason})`);
     }
 
     if (!response.ok) {
@@ -111,9 +126,24 @@ export class JiraTicketingApi implements TicketingApi {
       return (text ? JSON.parse(text) : {}) as T;
     } catch {
       throw new Error(
-        `Jira request failed: ${path} returned a non-JSON response (got "${text.slice(0, 120)}") — check JIRA_URL/JIRA_TOKEN`
+        `Jira request failed: ${fullPath} returned a non-JSON response (got "${text.slice(0, 120)}") — check JIRA_URL/JIRA_TOKEN`
       );
     }
+  }
+
+  private request<T>(path: string, options: RequestInit = {}): Promise<T> {
+    return this.fetchJson<T>(`/rest/api/2${path}`, options);
+  }
+
+  private agileRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+    return this.fetchJson<T>(`/rest/agile/1.0${path}`, options);
+  }
+
+  private async getActiveSprintId(): Promise<number | null> {
+    const result = await this.agileRequest<JiraSprintsResponse>(
+      `/board/${encodeURIComponent(this.boardId)}/sprint?state=active`
+    );
+    return result.values?.[0]?.id ?? null;
   }
 
   private userId(user?: JiraUser | null): string {
@@ -270,6 +300,16 @@ export class JiraTicketingApi implements TicketingApi {
 
   async listAdminTickets(filters: AdminTicketFilters): Promise<TicketSummary[]> {
     const clauses: string[] = [`project = ${quoteJql(this.projectKey)}`];
+    if (this.maintenanceIssueType) {
+      clauses.push(`issuetype = ${quoteJql(this.maintenanceIssueType)}`);
+    }
+    if (this.boardId) {
+      const sprintId = await this.getActiveSprintId();
+      if (sprintId === null) {
+        return [];
+      }
+      clauses.push(`sprint = ${sprintId}`);
+    }
     if (filters.status) {
       clauses.push(`status = ${quoteJql(filters.status)}`);
     }

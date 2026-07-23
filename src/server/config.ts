@@ -12,6 +12,8 @@ const chatApiKey = requireEnv("CHAT_API_KEY");
 const jiraUrl = requireEnv("JIRA_URL");
 const jiraToken = requireEnv("JIRA_TOKEN");
 const jiraProjectKey = requireEnv("JIRA_PROJECT_KEY");
+const jiraBoardId = requireEnv("JIRA_BOARD_ID");
+const jiraMaintenanceIssueType = requireEnv("JIRA_MAINTENANCE_ISSUE_TYPE");
 
 export const config = {
   ssoRequired: process.env.SSO_REQUIRED === "true",
@@ -34,6 +36,8 @@ export const config = {
     baseUrl: jiraUrl ?? "",
     token: jiraToken ?? "",
     projectKey: jiraProjectKey ?? "",
+    boardId: jiraBoardId ?? "",
+    maintenanceIssueType: jiraMaintenanceIssueType ?? "Maintenance",
     enabled: !!(jiraUrl && jiraToken && jiraProjectKey),
   },
   chat: {
