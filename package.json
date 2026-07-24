@@ -1,6 +1,6 @@
 {
   "name": "devops-customer-portal",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
 "type": "module",
   "scripts": {
@@ -28,7 +28,7 @@
     "zod": "^4.1.13"
   },
   "devDependencies": {
-    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.0",
     "@types/adm-zip": "^0.5.8",
     "@types/cors": "^2.8.19",
