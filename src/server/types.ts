@@ -150,6 +150,32 @@ export interface ArtifactoryApi {
   getJob(jobId: string): Promise<ArtifactoryJob | null>;
 }
 
+// ---- Whitening Module ----
+
+export type WhiteningJobStatus = "pending" | "in-progress" | "completed" | "failed";
+
+export type WhiteningJob = {
+  id: string;
+  status: WhiteningJobStatus;
+  submittedBy: string;
+  submittedByName: string;
+  createdAt: string;
+  updatedAt: string;
+  zipName: string;
+  team: string;
+  project: string;
+  version: string;
+  prUrl?: string;
+  errorMessage?: string;
+  log: string[];
+};
+
+export interface WhiteningApi {
+  submitUnpack(zipBuffer: Buffer, zipName: string, submitter: PortalUser): Promise<WhiteningJob>;
+  listJobs(user: PortalUser, allUsers?: boolean): Promise<WhiteningJob[]>;
+  getJob(jobId: string): Promise<WhiteningJob | null>;
+}
+
 // ---- RAGFlow / Chat Module ----
 
 export type ChatMessage = {

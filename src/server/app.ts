@@ -9,13 +9,21 @@ import { createRagflowRouter } from "./modules/ragflow/router";
 import { InMemoryTicketingApi } from "./modules/ticketing/InMemoryTicketingApi";
 import { JiraTicketingApi } from "./modules/ticketing/JiraTicketingApi";
 import { createTicketingRouter } from "./modules/ticketing/router";
-import type { ArtifactoryApi, TicketingApi } from "./types";
+import { RealWhiteningApi } from "./modules/whitening/RealWhiteningApi";
+import { createWhiteningRouter } from "./modules/whitening/router";
+import type { ArtifactoryApi, TicketingApi, WhiteningApi } from "./types";
 
 export function createApp(
   ticketingApi: TicketingApi = config.jira.enabled ? new JiraTicketingApi(config.jira) : new InMemoryTicketingApi(),
-  artifactoryApi: ArtifactoryApi = new RealArtifactoryApi()
+  artifactoryApi: ArtifactoryApi = new RealArtifactoryApi(),
+  whiteningApi: WhiteningApi = new RealWhiteningApi()
 ) {
   console.log(`[artifactory] Using jf CLI — url: ${config.artifactory.url || "(not set)"}, repo: ${config.artifactory.repo || "(not set)"}`);
+  if (config.git.enabled) {
+    console.log(`[whitening] Gitea PRs — url: ${config.git.url}`);
+  } else {
+    console.log("[whitening] not configured (set GIT_URL + GIT_TOKEN)");
+  }
   if (config.jira.enabled) {
     console.log(`[ticketing] Jira backend — url: ${config.jira.baseUrl}, project: ${config.jira.projectKey}`);
   } else {
@@ -57,6 +65,7 @@ export function createApp(
 
   app.use(createTicketingRouter(ticketingApi));
   app.use(createArtifactoryRouter(artifactoryApi));
+  app.use(createWhiteningRouter(whiteningApi));
   app.use(createRagflowRouter());
 
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

@@ -1,13 +1,10 @@
-import { execFile } from "child_process";
 import { mkdir, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { promisify } from "util";
 import { randomUUID } from "crypto";
 import { config } from "../../config";
+import { jfUpload } from "./jfUpload";
 import type { ArtifactoryApi, ArtifactoryJob, FolderUploadInput, PortalUser, UrlCopyInput } from "../../types";
-
-const execFileAsync = promisify(execFile);
 
 function nowIso() {
   return new Date().toISOString();
@@ -34,31 +31,8 @@ export class RealArtifactoryApi implements ArtifactoryApi {
     job.updatedAt = nowIso();
   }
 
-  private async jfUpload(jobId: string, src: string, target: string, extraArgs: string[] = []) {
-    const { url, token } = config.artifactory;
-    if (!url || !token) {
-      throw new Error("ARTIFACTORY_URL and ARTIFACTORY_TOKEN must be set to use jf CLI");
-    }
-
-    const displayArgs = ["rt", "u", src, target, ...extraArgs];
-    this.appendLog(jobId, `$ jf ${displayArgs.join(" ")}`);
-
-    const cliArgs = [...displayArgs, "--url", url, "--access-token", token];
-
-    try {
-      const { stdout, stderr } = await execFileAsync("jf", cliArgs, {
-        maxBuffer: 10 * 1024 * 1024,
-      });
-      const lines = `${stdout}\n${stderr}`.split("\n").filter(Boolean);
-      for (const line of lines) this.appendLog(jobId, line);
-    } catch (err: unknown) {
-      const e = err as NodeJS.ErrnoException & { stderr?: string; stdout?: string };
-      if (e.code === "ENOENT") {
-        throw new Error("jf CLI not found — install JFrog CLI and ensure it is on PATH");
-      }
-      const detail = [e.stderr, e.stdout, e.message].find(Boolean) ?? "jf CLI command failed";
-      throw new Error(detail.toString().trim());
-    }
+  private jfUpload(jobId: string, src: string, target: string, extraArgs: string[] = []) {
+    return jfUpload(src, target, extraArgs, (line) => this.appendLog(jobId, line));
   }
 
   async submitUrlCopy(input: UrlCopyInput, submitter: PortalUser): Promise<ArtifactoryJob> {

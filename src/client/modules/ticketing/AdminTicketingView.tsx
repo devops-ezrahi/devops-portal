@@ -170,7 +170,7 @@ export function AdminTicketingView({
         <section className="ticket-list-panel" aria-label="Admin tickets">
           <div className="ticket-list">
             {activeTickets.map((ticket) => <TicketRow key={ticket.id} ticket={ticket} isSelected={selectedAdminTicket?.id === ticket.id} isUnread={unreadIds.has(ticket.id)} onOpen={handleOpenTicket} />)}
-            {activeTickets.length === 0 && <div className="empty-state">No tasks.</div>}
+            {activeTickets.length === 0 && <div className="empty-state">No tickets.</div>}
           </div>
         </section>
 
@@ -184,7 +184,7 @@ export function AdminTicketingView({
         )}
       </div>
 
-      <section className="detail-panel" aria-label="Task detail">
+      <section className="detail-panel" aria-label="Ticket detail">
         {selectedAdminTicket ? (
           <AdminTicketDetail
             key={selectedAdminTicket.id}
@@ -202,7 +202,7 @@ export function AdminTicketingView({
             ticket={selectedAdminTicket}
           />
         ) : (
-          <div className="empty-state">Select a task.</div>
+          <div className="empty-state">Select a ticket.</div>
         )}
       </section>
     </div>

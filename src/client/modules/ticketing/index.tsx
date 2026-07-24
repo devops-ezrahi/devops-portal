@@ -1,4 +1,4 @@
-import { Filter } from "lucide-react";
+import { Ticket } from "lucide-react";
 import type { PortalModule, ModuleViewProps } from "../../moduleTypes";
 import { AdminTicketingView } from "./AdminTicketingView";
 import { UserTicketingView } from "./UserTicketingView";
@@ -12,7 +12,7 @@ function TicketingView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) 
 
 export const ticketingModule: PortalModule = {
   id: "ticketing",
-  userNav: { label: "Tickets", Icon: Filter },
-  adminNav: { label: "Tickets", Icon: Filter },
+  userNav: { label: "Tickets", Icon: Ticket },
+  adminNav: { label: "Tickets", Icon: Ticket },
   View: TicketingView
 };

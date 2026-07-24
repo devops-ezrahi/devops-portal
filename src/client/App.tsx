@@ -12,10 +12,11 @@ import { LoginScreen } from "./LoginScreen";
 import { artifactoryModule } from "./modules/artifactory";
 import { ragflowModule } from "./modules/ragflow";
 import { ticketingModule } from "./modules/ticketing";
+import { whiteningModule } from "./modules/whitening";
 import type { PortalModule } from "./moduleTypes";
 import type { PortalUser } from "../server/types";
 
-const modules: PortalModule[] = [ticketingModule, artifactoryModule, ragflowModule];
+const modules: PortalModule[] = [ticketingModule, artifactoryModule, whiteningModule, ragflowModule];
 
 function slugFor(mod: PortalModule) {
   return mod.userNav.label.toLowerCase();

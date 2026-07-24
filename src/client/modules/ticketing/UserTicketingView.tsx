@@ -113,7 +113,7 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
   return (
     <>
       <header className="topbar">
-        <h1>Tasks</h1>
+        <h1>My Tickets</h1>
         <button className="primary" onClick={() => setIsCreateOpen(true)}>
           <Plus size={18} aria-hidden="true" /> New
         </button>
@@ -135,7 +135,7 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
                   <small>{ticket.id}</small>
                 </button>
               ))}
-              {activeTickets.length === 0 && <div className="empty-state">No tasks.</div>}
+              {activeTickets.length === 0 && <div className="empty-state">No tickets yet.</div>}
             </div>
           </section>
 
@@ -161,7 +161,7 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
         </div>
 
         <div className="content-column">
-          <section className="detail-panel" aria-label="Task detail">
+          <section className="detail-panel" aria-label="Ticket detail">
             {selectedTicket ? (
               <TicketDetailView
                 key={selectedTicket.id}
@@ -169,7 +169,7 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
                 ticket={selectedTicket}
               />
             ) : (
-              <div className="empty-state">Select a task.</div>
+              <div className="empty-state">Select a ticket.</div>
             )}
           </section>
         </div>
@@ -179,7 +179,7 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
         <div className={`modal-backdrop${isModalClosing ? " closing" : ""}`} role="presentation">
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="create-ticket-title">
             <div className="modal-heading">
-              <h2 id="create-ticket-title">New</h2>
+              <h2 id="create-ticket-title">New ticket</h2>
               <button className="icon-button" aria-label="Close new request" onClick={closeModal}>
                 <X size={18} aria-hidden="true" />
               </button>

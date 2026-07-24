@@ -5,6 +5,10 @@ function requireEnv(name: string): string | undefined {
 const artifactoryUrl = requireEnv("ARTIFACTORY_URL");
 const artifactoryRepo = requireEnv("ARTIFACTORY_REPO");
 const artifactoryToken = requireEnv("ARTIFACTORY_TOKEN");
+const artifactoryDockerRepo = requireEnv("ARTIFACTORY_DOCKER_REPO");
+
+const gitUrl = requireEnv("GIT_URL");
+const gitToken = requireEnv("GIT_TOKEN");
 
 const chatApiUrl = requireEnv("CHAT_API_URL");
 const chatApiKey = requireEnv("CHAT_API_KEY");
@@ -30,7 +34,13 @@ export const config = {
     url: artifactoryUrl ?? "",
     repo: artifactoryRepo ?? "",
     token: artifactoryToken ?? "",
+    dockerRepo: artifactoryDockerRepo ?? "",
     enabled: !!(artifactoryUrl && artifactoryRepo && artifactoryToken),
+  },
+  git: {
+    url: gitUrl ?? "",
+    token: gitToken ?? "",
+    enabled: !!(gitUrl && gitToken),
   },
   jira: {
     baseUrl: jiraUrl ?? "",

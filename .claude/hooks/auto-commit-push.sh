@@ -19,7 +19,8 @@ if [ -n "$STATUS" ]; then
   # status` before it runs, unlike a manual commit), so never auto-stage
   # anything that looks secret-related even though .gitignore already
   # excludes .env — this is a second, independent check.
-  if echo "$STATUS" | grep -Eiq '\.env($|\.[^.]*$)|secret|credential|\.pem$|\.key$|id_rsa'; then
+  # ...but .env.example / .sample / .template are committed templates, not secrets — exclude them first.
+  if echo "$STATUS" | grep -Ev '\.env\.(example|sample|template|dist)$' | grep -Eiq '\.env($|\.[^.]*$)|secret|credential|\.pem$|\.key$|id_rsa'; then
     echo '{"systemMessage": "Auto-commit/push skipped: a changed path looks secret-related. Review and commit it manually."}'
     exit 0
   fi
