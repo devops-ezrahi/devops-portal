@@ -1,337 +1,144 @@
+import { RefreshCcw } from "lucide-react";
+import { useEffect, useState } from "react";
 import {
-  CheckCircle2,
-  ExternalLink,
-  Filter,
-  GitBranch,
-  GitCommit,
-  GitCompare,
-  Plus,
-  RefreshCcw,
-  MessageSquarePlus,
-  Send,
-  ShieldCheck,
-  X
-} from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import type { FormEvent } from "react";
-import {
-  addAdminComment,
-  addComment,
-  createTicket,
-  getAdminTicket,
-  getDemoUserRole,
-  getGitRepoDiff,
   getMe,
-  getRequestTypes,
-  getTicket,
-  listArgoCdProjects,
-  listAdminTickets,
-  listTickets,
-  setDemoUserRole,
-  updateAdminTicket
+  setDevRole,
+  ForbiddenError,
+  UnauthenticatedError,
 } from "./api";
-import type { DemoUserRole } from "./api";
-import type {
-  ArgoCdApplicationSummary,
-  ArgoCdDashboardTotals,
-  BranchDiffDashboard,
-  BranchDiffMicroservice,
-  CustomerStage,
-  PortalUser,
-  RequestTypeDefinition,
-  TicketDetail,
-  TicketSummary
-} from "../server/types";
+import { AccessDeniedScreen } from "./AccessDeniedScreen";
+import { ErrorScreen } from "./ErrorScreen";
+import { LoginScreen } from "./LoginScreen";
+import { artifactoryModule } from "./modules/artifactory";
+import { ragflowModule } from "./modules/ragflow";
+import { ticketingModule } from "./modules/ticketing";
+import { whiteningModule } from "./modules/whitening";
+import type { PortalModule } from "./moduleTypes";
+import type { PortalUser } from "../server/types";
 
-type ActiveTab = "tickets" | "argocd" | "gitdiff";
+const modules: PortalModule[] = [ticketingModule, artifactoryModule, whiteningModule, ragflowModule];
 
-const stages: Array<CustomerStage | ""> = [
-  "",
-  "Submitted",
-  "Triaged",
-  "In Progress",
-  "Waiting on Customer",
-  "Resolved",
-  "Closed"
-];
-
-const devopsAdmins = [
-  { id: "morgan", name: "Morgan Admin" },
-  { id: "taylor", name: "Taylor DevOps" },
-  { id: "casey", name: "Casey Platform" },
-  { id: "sam", name: "Sam Release" }
-];
-
-const statusMessagePrefix = "[status] ";
-
-const emptyArgoTotals: ArgoCdDashboardTotals = {
-  applications: 0,
-  outOfSync: 0,
-  degraded: 0,
-  criticalApps: 0,
-  prodApps: 0,
-  autoSyncEnabled: 0,
-  waitingForSync: 0,
-  failedSync: 0,
-  openPrs: 0,
-  notOnBaseline: 0,
-  chartDrift: 0,
-  productionRisks: 0
-};
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short"
-  }).format(new Date(value));
+function slugFor(mod: PortalModule) {
+  return mod.userNav.label.toLowerCase();
 }
 
-function stageClass(stage: string) {
-  return `stage stage-${stage.toLowerCase().replaceAll(" ", "-")}`;
-}
-
-function isDone(ticket: TicketSummary) {
-  return ticket.stage === "Resolved" || ticket.stage === "Closed";
-}
-
-function removeFromSet(current: Set<string>, value: string) {
-  const next = new Set(current);
-  next.delete(value);
-  return next;
-}
-
-function isStatusMessage(body: string) {
-  return body.startsWith(statusMessagePrefix);
-}
-
-function statusMessage(body: string) {
-  return `${statusMessagePrefix}${body}`;
-}
-
-function statusMessageText(body: string) {
-  return body.slice(statusMessagePrefix.length);
+function moduleFromPath(pathname: string): string {
+  const slug = pathname.replace(/^\//, "").split("/")[0].toLowerCase();
+  return modules.find((m) => slugFor(m) === slug)?.id ?? modules[0].id;
 }
 
 export function App() {
   const [user, setUser] = useState<PortalUser | null>(null);
-  const [requestTypes, setRequestTypes] = useState<RequestTypeDefinition[]>([]);
-  const [tickets, setTickets] = useState<TicketSummary[]>([]);
-  const [adminTickets, setAdminTickets] = useState<TicketSummary[]>([]);
-  const [argoApplications, setArgoApplications] = useState<ArgoCdApplicationSummary[]>([]);
-  const [argoTotals, setArgoTotals] = useState<ArgoCdDashboardTotals>(emptyArgoTotals);
-  const [branchDiff, setBranchDiff] = useState<BranchDiffDashboard | null>(null);
-  const [selectedBranchService, setSelectedBranchService] = useState<string>("");
-  const [selectedTicket, setSelectedTicket] = useState<TicketDetail | null>(null);
-  const [selectedAdminTicket, setSelectedAdminTicket] = useState<TicketDetail | null>(null);
-  const [activeTab, setActiveTab] = useState<ActiveTab>("tickets");
   const [isAdmin, setIsAdmin] = useState(false);
-  const [demoRole, setDemoRole] = useState<DemoUserRole>(() => getDemoUserRole());
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [ticketOwners, setTicketOwners] = useState<Record<string, string>>({});
-  const [adminUnreadTicketIds, setAdminUnreadTicketIds] = useState<Set<string>>(() => new Set());
-  const [developerUnreadTicketIds, setDeveloperUnreadTicketIds] = useState<Set<string>>(() => new Set());
   const [loading, setLoading] = useState(true);
-  const [argoLoading, setArgoLoading] = useState(false);
-  const [branchDiffLoading, setBranchDiffLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [argoError, setArgoError] = useState<string | null>(null);
-  const [branchDiffError, setBranchDiffError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [forbidden, setForbidden] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
+  const [unauthenticated, setUnauthenticated] = useState(false);
+  const [ssoUrl, setSsoUrl] = useState("");
+  const [activeModuleId, setActiveModuleId] = useState(() => moduleFromPath(window.location.pathname));
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  async function refreshTickets() {
-    const result = await listTickets({ scope: "mine" });
-    setTickets(result.tickets);
-    if (selectedTicket && !result.tickets.some((ticket) => ticket.id === selectedTicket.id)) {
-      setSelectedTicket(null);
+  useEffect(() => {
+    function onPopState() {
+      setActiveModuleId(moduleFromPath(window.location.pathname));
     }
-  }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
-  async function refreshAdminTickets() {
-    if (!isAdmin) {
-      return;
-    }
-    const result = await listAdminTickets({});
-    setAdminTickets(result.tickets);
-    if (selectedAdminTicket && !result.tickets.some((ticket) => ticket.id === selectedAdminTicket.id)) {
-      setSelectedAdminTicket(null);
-    }
-  }
-
-  async function refreshArgoCdProjects() {
-    setArgoLoading(true);
-    setArgoError(null);
-    try {
-      const result = await listArgoCdProjects();
-      setArgoApplications(result.applications);
-      setArgoTotals(result.totals);
-    } catch (err) {
-      setArgoError(err instanceof Error ? err.message : "Failed to load Argo CD projects");
-    } finally {
-      setArgoLoading(false);
-    }
-  }
-
-  async function refreshBranchDiff() {
-    setBranchDiffLoading(true);
-    setBranchDiffError(null);
-    try {
-      const result = await getGitRepoDiff();
-      setBranchDiff(result);
-      setSelectedBranchService((current) => current || result.microservices[0]?.name || "");
-    } catch (err) {
-      setBranchDiffError(err instanceof Error ? err.message : "Failed to load branch diff");
-    } finally {
-      setBranchDiffLoading(false);
-    }
-  }
-
-  async function loadPortalData() {
-    setLoading(true);
-    setError(null);
-    const [me, catalog, ticketResult] = await Promise.all([getMe(), getRequestTypes(), listTickets({ scope: "mine" })]);
-    setUser(me.user);
-    setIsAdmin(me.isAdmin);
-    setRequestTypes(catalog.requestTypes);
-    setTickets(ticketResult.tickets);
-    setSelectedTicket(null);
-    setSelectedAdminTicket(null);
-    if (me.isAdmin) {
-      const adminResult = await listAdminTickets({});
-      setAdminTickets(adminResult.tickets);
-    } else {
-      setAdminTickets([]);
-    }
-    setLoading(false);
+  function navigateTo(id: string) {
+    const mod = modules.find((m) => m.id === id);
+    if (mod) window.history.pushState({}, "", `/${slugFor(mod)}`);
+    setActiveModuleId(id);
   }
 
   useEffect(() => {
     let mounted = true;
     setLoading(true);
-    Promise.all([getMe(), getRequestTypes(), listTickets({ scope: "mine" })])
-      .then(async ([me, catalog, ticketResult]) => {
-        if (!mounted) {
-          return;
-        }
-        setUser(me.user);
-        setIsAdmin(me.isAdmin);
-        setRequestTypes(catalog.requestTypes);
-        setTickets(ticketResult.tickets);
-        if (me.isAdmin) {
-          const adminResult = await listAdminTickets({});
-          if (mounted) {
-            setAdminTickets(adminResult.tickets);
-          }
-        } else {
-          setAdminTickets([]);
-          setSelectedAdminTicket(null);
-        }
+    setError(null);
+    setLoadError(null);
+    setForbidden(false);
+    setUnauthenticated(false);
+    getMe()
+      .then(({ user: me, isAdmin: admin }) => {
+        if (!mounted) return;
+        setUser(me);
+        setIsAdmin(admin);
+        setLoading(false);
       })
-      .catch((err: Error) => setError(err.message))
-      .finally(() => setLoading(false));
+      .catch((err: Error) => {
+        if (!mounted) return;
+        if (err instanceof UnauthenticatedError) {
+          setUnauthenticated(true);
+          setSsoUrl(err.ssoUrl);
+        } else if (err instanceof ForbiddenError) {
+          setForbidden(true);
+        } else {
+          setLoadError(err.message);
+        }
+        setLoading(false);
+      });
     return () => {
       mounted = false;
     };
-  }, [demoRole]);
+  }, [retryKey]);
 
-  useEffect(() => {
-    if (!isAdmin) {
-      return;
-    }
-    const handle = window.setTimeout(() => {
-      refreshAdminTickets().catch((err: Error) => setError(err.message));
-    }, 200);
-    return () => window.clearTimeout(handle);
-  }, [isAdmin]);
+  const activeModule = modules.find((m) => m.id === activeModuleId) ?? modules[0];
 
-  useEffect(() => {
-    if (activeTab !== "argocd" || argoApplications.length > 0 || argoLoading) {
-      return;
-    }
-    setArgoLoading(true);
-    listArgoCdProjects()
-      .then((dashboard) => {
-        setArgoApplications(dashboard.applications);
-        setArgoTotals(dashboard.totals);
-      })
-      .catch((err: Error) => setArgoError(err.message))
-      .finally(() => setArgoLoading(false));
-  }, [activeTab, argoApplications.length, argoLoading]);
-
-  useEffect(() => {
-    if (activeTab !== "gitdiff" || branchDiff || branchDiffLoading) {
-      return;
-    }
-    refreshBranchDiff();
-  }, [activeTab, branchDiff, branchDiffLoading]);
-
-  async function openTicket(id: string) {
-    setError(null);
-    setDeveloperUnreadTicketIds((current) => removeFromSet(current, id));
-    const result = await getTicket(id);
-    setSelectedTicket(result.ticket);
-    setSelectedAdminTicket(null);
+  if (forbidden) {
+    return <AccessDeniedScreen />;
   }
 
-  async function openAdminTicket(id: string) {
-    setError(null);
-    setAdminUnreadTicketIds((current) => removeFromSet(current, id));
-    const result = await getAdminTicket(id);
-    setSelectedAdminTicket(result.ticket);
-    setSelectedTicket(null);
+  if (loadError) {
+    return <ErrorScreen message={loadError} onRetry={() => setRetryKey((k) => k + 1)} />;
   }
 
-  async function reloadAdminTicket(id: string) {
-    const result = await getAdminTicket(id);
-    setSelectedAdminTicket(result.ticket);
-    await refreshAdminTickets();
+  if (unauthenticated) {
+    return <LoginScreen ssoUrl={ssoUrl} />;
   }
 
-  async function handleCreated(ticket: TicketDetail) {
-    setIsCreateOpen(false);
-    setSelectedTicket(ticket);
-    setSelectedAdminTicket(null);
-    setAdminUnreadTicketIds((current) => new Set(current).add(ticket.id));
-    await refreshTickets();
-  }
-
-  function changeDemoRole(role: DemoUserRole) {
-    setDemoUserRole(role);
-    setDemoRole(role);
-  }
-
-  function notifyDevelopers(ticketId: string) {
-    setDeveloperUnreadTicketIds((current) => new Set(current).add(ticketId));
-  }
-
-  function notifyAdmins(ticketId: string) {
-    setAdminUnreadTicketIds((current) => new Set(current).add(ticketId));
-  }
-
-  const activeTickets = useMemo(() => tickets.filter((ticket) => !isDone(ticket)), [tickets]);
-  const doneTickets = useMemo(() => tickets.filter(isDone), [tickets]);
-  const activeAdminTickets = useMemo(() => adminTickets.filter((ticket) => !isDone(ticket)), [adminTickets]);
-  const doneAdminTickets = useMemo(() => adminTickets.filter(isDone), [adminTickets]);
-  const selectedBranchDiffService = useMemo(
-    () => branchDiff?.microservices.find((service) => service.name === selectedBranchService) ?? branchDiff?.microservices[0],
-    [branchDiff, selectedBranchService]
-  );
   return (
     <div className="app-shell">
+      {user?.id === "dev" && (
+        <div className="dev-banner" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
+          <span>
+            Dev mode — SSO is off.{" "}
+            <a href="http://devops-portal.homelab.local" className="dev-banner-link">
+              Open devops-portal.homelab.local
+            </a>{" "}
+            to log in as a real user.
+          </span>
+          <div className="role-toggle">
+            <button
+              className={!isAdmin ? "active" : ""}
+              onClick={() => setDevRole("user").then(() => setRetryKey((k) => k + 1))}
+            >User</button>
+            <button
+              className={isAdmin ? "active" : ""}
+              onClick={() => setDevRole("admin").then(() => setRetryKey((k) => k + 1))}
+            >Admin</button>
+          </div>
+        </div>
+      )}
       <header className="app-header">
         <div className="brand">DevOps</div>
 
         <nav className="app-nav" aria-label="Primary navigation">
-          <button className={activeTab === "tickets" ? "nav-button active" : "nav-button"} onClick={() => setActiveTab("tickets")}>
-            {isAdmin ? <ShieldCheck aria-hidden="true" /> : <Filter aria-hidden="true" />}
-            {isAdmin ? "Admin Queue" : "Tickets"}
-          </button>
-          <button className={activeTab === "argocd" ? "nav-button active" : "nav-button"} onClick={() => setActiveTab("argocd")}>
-            <GitBranch aria-hidden="true" />
-            Argo CD
-          </button>
-          <button className={activeTab === "gitdiff" ? "nav-button active" : "nav-button"} onClick={() => setActiveTab("gitdiff")}>
-            <GitCompare aria-hidden="true" />
-            Microservice Branch Diff
-          </button>
+          {modules.map((mod) => {
+            const nav = isAdmin ? mod.adminNav : mod.userNav;
+            return (
+              <button
+                key={mod.id}
+                className={`nav-button${activeModuleId === mod.id ? " active" : ""}`}
+                onClick={() => navigateTo(mod.id)}
+              >
+                <nav.Icon aria-hidden="true" />
+                {nav.label}
+              </button>
+            );
+          })}
         </nav>
 
         <div className="header-actions">
@@ -339,854 +146,25 @@ export function App() {
             <span>{user?.displayName ?? "Signed in user"}</span>
           </div>
 
-          <div className="demo-switch" aria-label="Demo user switcher">
-            <div className="role-toggle">
-              <button className={demoRole === "regular" ? "active" : ""} onClick={() => changeDemoRole("regular")}>
-                Regular
-              </button>
-              <button className={demoRole === "admin" ? "active" : ""} onClick={() => changeDemoRole("admin")}>
-                Admin
-              </button>
-            </div>
-          </div>
-
-          <button
-            className="ghost-button"
-            onClick={() =>
-              activeTab === "argocd"
-                ? refreshArgoCdProjects()
-                : activeTab === "gitdiff"
-                  ? refreshBranchDiff()
-                : loadPortalData().catch((err: Error) => setError(err.message))
-            }
-          >
+          <button className="ghost-button" onClick={() => setRefreshKey((k) => k + 1)}>
             <RefreshCcw size={17} aria-hidden="true" /> Refresh
           </button>
         </div>
       </header>
 
       <main className="main">
-        <header className="topbar">
-          <h1>{activeTab === "argocd" ? "Argo CD" : activeTab === "gitdiff" ? "Microservice Branch Diff" : isAdmin ? "Queue" : "Tasks"}</h1>
-          {activeTab === "tickets" && !isAdmin && (
-            <button className="primary" onClick={() => setIsCreateOpen(true)}>
-              <Plus size={18} aria-hidden="true" /> New
-            </button>
-          )}
-        </header>
-
-        {activeTab === "argocd" ? (
-          <ArgoCdView
-            loading={argoLoading}
-            error={argoError}
-            applications={argoApplications}
-            totals={argoTotals}
-            onRefresh={refreshArgoCdProjects}
-          />
-        ) : activeTab === "gitdiff" ? (
-          <BranchDiffView
-            dashboard={branchDiff}
-            error={branchDiffError}
-            loading={branchDiffLoading}
-            selectedService={selectedBranchDiffService}
-            onRefresh={refreshBranchDiff}
-            onSelectService={setSelectedBranchService}
-          />
-        ) : (
-        <>
         {error && <div className="error-banner">{error}</div>}
         {loading ? (
-          <div className="empty-state">Loading...</div>
-        ) : isAdmin ? (
-          <div className="workspace-grid">
-            <div className="ticket-column">
-              <section className="ticket-list-panel" aria-label="Admin tickets">
-                <div className="ticket-list">
-                  {activeAdminTickets.map((ticket) => (
-                    <button
-                      className={selectedAdminTicket?.id === ticket.id ? "ticket-row selected" : "ticket-row"}
-                      key={ticket.id}
-                      onClick={() => openAdminTicket(ticket.id).catch((err: Error) => setError(err.message))}
-                    >
-                      {adminUnreadTicketIds.has(ticket.id) && <span className="update-dot" aria-label="Updated" />}
-                      <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
-                      <strong>{ticket.title}</strong>
-                      <small>{ticket.id}</small>
-                    </button>
-                  ))}
-                  {activeAdminTickets.length === 0 && <div className="empty-state">No tasks.</div>}
-                </div>
-              </section>
-
-              {doneAdminTickets.length > 0 && (
-                <details className="ticket-list-panel done-panel" aria-label="Done admin tickets">
-                  <summary>Done</summary>
-                  <div className="ticket-list">
-                    {doneAdminTickets.map((ticket) => (
-                      <button
-                        className={selectedAdminTicket?.id === ticket.id ? "ticket-row selected" : "ticket-row"}
-                        key={ticket.id}
-                        onClick={() => openAdminTicket(ticket.id).catch((err: Error) => setError(err.message))}
-                      >
-                        {adminUnreadTicketIds.has(ticket.id) && <span className="update-dot" aria-label="Updated" />}
-                        <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
-                        <strong>{ticket.title}</strong>
-                        <small>{ticket.id}</small>
-                      </button>
-                    ))}
-                  </div>
-                </details>
-              )}
-            </div>
-
-            <section className="detail-panel" aria-label="Task detail">
-              {selectedAdminTicket ? (
-                <AdminTicketDetail
-                  assignee={ticketOwners[selectedAdminTicket.id] ?? ""}
-                  currentUserName={user?.displayName ?? ""}
-                  onAssigneeChange={async (assignee) => {
-                    setTicketOwners((current) => ({ ...current, [selectedAdminTicket.id]: assignee }));
-                    const ownerName = devopsAdmins.find((admin) => admin.id === assignee)?.name ?? "Unassigned";
-                    await addAdminComment(selectedAdminTicket.id, statusMessage(`Owner changed to ${ownerName}.`));
-                    await reloadAdminTicket(selectedAdminTicket.id);
-                    notifyDevelopers(selectedAdminTicket.id);
-                  }}
-                  onReload={() => reloadAdminTicket(selectedAdminTicket.id)}
-                  onUpdated={() => notifyDevelopers(selectedAdminTicket.id)}
-                  ticket={selectedAdminTicket}
-                />
-              ) : (
-                <div className="empty-state">Select a task.</div>
-              )}
-            </section>
-          </div>
+          <div className="loading-state" aria-label="Loading" />
         ) : (
-          <div className="workspace-grid">
-            <div className="ticket-column">
-              <section className="ticket-list-panel" aria-label="Tickets">
-                <div className="ticket-list">
-                  {activeTickets.map((ticket) => (
-                    <button
-                      className={selectedTicket?.id === ticket.id ? "ticket-row selected" : "ticket-row"}
-                      key={ticket.id}
-                      onClick={() => openTicket(ticket.id).catch((err: Error) => setError(err.message))}
-                    >
-                      {developerUnreadTicketIds.has(ticket.id) && <span className="update-dot" aria-label="Updated" />}
-                      <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
-                      <strong>{ticket.title}</strong>
-                      <small>{ticket.id}</small>
-                    </button>
-                  ))}
-                  {activeTickets.length === 0 && <div className="empty-state">No tasks.</div>}
-                </div>
-              </section>
-
-              {doneTickets.length > 0 && (
-                <details className="ticket-list-panel done-panel" aria-label="Done tickets">
-                  <summary>Done</summary>
-                  <div className="ticket-list">
-                    {doneTickets.map((ticket) => (
-                      <button
-                        className={selectedTicket?.id === ticket.id ? "ticket-row selected" : "ticket-row"}
-                        key={ticket.id}
-                        onClick={() => openTicket(ticket.id).catch((err: Error) => setError(err.message))}
-                      >
-                        {developerUnreadTicketIds.has(ticket.id) && <span className="update-dot" aria-label="Updated" />}
-                        <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
-                        <strong>{ticket.title}</strong>
-                        <small>{ticket.id}</small>
-                      </button>
-                    ))}
-                  </div>
-                </details>
-              )}
-            </div>
-
-            <div className="content-column">
-              <section className="detail-panel" aria-label="Task detail">
-                {selectedTicket ? (
-                  <TicketDetailView
-                    onCommentAdded={() => openTicket(selectedTicket.id)}
-                    onUpdated={() => notifyAdmins(selectedTicket.id)}
-                    ticket={selectedTicket}
-                  />
-                ) : (
-                  <div className="empty-state">Select a task.</div>
-                )}
-              </section>
-            </div>
-          </div>
-        )}
-        </>
-        )}
-
-        {isCreateOpen && activeTab === "tickets" && !isAdmin && (
-          <div className="modal-backdrop" role="presentation">
-            <section className="modal" role="dialog" aria-modal="true" aria-labelledby="create-ticket-title">
-              <div className="modal-heading">
-                <h2 id="create-ticket-title">New</h2>
-                <button className="icon-button" aria-label="Close new request" onClick={() => setIsCreateOpen(false)}>
-                  <X size={18} aria-hidden="true" />
-                </button>
-              </div>
-              <CreateTicketView requestTypes={requestTypes} onCreated={handleCreated} />
-            </section>
-          </div>
+          <activeModule.View
+            user={user!}
+            isAdmin={isAdmin}
+            refreshKey={refreshKey}
+            onError={setError}
+          />
         )}
       </main>
-    </div>
-  );
-}
-
-function argoStatusClass(value: string) {
-  return `argo-badge argo-${value.toLowerCase().replaceAll(" ", "-")}`;
-}
-
-function argoEnvClass(value: string) {
-  return `argo-badge argo-env-${value}`;
-}
-
-function formatMaybeDate(value?: string) {
-  return value ? formatDate(value) : "Never";
-}
-
-function shortHash(value: string) {
-  return value && value !== "HEAD" ? value.slice(0, 7) : value || "Unknown";
-}
-
-type ArgoQuickFilter = "all" | "prod" | "outofsync" | "failed";
-
-function ArgoCdView({
-  applications,
-  error,
-  loading,
-  onRefresh,
-  totals
-}: {
-  applications: ArgoCdApplicationSummary[];
-  error: string | null;
-  loading: boolean;
-  onRefresh: () => Promise<void>;
-  totals: ArgoCdDashboardTotals;
-}) {
-  const [quickFilter, setQuickFilter] = useState<ArgoQuickFilter>("all");
-
-  const filteredApplications = useMemo(() => {
-    return applications.filter((app) => {
-      if (quickFilter === "prod" && app.environment !== "prd") return false;
-      if (quickFilter === "outofsync" && app.syncStatus !== "OutOfSync") return false;
-      if (quickFilter === "failed" && app.lastSyncResult !== "Failed" && app.lastSyncResult !== "Error") return false;
-      return true;
-    });
-  }, [applications, quickFilter]);
-
-  const quickFilters: Array<{ id: ArgoQuickFilter; label: string }> = [
-    { id: "all", label: "All" },
-    { id: "prod", label: "PRD only" },
-    { id: "outofsync", label: "OutOfSync" },
-    { id: "failed", label: "Failed sync" }
-  ];
-
-  return (
-    <div className="argo-space">
-      {error && (
-        <div className="error-banner">
-          {error}
-          <button className="ghost-button" onClick={() => onRefresh()}>
-            <RefreshCcw size={16} aria-hidden="true" /> Retry
-          </button>
-        </div>
-      )}
-
-      <section className="argo-summary" aria-label="Argo CD summary">
-        <div className={totals.outOfSync > 0 ? "risk-card warning" : "risk-card"}>
-          <span>OutOfSync</span>
-          <strong>{totals.outOfSync}</strong>
-        </div>
-        <div>
-          <span>Applications</span>
-          <strong>{totals.applications}</strong>
-        </div>
-        <div>
-          <span>PRD apps</span>
-          <strong>{totals.prodApps}</strong>
-        </div>
-        <div>
-          <span>Failed sync</span>
-          <strong>{totals.failedSync}</strong>
-        </div>
-      </section>
-
-      {loading ? (
-        <div className="empty-state">Loading Argo CD...</div>
-      ) : applications.length === 0 ? (
-        <div className="empty-state">No Argo CD applications visible.</div>
-      ) : (
-        <>
-          <section className="argo-controls" aria-label="Argo CD filters">
-            <div className="argo-quick-filters">
-              {quickFilters.map((filter) => (
-                <button className={quickFilter === filter.id ? "active" : ""} key={filter.id} onClick={() => setQuickFilter(filter.id)}>
-                  {filter.label}
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <div className="simple-app-grid" aria-label="Argo CD applications">
-            {filteredApplications.map((app) => (
-              <SimpleArgoAppBox app={app} key={`${app.namespace}/${app.name}`} />
-            ))}
-            {filteredApplications.length === 0 && <div className="empty-state">No applications match the current filter.</div>}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function SimpleArgoAppBox({ app }: { app: ArgoCdApplicationSummary }) {
-  return (
-    <article className="simple-app-box">
-      <div className="simple-app-heading">
-        <div>
-          <strong>{app.name}</strong>
-          <small>{app.namespace} / {app.project}</small>
-        </div>
-        <span className={app.criticality === "critical" ? "argo-badge argo-danger" : "argo-badge"}>{app.criticality}</span>
-      </div>
-
-      <div className="simple-status-row">
-        <span className={argoEnvClass(app.environment)}>{app.environment.toUpperCase()}</span>
-        <span className={argoStatusClass(app.syncStatus)}>{app.syncStatus}</span>
-        <span className={argoStatusClass(app.healthStatus)}>{app.healthStatus}</span>
-        <span className={app.automated ? "argo-badge argo-auto" : "argo-badge"}>{app.syncMode}</span>
-      </div>
-
-      <dl className="simple-app-meta">
-        <div><dt>Chart</dt><dd>{app.chartName}</dd></div>
-        <div><dt>Chart version</dt><dd>{app.chartVersion}</dd></div>
-        <div><dt>Image</dt><dd>{app.desiredImage}</dd></div>
-        <div><dt>Repo</dt><dd>{app.repoName}</dd></div>
-        <div><dt>Branch</dt><dd>{app.targetRevision}</dd></div>
-        <div><dt>Commit</dt><dd>{shortHash(app.lastCommitHash)}</dd></div>
-        <div><dt>Last sync</dt><dd>{formatMaybeDate(app.lastSyncedAt)}</dd></div>
-        <div><dt>Sync result</dt><dd>{app.lastSyncResult}</dd></div>
-      </dl>
-
-      <div className="simple-app-actions">
-        {app.links.git && <a href={app.links.git} target="_blank" rel="noreferrer"><GitBranch size={15} aria-hidden="true" /> Repo</a>}
-        {app.links.commit && <a href={app.links.commit} target="_blank" rel="noreferrer"><GitCommit size={15} aria-hidden="true" /> Commit</a>}
-        <a href={app.links.argoCd} target="_blank" rel="noreferrer"><ExternalLink size={15} aria-hidden="true" /> Argo CD</a>
-      </div>
-    </article>
-  );
-}
-
-type BranchDiffFilter = "all" | "template" | "values" | "high" | "prod" | "missing" | "secure" | "image" | "routeSecurity";
-
-function riskClass(risk: string) {
-  return `diff-risk diff-risk-${risk}`;
-}
-
-function BranchDiffView({
-  dashboard,
-  error,
-  loading,
-  onRefresh,
-  onSelectService,
-  selectedService
-}: {
-  dashboard: BranchDiffDashboard | null;
-  error: string | null;
-  loading: boolean;
-  onRefresh: () => Promise<void>;
-  onSelectService: (name: string) => void;
-  selectedService?: BranchDiffMicroservice;
-}) {
-  const [filter, setFilter] = useState<BranchDiffFilter>("all");
-  const filters: Array<{ id: BranchDiffFilter; label: string }> = [
-    { id: "all", label: "All" },
-    { id: "template", label: "Template changes" },
-    { id: "values", label: "Values changes" },
-    { id: "high", label: "High risk" },
-    { id: "prod", label: "Production differences" },
-    { id: "missing", label: "Missing services" },
-    { id: "secure", label: "Secure-prd differences" },
-    { id: "image", label: "Image differences" },
-    { id: "routeSecurity", label: "Route/security/RBAC" }
-  ];
-
-  const filteredServices = useMemo(() => {
-    if (!dashboard) return [];
-    return dashboard.microservices.filter((service) => {
-      if (filter === "template") return service.templateDrift;
-      if (filter === "values") return service.valuesDrift;
-      if (filter === "high") return service.riskLevel === "high";
-      if (filter === "prod") return service.productionDifference;
-      if (filter === "missing") return service.missingBranches.length > 0;
-      if (filter === "secure") return service.secureDifference;
-      if (filter === "image") return service.badges.includes("Image differs");
-      if (filter === "routeSecurity") return service.badges.some((badge) => ["Route changed", "Security changed", "NetworkPolicy changed"].includes(badge));
-      return true;
-    });
-  }, [dashboard, filter]);
-
-  if (error) {
-    return (
-      <div className="error-banner">
-        {error}
-        <button className="ghost-button" onClick={() => onRefresh()}>
-          <RefreshCcw size={16} aria-hidden="true" /> Retry
-        </button>
-      </div>
-    );
-  }
-
-  if (loading || !dashboard) {
-    return <div className="empty-state">Loading branch comparison...</div>;
-  }
-
-  return (
-    <div className="branch-diff-space">
-      <section className="branch-diff-toolbar">
-        <div>
-          <span>App</span>
-          <strong>{dashboard.app}</strong>
-        </div>
-        <div>
-          <span>Baseline branch</span>
-          <strong>{dashboard.baselineBranch}</strong>
-        </div>
-        <div>
-          <span>Compare branches</span>
-          <strong>{dashboard.branches.filter((branch) => branch !== dashboard.baselineBranch).join(", ")}</strong>
-        </div>
-      </section>
-
-      <section className="branch-summary" aria-label="Branch diff summary">
-        <div><span>Branches</span><strong>{dashboard.summary.totalBranches}</strong></div>
-        <div><span>Microservices</span><strong>{dashboard.summary.totalMicroservices}</strong></div>
-        <div><span>Same</span><strong>{dashboard.summary.sameAcrossAllBranches}</strong></div>
-        <div><span>Values drift</span><strong>{dashboard.summary.valuesDrift}</strong></div>
-        <div><span>Template drift</span><strong>{dashboard.summary.templateDrift}</strong></div>
-        <div><span>Missing</span><strong>{dashboard.summary.missingMicroservices}</strong></div>
-        <div><span>High risk</span><strong>{dashboard.summary.highRiskDifferences}</strong></div>
-        <div><span>Prod drift</span><strong>{dashboard.summary.productionDifferences}</strong></div>
-        <div><span>Secure drift</span><strong>{dashboard.summary.secureNetworkDifferences}</strong></div>
-      </section>
-
-      <section className="argo-controls">
-        <div className="argo-quick-filters">
-          {filters.map((item) => (
-            <button className={filter === item.id ? "active" : ""} key={item.id} onClick={() => setFilter(item.id)}>
-              {item.label}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <div className="branch-diff-layout">
-        <section className="branch-matrix">
-          <div className="branch-matrix-header">
-            <span>Microservice</span>
-            {dashboard.branches.map((branch) => <span key={branch}>{branch.replace("payments-", "")}</span>)}
-            <span>Drift</span>
-            <span>Risk</span>
-          </div>
-          {filteredServices.map((service) => (
-            <button
-              className={selectedService?.name === service.name ? "branch-row selected" : "branch-row"}
-              key={service.name}
-              onClick={() => onSelectService(service.name)}
-            >
-              <strong>{service.name}</strong>
-              {dashboard.branches.map((branch) => {
-                const snapshot = service.branches[branch];
-                return (
-                  <span className={snapshot.exists ? "branch-cell" : "branch-cell missing"} key={branch}>
-                    {snapshot.exists ? (
-                      <>
-                        <b>{snapshot.imageTag ?? "no image"}</b>
-                        <small>{snapshot.replicaCount ?? "-"} replicas</small>
-                      </>
-                    ) : (
-                      <b>Missing</b>
-                    )}
-                  </span>
-                );
-              })}
-              <span className="branch-badges">
-                {service.badges.slice(0, 3).map((badge) => <em key={badge}>{badge}</em>)}
-              </span>
-              <span className={riskClass(service.riskLevel)}>{service.riskLevel}</span>
-            </button>
-          ))}
-          {filteredServices.length === 0 && <div className="empty-state">No microservices match this filter.</div>}
-        </section>
-
-        <section className="branch-detail detail-panel">
-          {selectedService ? (
-            <BranchServiceDetail dashboard={dashboard} service={selectedService} />
-          ) : (
-            <div className="empty-state">Select a microservice.</div>
-          )}
-        </section>
-      </div>
-    </div>
-  );
-}
-
-function BranchServiceDetail({ dashboard, service }: { dashboard: BranchDiffDashboard; service: BranchDiffMicroservice }) {
-  return (
-    <article className="branch-service-detail">
-      <div className="detail-heading">
-        <div>
-          <span className={riskClass(service.riskLevel)}>{service.riskLevel}</span>
-          <h2>{service.name}</h2>
-          <p>{service.badges.join(" / ")}</p>
-        </div>
-      </div>
-
-      <section>
-        <h3>Summary</h3>
-        <div className="branch-summary-list">
-          {service.summary.map((item) => <div key={item}>{item}</div>)}
-        </div>
-      </section>
-
-      <section>
-        <h3>Important fields</h3>
-        <div className="important-fields">
-          <div className="important-fields-header">
-            <span>Field</span>
-            {dashboard.branches.map((branch) => <span key={branch}>{branch.replace("payments-", "")}</span>)}
-            <span>Risk</span>
-          </div>
-          {service.importantFields.map((field) => (
-            <div className="important-field-row" key={field.field}>
-              <strong>{field.field}</strong>
-              {dashboard.branches.map((branch) => <span key={branch}>{field.values[branch]}</span>)}
-              <span className={riskClass(field.risk)}>{field.risk}</span>
-            </div>
-          ))}
-          {service.importantFields.length === 0 && <div className="empty-state">No important field drift.</div>}
-        </div>
-      </section>
-
-      <section className="branch-detail-grid">
-        <div>
-          <h3>Values diff</h3>
-          {service.valuesDiffs.map((item) => <p key={item}>{item}</p>)}
-          {service.valuesDiffs.length === 0 && <p>No values drift.</p>}
-        </div>
-        <div>
-          <h3>Template diff</h3>
-          {service.templateDiffs.map((item) => <p key={item}>{item}</p>)}
-          {service.templateDiffs.length === 0 && <p>No template drift.</p>}
-        </div>
-        <div>
-          <h3>Resource diff</h3>
-          {service.resourceDiffs.map((item) => <p key={item}>{item}</p>)}
-          {service.resourceDiffs.length === 0 && <p>No resource drift.</p>}
-        </div>
-        <div>
-          <h3>Raw YAML</h3>
-          <p>Advanced raw YAML diff is intentionally secondary in this MVP.</p>
-        </div>
-      </section>
-    </article>
-  );
-}
-
-function AdminTicketDetail({
-  assignee,
-  currentUserName,
-  onAssigneeChange,
-  onReload,
-  onUpdated,
-  ticket
-}: {
-  assignee: string;
-  currentUserName: string;
-  onAssigneeChange: (assignee: string) => Promise<void>;
-  onReload: () => Promise<void>;
-  onUpdated: () => void;
-  ticket: TicketDetail;
-}) {
-  const [title, setTitle] = useState(ticket.title);
-  const [stage, setStage] = useState<CustomerStage>(ticket.stage);
-  const [rawStatus, setRawStatus] = useState(ticket.rawStatus);
-  const [teamGroups, setTeamGroups] = useState(ticket.teamGroups.join(", "));
-  const [body, setBody] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    setTitle(ticket.title);
-    setStage(ticket.stage);
-    setRawStatus(ticket.rawStatus);
-    setTeamGroups(ticket.teamGroups.join(", "));
-    setBody("");
-  }, [ticket.id, ticket.title, ticket.stage, ticket.rawStatus, ticket.teamGroups]);
-
-  async function submitUpdate(event: FormEvent) {
-    event.preventDefault();
-    const changes = [
-      title !== ticket.title ? `Title changed to "${title}"` : "",
-      stage !== ticket.stage ? `Stage changed to ${stage}` : ""
-    ].filter(Boolean);
-    setSubmitting(true);
-    try {
-      await updateAdminTicket(ticket.id, {
-        title,
-        stage,
-        rawStatus,
-        teamGroups: teamGroups
-          .split(",")
-          .map((group) => group.trim())
-          .filter(Boolean)
-      });
-      if (changes.length > 0) {
-        await addAdminComment(ticket.id, statusMessage(`${changes.join(". ")}.`));
-      }
-      await onReload();
-      onUpdated();
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function submitResponse(event: FormEvent) {
-    event.preventDefault();
-    setSubmitting(true);
-    try {
-      await addAdminComment(ticket.id, body);
-      setBody("");
-      await onReload();
-      onUpdated();
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <article className="ticket-detail">
-      <div className="detail-heading">
-        <div>
-          <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
-          <h2>{ticket.title}</h2>
-          <p>{ticket.id}</p>
-        </div>
-        <label className="owner-select">
-          <span>Owner</span>
-          <div className="owner-controls">
-            <select value={assignee} onChange={(event) => onAssigneeChange(event.target.value).catch(() => undefined)}>
-              <option value="">Unassigned</option>
-              {devopsAdmins.map((admin) => (
-                <option key={admin.id} value={admin.id}>
-                  {admin.name}
-                </option>
-              ))}
-            </select>
-            <button
-              className="ghost-button"
-              type="button"
-              onClick={() => {
-                const me = devopsAdmins.find((admin) => admin.name === currentUserName) ?? devopsAdmins[0];
-                onAssigneeChange(me.id).catch(() => undefined);
-              }}
-            >
-              Me
-            </button>
-          </div>
-        </label>
-      </div>
-
-      <p className="description-text">{ticket.description}</p>
-
-      <form className="admin-edit-form" onSubmit={submitUpdate}>
-        <label>
-          <span>Title</span>
-          <input value={title} onChange={(event) => setTitle(event.target.value)} required />
-        </label>
-        <label>
-          <span>Stage</span>
-          <select value={stage} onChange={(event) => setStage(event.target.value as CustomerStage)}>
-            {stages.filter(Boolean).map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button className="primary" disabled={submitting}>
-          <CheckCircle2 size={18} aria-hidden="true" /> Save
-        </button>
-      </form>
-
-      <section>
-        <h3>Messages</h3>
-        <div className="comments">
-          {ticket.comments.map((comment) => (
-            isStatusMessage(comment.body) ? (
-              <div className="status-row" key={comment.id}>
-                <span>{statusMessageText(comment.body)}</span>
-                <small>{formatDate(comment.createdAt)}</small>
-              </div>
-            ) : (
-              <div className="comment" key={comment.id}>
-                <strong>{comment.authorName}</strong>
-                <small>{formatDate(comment.createdAt)}</small>
-                <p>{comment.body}</p>
-              </div>
-            )
-          ))}
-          {ticket.comments.length === 0 && <div className="empty-state">No messages.</div>}
-        </div>
-        <form className="comment-form" onSubmit={submitResponse}>
-          <textarea
-            value={body}
-            onChange={(event) => setBody(event.target.value)}
-            placeholder="Message"
-            required
-          />
-          <button className="primary" disabled={submitting || !body.trim()}>
-            <MessageSquarePlus size={18} aria-hidden="true" /> Send
-          </button>
-        </form>
-      </section>
-    </article>
-  );
-}
-
-function TicketDetailView({
-  onCommentAdded,
-  onUpdated,
-  ticket
-}: {
-  onCommentAdded: () => Promise<void>;
-  onUpdated: () => void;
-  ticket: TicketDetail;
-}) {
-  const [body, setBody] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  async function submitComment(event: FormEvent) {
-    event.preventDefault();
-    setSubmitting(true);
-    try {
-      await addComment(ticket.id, body);
-      setBody("");
-      onUpdated();
-      await onCommentAdded();
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <article className="ticket-detail">
-      <div className="detail-heading">
-        <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
-        <h2>{ticket.title}</h2>
-        <p>{ticket.id}</p>
-      </div>
-
-      <p className="description-text">{ticket.description}</p>
-
-      <section>
-        <h3>Messages</h3>
-        <div className="comments">
-          {ticket.comments.map((comment) => (
-            isStatusMessage(comment.body) ? (
-              <div className="status-row" key={comment.id}>
-                <span>{statusMessageText(comment.body)}</span>
-                <small>{formatDate(comment.createdAt)}</small>
-              </div>
-            ) : (
-              <div className="comment" key={comment.id}>
-                <strong>{comment.authorName}</strong>
-                <small>{formatDate(comment.createdAt)}</small>
-                <p>{comment.body}</p>
-              </div>
-            )
-          ))}
-          {ticket.comments.length === 0 && <div className="empty-state">No messages.</div>}
-        </div>
-        <form className="comment-form" onSubmit={submitComment}>
-          <textarea value={body} onChange={(event) => setBody(event.target.value)} placeholder="Message" required />
-          <button className="primary" disabled={submitting || !body.trim()}>
-            <MessageSquarePlus size={18} aria-hidden="true" /> Send
-          </button>
-        </form>
-      </section>
-    </article>
-  );
-}
-
-function CreateTicketView({
-  requestTypes,
-  onCreated
-}: {
-  requestTypes: RequestTypeDefinition[];
-  onCreated: (ticket: TicketDetail) => Promise<void>;
-}) {
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const selected = requestTypes[0];
-
-  useEffect(() => {
-    setTitle("");
-    setDescription("");
-  }, []);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!selected) {
-      return;
-    }
-    const fields = Object.fromEntries(
-      selected.fields.map((field) => {
-        if (field.name === "title") {
-          return [field.name, title];
-        }
-        if (field.name === "description") {
-          return [field.name, description];
-        }
-        return [field.name, field.options?.[0] ?? title];
-      })
-    );
-    setSubmitting(true);
-    try {
-      const result = await createTicket({
-        requestType: selected.id,
-        fields,
-        idempotencyKey: crypto.randomUUID()
-      });
-      await onCreated(result.ticket);
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <div className="create-grid">
-      {selected && (
-        <form className="request-form" onSubmit={submit}>
-          <label>
-            <span>Name</span>
-            <input value={title} onChange={(event) => setTitle(event.target.value)} required />
-          </label>
-          <label>
-            <span>Description</span>
-            <textarea value={description} onChange={(event) => setDescription(event.target.value)} required />
-          </label>
-          <button className="primary" disabled={submitting}>
-            <Send size={18} aria-hidden="true" /> Submit
-          </button>
-        </form>
-      )}
     </div>
   );
 }

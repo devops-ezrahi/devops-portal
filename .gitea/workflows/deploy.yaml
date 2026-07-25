@@ -1,0 +1,55 @@
+name: Build and Deploy
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Vars
+        id: vars
+        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      # DOCKER_BUILDKIT=0 uses the classic builder instead of BuildKit.
+      # BuildKit spins up its own extra network-namespaced sandbox per build
+      # step, one more layer of nesting on top of DinD-in-a-pod-in-k3d — and
+      # base-image pulls through it hit a reproducible TLS handshake timeout
+      # here (a plain `wget` from inside the DinD container itself, no
+      # BuildKit layer, worked fine — narrowing it to that extra nesting).
+      # The classic builder pulls through DinD's own already-proven-working
+      # network path directly.
+      - name: Build
+        env:
+          DOCKER_BUILDKIT: "0"
+        run: docker build -t registry.homelab.local/devops-portal:${{ steps.vars.outputs.sha }} .
+
+      # The runner executes this in a Docker-in-Docker sidecar (see
+      # ../../homelab/manifests/gitea-runner.yaml), isolated from the k3d
+      # node's containerd — so unlike the homelab repo's mock services
+      # (side-loaded directly, see homelab/scripts/01-build-mocks.sh), this
+      # image has to go through the in-cluster registry. DinD is a normal
+      # pod, so it resolves registry.homelab.local via the cluster's CoreDNS
+      # rewrite same as anything else — no hostname workaround needed here.
+      - name: Push
+        run: docker push registry.homelab.local/devops-portal:${{ steps.vars.outputs.sha }}
+
+      # The chart lives in the homelab repo now (single source of truth for
+      # infra), not here — so the tag bump is a second checkout+commit+push
+      # against gitea_admin/homelab.git instead of this repo. Same
+      # GIT_PUSH_TOKEN works since gitea_admin owns both repos.
+      - name: Bump chart tag in homelab repo
+        run: |
+          git config --global user.name "gitea-actions"
+          git config --global user.email "actions@devops.local"
+          git clone http://gitea_admin:${{ secrets.GIT_PUSH_TOKEN }}@gitea.homelab.local/gitea_admin/homelab.git /tmp/homelab
+          sed -i 's/^  tag: .*/  tag: "${{ steps.vars.outputs.sha }}"/' /tmp/homelab/devops-portal/chart/values.yaml
+          cd /tmp/homelab
+          git add devops-portal/chart/values.yaml
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: deploy devops-portal ${{ steps.vars.outputs.sha }}"
+          git push origin HEAD:main

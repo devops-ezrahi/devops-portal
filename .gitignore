@@ -27,3 +27,11 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Local whitening-packer output (source + node_modules + optional base
+# images, generated on demand — see the whitening-packer skill)
+/*.zip
+
+# Per-network values overlay for the export bundle (copy from
+# chart/values.closed-network.yaml.example) — network-specific, not shared
+/chart/values.closed-network.yaml
+

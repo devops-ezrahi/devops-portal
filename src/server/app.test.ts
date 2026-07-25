@@ -1,6 +1,12 @@
 import request from "supertest";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createApp } from "./app";
+import { InMemoryTicketingApi } from "./modules/ticketing/InMemoryTicketingApi";
+import { seedTickets } from "./modules/ticketing/__tests__/seedTickets";
+
+function ticketingApp() {
+  return createApp(new InMemoryTicketingApi(seedTickets()));
+}
 
 function authed() {
   return request(createApp())
@@ -12,15 +18,6 @@ function authed() {
 }
 
 describe("portal API", () => {
-  afterEach(() => {
-    delete process.env.ARGOCD_URL;
-    delete process.env.ARGOCD_AUTH_TOKEN;
-    delete process.env.ARGOCD_USERNAME;
-    delete process.env.ARGOCD_PASSWORD;
-    delete process.env.ARGOCD_INSECURE;
-    vi.unstubAllGlobals();
-  });
-
   it("returns the SSO-backed current user", async () => {
     const response = await authed().expect(200);
     expect(response.body.user).toMatchObject({
@@ -31,7 +28,7 @@ describe("portal API", () => {
   });
 
   it("lists own and team-visible tickets", async () => {
-    const app = createApp();
+    const app = ticketingApp();
 
     const mine = await request(app)
       .get("/api/tickets?scope=mine")
@@ -49,7 +46,7 @@ describe("portal API", () => {
   });
 
   it("denies unauthorized ticket detail access", async () => {
-    await request(createApp())
+    await request(ticketingApp())
       .get("/api/tickets/DEVOPS-1003")
       .set("x-user-id", "u-alex")
       .set("x-user-groups", "team-alpha")
@@ -90,7 +87,7 @@ describe("portal API", () => {
   });
 
   it("adds comments to visible tickets", async () => {
-    const app = createApp();
+    const app = ticketingApp();
     const response = await request(app)
       .post("/api/tickets/DEVOPS-1001/comments")
       .set("x-user-id", "u-alex")
@@ -113,62 +110,8 @@ describe("portal API", () => {
       .expect(403);
   });
 
-  it("returns the fake Git repo branch diff dashboard", async () => {
-    const response = await request(createApp())
-      .get("/api/git-repo-diff")
-      .set("x-user-id", "u-alex")
-      .set("x-user-groups", "team-alpha")
-      .expect(200);
-
-    expect(response.body).toMatchObject({
-      app: "payments-app",
-      baselineBranch: "payments-prd"
-    });
-    expect(response.body.branches).toContain("payments-secure-prd");
-    expect(response.body.microservices.map((service: { name: string }) => service.name)).toContain("reports-api");
-    expect(
-      response.body.microservices.find((service: { name: string }) => service.name === "reports-api").missingBranches
-    ).toContain("payments-secure-prd");
-    expect(
-      response.body.microservices
-        .find((service: { name: string }) => service.name === "payment-api")
-        .templateDiffs.some((diff: string) => diff.includes("livenessProbe.httpGet.path"))
-    ).toBe(true);
-  });
-
-  it("returns a clear Argo CD error when the configured server is unavailable", async () => {
-    process.env.ARGOCD_URL = "https://127.0.0.1:1";
-    process.env.ARGOCD_INSECURE = "true";
-
-    const response = await request(createApp())
-      .get("/api/argocd/projects")
-      .set("x-user-id", "u-alex")
-      .set("x-user-groups", "team-alpha")
-      .expect(502);
-
-    expect(response.body.error).toContain("Argo CD");
-  });
-
-  it("returns a clear Argo CD error when the configured server rejects auth", async () => {
-    process.env.ARGOCD_URL = "https://argocd.example.test";
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(JSON.stringify({ error: "no session information" }), { status: 401 }))
-    );
-
-    const response = await request(createApp())
-      .get("/api/argocd/projects")
-      .set("x-user-id", "u-alex")
-      .set("x-user-groups", "team-alpha")
-      .expect(502);
-
-    expect(response.body.error).toContain("Argo CD request failed");
-    expect(response.body.error).toContain("HTTP 401");
-    expect(response.body.error).toContain("no session information");
-  });
-
   it("lets admins list, update, and respond to any ticket", async () => {
-    const app = createApp();
+    const app = ticketingApp();
 
     const list = await request(app)
       .get("/api/admin/tickets")

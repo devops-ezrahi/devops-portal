@@ -1,164 +1,72 @@
 import cors from "cors";
 import express from "express";
 import { z } from "zod";
-import { listArgoCdProjects } from "./argocd";
-import { requestCatalog } from "./catalog";
-import { getBranchDiffDashboard } from "./gitRepoDiff";
-import { isAdmin, requireAdmin, requireSession } from "./auth";
-import { customerStages } from "./status";
-import { InMemoryTicketingApi } from "./ticketing/InMemoryTicketingApi";
-import type { CustomerStage, TicketingApi } from "./types";
+import { isAdmin, requireSession, setDevRole } from "./auth";
+import { config } from "./config";
+import { RealArtifactoryApi } from "./modules/artifactory/RealArtifactoryApi";
+import { createArtifactoryRouter } from "./modules/artifactory/router";
+import { createRagflowRouter } from "./modules/ragflow/router";
+import { InMemoryTicketingApi } from "./modules/ticketing/InMemoryTicketingApi";
+import { JiraTicketingApi } from "./modules/ticketing/JiraTicketingApi";
+import { createTicketingRouter } from "./modules/ticketing/router";
+import { RealWhiteningApi } from "./modules/whitening/RealWhiteningApi";
+import { createWhiteningRouter } from "./modules/whitening/router";
+import type { ArtifactoryApi, TicketingApi, WhiteningApi } from "./types";
 
-const createTicketSchema = z.object({
-  requestType: z.string().min(1),
-  fields: z.record(z.string(), z.string()),
-  idempotencyKey: z.string().optional()
-});
-
-const commentSchema = z.object({
-  body: z.string().trim().min(1).max(5000)
-});
-
-const adminUpdateSchema = z.object({
-  stage: z.enum(customerStages as [CustomerStage, ...CustomerStage[]]).optional(),
-  rawStatus: z.string().trim().min(1).optional(),
-  title: z.string().trim().min(1).optional(),
-  teamGroups: z.array(z.string().trim().min(1)).optional()
-});
-
-function parseCustomerStage(status: unknown): CustomerStage | undefined {
-  if (!status || typeof status !== "string") {
-    return undefined;
+export function createApp(
+  ticketingApi: TicketingApi = config.jira.enabled ? new JiraTicketingApi(config.jira) : new InMemoryTicketingApi(),
+  artifactoryApi: ArtifactoryApi = new RealArtifactoryApi(),
+  whiteningApi: WhiteningApi = new RealWhiteningApi()
+) {
+  console.log(`[artifactory] Using jf CLI — url: ${config.artifactory.url || "(not set)"}, repo: ${config.artifactory.repo || "(not set)"}`);
+  if (config.git.enabled) {
+    console.log(`[whitening] Gitea PRs — url: ${config.git.url}`);
+  } else {
+    console.log("[whitening] not configured (set GIT_URL + GIT_TOKEN)");
   }
-  return customerStages.includes(status as CustomerStage) ? (status as CustomerStage) : undefined;
-}
+  if (config.jira.enabled) {
+    console.log(`[ticketing] Jira backend — url: ${config.jira.baseUrl}, project: ${config.jira.projectKey}`);
+  } else {
+    console.log("[ticketing] in-memory fallback (set JIRA_URL + JIRA_TOKEN + JIRA_PROJECT_KEY for Jira)");
+  }
+  if (config.chat.enabled) {
+    console.log(`[chat] url: ${config.chat.apiUrl}, model: ${config.chat.model}`);
+  } else {
+    console.log("[chat] not configured (set CHAT_API_URL + CHAT_API_KEY)");
+  }
 
-export function createApp(ticketingApi: TicketingApi = new InMemoryTicketingApi()) {
   const app = express();
 
   app.use(cors());
   app.use(express.json());
-  app.use(requireSession);
+
+  // Public config — no secrets, no auth required
+  app.get("/api/config", (_req, res) => {
+    res.json({
+      ssoUrl: config.ssoUrl,
+      artifactoryEnabled: config.artifactory.enabled,
+      chatEnabled: config.chat.enabled,
+    });
+  });
+
+  app.use("/api", requireSession);
 
   app.get("/api/me", (req, res) => {
     res.json({ user: req.user, isAdmin: isAdmin(req.user!) });
   });
 
-  app.get("/api/request-types", (_req, res) => {
-    res.json({ requestTypes: requestCatalog });
+  app.post("/api/dev/role", (req, res) => {
+    if (config.ssoRequired) { res.status(403).json({ error: "Not available in SSO mode" }); return; }
+    const { role } = req.body as { role?: string };
+    if (role !== "user" && role !== "admin") { res.status(400).json({ error: "role must be 'user' or 'admin'" }); return; }
+    setDevRole(role);
+    res.json({ ok: true, role });
   });
 
-  app.get("/api/argocd/projects", async (req, res, next) => {
-    try {
-      const dashboard = await listArgoCdProjects(req);
-      res.json(dashboard);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/git-repo-diff", (_req, res, next) => {
-    try {
-      res.json(getBranchDiffDashboard());
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/tickets", async (req, res, next) => {
-    try {
-      const scope = req.query.scope === "team" ? "team" : "mine";
-      const tickets = await ticketingApi.listTickets(req.user!, {
-        scope,
-        status: parseCustomerStage(req.query.status),
-        query: typeof req.query.query === "string" ? req.query.query : undefined
-      });
-      res.json({ tickets });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/tickets/:id", async (req, res, next) => {
-    try {
-      const ticket = await ticketingApi.getTicket(req.params.id, req.user!);
-      if (!ticket) {
-        res.status(404).json({ error: "Ticket not found" });
-        return;
-      }
-      res.json({ ticket });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/api/tickets", async (req, res, next) => {
-    try {
-      const payload = createTicketSchema.parse(req.body);
-      const ticket = await ticketingApi.createTicket(payload, req.user!);
-      res.status(201).json({ ticket });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/api/tickets/:id/comments", async (req, res, next) => {
-    try {
-      const payload = commentSchema.parse(req.body);
-      const comment = await ticketingApi.addComment(req.params.id, req.user!, payload.body);
-      res.status(201).json({ comment });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/admin/tickets", requireAdmin, async (req, res, next) => {
-    try {
-      const tickets = await ticketingApi.listAdminTickets({
-        status: parseCustomerStage(req.query.status),
-        query: typeof req.query.query === "string" ? req.query.query : undefined
-      });
-      res.json({ tickets });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/admin/tickets/:id", requireAdmin, async (req, res, next) => {
-    try {
-      const ticketId = String(req.params.id);
-      const ticket = await ticketingApi.getAdminTicket(ticketId);
-      if (!ticket) {
-        res.status(404).json({ error: "Ticket not found" });
-        return;
-      }
-      res.json({ ticket });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.patch("/api/admin/tickets/:id", requireAdmin, async (req, res, next) => {
-    try {
-      const payload = adminUpdateSchema.parse(req.body);
-      const ticketId = String(req.params.id);
-      const ticket = await ticketingApi.updateAdminTicket(ticketId, req.user!, payload);
-      res.json({ ticket });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/api/admin/tickets/:id/comments", requireAdmin, async (req, res, next) => {
-    try {
-      const payload = commentSchema.parse(req.body);
-      const ticketId = String(req.params.id);
-      const comment = await ticketingApi.addAdminComment(ticketId, req.user!, payload.body);
-      res.status(201).json({ comment });
-    } catch (error) {
-      next(error);
-    }
-  });
+  app.use(createTicketingRouter(ticketingApi));
+  app.use(createArtifactoryRouter(artifactoryApi));
+  app.use(createWhiteningRouter(whiteningApi));
+  app.use(createRagflowRouter());
 
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (error instanceof z.ZodError) {
@@ -173,8 +81,20 @@ export function createApp(ticketingApi: TicketingApi = new InMemoryTicketingApi(
       res.status(404).json({ error: error.message });
       return;
     }
-    if (error instanceof Error && error.message.includes("Argo CD")) {
+    if (error instanceof Error && error.message === "Job not found") {
+      res.status(404).json({ error: error.message });
+      return;
+    }
+    if (error instanceof Error && error.message.includes("Jira request failed")) {
       res.status(502).json({ error: error.message });
+      return;
+    }
+    console.error("[server] Unexpected error:", error);
+    if (error instanceof Error) {
+      // Node's fetch() throws a bare "fetch failed" TypeError and buries the
+      // actual reason (ECONNREFUSED, ENOTFOUND, self-signed cert, ...) in .cause.
+      const cause = error.cause instanceof Error ? `: ${error.cause.message}` : "";
+      res.status(500).json({ error: `${error.message}${cause}` });
       return;
     }
     res.status(500).json({ error: "Unexpected server error" });

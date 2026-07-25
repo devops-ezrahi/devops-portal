@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateRequestFields } from "./catalog";
+import { validateRequestFields } from "./modules/ticketing/catalog";
 
 describe("validateRequestFields", () => {
   it("accepts request-type-specific fields", () => {

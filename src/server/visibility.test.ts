@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canViewTicket, filterVisibleTickets } from "./visibility";
+import { canViewTicket, filterVisibleTickets } from "./modules/ticketing/visibility";
 import type { PortalUser, TicketSummary } from "./types";
 
 const user: PortalUser = {
