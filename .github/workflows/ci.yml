@@ -18,6 +18,12 @@ env:
   # Don't delete it as unused config.
   TEAM: dvps
 
+  # "true" skips the images/ folder (the docker save tars of every FROM base
+  # image) — takes the pack from ~127 MB to ~1 MB, but the result can't be
+  # built on an air-gapped machine that doesn't already have those images.
+  # A repo variable of the same name overrides this without editing the file.
+  PACK_NO_IMAGES: ${{ vars.PACK_NO_IMAGES || 'false' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -65,7 +71,11 @@ jobs:
       # the pack/* tag it just created on HEAD.
       - id: pack
         run: |
-          echo "zip=$(python3 .packer/pack.py .)" >> "$GITHUB_OUTPUT"
+          # if, not `[ … ] && flags=…` — a false test is a non-zero status and
+          # GitHub runs these steps with `bash -e`.
+          flags=""
+          if [ "$PACK_NO_IMAGES" = "true" ]; then flags="--no-images"; fi
+          echo "zip=$(python3 .packer/pack.py . $flags)" >> "$GITHUB_OUTPUT"
           echo "tag=$(git describe --tags --abbrev=0 --match 'pack/*')" >> "$GITHUB_OUTPUT"
 
       - run: git push origin --tags
