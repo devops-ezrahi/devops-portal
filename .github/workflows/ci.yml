@@ -21,8 +21,7 @@ env:
   # "true" skips the images/ folder (the docker save tars of every FROM base
   # image) — takes the pack from ~127 MB to ~1 MB, but the result can't be
   # built on an air-gapped machine that doesn't already have those images.
-  # A repo variable of the same name overrides this without editing the file.
-  PACK_NO_IMAGES: ${{ vars.PACK_NO_IMAGES || 'false' }}
+  PACK_NO_IMAGES: "true"
 
 jobs:
   test:
