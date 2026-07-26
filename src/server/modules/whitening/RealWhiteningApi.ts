@@ -25,19 +25,38 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-// Zip name is "<team>-<project>-<version>.zip". Team is the first token,
-// version the last, and project is everything between so hyphenated
-// project names (e.g. "devops-portal") still parse correctly.
-export function parseZipName(zipName: string): { team: string; project: string; version: string } {
-  const base = zipName.replace(/\.zip$/i, "");
-  const parts = base.split("-").filter(Boolean);
-  if (parts.length < 3) {
-    throw new Error(`Zip name "${zipName}" must match <team>-<project>-<version>.zip`);
+export type PackConfig = {
+  project: string;
+  version: string;
+  team: string;
+  /** Repo name on the closed-network git — may differ from the project name. */
+  repo: string;
+  /** Glob patterns (git pathspec syntax) kept out of the pull request. */
+  exclude: string[];
+};
+
+// config.json sits at the zip root; the packer writes it (see
+// "whitening packer"/pack.py load_pack_config).
+export function parsePackConfig(text: string): PackConfig {
+  let raw: Partial<PackConfig>;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw new Error("config.json in the zip is not valid JSON");
   }
-  const team = parts[0];
-  const version = parts[parts.length - 1];
-  const project = parts.slice(1, -1).join("-");
-  return { team, project, version };
+  const { project, version, team } = raw;
+  if (!project || !version || !team) {
+    throw new Error("config.json must set project, version and team");
+  }
+  return { project, version, team, repo: raw.repo || project, exclude: raw.exclude ?? [] };
+}
+
+function readPackConfig(zip: AdmZip): PackConfig {
+  const entry = zip.getEntry("config.json");
+  if (!entry) {
+    throw new Error("Zip is missing config.json — repack it with a current whitening packer");
+  }
+  return parsePackConfig(zip.readAsText(entry));
 }
 
 export class RealWhiteningApi implements WhiteningApi {
@@ -63,7 +82,9 @@ export class RealWhiteningApi implements WhiteningApi {
   }
 
   async submitUnpack(zipBuffer: Buffer, zipName: string, submitter: PortalUser): Promise<WhiteningJob> {
-    const { team, project, version } = parseZipName(zipName);
+    const zip = new AdmZip(zipBuffer);
+    const packConfig = readPackConfig(zip);
+    const { team, project, version } = packConfig;
     const job: WhiteningJob = {
       id: this.newId(),
       status: "pending",
@@ -78,7 +99,7 @@ export class RealWhiteningApi implements WhiteningApi {
       log: [],
     };
     this.jobs.set(job.id, job);
-    void this.run(job.id, zipBuffer);
+    void this.run(job.id, zip, packConfig);
     return job;
   }
 
@@ -109,7 +130,7 @@ export class RealWhiteningApi implements WhiteningApi {
     }
   }
 
-  private async run(jobId: string, zipBuffer: Buffer) {
+  private async run(jobId: string, zip: AdmZip, packConfig: PackConfig) {
     const job = this.jobs.get(jobId)!;
     const workDir = join(tmpdir(), `whitening-${randomUUID()}`);
     try {
@@ -121,9 +142,9 @@ export class RealWhiteningApi implements WhiteningApi {
       await mkdir(workDir, { recursive: true });
       const extractDir = join(workDir, "extracted");
       this.appendLog(jobId, "Extracting zip ...");
-      new AdmZip(zipBuffer).extractAllTo(extractDir, true);
+      zip.extractAllTo(extractDir, true);
 
-      await this.pushSourceAndOpenPr(jobId, job, extractDir);
+      await this.pushSourceAndOpenPr(jobId, job, packConfig, extractDir);
       await this.uploadDependencies(jobId, job, extractDir);
       await this.uploadImages(jobId, job, extractDir);
 
@@ -138,16 +159,22 @@ export class RealWhiteningApi implements WhiteningApi {
     }
   }
 
-  private async pushSourceAndOpenPr(jobId: string, job: WhiteningJob, extractDir: string) {
+  private async pushSourceAndOpenPr(
+    jobId: string,
+    job: WhiteningJob,
+    packConfig: PackConfig,
+    extractDir: string
+  ) {
     const { team, project, version } = job;
+    const repo = packConfig.repo;
     const sourceDir = join(extractDir, "source");
     if (!(await pathExists(sourceDir))) {
       throw new Error("Zip is missing a source/ folder");
     }
 
     const repoDir = join(extractDir, "repo");
-    const cloneUrl = this.gitea.authenticatedCloneUrl(team, project);
-    this.appendLog(jobId, `Cloning ${team}/${project} ...`);
+    const cloneUrl = this.gitea.authenticatedCloneUrl(team, repo);
+    this.appendLog(jobId, `Cloning ${team}/${repo} ...`);
     await this.runCli(jobId, "git", ["clone", "--depth", "1", cloneUrl, repoDir]);
 
     const branch = `whitening/${project}-${version}`;
@@ -161,7 +188,16 @@ export class RealWhiteningApi implements WhiteningApi {
     await cp(sourceDir, repoDir, { recursive: true });
 
     await this.runCli(jobId, "git", ["add", "-A"], repoDir);
-    const { stdout: statusOutput } = await execFileAsync("git", ["status", "--porcelain"], { cwd: repoDir });
+    if (packConfig.exclude.length > 0) {
+      // Unstaging is what "exclude" means here: excluded files the zip brought
+      // stay untracked, and ones the repo already had keep their committed
+      // version instead of being deleted by our wipe-and-copy above.
+      this.appendLog(jobId, `Excluding ${packConfig.exclude.join(", ")} from the PR ...`);
+      await this.runCli(jobId, "git", ["reset", "-q", "--", ...packConfig.exclude], repoDir);
+    }
+    // Staged-only: excluded files linger as untracked/modified in the worktree
+    // and must not count as changes.
+    const { stdout: statusOutput } = await execFileAsync("git", ["diff", "--cached", "--name-only"], { cwd: repoDir });
     if (!statusOutput.trim()) {
       this.appendLog(jobId, "No changes vs. default branch — skipping PR.");
       return;

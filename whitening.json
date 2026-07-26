@@ -1,0 +1,4 @@
+{
+  "repo": "devops-portal",
+  "exclude": [".github/**"]
+}

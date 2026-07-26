@@ -60,7 +60,7 @@ export function ZipDropZone({ onSubmitted, onError }: Props) {
         >
           <FileArchive size={36} aria-hidden="true" />
           <span>Drop a packed .zip here</span>
-          <small>&lt;team&gt;-&lt;project&gt;-&lt;version&gt;.zip</small>
+          <small>from the whitening packer — must contain config.json</small>
         </div>
       ) : (
         <div className="folder-preview">

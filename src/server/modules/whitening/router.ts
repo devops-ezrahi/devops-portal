@@ -1,7 +1,6 @@
 import express from "express";
 import multer from "multer";
 import { isAdmin } from "../../auth";
-import { parseZipName } from "./RealWhiteningApi";
 import type { WhiteningApi } from "../../types";
 
 const upload = multer({
@@ -23,14 +22,14 @@ export function createWhiteningRouter(api: WhiteningApi): express.Router {
         res.status(400).json({ error: "file must be a .zip" });
         return;
       }
+      let job;
       try {
-        parseZipName(file.originalname);
+        job = await api.submitUnpack(file.buffer, file.originalname, req.user!);
       } catch (err) {
+        // submitUnpack only rejects on an unreadable zip / bad config.json.
         res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
         return;
       }
-
-      const job = await api.submitUnpack(file.buffer, file.originalname, req.user!);
       res.status(201).json({ job });
     } catch (err) {
       next(err);

@@ -80,8 +80,9 @@ jobs:
       - run: git push origin --tags
 
       # Release asset, not an artifact: downloads as the file itself
-      # (dvps-devops-portal-<version>.zip — the name the portal's whitening
-      # module parses), no wrapper zip, permanent URL. gh is preinstalled.
+      # (dvps-devops-portal-<version>.zip), no wrapper zip, permanent URL. The
+      # portal's whitening module reads the zip's config.json, not this name.
+      # gh is preinstalled.
       # Runs after the tag push so the release has a tag on the remote.
       - run: gh release create "$TAG" "$ZIP" --title "$TAG" --notes "Whitening pack for ${{ github.sha }}"
         env:
