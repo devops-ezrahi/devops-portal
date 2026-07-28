@@ -1,92 +1,52 @@
 ---
 name: ship-to-homelab
-description: Ship a devops-portal change through the CI/CD path (Gitea Actions build+push, chart tag bump, ArgoCD sync) and confirm it actually landed. Use when asked to deploy via the pipeline, verify CI/CD, or check whether a push made it to the cluster.
+description: Deploy a devops-portal change to the homelab cluster and confirm it actually landed in the running pod. Use when asked to deploy, ship, or verify that a change reached the cluster.
 ---
 
-Covers the CI/CD pipeline path (`../homelab/CLAUDE.md` → SSO/OIDC and
-Deployment sections), not local dev — for that, use the `run-devops-portal`
-skill. This one is for "did my change actually reach the running pod",
-end to end.
+Deployment is one script. This skill is for "did my change actually reach the
+running pod", end to end. For local dev, use the `run-devops-portal` skill
+instead.
 
-## 1. Push to Gitea's `main`
+> This used to describe a Gitea Actions → in-cluster registry → ArgoCD
+> pipeline. That whole chain was removed: it existed only to move a
+> locally-built image onto a locally-running cluster. If you find instructions
+> anywhere referring to `git push gitea`, the `act-runner` pod, or an ArgoCD
+> `Application` for this app, they are stale.
 
-The workflow (`.gitea/workflows/deploy.yaml`) only triggers on
-`push: branches: [main]`. The local `main` branch here is a stale,
-divergent snapshot missing `chart/`/`Dockerfile`/`.gitea/` — `testing-v1`
-(or whatever branch currently has the real infra) is the deployable one.
-Push it to Gitea's `main` explicitly, don't assume local `main` is it:
-
-```bash
-npm run build                       # catch type errors before pushing
-git push gitea <branch-name>:main   # e.g. git push gitea testing-v1:main
-```
-
-The `gitea` remote already points at `http://gitea_admin:...@gitea.homelab.local/gitea_admin/devops-portal.git`
-(check with `git remote -v` if unsure).
-
-## 2. Watch the Actions run
-
-Simplest: open `http://gitea.homelab.local/gitea_admin/devops-portal/actions`
-in a browser (needs the hosts-file entry from `../homelab/CLAUDE.md` →
-Links).
-
-Without a browser, tail the runner pod directly — the job runs inside its
-DinD sidecar, so runner-container logs show `act_runner` picking up the job
-and the workflow's own step output:
+## 1. Build and deploy
 
 ```bash
-kubectl logs -f -n gitea deployment/act-runner -c runner --tail=100
+npm run build                        # catch type errors first
+../homelab/scripts/deploy-portal.sh  # docker build -> k3d image import -> helm upgrade -> rollout restart
 ```
 
-Build step runs with `DOCKER_BUILDKIT=0` (classic builder — BuildKit's extra
-network sandbox hits a TLS timeout on this DinD setup, see workflow
-comments) and can take a few minutes. If it hangs far longer than a local
-`npm run build` + `docker build` would, that's the known DinD MTU/BuildKit
-gotcha, not a hang worth debugging fresh.
+The script does the `rollout restart` itself, and that step is load-bearing:
+the image tag is always `local` with `imagePullPolicy: IfNotPresent`, so
+without it the kubelet keeps running the image it already has and the deploy
+silently does nothing.
 
-## 3. Confirm the chart tag bump landed
-
-The workflow's last step clones `gitea_admin/homelab.git` and commits
-`devops-portal/chart/values.yaml`'s bumped `image.tag` there (not to this
-repo) as `chore: deploy devops-portal <sha>`. Confirm it arrived, from a
-checkout of the `homelab` repo:
-
-```bash
-git fetch origin main
-git log origin/main -1 --oneline    # expect "chore: deploy devops-portal <short-sha>"
-```
-
-If this commit never shows up, the pipeline failed before the last step —
-go back to the Actions log, don't assume ArgoCD is broken yet.
-
-## 4. Confirm ArgoCD synced and the pod is healthy
+## 2. Confirm the pod actually restarted
 
 ```bash
 export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config}"
-kubectl get application devops-portal -n argocd -o jsonpath='{.status.sync.status} {.status.health.status}{"\n"}'
 kubectl rollout status deployment/devops-portal -n devops-portal
-kubectl get pods -n devops-portal -o jsonpath='{.items[0].spec.containers[0].image}{"\n"}'
+kubectl get pods -n devops-portal -o jsonpath='{.items[0].status.startTime}{"\n"}'
 ```
 
-Expect `Synced Healthy` and the pod's image to be
-`registry.homelab.local/devops-portal:<the sha from step 3>`. ArgoCD's
-`selfHeal: true` (see `../homelab/argocd-apps/devops-portal.yaml`) means it
-should sync automatically within its poll interval — no manual
-`argocd app sync` needed. If it's stuck out of sync, check that Application
-manifest before poking at the workload directly.
+A start time older than your build means the restart didn't take — re-run the
+script rather than debugging the app.
 
-## 5. Verify in the browser
+## 3. Verify in the browser
 
-`http://devops-portal.homelab.local` — expect the SSO redirect to Keycloak
-(oauth2-proxy in front) to work and the new change to be visibly present.
+`https://portal.<LAB_DOMAIN>` (see `../homelab/lab.env`). Expect the SSO
+redirect to Keycloak, then the change visibly present.
 
-## If something's wrong mid-pipeline
+## If something's wrong
 
-- **Image push/pull fails**: the k3d node's containerd must trust
-  `registry.homelab.local` — see `../homelab/registries.yaml` (a host file,
-  requires `docker restart k3d-homelab-server-0` after editing, NOT
-  `kubectl apply`).
-- **Runner never picks up the job at all**: check the `act-runner` pod is
-  actually `2/2 Running` in `-n gitea` — it needs the
-  `act-runner-registration` Secret created by hand once (Gitea Admin →
-  Actions → Runners), see `../homelab/manifests/gitea-runner.yaml` comments.
+- **Image didn't change**: confirm `k3d image import` succeeded — it is silent
+  on partial failures. `docker exec k3d-homelab-server-0 ctr -n k8s.io images ls
+  | grep devops-portal` should show a recent timestamp.
+- **TLS / cert errors**: not an app problem. See `../homelab/CLAUDE.md` → TLS.
+- **SSO redirect loops or 500s**: almost always the issuer URL resolving
+  differently for the pod than for the browser. See `../homelab/CLAUDE.md` →
+  SSO / OIDC.
