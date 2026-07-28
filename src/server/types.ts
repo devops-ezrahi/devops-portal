@@ -161,7 +161,8 @@ export type WhiteningJob = {
   submittedByName: string;
   createdAt: string;
   updatedAt: string;
-  zipName: string;
+  archiveName: string;
+  department: string;
   team: string;
   project: string;
   version: string;
@@ -171,7 +172,7 @@ export type WhiteningJob = {
 };
 
 export interface WhiteningApi {
-  submitUnpack(zipBuffer: Buffer, zipName: string, submitter: PortalUser): Promise<WhiteningJob>;
+  submitUnpack(archive: Buffer, archiveName: string, submitter: PortalUser): Promise<WhiteningJob>;
   listJobs(user: PortalUser, allUsers?: boolean): Promise<WhiteningJob[]>;
   getJob(jobId: string): Promise<WhiteningJob | null>;
 }

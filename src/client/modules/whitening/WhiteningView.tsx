@@ -5,7 +5,7 @@ import type { WhiteningJob } from "../../../server/types";
 import { listJobs } from "./api";
 import { JobDetail } from "./components/JobDetail";
 import { JobList } from "./components/JobList";
-import { ZipDropZone } from "./components/ZipDropZone";
+import { ArchiveDropZone } from "./components/ArchiveDropZone";
 
 export function WhiteningView({ isAdmin, refreshKey, onError }: ModuleViewProps) {
   const [jobs, setJobs] = useState<WhiteningJob[]>([]);
@@ -71,7 +71,7 @@ export function WhiteningView({ isAdmin, refreshKey, onError }: ModuleViewProps)
             </section>
           ) : (
             <section className="detail-panel art-panel" aria-label="New job">
-              <ZipDropZone onSubmitted={handleSubmitted} onError={onError} />
+              <ArchiveDropZone onSubmitted={handleSubmitted} onError={onError} />
             </section>
           )}
         </div>

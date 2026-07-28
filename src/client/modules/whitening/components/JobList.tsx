@@ -27,7 +27,7 @@ function statusLabel(status: WhiteningJobStatus): string {
 
 export function JobList({ jobs, selectedJobId, isAdmin, onSelect }: Props) {
   if (jobs.length === 0) {
-    return <div className="empty-state">No jobs yet. Drop a packed zip above.</div>;
+    return <div className="empty-state">No jobs yet. Drop a packed .tgz above.</div>;
   }
 
   return (
@@ -42,7 +42,7 @@ export function JobList({ jobs, selectedJobId, isAdmin, onSelect }: Props) {
           <strong>{job.team}/{job.project}</strong>
           <div className="ticket-row-meta">
             <small>{isAdmin ? job.submittedByName : job.id}</small>
-            <small>{job.zipName}</small>
+            <small>{job.archiveName}</small>
           </div>
         </button>
       ))}

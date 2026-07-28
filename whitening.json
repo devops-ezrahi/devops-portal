@@ -1,6 +1,3 @@
 {
-  "team": "dvps",
-  "repo": "devops-portal",
-  "images": false,
-  "exclude": [".github/**", ".gitea/**"]
+  "images": false
 }

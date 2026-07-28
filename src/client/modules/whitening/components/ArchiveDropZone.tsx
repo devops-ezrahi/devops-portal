@@ -14,7 +14,7 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function ZipDropZone({ onSubmitted, onError }: Props) {
+export function ArchiveDropZone({ onSubmitted, onError }: Props) {
   const [dragOver, setDragOver] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -24,8 +24,8 @@ export function ZipDropZone({ onSubmitted, onError }: Props) {
     setDragOver(false);
     const dropped = e.dataTransfer.files[0];
     if (!dropped) return;
-    if (!dropped.name.toLowerCase().endsWith(".zip")) {
-      onError("Please drop a .zip file.");
+    if (!/\.(tgz|tar\.gz)$/i.test(dropped.name)) {
+      onError("Please drop a .tgz file.");
       return;
     }
     setFile(dropped);
@@ -59,8 +59,8 @@ export function ZipDropZone({ onSubmitted, onError }: Props) {
           onDrop={handleDrop}
         >
           <FileArchive size={36} aria-hidden="true" />
-          <span>Drop a packed .zip here</span>
-          <small>from the whitening packer — must contain config.json</small>
+          <span>Drop a packed .tgz here</span>
+          <small>from the whitening packer — must contain repository/config.json</small>
         </div>
       ) : (
         <div className="folder-preview">

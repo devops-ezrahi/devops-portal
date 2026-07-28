@@ -5,8 +5,10 @@ import type { WhiteningApi } from "../../types";
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB — packed zips include dependencies + image tars
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB — packs include dependencies + image tars
 });
+
+const ARCHIVE_NAME = /\.(tgz|tar\.gz)$/i;
 
 export function createWhiteningRouter(api: WhiteningApi): express.Router {
   const router = express.Router();
@@ -18,15 +20,15 @@ export function createWhiteningRouter(api: WhiteningApi): express.Router {
         res.status(400).json({ error: "file is required" });
         return;
       }
-      if (!file.originalname.toLowerCase().endsWith(".zip")) {
-        res.status(400).json({ error: "file must be a .zip" });
+      if (!ARCHIVE_NAME.test(file.originalname)) {
+        res.status(400).json({ error: "file must be a .tgz" });
         return;
       }
       let job;
       try {
         job = await api.submitUnpack(file.buffer, file.originalname, req.user!);
       } catch (err) {
-        // submitUnpack only rejects on an unreadable zip / bad config.json.
+        // submitUnpack only rejects on an unreadable archive / bad config.json.
         res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
         return;
       }

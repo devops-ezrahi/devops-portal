@@ -54,25 +54,29 @@ jobs:
 
       # python3, not python — the runner image doesn't guarantee the alias.
       # Running the script by path puts .packer on sys.path so its sibling
-      # imports resolve. No flags: team, closed-network repo name, PR excludes
-      # and "images": false (skip the docker-save tars, ~127 MB -> ~1 MB) all
-      # come from whitening.json, so CI and local packs produce the same zip.
-      # pack.py prints only the zip path on stdout; git describe then picks up
-      # the pack/* tag it just created on HEAD.
+      # imports resolve. This job is where department/team/repository come
+      # from — the packer writes them into the pack's repository/config.json.
+      # "images": false (skip the docker-save tars, ~127 MB -> ~1 MB) stays in
+      # whitening.json. pack.py prints only the .tgz path on stdout; git
+      # describe then picks up the pack/* tag it just created on HEAD.
       - id: pack
+        env:
+          WHITENING_DEPARTMENT: ultra
+          WHITENING_TEAM: dvps
+          WHITENING_REPOSITORY: devops-portal
         run: |
-          echo "zip=$(python3 .packer/pack.py .)" >> "$GITHUB_OUTPUT"
+          echo "pack=$(python3 .packer/pack.py .)" >> "$GITHUB_OUTPUT"
           echo "tag=$(git describe --tags --abbrev=0 --match 'pack/*')" >> "$GITHUB_OUTPUT"
 
       - run: git push origin --tags
 
       # Release asset, not an artifact: downloads as the file itself
-      # (dvps-devops-portal-<version>.zip), no wrapper zip, permanent URL. The
-      # portal's whitening module reads the zip's config.json, not this name.
+      # (dvps-devops-portal-<version>.tgz), no wrapper zip, permanent URL. The
+      # portal's whitening module reads repository/config.json, not this name.
       # gh is preinstalled.
       # Runs after the tag push so the release has a tag on the remote.
-      - run: gh release create "$TAG" "$ZIP" --title "$TAG" --notes "Whitening pack for ${{ github.sha }}"
+      - run: gh release create "$TAG" "$PACK" --title "$TAG" --notes "Whitening pack for ${{ github.sha }}"
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.pack.outputs.tag }}
-          ZIP: ${{ steps.pack.outputs.zip }}
+          PACK: ${{ steps.pack.outputs.pack }}

@@ -86,10 +86,11 @@ Key variables (see `.env.example`):
 | `JIRA_URL` / `JIRA_TOKEN` / `JIRA_PROJECT_KEY`               | —               | All three required to activate `JiraTicketingApi` (Jira Data Center, Bearer PAT); otherwise `InMemoryTicketingApi` fallback |
 | `CHAT_API_URL` / `CHAT_API_KEY`                              | —               | Both required to enable the chat proxy; otherwise `/api/ragflow/chat` returns 503                                           |
 
-`whitening.json` at the repo root is read by the whitening packer, not by the app: team,
-closed-network repo name, `images: false`, and the exclude globs the packer writes into
-the zip's `config.json` (which the Whitening module reads in place of the zip filename).
-It is the only place that data lives — CI passes no pack flags and declares no `TEAM`.
+`whitening.json` at the repo root is read by the whitening packer, not by the app, and now
+holds only `images: false`. **Department, team and repository come from the CI job that
+runs the packer** (`WHITENING_*` env vars in `.github/workflows/ci.yml`'s `pack` step) —
+the packer writes them into the pack's `repository/config.json`, which is what the
+Whitening module reads (never the filename).
 
 Groups are pipe-separated (not comma) so LDAP-style DNs containing commas work. Set `ALLOWED_GROUPS`/`ADMIN_GROUP` to plain group names (e.g. `devops-admins`), even when the IdP's groups claim sends full DNs (`CN=devops-admins,OU=...,DC=...`) — `auth.ts`'s `parseGroups` detects `CN=` and extracts just the CN for matching, since oauth2-proxy comma-joins multiple groups into one `X-Forwarded-Groups` header value and a naive split can't tell a group boundary from a comma inside a DN.
 
