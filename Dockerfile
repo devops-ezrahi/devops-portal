@@ -24,6 +24,16 @@ RUN npx esbuild src/server/index-prod.ts \
 
 FROM node:20-slim AS production
 
+# node:20-slim ships with an empty /etc/ssl/certs. oauth2-proxy is a Go binary
+# and reads the system trust store, so without this it cannot verify ANY TLS
+# certificate — OIDC discovery against an https:// issuer fails with "x509:
+# certificate signed by unknown authority" and the proxy exits, which surfaces
+# as a 502 from the ingress rather than an obvious crash. This went unnoticed
+# while the cluster served plain HTTP.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN groupadd --system appgroup && useradd --system --gid appgroup --no-create-home appuser
 
 WORKDIR /app
