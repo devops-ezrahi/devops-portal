@@ -1,10 +1,9 @@
 import { execFile } from "child_process";
-import { cp, mkdir, readdir, rm, stat } from "fs/promises";
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { promisify } from "util";
 import { randomUUID } from "crypto";
-import AdmZip from "adm-zip";
 import { config } from "../../config";
 import { jfUpload } from "../artifactory/jfUpload";
 import { GiteaApi } from "./GiteaApi";
@@ -25,19 +24,36 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-// Zip name is "<team>-<project>-<version>.zip". Team is the first token,
-// version the last, and project is everything between so hyphenated
-// project names (e.g. "devops-portal") still parse correctly.
-export function parseZipName(zipName: string): { team: string; project: string; version: string } {
-  const base = zipName.replace(/\.zip$/i, "");
-  const parts = base.split("-").filter(Boolean);
-  if (parts.length < 3) {
-    throw new Error(`Zip name "${zipName}" must match <team>-<project>-<version>.zip`);
+export type PackConfig = {
+  project: string;
+  version: string;
+  department: string;
+  team: string;
+  /** Repo name on the closed-network git — may differ from the project name. */
+  repository: string;
+};
+
+// repository/config.json inside the .tgz; the packer writes it, filling
+// department/team/repository from the CI job that ran it (see
+// "whitening packer"/pack.py build_pack_config).
+export function parsePackConfig(text: string): PackConfig {
+  let raw: { version?: string; repos?: Record<string, Partial<PackConfig>> };
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw new Error("config.json in the archive is not valid JSON");
   }
-  const team = parts[0];
-  const version = parts[parts.length - 1];
-  const project = parts.slice(1, -1).join("-");
-  return { team, project, version };
+  // One pack, one repo — take the first entry; its key is the project name.
+  const [project, entry] = Object.entries(raw.repos ?? {})[0] ?? [];
+  if (!project || !entry) {
+    throw new Error("config.json must name the project under repos");
+  }
+  const { version } = raw;
+  const { department, team, repository } = entry;
+  if (!version || !department || !team || !repository) {
+    throw new Error("config.json must set version, department, team and repository");
+  }
+  return { project, version, department, team, repository };
 }
 
 export class RealWhiteningApi implements WhiteningApi {
@@ -62,8 +78,33 @@ export class RealWhiteningApi implements WhiteningApi {
     job.updatedAt = nowIso();
   }
 
-  async submitUnpack(zipBuffer: Buffer, zipName: string, submitter: PortalUser): Promise<WhiteningJob> {
-    const { team, project, version } = parseZipName(zipName);
+  async submitUnpack(archive: Buffer, archiveName: string, submitter: PortalUser): Promise<WhiteningJob> {
+    // Extracted here rather than in run(): a bad archive must fail the request
+    // (400) instead of a job. run() takes over the workDir and cleans it up.
+    const workDir = join(tmpdir(), `whitening-${randomUUID()}`);
+    const extractDir = join(workDir, "extracted");
+    let packConfig: PackConfig;
+    try {
+      await mkdir(extractDir, { recursive: true });
+      const archivePath = join(workDir, "pack.tgz");
+      await writeFile(archivePath, archive);
+      try {
+        // tar ships with Linux and Windows 10+ — no unpacking library needed.
+        await execFileAsync("tar", ["-xzf", archivePath, "-C", extractDir]);
+      } catch {
+        throw new Error(`Could not extract ${archiveName} — expected a .tgz from the whitening packer`);
+      }
+      const configPath = join(extractDir, "repository", "config.json");
+      if (!(await pathExists(configPath))) {
+        throw new Error("Archive is missing repository/config.json — repack it with a current whitening packer");
+      }
+      packConfig = parsePackConfig(await readFile(configPath, "utf8"));
+    } catch (err) {
+      await rm(workDir, { recursive: true, force: true });
+      throw err;
+    }
+
+    const { department, team, project, version } = packConfig;
     const job: WhiteningJob = {
       id: this.newId(),
       status: "pending",
@@ -71,14 +112,15 @@ export class RealWhiteningApi implements WhiteningApi {
       submittedByName: submitter.displayName,
       createdAt: nowIso(),
       updatedAt: nowIso(),
-      zipName,
+      archiveName,
+      department,
       team,
       project,
       version,
       log: [],
     };
     this.jobs.set(job.id, job);
-    void this.run(job.id, zipBuffer);
+    void this.run(job.id, workDir, extractDir, packConfig);
     return job;
   }
 
@@ -109,21 +151,15 @@ export class RealWhiteningApi implements WhiteningApi {
     }
   }
 
-  private async run(jobId: string, zipBuffer: Buffer) {
+  private async run(jobId: string, workDir: string, extractDir: string, packConfig: PackConfig) {
     const job = this.jobs.get(jobId)!;
-    const workDir = join(tmpdir(), `whitening-${randomUUID()}`);
     try {
       this.patch(jobId, { status: "in-progress" });
       if (!config.git.enabled) {
         throw new Error("GIT_URL and GIT_TOKEN must be set to open pull requests");
       }
 
-      await mkdir(workDir, { recursive: true });
-      const extractDir = join(workDir, "extracted");
-      this.appendLog(jobId, "Extracting zip ...");
-      new AdmZip(zipBuffer).extractAllTo(extractDir, true);
-
-      await this.pushSourceAndOpenPr(jobId, job, extractDir);
+      await this.pushSourceAndOpenPr(jobId, job, packConfig, extractDir);
       await this.uploadDependencies(jobId, job, extractDir);
       await this.uploadImages(jobId, job, extractDir);
 
@@ -138,16 +174,22 @@ export class RealWhiteningApi implements WhiteningApi {
     }
   }
 
-  private async pushSourceAndOpenPr(jobId: string, job: WhiteningJob, extractDir: string) {
+  private async pushSourceAndOpenPr(
+    jobId: string,
+    job: WhiteningJob,
+    packConfig: PackConfig,
+    extractDir: string
+  ) {
     const { team, project, version } = job;
-    const sourceDir = join(extractDir, "source");
+    const repo = packConfig.repository;
+    const sourceDir = join(extractDir, "repository", repo);
     if (!(await pathExists(sourceDir))) {
-      throw new Error("Zip is missing a source/ folder");
+      throw new Error(`Archive is missing a repository/${repo}/ folder`);
     }
 
     const repoDir = join(extractDir, "repo");
-    const cloneUrl = this.gitea.authenticatedCloneUrl(team, project);
-    this.appendLog(jobId, `Cloning ${team}/${project} ...`);
+    const cloneUrl = this.gitea.authenticatedCloneUrl(team, repo);
+    this.appendLog(jobId, `Cloning ${team}/${repo} ...`);
     await this.runCli(jobId, "git", ["clone", "--depth", "1", cloneUrl, repoDir]);
 
     const branch = `whitening/${project}-${version}`;
@@ -161,7 +203,7 @@ export class RealWhiteningApi implements WhiteningApi {
     await cp(sourceDir, repoDir, { recursive: true });
 
     await this.runCli(jobId, "git", ["add", "-A"], repoDir);
-    const { stdout: statusOutput } = await execFileAsync("git", ["status", "--porcelain"], { cwd: repoDir });
+    const { stdout: statusOutput } = await execFileAsync("git", ["diff", "--cached", "--name-only"], { cwd: repoDir });
     if (!statusOutput.trim()) {
       this.appendLog(jobId, "No changes vs. default branch — skipping PR.");
       return;
@@ -170,32 +212,36 @@ export class RealWhiteningApi implements WhiteningApi {
     await this.runCli(
       jobId,
       "git",
-      ["-c", "user.email=whitening@devops-portal", "-c", "user.name=Whitening", "commit", "-m", `Unpack ${job.zipName}`],
+      ["-c", "user.email=whitening@devops-portal", "-c", "user.name=Whitening", "commit", "-m", `Unpack ${job.archiveName}`],
       repoDir
     );
     await this.runCli(jobId, "git", ["push", "origin", `HEAD:${branch}`], repoDir);
 
-    const base = await this.gitea.getDefaultBranch(team, project);
+    // The repo we cloned, not the project name — they differ whenever
+    // config.json's `repository` does.
+    const base = await this.gitea.getDefaultBranch(team, repo);
     this.appendLog(jobId, `Opening PR against ${base} ...`);
     const pr = await this.gitea.createPullRequest(
       team,
-      project,
+      repo,
       branch,
       base,
-      `Unpack ${job.zipName}`,
-      `Automated PR from the Whitening module for ${job.zipName}.`
+      `Unpack ${job.archiveName}`,
+      `Automated PR from the Whitening module for ${job.archiveName}.`
     );
     this.patch(jobId, { prUrl: pr.html_url });
     this.appendLog(jobId, `PR opened: ${pr.html_url}`);
   }
 
   private async uploadDependencies(jobId: string, job: WhiteningJob, extractDir: string) {
-    const depsDir = join(extractDir, "dependencies");
+    const depsDir = join(extractDir, "node_modules");
     if (!(await pathExists(depsDir)) || (await readdir(depsDir)).length === 0) {
       this.appendLog(jobId, "No dependencies to upload.");
       return;
     }
-    const target = `${config.artifactory.repo}/${job.team}/${job.project}/${job.version}/dependencies/`;
+    // Keep the node_modules/ prefix in Artifactory: delta packs are meant to be
+    // dropped straight on top of a previous one.
+    const target = `${config.artifactory.repo}/${job.team}/${job.project}/${job.version}/dependencies/node_modules/`;
     this.appendLog(jobId, `Uploading dependencies to ${target} ...`);
     await jfUpload(`${depsDir}/`, target, ["--recursive", "--flat=false"], (line) => this.appendLog(jobId, line));
   }

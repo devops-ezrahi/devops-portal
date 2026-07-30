@@ -1,9 +1,11 @@
 #!/bin/bash
-# Stop hook: checkpoint-commit any working tree changes and push, so every
-# Claude Code turn feeds the Gitea Actions -> ArgoCD pipeline. Pushes to
-# `gitea` are best-effort (that remote/cluster may be unreachable from this
-# machine) and must never fail the hook loudly — only a push that lands on
-# Gitea's `main` branch actually triggers a build.
+# Stop hook: checkpoint-commit any working tree changes and push to origin, so
+# work is backed up after every Claude Code turn.
+#
+# There used to be a second push to a `gitea` remote, which fed an in-cluster
+# Gitea Actions -> registry -> ArgoCD pipeline. That whole chain was removed
+# along with the Gitea instance; deploys are now a local
+# ../homelab/scripts/deploy-portal.sh away, so this hook only backs up.
 set -uo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
@@ -31,10 +33,8 @@ fi
 branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
 if [ -n "$branch" ] && [ "$branch" != "HEAD" ]; then
   git push origin "$branch" >/dev/null 2>&1 || true
-  git push gitea "HEAD:$branch" >/dev/null 2>&1 || true
-  # Push pack/* tags (created by the whitening packer) so they reach both remotes.
+  # Push pack/* tags (created by the whitening packer) too.
   git push origin --tags >/dev/null 2>&1 || true
-  git push gitea --tags >/dev/null 2>&1 || true
 fi
 
 exit 0

@@ -86,6 +86,12 @@ Key variables (see `.env.example`):
 | `JIRA_URL` / `JIRA_TOKEN` / `JIRA_PROJECT_KEY`               | —               | All three required to activate `JiraTicketingApi` (Jira Data Center, Bearer PAT); otherwise `InMemoryTicketingApi` fallback |
 | `CHAT_API_URL` / `CHAT_API_KEY`                              | —               | Both required to enable the chat proxy; otherwise `/api/ragflow/chat` returns 503                                           |
 
+`whitening.json` at the repo root is read by the whitening packer, not by the app, and now
+holds only `images: false`. **Department, team and repository come from the CI job that
+runs the packer** (`WHITENING_*` env vars in `.github/workflows/ci.yml`'s `pack` step) —
+the packer writes them into the pack's `repository/config.json`, which is what the
+Whitening module reads (never the filename).
+
 Groups are pipe-separated (not comma) so LDAP-style DNs containing commas work. Set `ALLOWED_GROUPS`/`ADMIN_GROUP` to plain group names (e.g. `devops-admins`), even when the IdP's groups claim sends full DNs (`CN=devops-admins,OU=...,DC=...`) — `auth.ts`'s `parseGroups` detects `CN=` and extracts just the CN for matching, since oauth2-proxy comma-joins multiple groups into one `X-Forwarded-Groups` header value and a naive split can't tell a group boundary from a comma inside a DN.
 
 Adding a new env var: add to `.env.example`, expose it in `src/server/config.ts`, consume via the config object.
@@ -117,13 +123,14 @@ Commit messages: imperative mood, ≤72 chars on the subject line. Describe _why
 
 ## Pushing
 
-After committing, push the branch to origin so work is backed up and reviewable. Also push to the `gitea` remote (the in-cluster Gitea instance) — pushes that land on Gitea's `main` are what actually trigger the CI/CD pipeline (see Deployment below). A Stop hook does this automatically after every turn; the manual commands below are for pushing by hand.
+After committing, push the branch to origin so work is backed up and reviewable. A Stop hook does this automatically after every turn; the manual commands below are for pushing by hand.
 
 ```bash
 git push -u origin <branch-name>   # first push on a new branch
 git push                           # subsequent pushes
-git push gitea <branch-name>:<branch-name>   # feed the Gitea Actions pipeline
 ```
+
+Pushing is backup only — it does not deploy anything. See Deployment below.
 
 Never force-push to `main`.
 
@@ -139,25 +146,30 @@ npm run build     # tsc --noEmit + vite build (type-check included)
 The app runs in a single container fronted by oauth2-proxy (bundled into the
 same image — see `scripts/entrypoint.sh`), deployed onto the `k3d-homelab`
 cluster maintained in the sibling `../homelab` repo (see that repo's
-`CLAUDE.md`/`CLUSTER.md` for cluster-wide setup). `Dockerfile` builds from
-`dist/`. The Helm chart lives in `../homelab/devops-portal/chart` (homelab is
-the single source of truth for infra) — Secrets are deliberately not part of
-the chart. In k8s, env vars come from a ConfigMap/Secret — no `.env` file in
-production.
+`CLAUDE.md` for cluster-wide setup). `Dockerfile` builds from `dist/`. The Helm
+chart lives in `../homelab/devops-portal/chart` (homelab is the single source
+of truth for infra) — Secrets are deliberately not part of the chart. In k8s,
+env vars come from a ConfigMap/Secret — no `.env` file in production.
 
-### Gitea Actions → in-cluster registry → ArgoCD
+### Deploying — one script
 
-Push to `main` on the `gitea` remote and `.gitea/workflows/deploy.yaml` takes
-it from there: builds the image, pushes it to the in-cluster registry, bumps
-`image.tag` in a commit to the `homelab` repo's `devops-portal/chart`, which
-ArgoCD auto-syncs. No manual step required once both repos are pushed to
-Gitea — see `../homelab/manifests/gitea-runner.yaml` for why the runner needs
-a registry hop (DinD, no host docker.sock) instead of a direct image load.
+```bash
+../homelab/scripts/deploy-portal.sh
+```
 
-There is no manual local deploy path — this pipeline is the only way code
-reaches the cluster. The portal is then live at
-**http://devops-portal.homelab.local** — needs a hosts-file entry, see
-`../homelab/CLAUDE.md` → Links.
+`docker build` → `k3d image import` (side-loads straight into the node's
+containerd) → `helm upgrade` → `rollout restart`. That last step matters: the
+tag is always `local` with `imagePullPolicy: IfNotPresent`, so without it the
+kubelet keeps the image it already has and the deploy silently no-ops.
+
+The portal is then live at **https://portal.\<LAB_DOMAIN\>** — the domain is
+set in `../homelab/lab.env`. No hosts-file entry; the hostname is public DNS.
+
+> There used to be a Gitea Actions → in-cluster registry → ArgoCD pipeline,
+> and this file used to say it was the only way code reached the cluster. All
+> of it was removed — it existed solely to move a locally-built image onto a
+> locally-running cluster. Instructions elsewhere mentioning `git push gitea`,
+> `act-runner`, or `registry.homelab.local` are stale.
 
 ## Finishing a task
 

@@ -31,7 +31,7 @@ export function JobDetail({ job }: Props) {
     <article className="ticket-detail">
       <div className="detail-heading">
         <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
-        <h2>{job.team}/{job.project}</h2>
+        <h2>{job.department}/{job.team}/{job.project}</h2>
         <p>{job.id}</p>
       </div>
 
@@ -53,8 +53,8 @@ export function JobDetail({ job }: Props) {
           <dd>{formatDate(job.updatedAt)}</dd>
         </div>
         <div>
-          <dt>Zip</dt>
-          <dd>{job.zipName}</dd>
+          <dt>Archive</dt>
+          <dd>{job.archiveName}</dd>
         </div>
         <div>
           <dt>Version</dt>

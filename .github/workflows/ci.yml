@@ -13,16 +13,6 @@ env:
   # this overrides it so lifecycle scripts work on a Linux runner.
   npm_config_script_shell: /bin/bash
 
-  # Not consumed by any step — the whitening packer greps this file for TEAM
-  # (pack.py detect_team), so CI and local packs name the zip identically.
-  # Don't delete it as unused config.
-  TEAM: dvps
-
-  # "true" skips the images/ folder (the docker save tars of every FROM base
-  # image) — takes the pack from ~127 MB to ~1 MB, but the result can't be
-  # built on an air-gapped machine that doesn't already have those images.
-  PACK_NO_IMAGES: "true"
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -64,27 +54,29 @@ jobs:
 
       # python3, not python — the runner image doesn't guarantee the alias.
       # Running the script by path puts .packer on sys.path so its sibling
-      # imports resolve. Docker is preinstalled, so images/ gets populated.
-      # No --team: the packer reads TEAM out of this file.
-      # pack.py prints only the zip path on stdout; git describe then picks up
-      # the pack/* tag it just created on HEAD.
+      # imports resolve. This job is where department/team/repository come
+      # from — the packer writes them into the pack's repository/config.json.
+      # "images": false (skip the docker-save tars, ~127 MB -> ~1 MB) stays in
+      # whitening.json. pack.py prints only the .tgz path on stdout; git
+      # describe then picks up the pack/* tag it just created on HEAD.
       - id: pack
+        env:
+          WHITENING_DEPARTMENT: ultra
+          WHITENING_TEAM: dvps
+          WHITENING_REPOSITORY: devops-portal
         run: |
-          # if, not `[ … ] && flags=…` — a false test is a non-zero status and
-          # GitHub runs these steps with `bash -e`.
-          flags=""
-          if [ "$PACK_NO_IMAGES" = "true" ]; then flags="--no-images"; fi
-          echo "zip=$(python3 .packer/pack.py . $flags)" >> "$GITHUB_OUTPUT"
+          echo "pack=$(python3 .packer/pack.py .)" >> "$GITHUB_OUTPUT"
           echo "tag=$(git describe --tags --abbrev=0 --match 'pack/*')" >> "$GITHUB_OUTPUT"
 
       - run: git push origin --tags
 
       # Release asset, not an artifact: downloads as the file itself
-      # (dvps-devops-portal-<version>.zip — the name the portal's whitening
-      # module parses), no wrapper zip, permanent URL. gh is preinstalled.
+      # (dvps-devops-portal-<version>.tgz), no wrapper zip, permanent URL. The
+      # portal's whitening module reads repository/config.json, not this name.
+      # gh is preinstalled.
       # Runs after the tag push so the release has a tag on the remote.
-      - run: gh release create "$TAG" "$ZIP" --title "$TAG" --notes "Whitening pack for ${{ github.sha }}"
+      - run: gh release create "$TAG" "$PACK" --title "$TAG" --notes "Whitening pack for ${{ github.sha }}"
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.pack.outputs.tag }}
-          ZIP: ${{ steps.pack.outputs.zip }}
+          PACK: ${{ steps.pack.outputs.pack }}

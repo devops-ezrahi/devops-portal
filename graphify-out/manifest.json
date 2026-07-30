@@ -1,8 +1,8 @@
 {
   ".claude/hooks/auto-commit-push.sh": {
-    "mtime": 1783691646.8443155,
-    "ast_hash": "28624c60ddd99daf7b2584f5112ca2e4",
-    "semantic_hash": "28624c60ddd99daf7b2584f5112ca2e4"
+    "mtime": 1784900011.9966362,
+    "ast_hash": "65e7147c52e74ffb52eb20129816a590",
+    "semantic_hash": "65e7147c52e74ffb52eb20129816a590"
   },
   ".claude/settings.json": {
     "mtime": 1783691646.8443155,
@@ -10,14 +10,9 @@
     "semantic_hash": "f1c15534513fbb84bdab4a95c4bd9e3c"
   },
   ".claude/settings.local.json": {
-    "mtime": 1784543341.0865884,
-    "ast_hash": "a0931e4b6a35e131d6915faa0aa96a2a",
-    "semantic_hash": "a0931e4b6a35e131d6915faa0aa96a2a"
-  },
-  ".claude/skills/export-build-bundle/build-bundle.sh": {
-    "mtime": 1784582488.0878723,
-    "ast_hash": "43094bc0efb69dab6fac97377ef7ac13",
-    "semantic_hash": "43094bc0efb69dab6fac97377ef7ac13"
+    "mtime": 1784810956.7519088,
+    "ast_hash": "21099627cca2e9b2f4d6a4f95fb8bcbf",
+    "semantic_hash": "21099627cca2e9b2f4d6a4f95fb8bcbf"
   },
   ".claude/skills/run-devops-portal/driver.mjs": {
     "mtime": 1783691646.846316,
@@ -25,9 +20,9 @@
     "semantic_hash": "6bbbef1fd7c53012654f3c7cf458292c"
   },
   "package.json": {
-    "mtime": 1783691646.8543158,
-    "ast_hash": "7b35a0e531ae34483a835b25bb694fe5",
-    "semantic_hash": "7b35a0e531ae34483a835b25bb694fe5"
+    "mtime": 1784901245.3475747,
+    "ast_hash": "10d9e3fcb966f6635f789bcb36f5bcae",
+    "semantic_hash": "10d9e3fcb966f6635f789bcb36f5bcae"
   },
   "scripts/entrypoint.sh": {
     "mtime": 1783969610.3675575,
@@ -40,9 +35,9 @@
     "semantic_hash": "b6e11b1af1efec7861e83cd58d93d42a"
   },
   "src/client/App.tsx": {
-    "mtime": 1783776158.8827765,
-    "ast_hash": "981eb9fc626d3098ac9fc971d50a2ea2",
-    "semantic_hash": "981eb9fc626d3098ac9fc971d50a2ea2"
+    "mtime": 1784815596.611805,
+    "ast_hash": "6b0d2a4fef1520c2d78d7d53c3fb50bf",
+    "semantic_hash": "6b0d2a4fef1520c2d78d7d53c3fb50bf"
   },
   "src/client/ErrorScreen.tsx": {
     "mtime": 1783691646.8628974,
@@ -130,14 +125,14 @@
     "semantic_hash": "e024042c9dcb1db13b541e31fd1b1c06"
   },
   "src/client/modules/ticketing/AdminTicketingView.tsx": {
-    "mtime": 1783776966.4889307,
-    "ast_hash": "02a1daa722b803a13602c389d9120922",
-    "semantic_hash": "02a1daa722b803a13602c389d9120922"
+    "mtime": 1784853221.946888,
+    "ast_hash": "3ca5a12a9086d314ce09d7489b51a2c1",
+    "semantic_hash": "3ca5a12a9086d314ce09d7489b51a2c1"
   },
   "src/client/modules/ticketing/UserTicketingView.tsx": {
-    "mtime": 1783776195.7140827,
-    "ast_hash": "4433f46cc2182996e00ef1585ea62787",
-    "semantic_hash": "4433f46cc2182996e00ef1585ea62787"
+    "mtime": 1784853212.0639093,
+    "ast_hash": "a6be3a186fcf174bf52d06164f942cb0",
+    "semantic_hash": "a6be3a186fcf174bf52d06164f942cb0"
   },
   "src/client/modules/ticketing/api.ts": {
     "mtime": 1783772077.5045397,
@@ -165,24 +160,54 @@
     "semantic_hash": "d5da4deb4b1e5e850ca7651ce4822847"
   },
   "src/client/modules/ticketing/index.tsx": {
-    "mtime": 1783691646.8737946,
-    "ast_hash": "a9f0bc2a71702fb1722d72f00ce0af73",
-    "semantic_hash": "a9f0bc2a71702fb1722d72f00ce0af73"
+    "mtime": 1784853227.4323063,
+    "ast_hash": "9a02cb9f57ee43d5e844f5191f6b6196",
+    "semantic_hash": "9a02cb9f57ee43d5e844f5191f6b6196"
   },
   "src/client/modules/ticketing/utils.ts": {
     "mtime": 1783776153.2212415,
     "ast_hash": "4532265c139aec4c8aaff6c94910b211",
     "semantic_hash": "4532265c139aec4c8aaff6c94910b211"
   },
+  "src/client/modules/whitening/WhiteningView.tsx": {
+    "mtime": 1784815591.6450877,
+    "ast_hash": "708f1ba2333225aa9a33171a1db77021",
+    "semantic_hash": "708f1ba2333225aa9a33171a1db77021"
+  },
+  "src/client/modules/whitening/api.ts": {
+    "mtime": 1784815553.8190148,
+    "ast_hash": "5b10b89d0b40d2a3cd25669b34c25006",
+    "semantic_hash": "5b10b89d0b40d2a3cd25669b34c25006"
+  },
+  "src/client/modules/whitening/components/JobDetail.tsx": {
+    "mtime": 1784815582.082637,
+    "ast_hash": "a59373d7813c18cd85ebbee06551d06a",
+    "semantic_hash": "a59373d7813c18cd85ebbee06551d06a"
+  },
+  "src/client/modules/whitening/components/JobList.tsx": {
+    "mtime": 1784815570.0495646,
+    "ast_hash": "74c8801c2219addf8eb28953fd8ef9a4",
+    "semantic_hash": "74c8801c2219addf8eb28953fd8ef9a4"
+  },
+  "src/client/modules/whitening/components/ZipDropZone.tsx": {
+    "mtime": 1785049573.4100769,
+    "ast_hash": "6a7bb74d6d152bcaebcb9c70855db70c",
+    "semantic_hash": "6a7bb74d6d152bcaebcb9c70855db70c"
+  },
+  "src/client/modules/whitening/index.tsx": {
+    "mtime": 1784815549.996725,
+    "ast_hash": "7b8fcd4e827755ef2c44c85aab7f8949",
+    "semantic_hash": "7b8fcd4e827755ef2c44c85aab7f8949"
+  },
   "src/server/app.test.ts": {
-    "mtime": 1783691646.8763852,
+    "mtime": 1784997805.3158023,
     "ast_hash": "6af59fe4d9b30f875c724f7a9cceba44",
     "semantic_hash": "6af59fe4d9b30f875c724f7a9cceba44"
   },
   "src/server/app.ts": {
-    "mtime": 1783979348.8964686,
-    "ast_hash": "7a6896a0448c9409e37df2d282526113",
-    "semantic_hash": "7a6896a0448c9409e37df2d282526113"
+    "mtime": 1784815546.0981565,
+    "ast_hash": "551f3ef01acc6ed743a2bef0b448e7a7",
+    "semantic_hash": "551f3ef01acc6ed743a2bef0b448e7a7"
   },
   "src/server/auth.test.ts": {
     "mtime": 1783954658.92038,
@@ -200,9 +225,9 @@
     "semantic_hash": "d6ca21b447ddf73494bd2caad8c538e0"
   },
   "src/server/config.ts": {
-    "mtime": 1783691646.8783853,
-    "ast_hash": "aecc08cd52e1041e0913492379ed66ba",
-    "semantic_hash": "aecc08cd52e1041e0913492379ed66ba"
+    "mtime": 1784815445.9997742,
+    "ast_hash": "93b437ce25cd759d9c8a1d1e510f5854",
+    "semantic_hash": "93b437ce25cd759d9c8a1d1e510f5854"
   },
   "src/server/env.ts": {
     "mtime": 1783691646.8783853,
@@ -219,10 +244,20 @@
     "ast_hash": "e02f5f04786680dd88da9c51ff8ce37f",
     "semantic_hash": "e02f5f04786680dd88da9c51ff8ce37f"
   },
+  "src/server/jiraTicketingApi.test.ts": {
+    "mtime": 1784800899.4137409,
+    "ast_hash": "bd43e7d6f55fa54a4eae0c9220fc5106",
+    "semantic_hash": "bd43e7d6f55fa54a4eae0c9220fc5106"
+  },
   "src/server/modules/artifactory/RealArtifactoryApi.ts": {
-    "mtime": 1783691646.8798,
-    "ast_hash": "e074f87f8ac1fa04881c5105d0c04a98",
-    "semantic_hash": "e074f87f8ac1fa04881c5105d0c04a98"
+    "mtime": 1784815471.3971338,
+    "ast_hash": "6da0489af55e8decbff68e24b52307d0",
+    "semantic_hash": "6da0489af55e8decbff68e24b52307d0"
+  },
+  "src/server/modules/artifactory/jfUpload.ts": {
+    "mtime": 1784815458.9446356,
+    "ast_hash": "3e53d8f9f042d37041dd235dce101589",
+    "semantic_hash": "3e53d8f9f042d37041dd235dce101589"
   },
   "src/server/modules/artifactory/router.ts": {
     "mtime": 1783691646.8809974,
@@ -240,9 +275,9 @@
     "semantic_hash": "5e1ea9b5262389e60e5295c1a146db27"
   },
   "src/server/modules/ticketing/JiraTicketingApi.ts": {
-    "mtime": 1783979362.6803207,
-    "ast_hash": "e43352253c76a22990386eca984696d5",
-    "semantic_hash": "e43352253c76a22990386eca984696d5"
+    "mtime": 1784800887.9193242,
+    "ast_hash": "a2b4d65a203a76adfd98a3e378e674b4",
+    "semantic_hash": "a2b4d65a203a76adfd98a3e378e674b4"
   },
   "src/server/modules/ticketing/__tests__/seedTickets.ts": {
     "mtime": 1783772041.7445686,
@@ -274,15 +309,35 @@
     "ast_hash": "81a477e5bcd6af3c25b56e5cc245d1f0",
     "semantic_hash": "81a477e5bcd6af3c25b56e5cc245d1f0"
   },
+  "src/server/modules/whitening/GiteaApi.ts": {
+    "mtime": 1784815496.8486948,
+    "ast_hash": "ab506429929f7f11094fd32651181936",
+    "semantic_hash": "ab506429929f7f11094fd32651181936"
+  },
+  "src/server/modules/whitening/RealWhiteningApi.ts": {
+    "mtime": 1785049526.863948,
+    "ast_hash": "442603aecb01ed1ab8785c6337423674",
+    "semantic_hash": "442603aecb01ed1ab8785c6337423674"
+  },
+  "src/server/modules/whitening/packConfig.test.ts": {
+    "mtime": 1785049544.0325756,
+    "ast_hash": "63f213952d51c5f39a6beff21bc796c5",
+    "semantic_hash": "63f213952d51c5f39a6beff21bc796c5"
+  },
+  "src/server/modules/whitening/router.ts": {
+    "mtime": 1785049535.3444977,
+    "ast_hash": "02f9586c8e9476dcf78d6f0e47cfa817",
+    "semantic_hash": "02f9586c8e9476dcf78d6f0e47cfa817"
+  },
   "src/server/status.test.ts": {
     "mtime": 1783691646.884253,
     "ast_hash": "19dbb4d758b7f030be299322985e5231",
     "semantic_hash": "19dbb4d758b7f030be299322985e5231"
   },
   "src/server/types.ts": {
-    "mtime": 1783771941.0586627,
-    "ast_hash": "a145b987f1fe23553fbf4157e8c46acd",
-    "semantic_hash": "a145b987f1fe23553fbf4157e8c46acd"
+    "mtime": 1784815436.8003073,
+    "ast_hash": "ccfc4028366eb2ec9e7fe7883ee6fff9",
+    "semantic_hash": "ccfc4028366eb2ec9e7fe7883ee6fff9"
   },
   "src/server/visibility.test.ts": {
     "mtime": 1783691646.885259,
@@ -309,10 +364,10 @@
     "ast_hash": "05ef7be72a486aa4adaeae1afb52f58f",
     "semantic_hash": "05ef7be72a486aa4adaeae1afb52f58f"
   },
-  ".claude/skills/export-build-bundle/SKILL.md": {
-    "mtime": 1783980515.943504,
-    "ast_hash": "a48641110be66a65ad83a4546a754089",
-    "semantic_hash": "a48641110be66a65ad83a4546a754089"
+  "whitening.json": {
+    "mtime": 1785054836.5653665,
+    "ast_hash": "0a587b9885bbe7976457a4b4d53f1094",
+    "semantic_hash": "0a587b9885bbe7976457a4b4d53f1094"
   },
   ".claude/skills/run-devops-portal/SKILL.md": {
     "mtime": 1783691646.846316,
@@ -329,10 +384,15 @@
     "ast_hash": "35b8fcc4ea33e8c82864d94f9df2dd32",
     "semantic_hash": "35b8fcc4ea33e8c82864d94f9df2dd32"
   },
+  ".github/workflows/ci.yml": {
+    "mtime": 1785054928.1798701,
+    "ast_hash": "6a85e2e099f3f789a12ed387d191f0c7",
+    "semantic_hash": "6a85e2e099f3f789a12ed387d191f0c7"
+  },
   "CLAUDE.md": {
-    "mtime": 1784418450.5436263,
-    "ast_hash": "a577f61f57dc985ec3449060d1e48e96",
-    "semantic_hash": "a577f61f57dc985ec3449060d1e48e96"
+    "mtime": 1785054971.302498,
+    "ast_hash": "a160d0441d73578553b732ba17dd0d25",
+    "semantic_hash": "a160d0441d73578553b732ba17dd0d25"
   },
   "index.html": {
     "mtime": 1783205119.4268298,
