@@ -1,5 +1,6 @@
 import { FileArchive, Upload, X } from "lucide-react";
 import { useState } from "react";
+import { log, warn, error as logError } from "../../../log";
 import { submitUnpack } from "../api";
 import type { WhiteningJob } from "../../../../server/types";
 
@@ -23,11 +24,13 @@ export function ArchiveDropZone({ onSubmitted, onError }: Props) {
     e.preventDefault();
     setDragOver(false);
     const dropped = e.dataTransfer.files[0];
-    if (!dropped) return;
+    if (!dropped) return log("whitening/upload", "drop with no files");
     if (!/\.(tgz|tar\.gz)$/i.test(dropped.name)) {
+      warn("whitening/upload", "rejected non-tgz drop", { name: dropped.name, type: dropped.type });
       onError("Please drop a .tgz file.");
       return;
     }
+    log("whitening/upload", "archive selected", { name: dropped.name, bytes: dropped.size });
     setFile(dropped);
   }
 
@@ -35,11 +38,15 @@ export function ArchiveDropZone({ onSubmitted, onError }: Props) {
     e.preventDefault();
     if (!file) return;
     setSubmitting(true);
+    const startedAt = performance.now();
+    log("whitening/upload", "uploading archive", { name: file.name, bytes: file.size });
     try {
       const result = await submitUnpack(file);
+      log("whitening/upload", "accepted", result.job.id, `${(performance.now() - startedAt).toFixed(0)}ms`);
       onSubmitted(result.job);
       setFile(null);
     } catch (err) {
+      logError("whitening/upload", "upload failed", file.name, err);
       onError(err instanceof Error ? err.message : "Failed to submit");
     } finally {
       setSubmitting(false);

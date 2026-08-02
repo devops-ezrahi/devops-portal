@@ -1,6 +1,7 @@
 import { MessageSquare, Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { getPortalConfig } from "../../api";
+import { log, warn, error as logError } from "../../log";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ChatMessage, ChatSession } from "../../../server/types";
 import { streamChat } from "./api";
@@ -64,10 +65,16 @@ export function ChatView({ refreshKey, onError }: ModuleViewProps) {
   const messages = activeSession?.messages ?? [];
 
   useEffect(() => {
-    getPortalConfig().then((cfg) => setChatEnabled(cfg.chatEnabled ?? false));
+    log("chat", "view mounted", { sessions: sessions.length, activeId });
+    getPortalConfig().then((cfg) => {
+      if (!cfg.chatEnabled) warn("chat", "chat disabled — CHAT_API_URL/CHAT_API_KEY not set on the server");
+      else log("chat", "chat enabled");
+      setChatEnabled(cfg.chatEnabled ?? false);
+    });
   }, []);
 
   useEffect(() => {
+    log("chat", "refresh — aborting any stream in flight", { refreshKey });
     abortRef.current = true;
     setInput("");
     setIsStreaming(false);
@@ -86,6 +93,7 @@ export function ChatView({ refreshKey, onError }: ModuleViewProps) {
   }
 
   function switchTo(id: string) {
+    log("chat", "switching session", { from: activeId, to: id, wasStreaming: isStreaming });
     abortRef.current = true;
     setIsStreaming(false);
     setInput("");
@@ -96,6 +104,7 @@ export function ChatView({ refreshKey, onError }: ModuleViewProps) {
 
   function newChat() {
     const session = createSession();
+    log("chat", "new session", session.id);
     setSessions((prev) => {
       const next = [session, ...prev];
       saveSessions(next);
@@ -106,6 +115,7 @@ export function ChatView({ refreshKey, onError }: ModuleViewProps) {
 
   function deleteSession(id: string, e: React.MouseEvent) {
     e.stopPropagation();
+    log("chat", "deleting session", id, { wasActive: activeId === id });
     setSessions((prev) => {
       const next = prev.filter((s) => s.id !== id);
       saveSessions(next);
@@ -128,7 +138,10 @@ export function ChatView({ refreshKey, onError }: ModuleViewProps) {
 
   async function sendMessage() {
     const text = input.trim();
-    if (!text || isStreaming) return;
+    if (!text || isStreaming) {
+      log("chat", "send ignored", { empty: !text, isStreaming });
+      return;
+    }
 
     let targetId = activeId;
     if (!targetId) {
@@ -157,9 +170,20 @@ export function ChatView({ refreshKey, onError }: ModuleViewProps) {
     setIsStreaming(true);
     abortRef.current = false;
 
+    const startedAt = performance.now();
+    let chunks = 0;
+    let chars = 0;
+    log("chat", "sending", { session: targetId, chars: text.length, history: withUser.length });
+
     try {
       for await (const chunk of streamChat(withUser)) {
-        if (abortRef.current) break;
+        if (abortRef.current) {
+          warn("chat", "stream aborted by user", { session: targetId, chunks, chars });
+          break;
+        }
+        chunks++;
+        chars += chunk.length;
+        if (chunks === 1) log("chat", `first chunk after ${(performance.now() - startedAt).toFixed(0)}ms`);
         setSessions((prev) => {
           const next = prev.map((s) => {
             if (s.id !== targetId) return s;
@@ -177,6 +201,7 @@ export function ChatView({ refreshKey, onError }: ModuleViewProps) {
         });
       }
     } catch (err) {
+      logError("chat", "stream failed", { session: targetId, chunks, chars }, err);
       onError(err instanceof Error ? err.message : "Chat failed");
       setSessions((prev) => {
         const next = prev.map((s) => {
@@ -192,6 +217,12 @@ export function ChatView({ refreshKey, onError }: ModuleViewProps) {
         return next;
       });
     } finally {
+      log("chat", "stream done", {
+        session: targetId,
+        chunks,
+        chars,
+        ms: Number((performance.now() - startedAt).toFixed(0)),
+      });
       setIsStreaming(false);
     }
   }

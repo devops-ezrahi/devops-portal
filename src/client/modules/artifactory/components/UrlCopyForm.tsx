@@ -1,5 +1,6 @@
 import { Upload } from "lucide-react";
 import { useState } from "react";
+import { log, error as logError } from "../../../log";
 import { submitUrlCopy } from "../api";
 import type { ArtifactoryJob } from "../../../../server/types";
 
@@ -15,11 +16,14 @@ export function UrlCopyForm({ onSubmitted, onError }: Props) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
+    log("artifactory/url-copy", "submitting", sourceUrl);
     try {
       const result = await submitUrlCopy({ sourceUrl });
+      log("artifactory/url-copy", "accepted", result.job.id, result.job.status);
       onSubmitted(result.job);
       setSourceUrl("");
     } catch (err) {
+      logError("artifactory/url-copy", "submit failed", sourceUrl, err);
       onError(err instanceof Error ? err.message : "Failed to submit");
     } finally {
       setSubmitting(false);

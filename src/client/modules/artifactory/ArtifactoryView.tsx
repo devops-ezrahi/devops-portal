@@ -2,6 +2,7 @@ import { FolderOpen, Link, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ArtifactoryJob } from "../../../server/types";
+import { log, error as logError } from "../../log";
 import { listJobs } from "./api";
 import { JobDetail } from "./components/JobDetail";
 import { JobList } from "./components/JobList";
@@ -18,22 +19,35 @@ export function ArtifactoryView({ isAdmin, refreshKey, onError }: ModuleViewProp
 
   function fetchJobs() {
     listJobs()
-      .then((result) => setJobs(result.jobs))
-      .catch((err: Error) => onError(err.message));
+      .then((result) => {
+        log("artifactory", `jobs loaded: ${result.jobs.length}`, {
+          inProgress: result.jobs.filter((j) => j.status === "in-progress").length,
+          statuses: result.jobs.map((j) => `${j.id}:${j.status}`),
+        });
+        setJobs(result.jobs);
+      })
+      .catch((err: Error) => {
+        logError("artifactory", "listJobs failed", err);
+        onError(err.message);
+      });
   }
 
   useEffect(() => {
+    log("artifactory", "view mounted / refreshed", { isAdmin, refreshKey, activeTab });
     fetchJobs();
   }, [refreshKey]);
 
   useEffect(() => {
+    log("artifactory", "starting 2s job poll");
     intervalRef.current = setInterval(fetchJobs, 2000);
     return () => {
+      log("artifactory", "stopping job poll");
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, []);
 
   function handleSubmitted(job: ArtifactoryJob) {
+    log("artifactory", "job submitted", job);
     setJobs((prev) => [job, ...prev.filter((j) => j.id !== job.id)]);
     setSelectedJobId(job.id);
   }
@@ -63,9 +77,10 @@ export function ArtifactoryView({ isAdmin, refreshKey, onError }: ModuleViewProp
                 jobs={jobs}
                 selectedJobId={selectedJobId}
                 isAdmin={isAdmin}
-                onSelect={(id) =>
-                  setSelectedJobId((prev) => (prev === id ? null : id))
-                }
+                onSelect={(id) => {
+                  log("artifactory", selectedJobId === id ? "deselect job" : "select job", id);
+                  setSelectedJobId((prev) => (prev === id ? null : id));
+                }}
               />
             </div>
           </section>
@@ -82,14 +97,14 @@ export function ArtifactoryView({ isAdmin, refreshKey, onError }: ModuleViewProp
               <div className="tab-bar">
                 <button
                   className={`tab${activeTab === "url-copy" ? " active" : ""}`}
-                  onClick={() => setActiveTab("url-copy")}
+                  onClick={() => { log("artifactory", "tab → url-copy"); setActiveTab("url-copy"); }}
                 >
                   <Link size={16} aria-hidden="true" />
                   Copy from URL
                 </button>
                 <button
                   className={`tab${activeTab === "folder-upload" ? " active" : ""}`}
-                  onClick={() => setActiveTab("folder-upload")}
+                  onClick={() => { log("artifactory", "tab → folder-upload"); setActiveTab("folder-upload"); }}
                 >
                   <FolderOpen size={16} aria-hidden="true" />
                   Upload Folder

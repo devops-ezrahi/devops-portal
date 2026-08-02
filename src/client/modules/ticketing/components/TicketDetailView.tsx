@@ -1,6 +1,7 @@
 import { MessageSquarePlus } from "lucide-react";
 import { useState } from "react";
 import type { FormEvent } from "react";
+import { log, error as logError } from "../../../log";
 import { addComment } from "../api";
 import type { TicketDetail } from "../../../../server/types";
 import { formatDate, isStatusMessage, statusMessageText, stageClass } from "../utils";
@@ -18,10 +19,15 @@ export function TicketDetailView({
   async function submitComment(event: FormEvent) {
     event.preventDefault();
     setSubmitting(true);
+    log("ticketing", "posting comment", { ticket: ticket.id, chars: body.length });
     try {
       await addComment(ticket.id, body);
+      log("ticketing", "comment posted", ticket.id);
       setBody("");
       await onCommentAdded();
+    } catch (err) {
+      logError("ticketing", "addComment failed", ticket.id, err);
+      throw err;
     } finally {
       setSubmitting(false);
     }

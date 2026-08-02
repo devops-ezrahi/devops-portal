@@ -6,6 +6,7 @@ import {
   ForbiddenError,
   UnauthenticatedError,
 } from "./api";
+import { log, warn, error as logError } from "./log";
 import { AccessDeniedScreen } from "./AccessDeniedScreen";
 import { ErrorScreen } from "./ErrorScreen";
 import { LoginScreen } from "./LoginScreen";
@@ -41,8 +42,11 @@ export function App() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
+    log("app", "shell mounted", { modules: modules.map((m) => m.id), initialModule: activeModuleId });
     function onPopState() {
-      setActiveModuleId(moduleFromPath(window.location.pathname));
+      const next = moduleFromPath(window.location.pathname);
+      log("router", "popstate", window.location.pathname, "→", next);
+      setActiveModuleId(next);
     }
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
@@ -50,12 +54,14 @@ export function App() {
 
   function navigateTo(id: string) {
     const mod = modules.find((m) => m.id === id);
+    log("router", "navigate", activeModuleId, "→", id, mod ? `/${slugFor(mod)}` : "(unknown module)");
     if (mod) window.history.pushState({}, "", `/${slugFor(mod)}`);
     setActiveModuleId(id);
   }
 
   useEffect(() => {
     let mounted = true;
+    log("auth", "loading /api/me", { retryKey });
     setLoading(true);
     setError(null);
     setLoadError(null);
@@ -63,7 +69,8 @@ export function App() {
     setUnauthenticated(false);
     getMe()
       .then(({ user: me, isAdmin: admin }) => {
-        if (!mounted) return;
+        if (!mounted) return log("auth", "ignoring /api/me result — unmounted");
+        log("auth", "signed in", { id: me.id, displayName: me.displayName, groups: me.groups, isAdmin: admin });
         setUser(me);
         setIsAdmin(admin);
         setLoading(false);
@@ -71,11 +78,14 @@ export function App() {
       .catch((err: Error) => {
         if (!mounted) return;
         if (err instanceof UnauthenticatedError) {
+          warn("auth", "unauthenticated — showing login screen", { ssoUrl: err.ssoUrl });
           setUnauthenticated(true);
           setSsoUrl(err.ssoUrl);
         } else if (err instanceof ForbiddenError) {
+          warn("auth", "forbidden — user is not in ALLOWED_GROUPS", err.message);
           setForbidden(true);
         } else {
+          logError("auth", "/api/me failed", err);
           setLoadError(err.message);
         }
         setLoading(false);
@@ -86,6 +96,14 @@ export function App() {
   }, [retryKey]);
 
   const activeModule = modules.find((m) => m.id === activeModuleId) ?? modules[0];
+
+  useEffect(() => {
+    if (error) logError("app", "error banner", error);
+  }, [error]);
+
+  useEffect(() => {
+    log("app", "rendering module", activeModule.id, { isAdmin, refreshKey });
+  }, [activeModule.id, isAdmin, refreshKey]);
 
   if (forbidden) {
     return <AccessDeniedScreen />;
@@ -113,11 +131,17 @@ export function App() {
           <div className="role-toggle">
             <button
               className={!isAdmin ? "active" : ""}
-              onClick={() => setDevRole("user").then(() => setRetryKey((k) => k + 1))}
+              onClick={() => {
+                log("dev", "switching role → user");
+                setDevRole("user").then(() => setRetryKey((k) => k + 1));
+              }}
             >User</button>
             <button
               className={isAdmin ? "active" : ""}
-              onClick={() => setDevRole("admin").then(() => setRetryKey((k) => k + 1))}
+              onClick={() => {
+                log("dev", "switching role → admin");
+                setDevRole("admin").then(() => setRetryKey((k) => k + 1));
+              }}
             >Admin</button>
           </div>
         </div>
@@ -146,7 +170,13 @@ export function App() {
             <span>{user?.displayName ?? "Signed in user"}</span>
           </div>
 
-          <button className="ghost-button" onClick={() => setRefreshKey((k) => k + 1)}>
+          <button
+            className="ghost-button"
+            onClick={() => {
+              log("app", "refresh clicked — remounting", activeModuleId, `refreshKey ${refreshKey} → ${refreshKey + 1}`);
+              setRefreshKey((k) => k + 1);
+            }}
+          >
             <RefreshCcw size={17} aria-hidden="true" /> Refresh
           </button>
         </div>

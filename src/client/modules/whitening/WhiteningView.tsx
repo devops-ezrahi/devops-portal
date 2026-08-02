@@ -2,6 +2,7 @@ import { Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { WhiteningJob } from "../../../server/types";
+import { log, error as logError } from "../../log";
 import { listJobs } from "./api";
 import { JobDetail } from "./components/JobDetail";
 import { JobList } from "./components/JobList";
@@ -14,22 +15,35 @@ export function WhiteningView({ isAdmin, refreshKey, onError }: ModuleViewProps)
 
   function fetchJobs() {
     listJobs()
-      .then((result) => setJobs(result.jobs))
-      .catch((err: Error) => onError(err.message));
+      .then((result) => {
+        log("whitening", `jobs loaded: ${result.jobs.length}`, {
+          inProgress: result.jobs.filter((j) => j.status === "in-progress").length,
+          statuses: result.jobs.map((j) => `${j.id}:${j.status}`),
+        });
+        setJobs(result.jobs);
+      })
+      .catch((err: Error) => {
+        logError("whitening", "listJobs failed", err);
+        onError(err.message);
+      });
   }
 
   useEffect(() => {
+    log("whitening", "view mounted / refreshed", { isAdmin, refreshKey });
     fetchJobs();
   }, [refreshKey]);
 
   useEffect(() => {
+    log("whitening", "starting 2s job poll");
     intervalRef.current = setInterval(fetchJobs, 2000);
     return () => {
+      log("whitening", "stopping job poll");
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, []);
 
   function handleSubmitted(job: WhiteningJob) {
+    log("whitening", "unpack job submitted", job);
     setJobs((prev) => [job, ...prev.filter((j) => j.id !== job.id)]);
     setSelectedJobId(job.id);
   }
@@ -58,7 +72,10 @@ export function WhiteningView({ isAdmin, refreshKey, onError }: ModuleViewProps)
                 jobs={jobs}
                 selectedJobId={selectedJobId}
                 isAdmin={isAdmin}
-                onSelect={(id) => setSelectedJobId((prev) => (prev === id ? null : id))}
+                onSelect={(id) => {
+                  log("whitening", selectedJobId === id ? "deselect job" : "select job", id);
+                  setSelectedJobId((prev) => (prev === id ? null : id));
+                }}
               />
             </div>
           </section>
