@@ -198,7 +198,10 @@ change; nothing reads them.)
 Every push to `main`/`dev` releases: `.releaserc.json`'s `releaseRules` floor
 every commit at **patch**, including merge commits and anything with no
 Conventional Commit type at all. `feat:` still outranks the floor to minor and
-`feat!:`/`BREAKING CHANGE:` to major, so typing commits honestly still decides
+`feat!:`/`BREAKING CHANGE:` to major — the `!` form only works because of
+`parserOpts.breakingHeaderPattern`; the angular preset's own header pattern
+doesn't parse `!` and used to drop those commits on the floor entirely — so
+typing commits honestly still decides
 how far the version moves — it just can't produce "no release" any more. That
 also means work committed straight to `dev` cuts a prerelease per push; keep
 using feature branches (CI only fires on `main`/`dev`) so the version climbs
