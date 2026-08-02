@@ -135,10 +135,22 @@ Commit messages: **Conventional Commits**, ≤72 chars on the subject line, impe
 CI runs semantic-release off these subjects, so the type is not cosmetic — it
 decides the next version. Anything unreleasable goes under `chore:`.
 
-The Stop hook's auto-commits follow the same convention: it pipes the staged
-diff through `claude -p --model haiku` to name the change, and falls back to a
+The Stop hook's auto-commits follow the same convention: it posts the staged
+diff to the Messages API (Haiku 4.5) to name the change, and falls back to a
 non-releasable `chore: checkpoint <ts>` if that fails or returns anything that
 isn't a valid subject line.
+
+That call needs `ANTHROPIC_API_KEY` in the environment — **without it every
+auto-commit is a bare `chore: checkpoint`**. Set it in the `env` block of
+`.claude/settings.local.json`, which is gitignored:
+
+```json
+{ "env": { "ANTHROPIC_API_KEY": "sk-ant-..." } }
+```
+
+It calls the API directly rather than shelling out to `claude -p`, which booted
+the whole CLI harness (~30k tokens of system prompt, tool definitions and this
+file) to write one line — ~$0.025 and ~11s on every single turn.
 
 ## Pushing
 
