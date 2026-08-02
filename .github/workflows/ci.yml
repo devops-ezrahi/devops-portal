@@ -3,8 +3,9 @@ name: CI
 on:
   # Not an unfiltered `on: push` — the Stop hook auto-pushes a checkpoint
   # commit to origin every turn, which would fire this on every branch.
+  # main = stable channel, dev = prerelease channel (see .releaserc.json).
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
   workflow_dispatch:
 
@@ -28,14 +29,16 @@ jobs:
       - run: npm test
       - run: npm run build # tsc --noEmit && vite build
 
-  # Whitening pack on merge to main. Gated on `test` so a broken commit
-  # never gets packed and handed off.
+  # Release + whitening pack on push to main (stable) or dev (prerelease).
+  # Gated on `test` so a broken commit never gets released or handed off.
   pack:
     needs: test
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
-      contents: write # push the pack/* tag back
+      contents: write # push the release commit and the v*/pack/* tags
+      issues: write # @semantic-release/github comments on released issues
+      pull-requests: write # ...and on released PRs
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,6 +54,18 @@ jobs:
         with:
           node-version: 20
           cache: npm
+
+      - run: npm ci
+
+      # Derives the version from the Conventional Commits since the last v* tag,
+      # writes it into package.json/package-lock.json, commits that back with
+      # [skip ci], tags v<version> (X.Y.Z-dev.N on dev) and cuts the GitHub
+      # release. Must run before the pack step and in this same workspace:
+      # pack.py reads package.json off disk to name the tgz and the pack/* tag.
+      # No releasable commits -> exits 0, version untouched, pack still runs.
+      - run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       # python3, not python — the runner image doesn't guarantee the alias.
       # Running the script by path puts .packer on sys.path so its sibling
