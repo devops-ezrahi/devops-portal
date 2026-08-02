@@ -83,6 +83,7 @@ Key variables (see `.env.example`):
 | `ARTIFACTORY_URL` / `ARTIFACTORY_REPO` / `ARTIFACTORY_TOKEN` | —               | All three required to activate `RealArtifactoryApi`                                                                         |
 | `ARTIFACTORY_DOCKER_REPO`                                    | —               | Docker repo the Whitening module pushes retagged images to via `skopeo`                                                     |
 | `GIT_URL` / `GIT_TOKEN`                                      | —               | Gitea base URL + PAT; required for the Whitening module to open pull requests                                               |
+| `GIT_USERNAME`                                               | `oauth2`        | Username paired with `GIT_TOKEN` in the authenticated clone URL                                                             |
 | `JIRA_URL` / `JIRA_TOKEN` / `JIRA_PROJECT_KEY`               | —               | All three required to activate `JiraTicketingApi` (Jira Data Center, Bearer PAT); otherwise `InMemoryTicketingApi` fallback |
 | `CHAT_API_URL` / `CHAT_API_KEY`                              | —               | Both required to enable the chat proxy; otherwise `/api/ragflow/chat` returns 503                                           |
 
@@ -184,7 +185,7 @@ reads the Conventional Commit subjects since the last `v*` tag, and then:
 
 It runs **before** the whitening pack step and in the same workspace, because
 `pack.py` reads `package.json` off disk to name the tgz
-(`dvps-devops-portal-<version>.tgz`) and its `pack/<version>-<stamp>` tag. Both
+(`dem-devops-portal-<version>.tgz`) and its `pack/<version>-<stamp>` tag. Both
 channels produce packs. No releasable commits in the push → semantic-release
 no-ops and the pack still runs against the unchanged version.
 

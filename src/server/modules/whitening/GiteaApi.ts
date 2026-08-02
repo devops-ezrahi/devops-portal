@@ -1,6 +1,7 @@
 export type GiteaConfig = {
   url: string;
   token: string;
+  username: string;
 };
 
 type GiteaRepo = {
@@ -14,10 +15,12 @@ type GiteaPullRequest = {
 export class GiteaApi {
   private readonly baseUrl: string;
   private readonly token: string;
+  private readonly username: string;
 
   constructor(config: GiteaConfig) {
     this.baseUrl = config.url.replace(/\/$/, "");
     this.token = config.token;
+    this.username = config.username;
   }
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -68,8 +71,9 @@ export class GiteaApi {
   // Embeds the token so `git push` needs no separate credential helper.
   authenticatedCloneUrl(owner: string, repo: string): string {
     const u = new URL(this.baseUrl);
-    u.username = "oauth2";
+    u.username = this.username;
     u.password = this.token;
-    return `${u.toString().replace(/\/$/, "")}/${owner}/${repo}.git`;
+    // The closed-network git serves the git protocol under /scm/ (the REST API stays at /api/v1).
+    return `${u.toString().replace(/\/$/, "")}/scm/${owner}/${repo}.git`;
   }
 }

@@ -3,8 +3,9 @@ import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { promisify } from "util";
-import { randomUUID } from "crypto";
+import { randomBytes } from "crypto";
 import { config } from "../../config";
+import { redactSecrets } from "../../redact";
 import { jfUpload } from "../artifactory/jfUpload";
 import { GiteaApi } from "./GiteaApi";
 import type { PortalUser, WhiteningApi, WhiteningJob } from "../../types";
@@ -74,14 +75,14 @@ export class RealWhiteningApi implements WhiteningApi {
   private appendLog(jobId: string, line: string) {
     const job = this.jobs.get(jobId);
     if (!job) return;
-    job.log.push(line);
+    job.log.push(redactSecrets(line));
     job.updatedAt = nowIso();
   }
 
   async submitUnpack(archive: Buffer, archiveName: string, submitter: PortalUser): Promise<WhiteningJob> {
     // Extracted here rather than in run(): a bad archive must fail the request
     // (400) instead of a job. run() takes over the workDir and cleans it up.
-    const workDir = join(tmpdir(), `whitening-${randomUUID()}`);
+    const workDir = join(tmpdir(), `wht-${randomBytes(4).toString("hex")}`);
     const extractDir = join(workDir, "extracted");
     let packConfig: PackConfig;
     try {
