@@ -6,6 +6,12 @@
 # Gitea Actions -> registry -> ArgoCD pipeline. That whole chain was removed
 # along with the Gitea instance; deploys are now a local
 # ../homelab/scripts/deploy-portal.sh away, so this hook only backs up.
+#
+# The commit subject is Conventional Commits, because CI runs semantic-release
+# off these subjects (.releaserc.json) — see the message generation below.
+# Needs ANTHROPIC_API_KEY in the environment; without it every commit falls
+# back to a plain timestamped `chore:`. Put the key in the `env` block of
+# .claude/settings.local.json, which is gitignored.
 set -uo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
@@ -27,7 +33,37 @@ if [ -n "$STATUS" ]; then
     exit 0
   fi
   git add -A
-  git commit -m "auto: checkpoint $(date -u +%Y-%m-%dT%H:%M:%SZ)" >/dev/null 2>&1
+
+  # Let a cheap model read the staged diff and name the change, so the history
+  # semantic-release consumes says what actually happened. This calls the
+  # Messages API directly rather than `claude -p`: the CLI booted its whole
+  # harness (~30k tokens of system prompt, tool defs and CLAUDE.md) to write one
+  # line, which cost ~$0.025 and ~11s per turn. Here node does the JSON escaping
+  # and response parsing, curl does the call, and the request is just the prompt
+  # plus the diff.
+  #
+  # The grep is the real guard: prose, an error body, or multi-line output all
+  # fall through to the `chore:` fallback, which is valid Conventional Commits
+  # and non-releasable — a bad generation can never mis-bump a version.
+  PROMPT='Write ONE Conventional Commits subject line (max 72 chars) for this staged diff. Use feat: only for new user-facing capability and fix: only for a bug fix in shipped behaviour; use ci:/build:/test:/docs:/refactor: for those areas, and default to chore: whenever unsure. Add a scope only when the area is obvious. Output the subject line and nothing else.'
+  msg=""
+  if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+    msg="$(
+      { git diff --cached --stat; echo; git diff --cached; } | head -c 40000 |
+        PROMPT="$PROMPT" node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>process.stdout.write(JSON.stringify({model:"claude-haiku-4-5",max_tokens:64,system:process.env.PROMPT,messages:[{role:"user",content:d||"(no diff)"}]})))' |
+        curl -sS --max-time 30 https://api.anthropic.com/v1/messages \
+          -H "x-api-key: $ANTHROPIC_API_KEY" \
+          -H "anthropic-version: 2023-06-01" \
+          -H "content-type: application/json" \
+          --data-binary @- 2>/dev/null |
+        node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const t=(JSON.parse(d).content||[]).find(b=>b.type==="text");if(t)process.stdout.write(t.text.trim())}catch{}})' |
+        tr -d '\r' |
+        grep -m1 -E '^[a-z]+(\([a-z0-9._/-]+\))?!?: .+'
+    )"
+    [ "${#msg}" -gt 72 ] && msg=""
+  fi
+  [ -z "$msg" ] && msg="chore: checkpoint $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  git commit -m "$msg" >/dev/null 2>&1
 fi
 
 branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"

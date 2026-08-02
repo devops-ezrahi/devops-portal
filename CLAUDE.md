@@ -107,6 +107,10 @@ git checkout -b fix/<short-description>       # bug fix
 
 Use the existing branch only if the work is a direct continuation of what that branch already contains.
 
+Two long-lived branches: `main` is the stable release channel, `dev` is the
+prerelease channel (`1.1.0-dev.1`, …). Push to either cuts a release — see
+Versioning & releases below.
+
 ## Committing
 
 Stage specific files — avoid `git add -A` (can accidentally include `.env` or build artifacts).
@@ -119,7 +123,34 @@ git commit -m "..."
 
 Never commit `.env`, secrets, or files from `dist/` or `node_modules/`. These are covered by `.gitignore` but always verify with `git status` before committing.
 
-Commit messages: imperative mood, ≤72 chars on the subject line. Describe _why_, not just what changed.
+Commit messages: **Conventional Commits**, ≤72 chars on the subject line, imperative mood. The body is where you describe _why_.
+
+| Subject                                | Release effect |
+| -------------------------------------- | -------------- |
+| `feat: …`                              | minor bump     |
+| `fix: …`                               | patch bump     |
+| `feat!: …` / `BREAKING CHANGE:` footer | major bump     |
+| `chore:` `docs:` `test:` `refactor:` `build:` `ci:` `style:` `perf:` | none |
+
+CI runs semantic-release off these subjects, so the type is not cosmetic — it
+decides the next version. Anything unreleasable goes under `chore:`.
+
+The Stop hook's auto-commits follow the same convention: it posts the staged
+diff to the Messages API (Haiku 4.5) to name the change, and falls back to a
+non-releasable `chore: checkpoint <ts>` if that fails or returns anything that
+isn't a valid subject line.
+
+That call needs `ANTHROPIC_API_KEY` in the environment — **without it every
+auto-commit is a bare `chore: checkpoint`**. Set it in the `env` block of
+`.claude/settings.local.json`, which is gitignored:
+
+```json
+{ "env": { "ANTHROPIC_API_KEY": "sk-ant-..." } }
+```
+
+It calls the API directly rather than shelling out to `claude -p`, which booted
+the whole CLI harness (~30k tokens of system prompt, tool definitions and this
+file) to write one line — ~$0.025 and ~11s on every single turn.
 
 ## Pushing
 
@@ -140,6 +171,25 @@ Never force-push to `main`.
 npm test          # vitest run (unit + integration)
 npm run build     # tsc --noEmit + vite build (type-check included)
 ```
+
+## Versioning & releases
+
+**Never hand-edit `package.json`'s `version`.** semantic-release owns it. It
+runs in CI's `pack` job (`.releaserc.json`) on every push to `main` or `dev`,
+reads the Conventional Commit subjects since the last `v*` tag, and then:
+
+1. writes the new version into `package.json` / `package-lock.json`,
+2. commits that back as `chore(release): <version> [skip ci]`,
+3. tags `v<version>` (`v1.2.0-dev.3` on `dev`) and cuts the GitHub release.
+
+It runs **before** the whitening pack step and in the same workspace, because
+`pack.py` reads `package.json` off disk to name the tgz
+(`dvps-devops-portal-<version>.tgz`) and its `pack/<version>-<stamp>` tag. Both
+channels produce packs. No releasable commits in the push → semantic-release
+no-ops and the pack still runs against the unchanged version.
+
+So the "bundle" flow is just: land Conventional Commits on `dev` or `main`, and
+CI does bump → build → pack.
 
 ## Deployment
 
