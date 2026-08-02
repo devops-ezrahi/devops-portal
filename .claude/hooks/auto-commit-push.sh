@@ -42,9 +42,9 @@ if [ -n "$STATUS" ]; then
   # a bad generation can never mis-bump a version.
   msg="$(
     { git diff --cached --stat; echo; git diff --cached; } | head -c 40000 |
-      AUTOCOMMIT_HOOK=1 timeout 90 claude -p --model haiku \
-        --strict-mcp-config --mcp-config '{}' \
-        'Write ONE Conventional Commits subject line (max 72 chars) for this staged diff. Use feat: only for new user-facing capability and fix: only for a bug fix; otherwise chore:/docs:/test:/refactor:/build:/ci:. Add a scope only when the area is obvious. Output the subject line and nothing else.' \
+      AUTOCOMMIT_HOOK=1 timeout 90 claude -p \
+        'Write ONE Conventional Commits subject line (max 72 chars) for this staged diff. Use feat: only for new user-facing capability and fix: only for a bug fix in shipped behaviour; use ci:/build:/test:/docs:/refactor: for those areas, and default to chore: whenever unsure. Add a scope only when the area is obvious. Output the subject line and nothing else.' \
+        --model haiku --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
         2>/dev/null | tr -d '\r' |
       grep -m1 -E '^[a-z]+(\([a-z0-9._/-]+\))?!?: .+'
   )"
