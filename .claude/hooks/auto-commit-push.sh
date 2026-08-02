@@ -69,8 +69,6 @@ fi
 branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
 if [ -n "$branch" ] && [ "$branch" != "HEAD" ]; then
   git push origin "$branch" >/dev/null 2>&1 || true
-  # Push pack/* tags (created by the whitening packer) too.
-  git push origin --tags >/dev/null 2>&1 || true
 fi
 
 exit 0

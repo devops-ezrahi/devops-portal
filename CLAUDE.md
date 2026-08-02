@@ -130,15 +130,18 @@ Commit messages: **Conventional Commits**, ≤72 chars on the subject line, impe
 | `feat: …`                              | minor bump     |
 | `fix: …`                               | patch bump     |
 | `feat!: …` / `BREAKING CHANGE:` footer | major bump     |
-| `chore:` `docs:` `test:` `refactor:` `build:` `ci:` `style:` `perf:` | none |
+| `chore:` `docs:` `test:` `refactor:` `build:` `ci:` `style:` `perf:` | patch bump |
+| anything else (merge commits, non-conventional subjects) | patch bump |
 
 CI runs semantic-release off these subjects, so the type is not cosmetic — it
-decides the next version. Anything unreleasable goes under `chore:`.
+decides how far the version moves. There is no "no release" any more: patch is
+the floor (see Versioning & releases), so `chore:` means "don't call this a
+feature", not "don't ship this".
 
 The Stop hook's auto-commits follow the same convention: it posts the staged
-diff to the Messages API (Haiku 4.5) to name the change, and falls back to a
-non-releasable `chore: checkpoint <ts>` if that fails or returns anything that
-isn't a valid subject line.
+diff to the Messages API (Haiku 4.5) to name the change, and falls back to
+`chore: checkpoint <ts>` if that fails or returns anything that isn't a valid
+subject line.
 
 That call needs `ANTHROPIC_API_KEY` in the environment — **without it every
 auto-commit is a bare `chore: checkpoint`**. Set it in the `env` block of
@@ -184,9 +187,25 @@ reads the Conventional Commit subjects since the last `v*` tag, and then:
 
 It runs **before** the whitening pack step and in the same workspace, because
 `pack.py` reads `package.json` off disk to name the tgz
-(`dvps-devops-portal-<version>.tgz`) and its `pack/<version>-<stamp>` tag. Both
-channels produce packs. No releasable commits in the push → semantic-release
-no-ops and the pack still runs against the unchanged version.
+(`dem-devops-portal-<version>.tgz`), and the `v<version>` release it just cut is
+where CI uploads that tgz as an asset. Both channels produce packs.
+
+**One version = one tag = one release.** There are no `pack/*` tags any more —
+the packer creates none, and deltas its dependency bundle against the previous
+release tag. (Old `pack/*` tags and releases from before this predate the
+change; nothing reads them.)
+
+Every push to `main`/`dev` releases: `.releaserc.json`'s `releaseRules` floor
+every commit at **patch**, including merge commits and anything with no
+Conventional Commit type at all. `feat:` still outranks the floor to minor and
+`feat!:`/`BREAKING CHANGE:` to major — the `!` form only works because of
+`parserOpts.breakingHeaderPattern`; the angular preset's own header pattern
+doesn't parse `!` and used to drop those commits on the floor entirely — so
+typing commits honestly still decides
+how far the version moves — it just can't produce "no release" any more. That
+also means work committed straight to `dev` cuts a prerelease per push; keep
+using feature branches (CI only fires on `main`/`dev`) so the version climbs
+per merge instead of per turn.
 
 So the "bundle" flow is just: land Conventional Commits on `dev` or `main`, and
 CI does bump → build → pack.

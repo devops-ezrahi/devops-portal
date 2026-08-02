@@ -61,37 +61,51 @@ jobs:
       # writes it into package.json/package-lock.json, commits that back with
       # [skip ci], tags v<version> (X.Y.Z-dev.N on dev) and cuts the GitHub
       # release. Must run before the pack step and in this same workspace:
-      # pack.py reads package.json off disk to name the tgz and the pack/* tag.
-      # No releasable commits -> exits 0, version untouched, pack still runs.
-      - run: npx semantic-release
+      # pack.py reads package.json off disk to name the tgz, and the tag it just
+      # created is where the pack gets uploaded.
+      #
+      # .releaserc.json floors every commit at patch, so a push always releases.
+      # The before/after version diff is the guard for the case it doesn't
+      # (nothing but the [skip ci] release commit, say): packing then would
+      # rebuild a version that's already published, so skip it instead.
+      - id: release
         env:
           GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          before=$(node -p "require('./package.json').version")
+          npx semantic-release
+          after=$(node -p "require('./package.json').version")
+          echo "version=$after" >> "$GITHUB_OUTPUT"
+          if [ "$before" = "$after" ]; then
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            echo "no new version — skipping pack"
+          else
+            echo "released=true" >> "$GITHUB_OUTPUT"
+          fi
 
       # python3, not python — the runner image doesn't guarantee the alias.
       # Running the script by path puts .packer on sys.path so its sibling
       # imports resolve. This job is where department/team/repository come
       # from — the packer writes them into the pack's repository/config.json.
       # "images": false (skip the docker-save tars, ~127 MB -> ~1 MB) stays in
-      # whitening.json. pack.py prints only the .tgz path on stdout; git
-      # describe then picks up the pack/* tag it just created on HEAD.
+      # whitening.json. pack.py prints only the .tgz path on stdout and creates
+      # no tags of its own — it deltas against the release tag before this one.
       - id: pack
+        if: steps.release.outputs.released == 'true'
         env:
           WHITENING_DEPARTMENT: ultra
           WHITENING_TEAM: dem
           WHITENING_REPOSITORY: devops-portal
-        run: |
-          echo "pack=$(python3 .packer/pack.py .)" >> "$GITHUB_OUTPUT"
-          echo "tag=$(git describe --tags --abbrev=0 --match 'pack/*')" >> "$GITHUB_OUTPUT"
+        run: echo "pack=$(python3 .packer/pack.py .)" >> "$GITHUB_OUTPUT"
 
-      - run: git push origin --tags
-
-      # Release asset, not an artifact: downloads as the file itself
-      # (dem-devops-portal-<version>.tgz), no wrapper zip, permanent URL. The
-      # portal's whitening module reads repository/config.json, not this name.
-      # gh is preinstalled.
-      # Runs after the tag push so the release has a tag on the remote.
-      - run: gh release create "$TAG" "$PACK" --title "$TAG" --notes "Whitening pack for ${{ github.sha }}"
+      # Onto the release semantic-release just cut, so a version is one tag and
+      # one release. Release asset, not an artifact: downloads as the file
+      # itself (dem-devops-portal-<version>.tgz), no wrapper zip, permanent URL.
+      # The portal's whitening module reads repository/config.json, not this
+      # name. gh is preinstalled.
+      - if: steps.release.outputs.released == 'true'
+        run: gh release upload "v$VERSION" "$PACK"
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.pack.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
           PACK: ${{ steps.pack.outputs.pack }}
