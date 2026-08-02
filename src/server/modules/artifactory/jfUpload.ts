@@ -18,7 +18,12 @@ export async function jfUpload(
   const displayArgs = ["rt", "u", src, target, ...extraArgs];
   onLog(`$ jf ${displayArgs.join(" ")}`);
 
-  const cliArgs = [...displayArgs, "--url", url, "--access-token", token];
+  // `jf rt` wants the Artifactory service URL (https://host/artifactory), not the
+  // JFrog platform base URL — otherwise every PUT lands a path segment too high
+  // and Artifactory answers with its own 404 page.
+  const rtUrl = /\/artifactory(\/|$)/.test(url) ? url : `${url.replace(/\/+$/, "")}/artifactory`;
+
+  const cliArgs = [...displayArgs, "--url", rtUrl, "--access-token", token];
 
   try {
     const { stdout, stderr } = await execFileAsync("jf", cliArgs, {

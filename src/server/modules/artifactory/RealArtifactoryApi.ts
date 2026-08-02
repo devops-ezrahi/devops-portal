@@ -1,8 +1,9 @@
 import { mkdir, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { randomUUID } from "crypto";
+import { randomBytes } from "crypto";
 import { config } from "../../config";
+import { redactSecrets } from "../../redact";
 import { jfUpload } from "./jfUpload";
 import type { ArtifactoryApi, ArtifactoryJob, FolderUploadInput, PortalUser, UrlCopyInput } from "../../types";
 
@@ -27,7 +28,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
   private appendLog(jobId: string, line: string) {
     const job = this.jobs.get(jobId);
     if (!job) return;
-    job.log.push(line);
+    job.log.push(redactSecrets(line));
     job.updatedAt = nowIso();
   }
 
@@ -82,7 +83,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
   }
 
   private async runUrlCopy(jobId: string, input: UrlCopyInput) {
-    const tmpDir = join(tmpdir(), `art-url-copy-${randomUUID()}`);
+    const tmpDir = join(tmpdir(), `art-${randomBytes(4).toString("hex")}`);
     try {
       this.patch(jobId, { status: "in-progress" });
       this.appendLog(jobId, `Fetching ${input.sourceUrl} ...`);
@@ -116,7 +117,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
   }
 
   private async runFolderUpload(jobId: string, input: FolderUploadInput) {
-    const tmpDir = join(tmpdir(), `art-folder-${randomUUID()}`);
+    const tmpDir = join(tmpdir(), `art-${randomBytes(4).toString("hex")}`);
     try {
       this.patch(jobId, { status: "in-progress" });
 

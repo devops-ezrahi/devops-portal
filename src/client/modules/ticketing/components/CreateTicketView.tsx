@@ -1,6 +1,7 @@
 import { Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { log, warn, error as logError } from "../../../log";
 import { createTicket } from "../api";
 import type { RequestTypeDefinition, TicketDetail } from "../../../../server/types";
 
@@ -23,7 +24,7 @@ export function CreateTicketView({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!selected) return;
+    if (!selected) return warn("ticketing/create", "no request type available — nothing submitted");
     const fields = Object.fromEntries(
       selected.fields.map((field) => {
         if (field.name === "title") return [field.name, title];
@@ -32,6 +33,7 @@ export function CreateTicketView({
       })
     );
     setSubmitting(true);
+    log("ticketing/create", "submitting", { requestType: selected.id, fields });
     try {
       const result = await createTicket({
         requestType: selected.id,
@@ -41,7 +43,11 @@ export function CreateTicketView({
         // getRandomValues has no such restriction.
         idempotencyKey: crypto.randomUUID?.() ?? crypto.getRandomValues(new Uint32Array(4)).join("-")
       });
+      log("ticketing/create", "created", result.ticket.id, result.ticket.stage);
       await onCreated(result.ticket);
+    } catch (err) {
+      logError("ticketing/create", "createTicket failed", err);
+      throw err;
     } finally {
       setSubmitting(false);
     }

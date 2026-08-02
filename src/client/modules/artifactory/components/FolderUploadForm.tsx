@@ -1,5 +1,6 @@
 import { FolderOpen, Upload, X } from "lucide-react";
 import { useState } from "react";
+import { log, warn, error as logError } from "../../../log";
 import { submitFolderUpload, type FileEntry } from "../api";
 import type { ArtifactoryJob } from "../../../../server/types";
 
@@ -67,20 +68,30 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
     setDragOver(false);
 
     const item = e.dataTransfer.items[0];
-    if (!item) return;
+    if (!item) return log("artifactory/upload", "drop with no items");
 
     const entry = item.webkitGetAsEntry?.();
     if (!entry || !entry.isDirectory) {
+      warn("artifactory/upload", "dropped item is not a folder", { name: entry?.name, isDirectory: entry?.isDirectory });
       onError("Please drop a folder, not individual files.");
       return;
     }
 
+    log("artifactory/upload", "scanning folder", entry.name);
     setScanning(true);
+    const startedAt = performance.now();
     try {
       const entries = await collectEntries(entry as FileSystemDirectoryEntry);
       const totalBytes = entries.reduce((sum, e) => sum + e.file.size, 0);
+      log("artifactory/upload", "scan done", {
+        folder: entry.name,
+        files: entries.length,
+        totalBytes,
+        ms: Number((performance.now() - startedAt).toFixed(0)),
+      });
       setScannedFolder({ name: entry.name, entries, totalBytes });
-    } catch {
+    } catch (err) {
+      logError("artifactory/upload", "folder scan failed", entry.name, err);
       onError("Failed to read folder contents.");
     } finally {
       setScanning(false);
@@ -91,11 +102,19 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
     e.preventDefault();
     if (!scannedFolder) return;
     setSubmitting(true);
+    const startedAt = performance.now();
+    log("artifactory/upload", "uploading", {
+      folder: scannedFolder.name,
+      files: scannedFolder.entries.length,
+      totalBytes: scannedFolder.totalBytes,
+    });
     try {
       const result = await submitFolderUpload(scannedFolder.name, scannedFolder.entries);
+      log("artifactory/upload", "accepted", result.job.id, `${(performance.now() - startedAt).toFixed(0)}ms`);
       onSubmitted(result.job);
       setScannedFolder(null);
     } catch (err) {
+      logError("artifactory/upload", "upload failed", scannedFolder.name, err);
       onError(err instanceof Error ? err.message : "Failed to submit");
     } finally {
       setSubmitting(false);

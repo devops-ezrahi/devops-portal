@@ -6,6 +6,7 @@ import {
   listAdminTickets,
   updateAdminTicket
 } from "./api";
+import { log, error as logError } from "../../log";
 import { AdminTicketDetail } from "./components/AdminTicketDetail";
 import { getTicketIdFromUrl, isDone, setTicketIdInUrl, stageClass, statusMessage } from "./utils";
 import type { AssigneeCandidate, PortalUser, TicketDetail, TicketSummary } from "../../../server/types";
@@ -65,12 +66,23 @@ export function AdminTicketingView({
   selectedIdRef.current = selectedAdminTicket?.id;
 
   useEffect(() => {
-    refreshAdminTickets().catch((err: Error) => onError(err.message));
+    log("ticketing/admin", "queue mounted", { user: user.id, groups: user.groups });
+    refreshAdminTickets().catch((err: Error) => {
+      logError("ticketing/admin", "initial queue load failed", err);
+      onError(err.message);
+    });
     getAssignees()
-      .then((result) => setAssignees(result.assignees))
-      .catch((err: Error) => onError(err.message));
+      .then((result) => {
+        log("ticketing/admin", `assignees: ${result.assignees.length}`, result.assignees.map((a) => a.id));
+        setAssignees(result.assignees);
+      })
+      .catch((err: Error) => {
+        logError("ticketing/admin", "getAssignees failed", err);
+        onError(err.message);
+      });
     const deepLinkedId = getTicketIdFromUrl();
     if (deepLinkedId) {
+      log("ticketing/admin", "deep link → opening ticket", deepLinkedId);
       openAdminTicket(deepLinkedId).catch((err: Error) => onError(err.message));
     }
   }, []);
@@ -80,15 +92,20 @@ export function AdminTicketingView({
   // ponytail: a few lines beats a WebSocket server for this team's traffic —
   // revisit only if "every few seconds" stops being live enough.
   useEffect(() => {
+    log("ticketing/admin", `polling every ${POLL_INTERVAL_MS}ms`, { watching: selectedAdminTicket?.id ?? "(queue only)" });
     const interval = window.setInterval(() => {
-      refreshAdminTickets().catch(() => undefined);
+      log("ticketing/admin", "poll tick");
+      refreshAdminTickets().catch((err: Error) => logError("ticketing/admin", "poll refresh failed", err));
       if (selectedAdminTicket) {
         getAdminTicket(selectedAdminTicket.id)
           .then((result) => setSelectedAdminTicket(result.ticket))
-          .catch(() => undefined);
+          .catch((err: Error) => logError("ticketing/admin", "poll ticket reload failed", selectedAdminTicket.id, err));
       }
     }, POLL_INTERVAL_MS);
-    return () => window.clearInterval(interval);
+    return () => {
+      log("ticketing/admin", "stopping poll");
+      window.clearInterval(interval);
+    };
   }, [selectedAdminTicket?.id]);
 
   // Diff against the last-seen activity timestamp per ticket so the unread
@@ -110,7 +127,9 @@ export function AdminTicketingView({
       })
       .map((t) => t.id);
     hasLoadedRef.current = true;
+    if (isFirstLoad) log("ticketing/admin", "first load — not flagging anything unread");
     if (changedIds.length > 0) {
+      log("ticketing/admin", "unread — changed since last seen", changedIds);
       setUnreadIds((current) => {
         const next = new Set(current);
         changedIds.forEach((id) => next.add(id));
@@ -122,14 +141,20 @@ export function AdminTicketingView({
 
   async function refreshAdminTickets() {
     const result = await listAdminTickets({});
+    log("ticketing/admin", `queue: ${result.tickets.length} tickets`, {
+      unassigned: result.tickets.filter((t) => !t.assigneeId).length,
+      rows: result.tickets.map((t) => `${t.id}:${t.stage}:${t.assigneeId ?? "-"}`),
+    });
     markChangedSinceLastSeen(result.tickets);
     setAdminTickets(result.tickets);
     if (selectedAdminTicket && !result.tickets.some((t) => t.id === selectedAdminTicket.id)) {
+      log("ticketing/admin", "selected ticket left the queue — clearing selection", selectedAdminTicket.id);
       setSelectedAdminTicket(null);
     }
   }
 
   async function openAdminTicket(id: string) {
+    log("ticketing/admin", "opening ticket", id);
     setUnreadIds((current) => {
       const next = new Set(current);
       next.delete(id);
@@ -141,6 +166,7 @@ export function AdminTicketingView({
   }
 
   async function reloadAdminTicket(id: string) {
+    log("ticketing/admin", "reloading ticket", id);
     const result = await getAdminTicket(id);
     setSelectedAdminTicket(result.ticket);
     await refreshAdminTickets();
@@ -163,7 +189,13 @@ export function AdminTicketingView({
       <div className="ticket-column">
         <div className="ticket-list-header">
           <h1>Queue</h1>
-          <button className="ghost-button" onClick={() => setShowAll((v) => !v)}>
+          <button
+            className="ghost-button"
+            onClick={() => {
+              log("ticketing/admin", `filter → ${showAll ? "mine & unassigned" : "all tickets"}`);
+              setShowAll((v) => !v);
+            }}
+          >
             {showAll ? "Mine & Unassigned" : "All tickets"}
           </button>
         </div>
@@ -194,6 +226,11 @@ export function AdminTicketingView({
             currentUserName={user.displayName}
             onAssigneeChange={async (assigneeId, assigneeName) => {
               const ownerName = assigneeName || "Unassigned";
+              log("ticketing/admin", "reassigning ticket", selectedAdminTicket.id, {
+                from: selectedAdminTicket.assigneeId ?? "-",
+                to: assigneeId || "-",
+                ownerName,
+              });
               await updateAdminTicket(selectedAdminTicket.id, { assigneeId, assigneeName });
               await addAdminComment(selectedAdminTicket.id, statusMessage(`Owner changed to ${ownerName}.`));
               await reloadAdminTicket(selectedAdminTicket.id);

@@ -40,6 +40,7 @@ export const config = {
   git: {
     url: gitUrl ?? "",
     token: gitToken ?? "",
+    username: requireEnv("GIT_USERNAME") ?? "oauth2",
     enabled: !!(gitUrl && gitToken),
   },
   jira: {

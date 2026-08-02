@@ -1,6 +1,7 @@
 import { Check, MessageSquarePlus, Pencil } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import { log, error as logError } from "../../../log";
 import { addAdminComment, updateAdminTicket } from "../api";
 import { stages } from "../config";
 import type { AssigneeCandidate, CustomerStage, TicketDetail } from "../../../../server/types";
@@ -55,8 +56,9 @@ export function AdminTicketDetail({
   }, [ticket.id]);
 
   async function saveStage(newStage: CustomerStage) {
-    if (newStage === ticket.stage) return;
+    if (newStage === ticket.stage) return log("ticketing/admin", "stage unchanged — skipping save", newStage);
     setSubmitting(true);
+    log("ticketing/admin", "changing stage", ticket.id, `${ticket.stage} → ${newStage}`);
     try {
       await updateAdminTicket(ticket.id, {
         title,
@@ -66,7 +68,11 @@ export function AdminTicketDetail({
         teamGroups: teamGroups.split(",").map((g) => g.trim()).filter(Boolean)
       });
       await addAdminComment(ticket.id, statusMessage(`Stage changed to ${newStage}.`));
+      log("ticketing/admin", "stage saved", ticket.id, newStage);
       await onReload();
+    } catch (err) {
+      logError("ticketing/admin", "stage change failed", ticket.id, err);
+      throw err;
     } finally {
       setSubmitting(false);
     }
@@ -76,8 +82,9 @@ export function AdminTicketDetail({
     setIsEditing(false);
     const titleChanged = title !== ticket.title;
     const descriptionChanged = description !== ticket.description;
-    if (!titleChanged && !descriptionChanged) return;
+    if (!titleChanged && !descriptionChanged) return log("ticketing/admin", "no edits to save", ticket.id);
     setSubmitting(true);
+    log("ticketing/admin", "saving edits", ticket.id, { titleChanged, descriptionChanged });
     try {
       await updateAdminTicket(ticket.id, {
         title,
@@ -92,7 +99,11 @@ export function AdminTicketDetail({
       if (descriptionChanged) {
         await addAdminComment(ticket.id, statusMessage("Description updated."));
       }
+      log("ticketing/admin", "edits saved", ticket.id);
       await onReload();
+    } catch (err) {
+      logError("ticketing/admin", "saving edits failed", ticket.id, err);
+      throw err;
     } finally {
       setSubmitting(false);
     }
@@ -101,10 +112,15 @@ export function AdminTicketDetail({
   async function submitResponse(event: FormEvent) {
     event.preventDefault();
     setSubmitting(true);
+    log("ticketing/admin", "posting response", { ticket: ticket.id, chars: body.length });
     try {
       await addAdminComment(ticket.id, body);
+      log("ticketing/admin", "response posted", ticket.id);
       setBody("");
       await onReload();
+    } catch (err) {
+      logError("ticketing/admin", "addAdminComment failed", ticket.id, err);
+      throw err;
     } finally {
       setSubmitting(false);
     }

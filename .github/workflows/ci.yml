@@ -77,7 +77,7 @@ jobs:
       - id: pack
         env:
           WHITENING_DEPARTMENT: ultra
-          WHITENING_TEAM: dvps
+          WHITENING_TEAM: dem
           WHITENING_REPOSITORY: devops-portal
         run: |
           echo "pack=$(python3 .packer/pack.py .)" >> "$GITHUB_OUTPUT"
@@ -86,7 +86,7 @@ jobs:
       - run: git push origin --tags
 
       # Release asset, not an artifact: downloads as the file itself
-      # (dvps-devops-portal-<version>.tgz), no wrapper zip, permanent URL. The
+      # (dem-devops-portal-<version>.tgz), no wrapper zip, permanent URL. The
       # portal's whitening module reads repository/config.json, not this name.
       # gh is preinstalled.
       # Runs after the tag push so the release has a tag on the remote.

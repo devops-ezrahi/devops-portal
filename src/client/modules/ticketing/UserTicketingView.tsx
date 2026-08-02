@@ -1,5 +1,6 @@
 import { Plus, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { log, error as logError } from "../../log";
 import { getRequestTypes, getTicket, listTickets } from "./api";
 import { CreateTicketView } from "./components/CreateTicketView";
 import { TicketDetailView } from "./components/TicketDetailView";
@@ -21,15 +22,22 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
   selectedIdRef.current = selectedTicket?.id;
 
   useEffect(() => {
+    log("ticketing", "user view mounted — loading catalog + tickets");
     Promise.all([getRequestTypes(), listTickets({ scope: "mine" })])
       .then(([catalog, result]) => {
+        log("ticketing", `catalog: ${catalog.requestTypes.length} request types`, catalog.requestTypes.map((t) => t.id));
+        log("ticketing", `my tickets: ${result.tickets.length}`, result.tickets.map((t) => `${t.id}:${t.stage}`));
         setRequestTypes(catalog.requestTypes);
         markChangedSinceLastSeen(result.tickets);
         setTickets(result.tickets);
       })
-      .catch((err: Error) => onError(err.message));
+      .catch((err: Error) => {
+        logError("ticketing", "initial load failed", err);
+        onError(err.message);
+      });
     const deepLinkedId = getTicketIdFromUrl();
     if (deepLinkedId) {
+      log("ticketing", "deep link → opening ticket", deepLinkedId);
       openTicket(deepLinkedId).catch((err: Error) => onError(err.message));
     }
   }, []);
@@ -48,6 +56,7 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
       })
       .map((t) => t.id);
     if (changedIds.length > 0) {
+      log("ticketing", "unread — changed since last seen", changedIds);
       setUnreadIds((current) => {
         const next = new Set(current);
         changedIds.forEach((id) => next.add(id));
@@ -59,9 +68,11 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
 
   async function refreshTickets() {
     const result = await listTickets({ scope: "mine" });
+    log("ticketing", `refreshed: ${result.tickets.length} tickets`, result.tickets.map((t) => `${t.id}:${t.stage}`));
     markChangedSinceLastSeen(result.tickets);
     setTickets(result.tickets);
     if (selectedTicket && !result.tickets.some((t) => t.id === selectedTicket.id)) {
+      log("ticketing", "selected ticket vanished from list — clearing selection", selectedTicket.id);
       setSelectedTicket(null);
     }
   }
@@ -70,29 +81,41 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
   // without the user having to hit refresh. See AdminTicketingView for the
   // matching admin-side poll and why this isn't a WebSocket.
   useEffect(() => {
+    log("ticketing", `polling every ${POLL_INTERVAL_MS}ms`, { watching: selectedTicket?.id ?? "(list only)" });
     const interval = window.setInterval(() => {
-      refreshTickets().catch(() => undefined);
+      log("ticketing", "poll tick");
+      refreshTickets().catch((err: Error) => logError("ticketing", "poll refresh failed", err));
       if (selectedTicket) {
         getTicket(selectedTicket.id)
           .then((result) => setSelectedTicket(result.ticket))
-          .catch(() => undefined);
+          .catch((err: Error) => logError("ticketing", "poll ticket reload failed", selectedTicket.id, err));
       }
     }, POLL_INTERVAL_MS);
-    return () => window.clearInterval(interval);
+    return () => {
+      log("ticketing", "stopping poll");
+      window.clearInterval(interval);
+    };
   }, [selectedTicket?.id]);
 
   async function openTicket(id: string) {
+    log("ticketing", "opening ticket", id);
     setUnreadIds((current) => {
       const next = new Set(current);
       next.delete(id);
       return next;
     });
     const result = await getTicket(id);
+    log("ticketing", "ticket loaded", {
+      id: result.ticket.id,
+      stage: result.ticket.stage,
+      comments: result.ticket.comments.length,
+    });
     setSelectedTicket(result.ticket);
     setTicketIdInUrl(id);
   }
 
   async function handleCreated(ticket: TicketDetail) {
+    log("ticketing", "ticket created", { id: ticket.id, title: ticket.title, stage: ticket.stage });
     setIsCreateOpen(false);
     setSelectedTicket(ticket);
     setTicketIdInUrl(ticket.id);
@@ -100,6 +123,7 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
   }
 
   function closeModal() {
+    log("ticketing", "closing new-ticket modal");
     setIsModalClosing(true);
     window.setTimeout(() => {
       setIsCreateOpen(false);
@@ -114,7 +138,13 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
     <>
       <header className="topbar">
         <h1>My Tickets</h1>
-        <button className="primary" onClick={() => setIsCreateOpen(true)}>
+        <button
+          className="primary"
+          onClick={() => {
+            log("ticketing", "opening new-ticket modal", { requestTypes: requestTypes.length });
+            setIsCreateOpen(true);
+          }}
+        >
           <Plus size={18} aria-hidden="true" /> New
         </button>
       </header>
