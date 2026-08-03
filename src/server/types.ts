@@ -110,6 +110,18 @@ export type ArtifactoryJobKind = "url-copy" | "folder-upload";
 
 export type ArtifactoryJobStatus = "pending" | "in-progress" | "completed" | "failed";
 
+export type PackageUploadStatus = "uploaded" | "exists" | "failed";
+
+export type PackageUploadResult = {
+  name: string;
+  version: string;
+  /** Repo-relative target, e.g. `npm-local/arg/-/arg-4.1.5.tgz`. */
+  path: string;
+  status: PackageUploadStatus;
+  url?: string;
+  error?: string;
+};
+
 export type ArtifactoryJob = {
   id: string;
   kind: ArtifactoryJobKind;
@@ -118,11 +130,17 @@ export type ArtifactoryJob = {
   submittedByName: string;
   createdAt: string;
   updatedAt: string;
+  /** Human name for the job — `arg@4.1.5`, or `node_modules (142 packages)`. */
+  name?: string;
   sourceUrl?: string;
   folderName?: string;
   fileCount?: number;
   totalBytes?: number;
   errorMessage?: string;
+  /** Artifactory web UI link to the uploaded artifact (or the repo, for many). */
+  resultUrl?: string;
+  progress?: { done: number; total: number };
+  packages?: PackageUploadResult[];
   log: string[];
 };
 
@@ -154,6 +172,12 @@ export interface ArtifactoryApi {
 
 export type WhiteningJobStatus = "pending" | "in-progress" | "completed" | "failed";
 
+/** One log line, tagged with the phase that emitted it so the UI can collapse by step. */
+export type JobLogEntry = {
+  step: string;
+  line: string;
+};
+
 export type WhiteningJob = {
   id: string;
   status: WhiteningJobStatus;
@@ -168,7 +192,7 @@ export type WhiteningJob = {
   version: string;
   prUrl?: string;
   errorMessage?: string;
-  log: string[];
+  log: JobLogEntry[];
 };
 
 export interface WhiteningApi {

@@ -11,6 +11,7 @@ import { JiraTicketingApi } from "./modules/ticketing/JiraTicketingApi";
 import { createTicketingRouter } from "./modules/ticketing/router";
 import { RealWhiteningApi } from "./modules/whitening/RealWhiteningApi";
 import { createWhiteningRouter } from "./modules/whitening/router";
+import { sweepOldTmpDirs } from "./tmp";
 import type { ArtifactoryApi, TicketingApi, WhiteningApi } from "./types";
 
 export function createApp(
@@ -18,9 +19,10 @@ export function createApp(
   artifactoryApi: ArtifactoryApi = new RealArtifactoryApi(),
   whiteningApi: WhiteningApi = new RealWhiteningApi()
 ) {
-  console.log(`[artifactory] Using jf CLI — url: ${config.artifactory.url || "(not set)"}, repo: ${config.artifactory.repo || "(not set)"}`);
+  void sweepOldTmpDirs();
+  console.log(`[artifactory] url: ${config.artifactory.url || "(not set)"}, repo: ${config.artifactory.repo || "(not set)"}`);
   if (config.git.enabled) {
-    console.log(`[whitening] Gitea PRs — url: ${config.git.url}`);
+    console.log(`[whitening] Bitbucket PRs — url: ${config.git.url}`);
   } else {
     console.log("[whitening] not configured (set GIT_URL + GIT_TOKEN)");
   }

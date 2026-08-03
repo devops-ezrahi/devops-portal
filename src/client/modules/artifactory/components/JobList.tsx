@@ -48,7 +48,7 @@ export function JobList({ jobs, selectedJobId, isAdmin, onSelect }: Props) {
           onClick={() => onSelect(job.id)}
         >
           <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
-          <strong>{job.kind === "url-copy" ? "URL Copy" : "Folder Upload"}</strong>
+          <strong>{job.name ?? (job.kind === "url-copy" ? "URL Copy" : "Folder Upload")}</strong>
           <div className="ticket-row-meta">
             <small>{isAdmin ? job.submittedByName : job.id}</small>
             <small>{jobSubtitle(job)}</small>

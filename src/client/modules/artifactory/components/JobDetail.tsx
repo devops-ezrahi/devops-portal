@@ -1,4 +1,4 @@
-import type { ArtifactoryJob, ArtifactoryJobStatus } from "../../../../server/types";
+import type { ArtifactoryJob, ArtifactoryJobStatus, PackageUploadStatus } from "../../../../server/types";
 
 type Props = {
   job: ArtifactoryJob;
@@ -32,12 +32,28 @@ function statusLabel(status: ArtifactoryJobStatus): string {
   }
 }
 
+function packageStatusClass(status: PackageUploadStatus): string {
+  switch (status) {
+    case "uploaded": return "stage-resolved";
+    case "exists": return "stage-submitted";
+    case "failed": return "stage-waiting-on-customer";
+  }
+}
+
+function packageStatusLabel(status: PackageUploadStatus): string {
+  switch (status) {
+    case "uploaded": return "Uploaded";
+    case "exists": return "Already there";
+    case "failed": return "Failed";
+  }
+}
+
 export function JobDetail({ job }: Props) {
   return (
     <article className="ticket-detail">
       <div className="detail-heading">
         <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
-        <h2>{job.kind === "url-copy" ? "URL Copy" : "Folder Upload"}</h2>
+        <h2>{job.name ?? (job.kind === "url-copy" ? "URL Copy" : "Folder Upload")}</h2>
         <p>{job.id}</p>
       </div>
 
@@ -86,7 +102,47 @@ export function JobDetail({ job }: Props) {
             <dd>{formatBytes(job.totalBytes)}</dd>
           </div>
         )}
+
+        {job.resultUrl && (
+          <div>
+            <dt>Artifactory</dt>
+            <dd>
+              <a href={job.resultUrl} target="_blank" rel="noreferrer">View in Artifactory</a>
+            </dd>
+          </div>
+        )}
       </dl>
+
+      {job.progress && job.progress.total > 0 && (
+        <section>
+          <h3>Progress</h3>
+          <progress className="job-progress" value={job.progress.done} max={job.progress.total} />
+          <p className="field-hint">
+            {job.progress.done} of {job.progress.total} package(s)
+          </p>
+        </section>
+      )}
+
+      {job.packages && job.packages.length > 0 && (
+        <section>
+          <h3>Packages</h3>
+          <div className="package-table">
+            {job.packages.map((pkg) => (
+              <div key={pkg.path} className="package-row">
+                <span className="package-name">
+                  {pkg.url ? (
+                    <a href={pkg.url} target="_blank" rel="noreferrer">{pkg.name}@{pkg.version}</a>
+                  ) : (
+                    <>{pkg.name}@{pkg.version}</>
+                  )}
+                </span>
+                <span className={`stage ${packageStatusClass(pkg.status)}`}>{packageStatusLabel(pkg.status)}</span>
+                {pkg.error && <span className="package-error">{pkg.error}</span>}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section>
         <h3>Progress Log</h3>

@@ -1,14 +1,47 @@
-import { mkdir, rm, writeFile } from "fs/promises";
-import { tmpdir } from "os";
-import { dirname, join } from "path";
-import { randomBytes } from "crypto";
+import { execFile } from "child_process";
+import { mkdir, writeFile } from "fs/promises";
+import { basename, dirname, join } from "path";
+import { promisify } from "util";
 import { config } from "../../config";
 import { redactSecrets } from "../../redact";
-import { jfUpload } from "./jfUpload";
-import type { ArtifactoryApi, ArtifactoryJob, FolderUploadInput, PortalUser, UrlCopyInput } from "../../types";
+import { createTmpDir, removeTmpDir } from "../../tmp";
+import { exists, upload, webUrl } from "./artifactoryRest";
+import { discoverPackages, jobName, packAndUpload, pool, targetPath } from "./npmPackages";
+import type {
+  ArtifactoryApi,
+  ArtifactoryJob,
+  FolderUploadInput,
+  PackageUploadResult,
+  PortalUser,
+  UploadedFile,
+  UrlCopyInput,
+} from "../../types";
+
+const execFileAsync = promisify(execFile);
+
+/** Raw-tree fallback for folders that contain no npm packages at all. */
+const RAW_UPLOAD_CONCURRENCY = 8;
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+/**
+ * `originalname` is the browser-supplied relative path. It is joined onto a temp
+ * dir and then onto the Artifactory target, so a `..` segment would write and
+ * publish outside both.
+ */
+function safeRelativePath(name: string): string {
+  const normalised = name.replace(/\\/g, "/");
+  const segments = normalised.split("/").filter(Boolean);
+  if (
+    normalised.startsWith("/") ||
+    /^[a-zA-Z]:/.test(normalised) ||
+    segments.some((s) => s === ".." || s === ".")
+  ) {
+    throw new Error(`Rejected unsafe path in upload: ${name}`);
+  }
+  return segments.join("/");
 }
 
 export class RealArtifactoryApi implements ArtifactoryApi {
@@ -30,10 +63,6 @@ export class RealArtifactoryApi implements ArtifactoryApi {
     if (!job) return;
     job.log.push(redactSecrets(line));
     job.updatedAt = nowIso();
-  }
-
-  private jfUpload(jobId: string, src: string, target: string, extraArgs: string[] = []) {
-    return jfUpload(src, target, extraArgs, (line) => this.appendLog(jobId, line));
   }
 
   async submitUrlCopy(input: UrlCopyInput, submitter: PortalUser): Promise<ArtifactoryJob> {
@@ -62,6 +91,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       submittedByName: submitter.displayName,
       createdAt: nowIso(),
       updatedAt: nowIso(),
+      name: input.folderName,
       folderName: input.folderName,
       fileCount: input.fileCount,
       totalBytes: input.totalBytes,
@@ -82,8 +112,28 @@ export class RealArtifactoryApi implements ArtifactoryApi {
     return this.jobs.get(jobId) ?? null;
   }
 
+  /** Job is failed if anything failed, but the successes are still reported. */
+  private finish(jobId: string, results: PackageUploadResult[]) {
+    const failures = results.filter((r) => r.status === "failed");
+    const uploaded = results.filter((r) => r.status === "uploaded").length;
+    const skipped = results.filter((r) => r.status === "exists").length;
+
+    this.patch(jobId, {
+      packages: results,
+      status: failures.length > 0 ? "failed" : "completed",
+      errorMessage:
+        failures.length > 0 ? `${failures.length} of ${results.length} package(s) failed` : undefined,
+      resultUrl:
+        results.length === 1 ? results[0].url : webUrl(config.artifactory.repo),
+    });
+    this.appendLog(
+      jobId,
+      `Done. ${uploaded} uploaded, ${skipped} already present, ${failures.length} failed.`
+    );
+  }
+
   private async runUrlCopy(jobId: string, input: UrlCopyInput) {
-    const tmpDir = join(tmpdir(), `art-${randomBytes(4).toString("hex")}`);
+    const tmpDir = await createTmpDir("art-");
     try {
       this.patch(jobId, { status: "in-progress" });
       this.appendLog(jobId, `Fetching ${input.sourceUrl} ...`);
@@ -96,28 +146,43 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       const filename = new URL(input.sourceUrl).pathname.split("/").filter(Boolean).pop();
       if (!filename) throw new Error("Cannot determine filename from source URL");
 
-      await mkdir(tmpDir, { recursive: true });
-      const tmpFile = join(tmpDir, filename);
+      const tmpFile = join(tmpDir, safeRelativePath(filename));
       await writeFile(tmpFile, Buffer.from(await res.arrayBuffer()));
 
-      const target = `${config.artifactory.repo}/${filename}`;
-      this.appendLog(jobId, `Uploading to ${target} via jf CLI ...`);
+      const identity = await readTarballIdentity(tmpFile);
+      const target = identity
+        ? targetPath(identity.name, identity.version)
+        : `${config.artifactory.repo}/${filename}`;
 
-      await this.jfUpload(jobId, tmpFile, target);
+      if (identity) {
+        this.patch(jobId, { name: `${identity.name}@${identity.version}` });
+      } else {
+        this.appendLog(jobId, "Not an npm tarball — uploading under its own filename.");
+        this.patch(jobId, { name: filename });
+      }
 
-      this.patch(jobId, { status: "completed" });
+      if ((await exists(target)) === true) {
+        this.appendLog(jobId, `${target} already exists — skipping upload.`);
+        this.patch(jobId, { status: "completed", resultUrl: webUrl(target) });
+        return;
+      }
+
+      this.appendLog(jobId, `Uploading to ${target} ...`);
+      await upload(target, tmpFile);
+
+      this.patch(jobId, { status: "completed", resultUrl: webUrl(target) });
       this.appendLog(jobId, `Done. Artifact available at ${target}.`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.patch(jobId, { status: "failed", errorMessage: message });
       this.appendLog(jobId, `Error: ${message}`);
     } finally {
-      await rm(tmpDir, { recursive: true, force: true });
+      await removeTmpDir(tmpDir, (line) => this.appendLog(jobId, line));
     }
   }
 
   private async runFolderUpload(jobId: string, input: FolderUploadInput) {
-    const tmpDir = join(tmpdir(), `art-${randomBytes(4).toString("hex")}`);
+    const tmpDir = await createTmpDir("art-");
     try {
       this.patch(jobId, { status: "in-progress" });
 
@@ -127,27 +192,91 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       }
 
       this.appendLog(jobId, `Writing ${files.length} file(s) to temp directory ...`);
-      await mkdir(tmpDir, { recursive: true });
-
+      const sourceDir = join(tmpDir, "source");
       for (const file of files) {
-        const dest = join(tmpDir, file.originalname);
+        const dest = join(sourceDir, safeRelativePath(file.originalname));
         await mkdir(dirname(dest), { recursive: true });
         await writeFile(dest, file.buffer);
       }
 
-      const target = `${config.artifactory.repo}/${input.folderName}/`;
-      this.appendLog(jobId, `Uploading to ${target} via jf CLI ...`);
+      const packages = await discoverPackages(sourceDir, (line) => this.appendLog(jobId, line));
 
-      await this.jfUpload(jobId, `${tmpDir}/`, target, ["--recursive", "--flat=false"]);
+      if (packages.length === 0) {
+        this.appendLog(jobId, "No npm packages found — uploading the folder as-is.");
+        await this.uploadRawTree(jobId, sourceDir, files, input.folderName);
+        return;
+      }
 
-      this.patch(jobId, { status: "completed" });
-      this.appendLog(jobId, `Done. ${files.length} file(s) deployed to ${target}.`);
+      this.patch(jobId, { name: jobName(packages, input.folderName) });
+      this.appendLog(jobId, `Found ${packages.length} package(s).`);
+
+      const results = await packAndUpload(
+        packages,
+        join(tmpDir, "stage"),
+        (line) => this.appendLog(jobId, line),
+        (done, total) => this.patch(jobId, { progress: { done, total } })
+      );
+
+      this.finish(jobId, results);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.patch(jobId, { status: "failed", errorMessage: message });
       this.appendLog(jobId, `Error: ${message}`);
     } finally {
-      await rm(tmpDir, { recursive: true, force: true });
+      await removeTmpDir(tmpDir, (line) => this.appendLog(jobId, line));
     }
   }
+
+  /** Preserves the old behaviour for folders that aren't npm packages. */
+  private async uploadRawTree(jobId: string, sourceDir: string, files: UploadedFile[], folderName: string) {
+    const prefix = `${config.artifactory.repo}/${safeRelativePath(folderName)}`;
+    const paths = files.map((f) => safeRelativePath(f.originalname));
+    let done = 0;
+    const failures: string[] = [];
+
+    this.patch(jobId, { progress: { done: 0, total: paths.length } });
+
+    await pool(paths, RAW_UPLOAD_CONCURRENCY, async (relative) => {
+      const target = `${prefix}/${relative}`;
+      try {
+        if ((await exists(target)) !== true) await upload(target, join(sourceDir, relative));
+      } catch (err) {
+        failures.push(`${relative}: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        this.patch(jobId, { progress: { done: ++done, total: paths.length } });
+      }
+    });
+
+    for (const failure of failures) this.appendLog(jobId, `Failed ${failure}`);
+
+    this.patch(jobId, {
+      status: failures.length > 0 ? "failed" : "completed",
+      errorMessage: failures.length > 0 ? `${failures.length} of ${paths.length} file(s) failed` : undefined,
+      resultUrl: webUrl(prefix),
+    });
+    this.appendLog(jobId, `Done. ${paths.length - failures.length} file(s) deployed to ${prefix}/.`);
+  }
+}
+
+/**
+ * Read `package/package.json` straight out of a tarball to get its real identity —
+ * the filename alone cannot tell you the scope (`@babel/core` ships as
+ * `core-7.0.0.tgz`). Returns null for anything that isn't an npm tarball.
+ */
+async function readTarballIdentity(file: string): Promise<{ name: string; version: string } | null> {
+  try {
+    // Relative to cwd — GNU tar treats a `C:` prefix as a remote host spec.
+    const { stdout } = await execFileAsync("tar", ["-xzOf", basename(file), "package/package.json"], {
+      cwd: dirname(file),
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    const manifest = JSON.parse(stdout);
+    if (typeof manifest.name === "string" && typeof manifest.version === "string") {
+      return { name: manifest.name, version: manifest.version };
+    }
+  } catch {
+    // Not a tarball, no manifest inside it, or no tar on PATH — fall back to the
+    // flat upload path rather than failing the whole job.
+  }
+  return null;
 }
