@@ -1491,6 +1491,96 @@ button:focus-visible {
   margin-top: -4px;
 }
 
+/* Label above a sibling input. Elsewhere the input is nested inside the <label>,
+   which the rule above already spaces; here the gap has to come from the wrapper
+   or the focus ring (outline + 5px box-shadow) paints over the label text. */
+.form-field {
+  display: grid;
+  gap: 6px;
+}
+
+.job-progress {
+  width: 100%;
+  height: 8px;
+  accent-color: #20c7bd;
+}
+
+.package-table {
+  display: grid;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.package-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid #203238;
+  border-radius: 6px;
+  background: #0d181a;
+  font-size: 13px;
+}
+
+.package-name {
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  word-break: break-all;
+}
+
+.package-error {
+  color: #f0a5a5;
+  font-size: 12px;
+  word-break: break-word;
+}
+
+/* ---- Job log: collapsible steps ---- */
+
+.job-log-steps {
+  display: grid;
+  gap: 6px;
+}
+
+.job-log-step {
+  border: 1px solid #203238;
+  border-radius: 6px;
+  background: #0d181a;
+}
+
+.job-log-step > summary {
+  cursor: pointer;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #f2f6f7;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.job-log-count {
+  margin-left: auto;
+  color: #6f8088;
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.job-log-body {
+  margin: 0;
+  padding: 10px;
+  border-top: 1px solid #203238;
+  /* Without a cap, a git clone log grows the page without bound. */
+  max-height: 320px;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #9fe4dc;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* ---- Chat / RAGFlow module ---- */
 
 code {

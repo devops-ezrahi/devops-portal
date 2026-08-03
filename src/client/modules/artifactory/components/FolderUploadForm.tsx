@@ -53,6 +53,7 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
   const [scannedFolder, setScannedFolder] = useState<ScannedFolder | null>(null);
   const [scanning, setScanning] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadPercent, setUploadPercent] = useState(0);
 
   function handleDragOver(e: React.DragEvent) {
     e.preventDefault();
@@ -102,6 +103,7 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
     e.preventDefault();
     if (!scannedFolder) return;
     setSubmitting(true);
+    setUploadPercent(0);
     const startedAt = performance.now();
     log("artifactory/upload", "uploading", {
       folder: scannedFolder.name,
@@ -109,7 +111,7 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
       totalBytes: scannedFolder.totalBytes,
     });
     try {
-      const result = await submitFolderUpload(scannedFolder.name, scannedFolder.entries);
+      const result = await submitFolderUpload(scannedFolder.name, scannedFolder.entries, setUploadPercent);
       log("artifactory/upload", "accepted", result.job.id, `${(performance.now() - startedAt).toFixed(0)}ms`);
       onSubmitted(result.job);
       setScannedFolder(null);
@@ -161,9 +163,13 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
         </div>
       )}
 
+      {submitting && (
+        <progress className="job-progress" value={uploadPercent} max={100} />
+      )}
+
       <button type="submit" className="primary" disabled={!scannedFolder || submitting}>
         <Upload size={18} aria-hidden="true" />
-        {submitting ? "Uploading..." : "Upload to Artifactory"}
+        {submitting ? `Uploading... ${uploadPercent}%` : "Upload to Artifactory"}
       </button>
     </form>
   );

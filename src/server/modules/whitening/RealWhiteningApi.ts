@@ -1,13 +1,12 @@
 import { execFile } from "child_process";
 import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "fs/promises";
-import { tmpdir } from "os";
 import { join } from "path";
 import { promisify } from "util";
-import { randomBytes } from "crypto";
 import { config } from "../../config";
 import { redactSecrets } from "../../redact";
-import { jfUpload } from "../artifactory/jfUpload";
-import { GiteaApi } from "./GiteaApi";
+import { createTmpDir, removeTmpDir } from "../../tmp";
+import { discoverPackages, packAndUpload } from "../artifactory/npmPackages";
+import { BitbucketApi, BitbucketError } from "./BitbucketApi";
 import type { PortalUser, WhiteningApi, WhiteningJob } from "../../types";
 
 const execFileAsync = promisify(execFile);
@@ -60,7 +59,9 @@ export function parsePackConfig(text: string): PackConfig {
 export class RealWhiteningApi implements WhiteningApi {
   private jobs = new Map<string, WhiteningJob>();
   private counter = 0;
-  private gitea = new GiteaApi(config.git);
+  private bitbucket = new BitbucketApi(config.git);
+  /** Phase each log line gets tagged with, so the UI can collapse by step. */
+  private steps = new Map<string, string>();
 
   private newId() {
     return `WHT-${String(++this.counter).padStart(4, "0")}`;
@@ -72,26 +73,31 @@ export class RealWhiteningApi implements WhiteningApi {
     Object.assign(job, { ...updates, updatedAt: nowIso() });
   }
 
+  private setStep(jobId: string, step: string) {
+    this.steps.set(jobId, step);
+  }
+
   private appendLog(jobId: string, line: string) {
     const job = this.jobs.get(jobId);
     if (!job) return;
-    job.log.push(redactSecrets(line));
+    job.log.push({ step: this.steps.get(jobId) ?? "General", line: redactSecrets(line) });
     job.updatedAt = nowIso();
   }
 
   async submitUnpack(archive: Buffer, archiveName: string, submitter: PortalUser): Promise<WhiteningJob> {
     // Extracted here rather than in run(): a bad archive must fail the request
     // (400) instead of a job. run() takes over the workDir and cleans it up.
-    const workDir = join(tmpdir(), `wht-${randomBytes(4).toString("hex")}`);
+    const workDir = await createTmpDir("wht-");
     const extractDir = join(workDir, "extracted");
     let packConfig: PackConfig;
     try {
       await mkdir(extractDir, { recursive: true });
-      const archivePath = join(workDir, "pack.tgz");
-      await writeFile(archivePath, archive);
+      await writeFile(join(workDir, "pack.tgz"), archive);
       try {
         // tar ships with Linux and Windows 10+ — no unpacking library needed.
-        await execFileAsync("tar", ["-xzf", archivePath, "-C", extractDir]);
+        // Relative paths run from `cwd`: GNU tar reads a leading `C:` as a
+        // remote host spec and refuses to open the archive.
+        await execFileAsync("tar", ["-xzf", "pack.tgz", "-C", "extracted"], { cwd: workDir });
       } catch {
         throw new Error(`Could not extract ${archiveName} — expected a .tgz from the whitening packer`);
       }
@@ -101,7 +107,7 @@ export class RealWhiteningApi implements WhiteningApi {
       }
       packConfig = parsePackConfig(await readFile(configPath, "utf8"));
     } catch (err) {
-      await rm(workDir, { recursive: true, force: true });
+      await removeTmpDir(workDir);
       throw err;
     }
 
@@ -155,15 +161,17 @@ export class RealWhiteningApi implements WhiteningApi {
   private async run(jobId: string, workDir: string, extractDir: string, packConfig: PackConfig) {
     const job = this.jobs.get(jobId)!;
     try {
+      this.setStep(jobId, "Prepare");
       this.patch(jobId, { status: "in-progress" });
       if (!config.git.enabled) {
         throw new Error("GIT_URL and GIT_TOKEN must be set to open pull requests");
       }
 
       await this.pushSourceAndOpenPr(jobId, job, packConfig, extractDir);
-      await this.uploadDependencies(jobId, job, extractDir);
+      await this.uploadDependencies(jobId, job, extractDir, workDir);
       await this.uploadImages(jobId, job, extractDir);
 
+      this.setStep(jobId, "Finish");
       this.patch(jobId, { status: "completed" });
       this.appendLog(jobId, "Done.");
     } catch (err) {
@@ -171,7 +179,8 @@ export class RealWhiteningApi implements WhiteningApi {
       this.patch(jobId, { status: "failed", errorMessage: message });
       this.appendLog(jobId, `Error: ${message}`);
     } finally {
-      await rm(workDir, { recursive: true, force: true });
+      await removeTmpDir(workDir, (line) => this.appendLog(jobId, line));
+      this.steps.delete(jobId);
     }
   }
 
@@ -183,13 +192,20 @@ export class RealWhiteningApi implements WhiteningApi {
   ) {
     const { team, project, version } = job;
     const repo = packConfig.repository;
+    this.setStep(jobId, "Clone");
     const sourceDir = join(extractDir, "repository", repo);
     if (!(await pathExists(sourceDir))) {
       throw new Error(`Archive is missing a repository/${repo}/ folder`);
     }
 
+    // Probe first: otherwise a wrong project/repo only surfaces after a clone, a
+    // commit and a push have already run.
+    if (!(await this.bitbucket.repoExists(team, repo))) {
+      throw new Error(`Bitbucket has no repository ${team}/${repo} — check config.json's team and repository`);
+    }
+
     const repoDir = join(extractDir, "repo");
-    const cloneUrl = this.gitea.authenticatedCloneUrl(team, repo);
+    const cloneUrl = this.bitbucket.authenticatedCloneUrl(team, repo);
     this.appendLog(jobId, `Cloning ${team}/${repo} ...`);
     await this.runCli(jobId, "git", ["clone", "--depth", "1", cloneUrl, repoDir]);
 
@@ -203,6 +219,7 @@ export class RealWhiteningApi implements WhiteningApi {
     }
     await cp(sourceDir, repoDir, { recursive: true });
 
+    this.setStep(jobId, "Commit & push");
     await this.runCli(jobId, "git", ["add", "-A"], repoDir);
     const { stdout: statusOutput } = await execFileAsync("git", ["diff", "--cached", "--name-only"], { cwd: repoDir });
     if (!statusOutput.trim()) {
@@ -216,38 +233,70 @@ export class RealWhiteningApi implements WhiteningApi {
       ["-c", "user.email=whitening@devops-portal", "-c", "user.name=Whitening", "commit", "-m", `Unpack ${job.archiveName}`],
       repoDir
     );
-    await this.runCli(jobId, "git", ["push", "origin", `HEAD:${branch}`], repoDir);
+    // --force because the branch is ours: re-whitening the same project+version
+    // must update it rather than die on a non-fast-forward.
+    await this.runCli(jobId, "git", ["push", "--force", "origin", `HEAD:${branch}`], repoDir);
 
+    this.setStep(jobId, "Pull request");
     // The repo we cloned, not the project name — they differ whenever
     // config.json's `repository` does.
-    const base = await this.gitea.getDefaultBranch(team, repo);
+    const base = await this.bitbucket.getDefaultBranch(team, repo);
     this.appendLog(jobId, `Opening PR against ${base} ...`);
-    const pr = await this.gitea.createPullRequest(
-      team,
-      repo,
-      branch,
-      base,
-      `Unpack ${job.archiveName}`,
-      `Automated PR from the Whitening module for ${job.archiveName}.`
-    );
-    this.patch(jobId, { prUrl: pr.html_url });
-    this.appendLog(jobId, `PR opened: ${pr.html_url}`);
+
+    let url: string;
+    try {
+      url = await this.bitbucket.createPullRequest(
+        team,
+        repo,
+        branch,
+        base,
+        `Unpack ${job.archiveName}`,
+        `Automated PR from the Whitening module for ${job.archiveName}.`
+      );
+    } catch (err) {
+      // 409 = a PR from this branch is already open. That is the "already
+      // whitened" case: point at the existing one instead of failing the job.
+      if (!(err instanceof BitbucketError) || err.status !== 409) throw err;
+      const existing = await this.bitbucket.findOpenPullRequest(team, repo, branch);
+      if (!existing) throw err;
+      this.appendLog(jobId, "A pull request from this branch is already open — reusing it.");
+      url = existing;
+    }
+
+    this.patch(jobId, { prUrl: url });
+    this.appendLog(jobId, `PR opened: ${url}`);
   }
 
-  private async uploadDependencies(jobId: string, job: WhiteningJob, extractDir: string) {
+  private async uploadDependencies(jobId: string, job: WhiteningJob, extractDir: string, workDir: string) {
+    this.setStep(jobId, "Dependencies");
     const depsDir = join(extractDir, "node_modules");
     if (!(await pathExists(depsDir)) || (await readdir(depsDir)).length === 0) {
       this.appendLog(jobId, "No dependencies to upload.");
       return;
     }
-    // Keep the node_modules/ prefix in Artifactory: delta packs are meant to be
-    // dropped straight on top of a previous one.
-    const target = `${config.artifactory.repo}/${job.team}/${job.project}/${job.version}/dependencies/node_modules/`;
-    this.appendLog(jobId, `Uploading dependencies to ${target} ...`);
-    await jfUpload(`${depsDir}/`, target, ["--recursive", "--flat=false"], (line) => this.appendLog(jobId, line));
+
+    const packages = await discoverPackages(depsDir, (line) => this.appendLog(jobId, line));
+    if (packages.length === 0) {
+      this.appendLog(jobId, "No npm packages found under node_modules/.");
+      return;
+    }
+
+    this.appendLog(jobId, `Found ${packages.length} package(s).`);
+    const results = await packAndUpload(
+      packages,
+      join(workDir, "stage"),
+      (line) => this.appendLog(jobId, line),
+      () => {}
+    );
+
+    const failures = results.filter((r) => r.status === "failed");
+    if (failures.length > 0) {
+      throw new Error(`${failures.length} of ${results.length} dependency package(s) failed to upload`);
+    }
   }
 
   private async uploadImages(jobId: string, job: WhiteningJob, extractDir: string) {
+    this.setStep(jobId, "Images");
     const imagesDir = join(extractDir, "images");
     if (!(await pathExists(imagesDir))) {
       this.appendLog(jobId, "No images to upload.");

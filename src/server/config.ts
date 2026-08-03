@@ -40,7 +40,9 @@ export const config = {
   git: {
     url: gitUrl ?? "",
     token: gitToken ?? "",
-    username: requireEnv("GIT_USERNAME") ?? "oauth2",
+    // Empty by default: Bitbucket takes the HTTP access token on its own. Set
+    // GIT_USERNAME only if your instance wants username+token basic auth.
+    username: requireEnv("GIT_USERNAME") ?? "",
     enabled: !!(gitUrl && gitToken),
   },
   jira: {

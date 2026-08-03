@@ -1,8 +1,19 @@
-import type { WhiteningJob, WhiteningJobStatus } from "../../../../server/types";
+import type { JobLogEntry, WhiteningJob, WhiteningJobStatus } from "../../../../server/types";
 
 type Props = {
   job: WhiteningJob;
 };
+
+/** Consecutive entries sharing a step become one collapsible group, Jenkins-style. */
+function groupByStep(log: JobLogEntry[]): { step: string; lines: string[] }[] {
+  const groups: { step: string; lines: string[] }[] = [];
+  for (const entry of log) {
+    const last = groups[groups.length - 1];
+    if (last && last.step === entry.step) last.lines.push(entry.line);
+    else groups.push({ step: entry.step, lines: [entry.line] });
+  }
+  return groups;
+}
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString();
@@ -75,11 +86,21 @@ export function JobDetail({ job }: Props) {
         {job.log.length === 0 ? (
           <div className="empty-state">No log entries yet.</div>
         ) : (
-          <div className="comments">
-            {job.log.map((line, i) => (
-              <div key={i} className="status-row">
-                <span>{line}</span>
-              </div>
+          <div className="job-log-steps">
+            {groupByStep(job.log).map((group, i, all) => (
+              // Native <details>: no accordion state to keep in sync with polling.
+              // The last step stays open while the job is still moving or has failed.
+              <details
+                key={`${group.step}-${i}`}
+                className="job-log-step"
+                open={i === all.length - 1 && job.status !== "completed"}
+              >
+                <summary>
+                  {group.step}
+                  <span className="job-log-count">{group.lines.length}</span>
+                </summary>
+                <pre className="job-log-body">{group.lines.join("\n")}</pre>
+              </details>
             ))}
           </div>
         )}
