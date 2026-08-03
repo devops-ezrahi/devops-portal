@@ -179,7 +179,10 @@ export function AdminTicketDetail({
               value={assignee}
               onChange={(e) => {
                 const id = e.target.value;
-                const name = assignees.find((a) => a.id === id)?.displayName ?? "";
+                // Falling through to the ticket's own name matters for the
+                // stale option below: picking it must not blank out the only
+                // name we have for someone missing from the roster.
+                const name = assignees.find((a) => a.id === id)?.displayName ?? (id === assignee ? ticket.assigneeName : "");
                 onAssigneeChange(id, name).catch(() => undefined);
               }}
             >

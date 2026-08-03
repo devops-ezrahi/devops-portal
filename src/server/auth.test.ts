@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { userFromSsoHeaders } from "./auth";
+import { displayNameFor, rememberUser, userFromSsoHeaders } from "./auth";
 
 function reqWithHeaders(headers: Record<string, string>) {
   return { headers } as unknown as Parameters<typeof userFromSsoHeaders>[0];
@@ -32,6 +32,29 @@ describe("userFromSsoHeaders groups parsing", () => {
       }),
     );
     expect(user?.groups).toEqual(["devops-admins", "devops-viewers"]);
+  });
+});
+
+describe("displayNameFor", () => {
+  const sub = "b4f2c1a0-0000-4000-8000-000000000001";
+
+  it("prefers the directory over a stored snapshot", () => {
+    rememberUser({ id: sub, email: "shugi@example.com", displayName: "shugi", groups: [] });
+    expect(displayNameFor(sub, "old-name")).toBe("shugi");
+  });
+
+  it("never leaks a raw id when the stored name is empty", () => {
+    rememberUser({ id: sub, email: "shugi@example.com", displayName: "shugi", groups: [] });
+    expect(displayNameFor(sub, "")).toBe("shugi");
+  });
+
+  it("falls back to the snapshot, then the id, for an unknown user", () => {
+    expect(displayNameFor("never-seen", "Snapshot Name")).toBe("Snapshot Name");
+    expect(displayNameFor("never-seen", "")).toBe("never-seen");
+  });
+
+  it("leaves an unassigned ticket's empty name alone", () => {
+    expect(displayNameFor("", "")).toBe("");
   });
 });
 

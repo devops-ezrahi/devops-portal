@@ -119,6 +119,18 @@ export function rememberUser(user: PortalUser) {
   knownUsers.set(user.id, user);
 }
 
+// The one place a user's name is decided. Ticket records carry a name
+// snapshot taken whenever the assignment was made, which drifts from what
+// /api/me reports — and is an empty string when the assigner's roster didn't
+// have that user, leaving the UI to fall back on the raw id (a Keycloak sub
+// UUID). Resolve against the live directory first so every surface shows the
+// same string; the snapshot is only a fallback for users this process hasn't
+// seen since it started.
+export function displayNameFor(id: string, storedName = ""): string {
+  if (!id) return storedName;
+  return knownUsers.get(id)?.displayName || storedName || id;
+}
+
 export function listAdminCandidates(): AssigneeCandidate[] {
   return [...knownUsers.values()]
     .filter(isAdmin)

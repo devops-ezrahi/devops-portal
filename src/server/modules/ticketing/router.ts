@@ -1,9 +1,9 @@
 import express from "express";
 import { z } from "zod";
 import { requestCatalog } from "./catalog";
-import { listAdminCandidates, requireAdmin } from "../../auth";
+import { displayNameFor, listAdminCandidates, requireAdmin } from "../../auth";
 import { customerStages } from "./status";
-import type { CustomerStage, TicketingApi } from "../../types";
+import type { CustomerStage, TicketDetail, TicketSummary, TicketingApi } from "../../types";
 
 const createTicketSchema = z.object({
   requestType: z.string().min(1),
@@ -24,6 +24,29 @@ const adminUpdateSchema = z.object({
   assigneeId: z.string().optional(),
   assigneeName: z.string().optional()
 });
+
+// Names go out resolved, not as the backend stored them, so the queue's
+// assignee label, the owner dropdown and the header all read the same string
+// for the same person. Applied on the way out rather than at write time
+// because it also repairs rows the backend (Jira, or an older assignment)
+// already holds.
+function withResolvedNames<T extends TicketSummary>(ticket: T): T {
+  return {
+    ...ticket,
+    requesterName: displayNameFor(ticket.requesterId, ticket.requesterName),
+    assigneeName: displayNameFor(ticket.assigneeId, ticket.assigneeName)
+  };
+}
+
+function detailWithResolvedNames(ticket: TicketDetail): TicketDetail {
+  return {
+    ...withResolvedNames(ticket),
+    comments: ticket.comments.map((comment) => ({
+      ...comment,
+      authorName: displayNameFor(comment.authorId, comment.authorName)
+    }))
+  };
+}
 
 function parseCustomerStage(status: unknown): CustomerStage | undefined {
   if (!status || typeof status !== "string") {
@@ -47,7 +70,7 @@ export function createTicketingRouter(ticketingApi: TicketingApi) {
         status: parseCustomerStage(req.query.status),
         query: typeof req.query.query === "string" ? req.query.query : undefined
       });
-      res.json({ tickets });
+      res.json({ tickets: tickets.map(withResolvedNames) });
     } catch (error) {
       next(error);
     }
@@ -60,7 +83,7 @@ export function createTicketingRouter(ticketingApi: TicketingApi) {
         res.status(404).json({ error: "Ticket not found" });
         return;
       }
-      res.json({ ticket });
+      res.json({ ticket: detailWithResolvedNames(ticket) });
     } catch (error) {
       next(error);
     }
@@ -70,7 +93,7 @@ export function createTicketingRouter(ticketingApi: TicketingApi) {
     try {
       const payload = createTicketSchema.parse(req.body);
       const ticket = await ticketingApi.createTicket(payload, req.user!);
-      res.status(201).json({ ticket });
+      res.status(201).json({ ticket: detailWithResolvedNames(ticket) });
     } catch (error) {
       next(error);
     }
@@ -96,7 +119,7 @@ export function createTicketingRouter(ticketingApi: TicketingApi) {
         status: parseCustomerStage(req.query.status),
         query: typeof req.query.query === "string" ? req.query.query : undefined
       });
-      res.json({ tickets });
+      res.json({ tickets: tickets.map(withResolvedNames) });
     } catch (error) {
       next(error);
     }
@@ -109,7 +132,7 @@ export function createTicketingRouter(ticketingApi: TicketingApi) {
         res.status(404).json({ error: "Ticket not found" });
         return;
       }
-      res.json({ ticket });
+      res.json({ ticket: detailWithResolvedNames(ticket) });
     } catch (error) {
       next(error);
     }
@@ -119,7 +142,7 @@ export function createTicketingRouter(ticketingApi: TicketingApi) {
     try {
       const payload = adminUpdateSchema.parse(req.body);
       const ticket = await ticketingApi.updateAdminTicket(String(req.params.id), req.user!, payload);
-      res.json({ ticket });
+      res.json({ ticket: detailWithResolvedNames(ticket) });
     } catch (error) {
       next(error);
     }
