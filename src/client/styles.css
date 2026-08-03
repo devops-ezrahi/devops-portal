@@ -1,8 +1,14 @@
 :root {
   color: #f4f7f8;
   background: #0b0f12;
+  /* The Hebrew families are the tail of the stack, reached only per-glyph for
+     characters the Latin families don't carry. Without them a weight whose
+     face lacks Hebrew (Segoe UI Black) falls past the whole stack to the
+     browser's last-resort serif, and Hebrew silently turns into Times New
+     Roman. Latin is unaffected — it never gets that far down the list. */
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Noto Sans Hebrew", "Arial Hebrew", Gisha, Arial, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -552,6 +558,12 @@ h3 {
   padding: 9px 11px;
   background: #0d1316;
   color: #f4f7f8;
+  /* These controls sit inside a `font-weight: 800` label and inherit it via
+     the global `font: inherit`. The label is bold; what the user types isn't.
+     It also keeps Hebrew off Segoe UI Black, which carries no Hebrew glyphs —
+     at weight 800 the browser abandoned the stack and fell back to Times New
+     Roman, so typing Hebrew here turned serif mid-form. */
+  font-weight: 400;
 }
 
 .search input {
@@ -2064,4 +2076,50 @@ code {
     max-height: calc(100vh - 20px);
   }
 
+}
+
+/* ---- Bidi (Hebrew / RTL content) ----
+   Every string below is written by a user or an LLM, so its direction isn't
+   known at build time. `unicode-bidi: plaintext` is the CSS form of
+   dir="auto": each block resolves its own direction from its first strong
+   character, and `text-align: start` then aligns it to match. The shell
+   (nav, buttons, field labels) is ours and stays LTR — only content flips,
+   so a Hebrew ticket in an English portal reads right-to-left without
+   mirroring the whole layout.
+   ponytail: no i18n framework and no dir="auto" sprinkled over every JSX
+   node — one rule covers all four modules. Switch <html dir> if the chrome
+   itself ever needs translating. */
+.ticket-row strong,
+.ticket-detail h2,
+.title-edit-input,
+.description-text,
+.description-edit-textarea,
+.comment p,
+.comment strong,
+.status-row span,
+.comment-form textarea,
+.request-form input,
+.request-form textarea,
+.chat-msg,
+.chat-sidebar-title,
+.chat-input-row textarea,
+.chat-md p,
+.chat-md li,
+.chat-md h1,
+.chat-md h2,
+.chat-md h3,
+.chat-md h4,
+.chat-md blockquote,
+.chat-md th,
+.chat-md td {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
+/* Code is never RTL, even when the prose around it is. */
+.chat-md pre,
+.chat-md code {
+  unicode-bidi: normal;
+  direction: ltr;
+  text-align: left;
 }
