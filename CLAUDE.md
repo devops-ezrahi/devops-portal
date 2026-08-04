@@ -228,8 +228,10 @@ from a ConfigMap/Secret — no `.env` file in production.
 That is the whole thing. The `pack` job in `.github/workflows/ci.yml`:
 
 1. semantic-release cuts the version,
-2. builds and pushes `ghcr.io/devops-ezrahi/devops-portal:<version>` (public
-   package; `github.token` + `packages: write`, no secret to rotate),
+2. builds and pushes `ghcr.io/devops-ezrahi/devops-portal:<version>` — pushing
+   needs only `github.token` + `packages: write`, no secret to rotate; the
+   package is private, so *pulling* needs the `ghcr-pull` Secret that External
+   Secrets builds in the cluster (`../homelab/manifests/external-secrets.yaml`),
 3. whitening-packs and uploads the tgz to the release,
 4. commits that tag into `devops-portal/chart/values.yaml` on **homelab's
    `main`**, using the `HOMELAB_TOKEN` secret — `github.token` is scoped to this

@@ -204,6 +204,33 @@ textarea {
   align-items: center;
 }
 
+/* Hover the title for the running build. Anchored to .brand's bottom edge like
+   .stella-pop below, and pointer-events: none so it can't eat the click the
+   easter egg counts. */
+.brand-version {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgb(11 15 18 / 96%);
+  border: 1px solid #202b31;
+  color: #8fa3ad;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(-3px);
+  pointer-events: none;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.brand:hover .brand-version {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 /* Stella. Three easter eggs, no logic depends on any of them. */
 
 /* 15 clicks on the title and she drops out from under the header. The container

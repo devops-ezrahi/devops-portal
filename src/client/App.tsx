@@ -16,6 +16,10 @@ import { ticketingModule } from "./modules/ticketing";
 import { whiteningModule } from "./modules/whitening";
 import type { PortalModule } from "./moduleTypes";
 import type { PortalUser } from "../server/types";
+// Inlined at bundle time and tree-shaken to the one string, so the running
+// build identifies itself with no endpoint, no fetch and no state. CI bumps
+// package.json before `docker build`, so this is the released version.
+import { version } from "../../package.json";
 
 const modules: PortalModule[] = [ticketingModule, artifactoryModule, whiteningModule, ragflowModule];
 
@@ -171,6 +175,7 @@ export function App() {
           }}
         >
           DevOps
+          <span className="brand-version">v{version}</span>
           {stellaPop && (
             <div className="stella-pop">
               <img src="/stella-1.png" alt="" />
