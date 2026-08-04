@@ -11,6 +11,9 @@ const urlCopySchema = z.object({
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 100 * 1024 * 1024 }, // 100 MB per file
+  // Without this busboy basenames every part, so a folder upload arrives flat and
+  // only the last package.json survives. `safeRelativePath` sanitises the paths.
+  preservePath: true,
 });
 
 export function createArtifactoryRouter(api: ArtifactoryApi): express.Router {

@@ -34,7 +34,12 @@ function pkg(dir: string, name: string, version: string): UploadedFile[] {
   ];
 }
 
-const user: PortalUser = { id: "dana", displayName: "Dana Levi", isAdmin: false } as PortalUser;
+const user: PortalUser = {
+  id: "dana",
+  displayName: "Dana Levi",
+  email: "dana@example.com",
+  groups: [],
+};
 
 describe("folder upload log", () => {
   it("reports skipped, uploaded and failed packages", async () => {
