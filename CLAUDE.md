@@ -239,8 +239,24 @@ That is the whole thing. The `pack` job in `.github/workflows/ci.yml`:
    `main`**, using the `HOMELAB_TOKEN` secret — `github.token` is scoped to this
    repo and cannot push cross-repo.
 
-ArgoCD watches homelab `main` with `automated: {selfHeal: true}` and a 180s
-reconcile, so step 4 is the deploy. Commit to pod is roughly four minutes.
+ArgoCD watches homelab `main` with `automated: {selfHeal: true}`, so step 4 is
+the deploy. Commit to pod is roughly four to five minutes, and CI is most of it
+— steps 1-3 take ~3 minutes, ArgoCD ~90s to notice plus the rollout.
+
+That ~90s used to be six minutes. ArgoCD polls (a webhook is impossible — the
+lab's domain resolves to a LAN IP GitHub cannot reach), and the wait is **two**
+timers that stack: `timeout.reconciliation` *and* repo-server's
+`--revision-cache-expiration`, which caches the branch → commit-SHA lookup for
+3m by default and hands a fast reconcile a stale SHA. Both are 30s in
+`../homelab/helm-values/argocd.yaml.tmpl`. If a deploy ever seems stuck, check
+that before suspecting CI:
+
+```bash
+kubectl -n argocd get application devops-portal \
+  -o jsonpath='{.status.sync.revision} {.status.reconciledAt}{"\n"}'
+kubectl -n argocd annotate application devops-portal \
+  argocd.argoproj.io/refresh=hard --overwrite   # skip the wait
+```
 
 **One PAT drives both halves, and it lives in two places.** The same classic
 token is the `HOMELAB_TOKEN` Actions secret here *and* Vault's
