@@ -66,9 +66,12 @@ redirect to Keycloak, then the change visibly present.
 
 ## If something's wrong
 
-- **`ImagePullBackOff`**: the GHCR package went private again, or CI wrote a tag
-  it never actually pushed. `docker logout ghcr.io && docker pull <the image>`
-  reproduces exactly what the kubelet is doing.
+- **`ImagePullBackOff`**: the package is private, so this is usually the pull
+  credential rather than the image. Check `kubectl -n devops-portal get
+  externalsecret ghcr-pull` is `SecretSynced`, then that the PAT behind it
+  carries `read:packages` — repo access alone does not imply it, and a token
+  that clones homelab fine will still 403 on ghcr.io. The other cause is CI
+  writing a tag it never actually pushed; the `pack` job's log says which.
 - **Pod still on the old tag**: ArgoCD hasn't reconciled yet, or CI's homelab
   commit step failed — check the tail of the `pack` job and
   `git -C ../homelab log --oneline -1 origin/main`.
