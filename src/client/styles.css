@@ -208,14 +208,15 @@ textarea {
 
 /* 15 clicks on the title and she drops out from under the header. The container
    sits exactly on the header's bottom edge (100% of the stretched brand + the
-   header's 10px padding) and clips her, so she slides out from underneath it —
-   and it's half the sprite's height, so she only ever gets halfway out. */
+   header's 10px padding) and clips her, so she slides out from underneath it.
+   She stops at -50%: her front half (head first — the sprite is head-down) is
+   out, her back half is still tucked up behind the header. */
 .stella-pop {
   position: absolute;
   top: calc(100% + 10px);
   left: -2px;
   width: 72px;
-  height: 54px;
+  height: 108px;
   overflow: hidden;
   pointer-events: none;
 }
@@ -226,12 +227,10 @@ textarea {
   animation: stella-peek 3s ease-in-out both;
 }
 
-/* flipped upright — the sprite is head-down, and the half that clears the
-   header has to be the half with her face in it */
 @keyframes stella-peek {
-  0% { transform: translateY(-100%) scaleY(-1); }
-  22%, 72% { transform: translateY(0) scaleY(-1); }
-  100% { transform: translateY(-100%) scaleY(-1); }
+  0% { transform: translateY(-100%); }
+  22%, 72% { transform: translateY(-50%); }
+  100% { transform: translateY(-100%); }
 }
 
 /* One in a hundred, she strolls across the gap between the tabs and your name. */
