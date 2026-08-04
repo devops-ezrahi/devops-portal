@@ -240,6 +240,21 @@ That is the whole thing. The `pack` job in `.github/workflows/ci.yml`:
 ArgoCD watches homelab `main` with `automated: {selfHeal: true}` and a 180s
 reconcile, so step 4 is the deploy. Commit to pod is roughly four minutes.
 
+**One PAT drives both halves, and it lives in two places.** The same classic
+token is the `HOMELAB_TOKEN` Actions secret here *and* Vault's
+`secret/homelab/github` `GITHUB_TOKEN` (from which ESO builds `ghcr-pull` for
+the kubelet and `repo-homelab` for ArgoCD) — rotating it means updating both or
+half the pipeline breaks silently. It needs **`repo` *and* `read:packages`**:
+`repo` alone pushes to homelab fine and then every image pull dies in
+`ImagePullBackOff` with a bare `403 Forbidden`, which reads like a broken image
+rather than a missing scope. After writing a new token to Vault, force the
+resync instead of waiting out the 1h `refreshInterval`:
+
+```bash
+kubectl -n devops-portal annotate externalsecret ghcr-pull force-sync=$(date +%s) --overwrite
+kubectl -n argocd       annotate externalsecret repo-homelab force-sync=$(date +%s) --overwrite
+```
+
 The portal is then live at **https://portal.\<LAB_DOMAIN\>** — the domain is
 set in `../homelab/lab.env`. No hosts-file entry; the hostname is public DNS.
 
