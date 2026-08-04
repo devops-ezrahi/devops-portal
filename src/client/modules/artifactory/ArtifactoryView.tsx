@@ -1,5 +1,5 @@
 import { FolderOpen, Link, Plus } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ArtifactoryJob } from "../../../server/types";
 import { log, error as logError } from "../../log";
@@ -11,10 +11,13 @@ import { UrlCopyForm } from "./components/UrlCopyForm";
 
 type Tab = "url-copy" | "folder-upload";
 
-export function ArtifactoryView({ isAdmin, refreshKey, onError }: ModuleViewProps) {
+export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) {
   const [activeTab, setActiveTab] = useState<Tab>("url-copy");
   const [jobs, setJobs] = useState<ArtifactoryJob[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  // Admins get everything from the server; the toggle narrows it back client-side,
+  // same as the ticketing queue.
+  const [showAll, setShowAll] = useState(true);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   function fetchJobs() {
@@ -52,6 +55,11 @@ export function ArtifactoryView({ isAdmin, refreshKey, onError }: ModuleViewProp
     setSelectedJobId(job.id);
   }
 
+  const visibleJobs = useMemo(
+    () => (isAdmin && !showAll ? jobs.filter((j) => j.submittedBy === user.id) : jobs),
+    [jobs, showAll, isAdmin, user.id]
+  );
+
   const selectedJob = jobs.find((j) => j.id === selectedJobId) ?? null;
 
   return (
@@ -69,12 +77,23 @@ export function ArtifactoryView({ isAdmin, refreshKey, onError }: ModuleViewProp
         {/* Left: job history */}
         <div className="ticket-column">
           <div className="ticket-list-header">
-            <h2>{isAdmin ? "All Jobs" : "Recent Jobs"}</h2>
+            <h2>{isAdmin && showAll ? "All Jobs" : "Recent Jobs"}</h2>
+            {isAdmin && (
+              <button
+                className="ghost-button"
+                onClick={() => {
+                  log("artifactory", `filter → ${showAll ? "my jobs" : "all jobs"}`);
+                  setShowAll((v) => !v);
+                }}
+              >
+                {showAll ? "All jobs" : "My jobs"}
+              </button>
+            )}
           </div>
           <section className="ticket-list-panel" aria-label="Upload jobs">
             <div className="ticket-list">
               <JobList
-                jobs={jobs}
+                jobs={visibleJobs}
                 selectedJobId={selectedJobId}
                 isAdmin={isAdmin}
                 onSelect={(id) => {

@@ -1,3 +1,4 @@
+import { classifyLogLine } from "../../../logLines";
 import type { ArtifactoryJob, ArtifactoryJobStatus, PackageUploadStatus } from "../../../../server/types";
 
 type Props = {
@@ -150,11 +151,18 @@ export function JobDetail({ job }: Props) {
           <div className="empty-state">No log entries yet.</div>
         ) : (
           <div className="comments">
-            {job.log.map((line, i) => (
-              <div key={i} className="status-row">
-                <span>{line}</span>
-              </div>
-            ))}
+            {job.log.map((line, i) => {
+              const entry = classifyLogLine(line);
+              return (
+                <div key={i} className={`status-row ${entry.className}`.trim()}>
+                  <span>
+                    {entry.pkg && <strong className="log-pkg">{entry.pkg}</strong>}
+                    {entry.text}
+                  </span>
+                  {entry.badge && <small>{entry.badge}</small>}
+                </div>
+              );
+            })}
           </div>
         )}
       </section>

@@ -17,6 +17,18 @@
   box-sizing: border-box;
 }
 
+/* Links inherit the app accent instead of the browser's default blue/purple.
+   .primary, .chat-md a and .dev-banner-link are class selectors and still win. */
+a,
+a:visited {
+  color: #20c7bd;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
 body {
   margin: 0;
   background: #0b0f12;
@@ -758,6 +770,13 @@ button:focus-visible {
   min-width: 0;
 }
 
+/* Right-hand slot (the submitter on job rows) keeps its full width — a truncated
+   name is worse than a truncated path, and the left slot has more to give. */
+.ticket-row-meta small:last-child {
+  flex: 0 0 auto;
+  max-width: 55%;
+}
+
 .ticket-row small.ticket-row-assignee {
   font-size: 11px;
   font-weight: 700;
@@ -1154,6 +1173,81 @@ button:focus-visible {
 .status-row small {
   color: #84949b;
   flex: 0 0 auto;
+}
+
+/* Per-package outcomes in an upload log — same palette as the .stage-* badges,
+   so a finished package reads at a glance instead of blending into the stream. */
+.log-uploaded,
+.log-failed,
+.log-skipped {
+  border-left-width: 3px;
+}
+
+.log-uploaded {
+  border-left-color: #4f9c63;
+  color: #b7e0b8;
+}
+
+.log-uploaded small {
+  color: #b7e0b8;
+}
+
+.log-failed {
+  border-left-color: #c08a3e;
+  color: #ead49f;
+}
+
+.log-failed small {
+  color: #ead49f;
+}
+
+.log-skipped {
+  border-left-color: #3f6c86;
+  color: #a9d8f2;
+}
+
+.log-skipped small {
+  color: #a9d8f2;
+}
+
+.log-pkg {
+  font-weight: 700;
+  margin-right: 8px;
+}
+
+/* The closing tally is a summary, not another step — give it some air. */
+.log-summary {
+  margin-top: 8px;
+  border-color: #2c4148;
+  background: #101d20;
+  font-weight: 600;
+}
+
+/* Same outcomes inside Whitening's monospace step body, where the lines sit in a
+   <pre> instead of their own rows. */
+.job-log-body .log-uploaded,
+.job-log-body .log-failed,
+.job-log-body .log-skipped {
+  display: block;
+  margin: 2px 0;
+  padding-left: 8px;
+  border-left: 3px solid;
+  font-weight: 600;
+}
+
+.job-log-body .log-uploaded {
+  border-left-color: #4f9c63;
+  color: #b7e0b8;
+}
+
+.job-log-body .log-failed {
+  border-left-color: #c08a3e;
+  color: #ead49f;
+}
+
+.job-log-body .log-skipped {
+  border-left-color: #3f6c86;
+  color: #a9d8f2;
 }
 
 .comment-form {

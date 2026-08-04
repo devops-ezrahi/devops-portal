@@ -50,8 +50,9 @@ export function JobList({ jobs, selectedJobId, isAdmin, onSelect }: Props) {
           <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
           <strong>{job.name ?? (job.kind === "url-copy" ? "URL Copy" : "Folder Upload")}</strong>
           <div className="ticket-row-meta">
+            <small>{jobSubtitle(job) || job.id}</small>
+            {/* Admins see who submitted it; users already know it's theirs. */}
             <small>{isAdmin ? job.submittedByName : job.id}</small>
-            <small>{jobSubtitle(job)}</small>
           </div>
         </button>
       ))}

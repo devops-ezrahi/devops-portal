@@ -63,6 +63,12 @@ export class RealWhiteningApi implements WhiteningApi {
   /** Phase each log line gets tagged with, so the UI can collapse by step. */
   private steps = new Map<string, string>();
 
+  /** `seed` is the dev-mode demo data (see `devJobs.ts`); empty in production. */
+  constructor(seed: WhiteningJob[] = []) {
+    for (const job of seed) this.jobs.set(job.id, job);
+    this.counter = seed.length;
+  }
+
   private newId() {
     return `WHT-${String(++this.counter).padStart(4, "0")}`;
   }

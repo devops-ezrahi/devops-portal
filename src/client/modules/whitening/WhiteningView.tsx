@@ -1,5 +1,5 @@
 import { Plus } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { WhiteningJob } from "../../../server/types";
 import { log, error as logError } from "../../log";
@@ -8,9 +8,12 @@ import { JobDetail } from "./components/JobDetail";
 import { JobList } from "./components/JobList";
 import { ArchiveDropZone } from "./components/ArchiveDropZone";
 
-export function WhiteningView({ isAdmin, refreshKey, onError }: ModuleViewProps) {
+export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) {
   const [jobs, setJobs] = useState<WhiteningJob[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  // Admins get everything from the server; the toggle narrows it back client-side,
+  // same as the ticketing queue.
+  const [showAll, setShowAll] = useState(true);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   function fetchJobs() {
@@ -48,6 +51,11 @@ export function WhiteningView({ isAdmin, refreshKey, onError }: ModuleViewProps)
     setSelectedJobId(job.id);
   }
 
+  const visibleJobs = useMemo(
+    () => (isAdmin && !showAll ? jobs.filter((j) => j.submittedBy === user.id) : jobs),
+    [jobs, showAll, isAdmin, user.id]
+  );
+
   const selectedJob = jobs.find((j) => j.id === selectedJobId) ?? null;
 
   return (
@@ -64,12 +72,23 @@ export function WhiteningView({ isAdmin, refreshKey, onError }: ModuleViewProps)
       <div className="workspace-grid">
         <div className="ticket-column">
           <div className="ticket-list-header">
-            <h2>{isAdmin ? "All Jobs" : "Recent Jobs"}</h2>
+            <h2>{isAdmin && showAll ? "All Jobs" : "Recent Jobs"}</h2>
+            {isAdmin && (
+              <button
+                className="ghost-button"
+                onClick={() => {
+                  log("whitening", `filter → ${showAll ? "my jobs" : "all jobs"}`);
+                  setShowAll((v) => !v);
+                }}
+              >
+                {showAll ? "All jobs" : "My jobs"}
+              </button>
+            )}
           </div>
           <section className="ticket-list-panel" aria-label="Unpack jobs">
             <div className="ticket-list">
               <JobList
-                jobs={jobs}
+                jobs={visibleJobs}
                 selectedJobId={selectedJobId}
                 isAdmin={isAdmin}
                 onSelect={(id) => {

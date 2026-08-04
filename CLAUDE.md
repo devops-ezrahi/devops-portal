@@ -64,9 +64,11 @@ The shell passes `refreshKey` as a prop; modules use it as a React `key` to remo
 
 Shipped code must use real data sources only — no seed/demo data baked into modules. Test fixtures belong under `__tests__/` (e.g. `modules/ticketing/__tests__/seedTickets.ts`) and are injected into the in-memory API by tests, never loaded by default.
 
-One **intentional, temporary** exception remains for local dev/demo and is slated for replacement:
+Two **intentional** exceptions remain, both for local dev/demo and both gated on
+the same signal (`SSO_REQUIRED` is not `true` — no proxy in front):
 
 - `src/client/api.ts` `demoUsers` + role switcher, and the dev fallback user in `auth.ts` — let the app run locally without an SSO proxy in front.
+- `modules/artifactory/devJobs.ts` + `modules/whitening/devJobs.ts` — demo jobs seeded into the two in-memory job maps by `app.ts`'s `devMode` check, so both job logs are reviewable without an Artifactory, a Bitbucket and skopeo behind the portal. `src/server/devSeed.test.ts` pins that they disappear once SSO is required.
 
 ## Config & environment
 

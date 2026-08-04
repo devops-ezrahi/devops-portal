@@ -48,6 +48,12 @@ export class RealArtifactoryApi implements ArtifactoryApi {
   private jobs = new Map<string, ArtifactoryJob>();
   private counter = 0;
 
+  /** `seed` is the dev-mode demo data (see `devJobs.ts`); empty in production. */
+  constructor(seed: ArtifactoryJob[] = []) {
+    for (const job of seed) this.jobs.set(job.id, job);
+    this.counter = seed.length;
+  }
+
   private newId() {
     return `ART-${String(++this.counter).padStart(4, "0")}`;
   }

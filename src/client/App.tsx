@@ -45,6 +45,9 @@ export function App() {
   const [unauthenticated, setUnauthenticated] = useState(false);
   const [ssoUrl, setSsoUrl] = useState("");
   const [activeModuleId, setActiveModuleId] = useState(() => moduleFromPath(window.location.pathname));
+  // Modules mount on first visit and are hidden — never unmounted — afterwards, so
+  // a running upload keeps its progress bar, selection and poll across tab switches.
+  const [visited, setVisited] = useState<string[]>([activeModuleId]);
   const [refreshKey, setRefreshKey] = useState(0);
   const [stellaPop, setStellaPop] = useState(false);
   const [stellaWalks, setStellaWalks] = useState(false);
@@ -113,6 +116,10 @@ export function App() {
   }, [retryKey]);
 
   const activeModule = modules.find((m) => m.id === activeModuleId) ?? modules[0];
+
+  useEffect(() => {
+    setVisited((v) => (v.includes(activeModule.id) ? v : [...v, activeModule.id]));
+  }, [activeModule.id]);
 
   useEffect(() => {
     if (error) logError("app", "error banner", error);
@@ -224,12 +231,18 @@ export function App() {
         {loading ? (
           <div className="loading-state" aria-label="Loading" />
         ) : (
-          <activeModule.View
-            user={user!}
-            isAdmin={isAdmin}
-            refreshKey={refreshKey}
-            onError={setError}
-          />
+          modules
+            .filter((mod) => visited.includes(mod.id))
+            .map((mod) => (
+              <div key={mod.id} className="module-slot" hidden={mod.id !== activeModule.id}>
+                <mod.View
+                  user={user!}
+                  isAdmin={isAdmin}
+                  refreshKey={refreshKey}
+                  onError={setError}
+                />
+              </div>
+            ))
         )}
       </main>
     </div>

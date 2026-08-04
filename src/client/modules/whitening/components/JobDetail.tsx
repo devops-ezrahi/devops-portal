@@ -1,3 +1,4 @@
+import { classifyLogLine } from "../../../logLines";
 import type { JobLogEntry, WhiteningJob, WhiteningJobStatus } from "../../../../server/types";
 
 type Props = {
@@ -99,7 +100,15 @@ export function JobDetail({ job }: Props) {
                   {group.step}
                   <span className="job-log-count">{group.lines.length}</span>
                 </summary>
-                <pre className="job-log-body">{group.lines.join("\n")}</pre>
+                <pre className="job-log-body">
+                  {group.lines.map((line, n) => (
+                    // Per-package outcomes stand out from the surrounding CLI noise.
+                    <span key={n} className={classifyLogLine(line).className}>
+                      {line}
+                      {n < group.lines.length - 1 ? "\n" : ""}
+                    </span>
+                  ))}
+                </pre>
               </details>
             ))}
           </div>
