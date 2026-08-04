@@ -29,8 +29,9 @@ jobs:
       - run: npm test
       - run: npm run build # tsc --noEmit && vite build
 
-  # Release + whitening pack on push to main (stable) or dev (prerelease).
-  # Gated on `test` so a broken commit never gets released or handed off.
+  # Release + image + whitening pack on push to main (stable) or dev
+  # (prerelease). Gated on `test` so a broken commit never gets released,
+  # published or handed off.
   pack:
     needs: test
     if: github.event_name != 'pull_request'
@@ -39,6 +40,7 @@ jobs:
       contents: write # push the release commit and the v*/pack/* tags
       issues: write # @semantic-release/github comments on released issues
       pull-requests: write # ...and on released PRs
+      packages: write # push the image to ghcr.io/<owner>/<repo>
     steps:
       - uses: actions/checkout@v4
         with:
@@ -83,6 +85,33 @@ jobs:
             echo "released=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # The image. Built here rather than in its own job because semantic-release
+      # has just written the new version into this workspace's package.json, so
+      # the build context is already correct and needs no second checkout.
+      # The Dockerfile is self-building from source (.dockerignore drops dist/),
+      # so nothing has to be handed over from the `test` job either.
+      #
+      # github.token authenticates to GHCR on the strength of `packages: write`
+      # above — no secret to rotate. github.repository is already lowercase,
+      # which GHCR requires.
+      - if: steps.release.outputs.released == 'true'
+        uses: docker/setup-buildx-action@v3
+      - if: steps.release.outputs.released == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - if: steps.release.outputs.released == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/${{ github.repository }}:${{ steps.release.outputs.version }}
+          # Two `npm ci` runs per build; without a cache this is ~4 min of the job.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       # python3, not python — the runner image doesn't guarantee the alias.
       # Running the script by path puts .packer on sys.path so its sibling
       # imports resolve. This job is where department/team/repository come
@@ -109,3 +138,36 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.release.outputs.version }}
           PACK: ${{ steps.pack.outputs.pack }}
+
+      # This is the deploy. ArgoCD watches homelab's main branch (Application
+      # `devops-portal`, path devops-portal/chart, automated + selfHeal), so
+      # writing the tag there is what makes the cluster pick the image up —
+      # within one reconcile (~3 min), with nothing to run by hand.
+      #
+      # Last step in the job on purpose: by the time it runs the image is
+      # already in GHCR and the pack is already on the release, so a homelab
+      # push failure costs only the rollout, not the release.
+      #
+      # github.token is scoped to this repo and cannot push to homelab, hence
+      # the separate PAT.
+      - if: steps.release.outputs.released == 'true'
+        name: Point the homelab chart at the new image
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          TOKEN: ${{ secrets.HOMELAB_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${TOKEN}@github.com/devops-ezrahi/homelab.git" "$RUNNER_TEMP/homelab"
+          cd "$RUNNER_TEMP/homelab"
+          # Range-anchored to the image: block, so an unrelated "  tag:" key
+          # elsewhere in the file is never touched.
+          sed -i "/^image:/,/^[^ ]/ s|^  tag: .*|  tag: \"${VERSION}\"|" \
+            devops-portal/chart/values.yaml
+          if git diff --quiet; then
+            echo "chart already pinned to ${VERSION}"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: portal image ${VERSION}"
+          # main and dev can finish close enough together to race for the push.
+          git push || { git pull --rebase && git push; }

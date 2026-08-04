@@ -216,30 +216,49 @@ CI does bump → build → pack.
 The app runs in a single container fronted by oauth2-proxy (bundled into the
 same image — see `scripts/entrypoint.sh`), deployed onto the `k3d-homelab`
 cluster maintained in the sibling `../homelab` repo (see that repo's
-`CLAUDE.md` for cluster-wide setup). `Dockerfile` builds from `dist/`. The Helm
-chart lives in `../homelab/devops-portal/chart` (homelab is the single source
-of truth for infra) — Secrets are deliberately not part of the chart. In k8s,
-env vars come from a ConfigMap/Secret — no `.env` file in production.
+`CLAUDE.md` for cluster-wide setup). The `Dockerfile` is self-building from
+source — the builder stage runs `npm run build` itself, and `.dockerignore`
+excludes `dist/`, so no prebuilt output is handed to it. The Helm chart lives in
+`../homelab/devops-portal/chart` (homelab is the single source of truth for
+infra) — Secrets are deliberately not part of the chart. In k8s, env vars come
+from a ConfigMap/Secret — no `.env` file in production.
 
-### Deploying — one script
+### Deploying — push to `main` or `dev`
+
+That is the whole thing. The `pack` job in `.github/workflows/ci.yml`:
+
+1. semantic-release cuts the version,
+2. builds and pushes `ghcr.io/devops-ezrahi/devops-portal:<version>` (public
+   package; `github.token` + `packages: write`, no secret to rotate),
+3. whitening-packs and uploads the tgz to the release,
+4. commits that tag into `devops-portal/chart/values.yaml` on **homelab's
+   `main`**, using the `HOMELAB_TOKEN` secret — `github.token` is scoped to this
+   repo and cannot push cross-repo.
+
+ArgoCD watches homelab `main` with `automated: {selfHeal: true}` and a 180s
+reconcile, so step 4 is the deploy. Commit to pod is roughly four minutes.
+
+The portal is then live at **https://portal.\<LAB_DOMAIN\>** — the domain is
+set in `../homelab/lab.env`. No hosts-file entry; the hostname is public DNS.
+
+### The shortcut, when four minutes is too long
 
 ```bash
 ../homelab/scripts/deploy-portal.sh
 ```
 
-`docker build` → `k3d image import` (side-loads straight into the node's
-containerd) → `helm upgrade` → `rollout restart`. That last step matters: the
-tag is always `local` with `imagePullPolicy: IfNotPresent`, so without it the
-kubelet keeps the image it already has and the deploy silently no-ops.
+It reads the tag the Deployment currently asks for, builds the working tree
+under *that* tag, and `k3d image import`s it into the node's containerd, so
+`imagePullPolicy: IfNotPresent` finds it locally and never reaches ghcr.io.
+ArgoCD sees no diff, so it neither fights nor undoes the swap — the local image
+stays in front of that tag until the next release moves it. This is a local
+override, not a release: nothing about it is reproducible from git.
 
-The portal is then live at **https://portal.\<LAB_DOMAIN\>** — the domain is
-set in `../homelab/lab.env`. No hosts-file entry; the hostname is public DNS.
-
-> There used to be a Gitea Actions → in-cluster registry → ArgoCD pipeline,
-> and this file used to say it was the only way code reached the cluster. All
-> of it was removed — it existed solely to move a locally-built image onto a
-> locally-running cluster. Instructions elsewhere mentioning `git push gitea`,
-> `act-runner`, or `registry.homelab.local` are stale.
+> There used to be a Gitea Actions → in-cluster registry → ArgoCD pipeline.
+> That was removed and is not what came back — this one publishes to GHCR and
+> the "GitOps" half is a single `sed` + commit into homelab. Instructions
+> elsewhere mentioning `git push gitea`, `act-runner`, or
+> `registry.homelab.local` are stale.
 
 ## Finishing a task
 
