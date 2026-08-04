@@ -29,7 +29,6 @@ function moduleFromPath(pathname: string): string {
 }
 
 // Stella easter eggs. She's a cat. Not load-bearing.
-const NAP_AFTER_MS = 60_000;
 
 export function App() {
   const [user, setUser] = useState<PortalUser | null>(null);
@@ -45,29 +44,7 @@ export function App() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [stellaPop, setStellaPop] = useState(false);
   const [stellaWalks, setStellaWalks] = useState(false);
-  const [stellaNaps, setStellaNaps] = useState(
-    () => Date.now() - Number(localStorage.getItem("stella-active") ?? 0) > NAP_AFTER_MS,
-  );
   const brandClicks = useRef(0);
-
-  // She dozes off after a minute of nothing — and the clock keeps running while
-  // the tab is hidden or closed, so she's already asleep when you come back.
-  useEffect(() => {
-    let nap = setTimeout(() => setStellaNaps(true), NAP_AFTER_MS);
-    function wake() {
-      localStorage.setItem("stella-active", String(Date.now()));
-      setStellaNaps(false);
-      clearTimeout(nap);
-      nap = setTimeout(() => setStellaNaps(true), NAP_AFTER_MS);
-    }
-    window.addEventListener("pointerdown", wake);
-    window.addEventListener("keydown", wake);
-    return () => {
-      clearTimeout(nap);
-      window.removeEventListener("pointerdown", wake);
-      window.removeEventListener("keydown", wake);
-    };
-  }, []);
 
   // 1-in-100 per page load / tab switch / refresh, she strolls through the header.
   useEffect(() => {
@@ -225,18 +202,15 @@ export function App() {
             <span>{user?.displayName ?? "Signed in user"}</span>
           </div>
 
-          <span className="refresh-slot">
-            <button
-              className="ghost-button"
-              onClick={() => {
-                log("app", "refresh clicked — remounting", activeModuleId, `refreshKey ${refreshKey} → ${refreshKey + 1}`);
-                setRefreshKey((k) => k + 1);
-              }}
-            >
-              <RefreshCcw size={17} aria-hidden="true" /> Refresh
-            </button>
-            {stellaNaps && <img className="stella-nap" src="/stella-2.png" alt="" />}
-          </span>
+          <button
+            className="ghost-button"
+            onClick={() => {
+              log("app", "refresh clicked — remounting", activeModuleId, `refreshKey ${refreshKey} → ${refreshKey + 1}`);
+              setRefreshKey((k) => k + 1);
+            }}
+          >
+            <RefreshCcw size={17} aria-hidden="true" /> Refresh
+          </button>
         </div>
       </header>
 

@@ -208,13 +208,14 @@ textarea {
 
 /* 15 clicks on the title and she drops out from under the header. The container
    sits exactly on the header's bottom edge (100% of the stretched brand + the
-   header's 10px padding) and clips her, so she slides out from underneath it. */
+   header's 10px padding) and clips her, so she slides out from underneath it —
+   and it's half the sprite's height, so she only ever gets halfway out. */
 .stella-pop {
   position: absolute;
   top: calc(100% + 10px);
-  left: -6px;
-  width: 108px;
-  height: 162px;
+  left: -2px;
+  width: 72px;
+  height: 54px;
   overflow: hidden;
   pointer-events: none;
 }
@@ -225,10 +226,12 @@ textarea {
   animation: stella-peek 3s ease-in-out both;
 }
 
+/* flipped upright — the sprite is head-down, and the half that clears the
+   header has to be the half with her face in it */
 @keyframes stella-peek {
-  0% { transform: translateY(-100%); }
-  22%, 72% { transform: translateY(0); }
-  100% { transform: translateY(-100%); }
+  0% { transform: translateY(-100%) scaleY(-1); }
+  22%, 72% { transform: translateY(0) scaleY(-1); }
+  100% { transform: translateY(-100%) scaleY(-1); }
 }
 
 /* One in a hundred, she strolls across the gap between the tabs and your name. */
@@ -242,8 +245,8 @@ textarea {
 
 .stella-lane img {
   position: absolute;
-  bottom: 8px;
-  height: 38px;
+  bottom: 2px;
+  height: 34px;
   animation: stella-walk 9s linear, stella-bob 420ms ease-in-out infinite;
 }
 
@@ -255,26 +258,6 @@ textarea {
 
 @keyframes stella-bob {
   50% { transform: translateY(-2px); }
-}
-
-/* A minute of no clicks and she's asleep on the Refresh button. */
-.refresh-slot {
-  position: relative;
-  display: inline-flex;
-}
-
-.stella-nap {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 56px;
-  pointer-events: none;
-  animation: stella-breathe 3.4s ease-in-out infinite;
-}
-
-@keyframes stella-breathe {
-  0%, 100% { transform: translate(-50%, -58%) rotate(-90deg) scale(1); }
-  50% { transform: translate(-50%, -58%) rotate(-90deg) scale(1.04); }
 }
 
 .app-nav,
