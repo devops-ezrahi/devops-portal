@@ -1,9 +1,9 @@
-import { FolderOpen, Link, Plus } from "lucide-react";
+import { FlaskConical, FolderOpen, Link, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ArtifactoryJob } from "../../../server/types";
 import { log, error as logError } from "../../log";
-import { listJobs } from "./api";
+import { cancelJob, listJobs, simulateJob } from "./api";
 import { JobDetail } from "./components/JobDetail";
 import { JobList } from "./components/JobList";
 import { FolderUploadForm } from "./components/FolderUploadForm";
@@ -53,6 +53,14 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
     log("artifactory", "job submitted", job);
     setJobs((prev) => [job, ...prev.filter((j) => j.id !== job.id)]);
     setSelectedJobId(job.id);
+  }
+
+  function handleStop(job: ArtifactoryJob) {
+    log("artifactory", "stopping job", job.id);
+    cancelJob(job.id).then(fetchJobs).catch((err: Error) => {
+      logError("artifactory", "cancel failed", err);
+      onError(err.message);
+    });
   }
 
   const visibleJobs = useMemo(
@@ -109,7 +117,7 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
         <div className="content-column">
           {selectedJob ? (
             <section className="detail-panel" aria-label="Job detail">
-              <JobDetail job={selectedJob} />
+              <JobDetail job={selectedJob} onStop={() => handleStop(selectedJob)} />
             </section>
           ) : (
             <section className="detail-panel art-panel" aria-label="New job">
@@ -128,6 +136,22 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
                   <FolderOpen size={16} aria-hidden="true" />
                   Upload Folder
                 </button>
+                {/* Dev only: fires the server's scripted run so the log, the
+                    progress bar and Stop are reviewable with no Artifactory. */}
+                {user.id === "dev" && (
+                  <button
+                    type="button"
+                    className="ghost-button tab-bar-action"
+                    onClick={() => {
+                      log("artifactory", "starting simulated run");
+                      simulateJob()
+                        .then((result) => handleSubmitted(result.job))
+                        .catch((err: Error) => onError(err.message));
+                    }}
+                  >
+                    <FlaskConical size={16} aria-hidden="true" /> Test
+                  </button>
+                )}
               </div>
 
               {activeTab === "url-copy" ? (

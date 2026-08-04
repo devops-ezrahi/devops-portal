@@ -38,7 +38,9 @@ export function App() {
   const [user, setUser] = useState<PortalUser | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Keyed by module id: modules stay mounted, so one shell-wide banner would
+  // follow you into every other tab and never clear.
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
@@ -83,7 +85,7 @@ export function App() {
     let mounted = true;
     log("auth", "loading /api/me", { retryKey });
     setLoading(true);
-    setError(null);
+    setErrors({});
     setLoadError(null);
     setForbidden(false);
     setUnauthenticated(false);
@@ -121,9 +123,8 @@ export function App() {
     setVisited((v) => (v.includes(activeModule.id) ? v : [...v, activeModule.id]));
   }, [activeModule.id]);
 
-  useEffect(() => {
-    if (error) logError("app", "error banner", error);
-  }, [error]);
+  // Refresh clears stale banners along with the data behind them.
+  useEffect(() => setErrors({}), [refreshKey]);
 
   useEffect(() => {
     log("app", "rendering module", activeModule.id, { isAdmin, refreshKey });
@@ -227,7 +228,6 @@ export function App() {
       </header>
 
       <main className="main">
-        {error && <div className="error-banner">{error}</div>}
         {loading ? (
           <div className="loading-state" aria-label="Loading" />
         ) : (
@@ -235,11 +235,15 @@ export function App() {
             .filter((mod) => visited.includes(mod.id))
             .map((mod) => (
               <div key={mod.id} className="module-slot" hidden={mod.id !== activeModule.id}>
+                {errors[mod.id] && <div className="error-banner">{errors[mod.id]}</div>}
                 <mod.View
                   user={user!}
                   isAdmin={isAdmin}
                   refreshKey={refreshKey}
-                  onError={setError}
+                  onError={(message) => {
+                    logError(mod.id, "error banner", message);
+                    setErrors((prev) => ({ ...prev, [mod.id]: message }));
+                  }}
                 />
               </div>
             ))

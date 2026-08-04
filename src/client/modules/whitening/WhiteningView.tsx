@@ -1,9 +1,9 @@
-import { Plus } from "lucide-react";
+import { FlaskConical, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { WhiteningJob } from "../../../server/types";
 import { log, error as logError } from "../../log";
-import { listJobs } from "./api";
+import { cancelJob, listJobs, simulateJob } from "./api";
 import { JobDetail } from "./components/JobDetail";
 import { JobList } from "./components/JobList";
 import { ArchiveDropZone } from "./components/ArchiveDropZone";
@@ -49,6 +49,14 @@ export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleView
     log("whitening", "unpack job submitted", job);
     setJobs((prev) => [job, ...prev.filter((j) => j.id !== job.id)]);
     setSelectedJobId(job.id);
+  }
+
+  function handleStop(job: WhiteningJob) {
+    log("whitening", "stopping job", job.id);
+    cancelJob(job.id).then(fetchJobs).catch((err: Error) => {
+      logError("whitening", "cancel failed", err);
+      onError(err.message);
+    });
   }
 
   const visibleJobs = useMemo(
@@ -103,10 +111,28 @@ export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleView
         <div className="content-column">
           {selectedJob ? (
             <section className="detail-panel" aria-label="Job detail">
-              <JobDetail job={selectedJob} />
+              <JobDetail job={selectedJob} onStop={() => handleStop(selectedJob)} />
             </section>
           ) : (
             <section className="detail-panel art-panel" aria-label="New job">
+              {/* Dev only: fires the server's scripted run so the step log and
+                  Stop are reviewable with no Bitbucket/skopeo behind us. */}
+              {user.id === "dev" && (
+                <div className="panel-actions">
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => {
+                      log("whitening", "starting simulated run");
+                      simulateJob()
+                        .then((result) => handleSubmitted(result.job))
+                        .catch((err: Error) => onError(err.message));
+                    }}
+                  >
+                    <FlaskConical size={16} aria-hidden="true" /> Test
+                  </button>
+                </div>
+              )}
               <ArchiveDropZone onSubmitted={handleSubmitted} onError={onError} />
             </section>
           )}

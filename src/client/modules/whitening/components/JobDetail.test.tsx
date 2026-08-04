@@ -27,7 +27,7 @@ function makeJob(overrides: Partial<WhiteningJob> = {}): WhiteningJob {
 
 describe("whitening JobDetail log", () => {
   it("collapses consecutive lines from the same step into one group", () => {
-    render(<JobDetail job={makeJob()} />);
+    render(<JobDetail job={makeJob()} onStop={() => {}} />);
 
     const groups = document.querySelectorAll("details.job-log-step");
     expect(groups).toHaveLength(2);
@@ -38,32 +38,32 @@ describe("whitening JobDetail log", () => {
   });
 
   it("keeps every line, in order, inside its step", () => {
-    render(<JobDetail job={makeJob()} />);
+    render(<JobDetail job={makeJob()} onStop={() => {}} />);
     const bodies = [...document.querySelectorAll("pre.job-log-body")].map((el) => el.textContent);
     expect(bodies[0]).toBe("$ git clone ...\nCloning into 'repo'...");
     expect(bodies[1]).toBe("Opening PR against main ...");
   });
 
   it("leaves the last step open while the job is still running, closed once completed", () => {
-    const { unmount } = render(<JobDetail job={makeJob({ status: "in-progress" })} />);
+    const { unmount } = render(<JobDetail job={makeJob({ status: "in-progress" })} onStop={() => {}} />);
     let groups = [...document.querySelectorAll("details.job-log-step")];
     expect(groups.map((g) => (g as HTMLDetailsElement).open)).toEqual([false, true]);
     unmount();
 
-    render(<JobDetail job={makeJob({ status: "completed" })} />);
+    render(<JobDetail job={makeJob({ status: "completed" })} onStop={() => {}} />);
     groups = [...document.querySelectorAll("details.job-log-step")];
     expect(groups.every((g) => !(g as HTMLDetailsElement).open)).toBe(true);
   });
 
   it("opens the failing step so the error is visible without a click", () => {
-    render(<JobDetail job={makeJob({ status: "failed", errorMessage: "boom" })} />);
+    render(<JobDetail job={makeJob({ status: "failed", errorMessage: "boom" })} onStop={() => {}} />);
     const groups = [...document.querySelectorAll("details.job-log-step")] as HTMLDetailsElement[];
     expect(groups[groups.length - 1].open).toBe(true);
     expect(screen.getByText("boom")).toBeInTheDocument();
   });
 
   it("shows the empty state rather than an empty group list", () => {
-    render(<JobDetail job={makeJob({ log: [] })} />);
+    render(<JobDetail job={makeJob({ log: [] })} onStop={() => {}} />);
     expect(screen.getByText("No log entries yet.")).toBeInTheDocument();
     expect(document.querySelectorAll("details.job-log-step")).toHaveLength(0);
   });

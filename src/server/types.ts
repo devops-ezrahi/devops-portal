@@ -108,7 +108,7 @@ export interface TicketingApi {
 
 export type ArtifactoryJobKind = "url-copy" | "folder-upload";
 
-export type ArtifactoryJobStatus = "pending" | "in-progress" | "completed" | "failed";
+export type ArtifactoryJobStatus = "pending" | "in-progress" | "completed" | "failed" | "aborted";
 
 export type PackageUploadStatus = "uploaded" | "exists" | "failed";
 
@@ -164,13 +164,17 @@ export type FolderUploadInput = {
 export interface ArtifactoryApi {
   submitUrlCopy(input: UrlCopyInput, submitter: PortalUser): Promise<ArtifactoryJob>;
   submitFolderUpload(input: FolderUploadInput, submitter: PortalUser): Promise<ArtifactoryJob>;
+  /** Dev-only scripted run — the routers only expose it when SSO is off. */
+  simulate(submitter: PortalUser): Promise<ArtifactoryJob>;
   listJobs(user: PortalUser, allUsers?: boolean): Promise<ArtifactoryJob[]>;
   getJob(jobId: string): Promise<ArtifactoryJob | null>;
+  /** `null` when there is no such job; already-finished jobs are left alone. */
+  cancelJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<ArtifactoryJob | null>;
 }
 
 // ---- Whitening Module ----
 
-export type WhiteningJobStatus = "pending" | "in-progress" | "completed" | "failed";
+export type WhiteningJobStatus = "pending" | "in-progress" | "completed" | "failed" | "aborted";
 
 /** One log line, tagged with the phase that emitted it so the UI can collapse by step. */
 export type JobLogEntry = {
@@ -197,8 +201,12 @@ export type WhiteningJob = {
 
 export interface WhiteningApi {
   submitUnpack(archive: Buffer, archiveName: string, submitter: PortalUser): Promise<WhiteningJob>;
+  /** Dev-only scripted run — the routers only expose it when SSO is off. */
+  simulate(submitter: PortalUser): Promise<WhiteningJob>;
   listJobs(user: PortalUser, allUsers?: boolean): Promise<WhiteningJob[]>;
   getJob(jobId: string): Promise<WhiteningJob | null>;
+  /** `null` when there is no such job; already-finished jobs are left alone. */
+  cancelJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<WhiteningJob | null>;
 }
 
 // ---- RAGFlow / Chat Module ----

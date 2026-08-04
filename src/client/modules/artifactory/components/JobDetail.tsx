@@ -1,8 +1,10 @@
+import { CircleStop } from "lucide-react";
 import { classifyLogLine } from "../../../logLines";
 import type { ArtifactoryJob, ArtifactoryJobStatus, PackageUploadStatus } from "../../../../server/types";
 
 type Props = {
   job: ArtifactoryJob;
+  onStop: () => void;
 };
 
 function formatBytes(bytes: number): string {
@@ -21,6 +23,7 @@ function statusClass(status: ArtifactoryJobStatus): string {
     case "in-progress": return "stage stage-in-progress";
     case "completed": return "stage stage-resolved";
     case "failed": return "stage stage-waiting-on-customer";
+    case "aborted": return "stage stage-aborted";
   }
 }
 
@@ -30,7 +33,13 @@ function statusLabel(status: ArtifactoryJobStatus): string {
     case "in-progress": return "In Progress";
     case "completed": return "Completed";
     case "failed": return "Failed";
+    case "aborted": return "Aborted";
   }
+}
+
+/** Only a job that hasn't reached an end state can be stopped. */
+function isRunning(status: ArtifactoryJobStatus): boolean {
+  return status === "pending" || status === "in-progress";
 }
 
 function packageStatusClass(status: PackageUploadStatus): string {
@@ -49,13 +58,18 @@ function packageStatusLabel(status: PackageUploadStatus): string {
   }
 }
 
-export function JobDetail({ job }: Props) {
+export function JobDetail({ job, onStop }: Props) {
   return (
     <article className="ticket-detail">
       <div className="detail-heading">
         <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
         <h2>{job.name ?? (job.kind === "url-copy" ? "URL Copy" : "Folder Upload")}</h2>
         <p>{job.id}</p>
+        {isRunning(job.status) && (
+          <button className="ghost-button" onClick={onStop}>
+            <CircleStop size={16} aria-hidden="true" /> Stop
+          </button>
+        )}
       </div>
 
       {job.status === "failed" && job.errorMessage && (

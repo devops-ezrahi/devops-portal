@@ -68,7 +68,7 @@ Two **intentional** exceptions remain, both for local dev/demo and both gated on
 the same signal (`SSO_REQUIRED` is not `true` — no proxy in front):
 
 - `src/client/api.ts` `demoUsers` + role switcher, and the dev fallback user in `auth.ts` — let the app run locally without an SSO proxy in front.
-- `modules/artifactory/devJobs.ts` + `modules/whitening/devJobs.ts` — demo jobs seeded into the two in-memory job maps by `app.ts`'s `devMode` check, so both job logs are reviewable without an Artifactory, a Bitbucket and skopeo behind the portal. `src/server/devSeed.test.ts` pins that they disappear once SSO is required.
+- `modules/artifactory/devSimulation.ts` + `modules/whitening/devSimulation.ts` — scripted runs behind the **Test** button each module shows in dev. Nothing is seeded: the job lists start empty, and a run only exists once you press it. Both routers mount `POST /api/<module>/jobs/simulate` only when `SSO_REQUIRED` is not `true`, and the client only renders the button for the `dev` user. The scripts drive the real job map, log, progress and abort controller, so Stop works on them too. `src/server/devSimulate.test.ts` pins that the routes 404 once SSO is required.
 
 ## Config & environment
 

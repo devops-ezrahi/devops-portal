@@ -2,6 +2,7 @@ import express from "express";
 import multer from "multer";
 import { z } from "zod";
 import { isAdmin } from "../../auth";
+import { config } from "../../config";
 import type { ArtifactoryApi, FolderUploadInput } from "../../types";
 
 const urlCopySchema = z.object({
@@ -66,6 +67,30 @@ export function createArtifactoryRouter(api: ArtifactoryApi): express.Router {
       }
     }
   );
+
+  // Dev only — the Test button. Never mounted behind an SSO proxy.
+  if (!config.ssoRequired) {
+    router.post("/api/artifactory/jobs/simulate", async (req, res, next) => {
+      try {
+        res.status(201).json({ job: await api.simulate(req.user!) });
+      } catch (err) {
+        next(err);
+      }
+    });
+  }
+
+  router.post("/api/artifactory/jobs/:id/cancel", async (req, res, next) => {
+    try {
+      const job = await api.cancelJob(req.params.id, req.user!, isAdmin(req.user!));
+      if (!job) {
+        res.status(404).json({ error: "Job not found" });
+        return;
+      }
+      res.json({ job });
+    } catch (err) {
+      next(err);
+    }
+  });
 
   router.get("/api/artifactory/jobs", async (req, res, next) => {
     try {

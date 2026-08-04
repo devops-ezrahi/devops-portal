@@ -1,12 +1,16 @@
 import { execFile } from "child_process";
 import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "fs/promises";
 import { join } from "path";
+// Rejects on abort, so a cancelled simulation stops mid-sleep instead of at the
+// end of the current beat.
+import { setTimeout as sleep } from "timers/promises";
 import { promisify } from "util";
 import { config } from "../../config";
 import { redactSecrets } from "../../redact";
 import { createTmpDir, removeTmpDir } from "../../tmp";
 import { discoverPackages, packAndUpload } from "../artifactory/npmPackages";
 import { BitbucketApi, BitbucketError } from "./BitbucketApi";
+import { simulatedWhiteningJob, whiteningSimulation } from "./devSimulation";
 import type { PortalUser, WhiteningApi, WhiteningJob } from "../../types";
 
 const execFileAsync = promisify(execFile);
@@ -62,12 +66,8 @@ export class RealWhiteningApi implements WhiteningApi {
   private bitbucket = new BitbucketApi(config.git);
   /** Phase each log line gets tagged with, so the UI can collapse by step. */
   private steps = new Map<string, string>();
-
-  /** `seed` is the dev-mode demo data (see `devJobs.ts`); empty in production. */
-  constructor(seed: WhiteningJob[] = []) {
-    for (const job of seed) this.jobs.set(job.id, job);
-    this.counter = seed.length;
-  }
+  /** One per running job, so `cancelJob` can stop the work already in flight. */
+  private controllers = new Map<string, AbortController>();
 
   private newId() {
     return `WHT-${String(++this.counter).padStart(4, "0")}`;
@@ -88,6 +88,20 @@ export class RealWhiteningApi implements WhiteningApi {
     if (!job) return;
     job.log.push({ step: this.steps.get(jobId) ?? "General", line: redactSecrets(line) });
     job.updatedAt = nowIso();
+  }
+
+  /**
+   * True once the user has stopped the job. `run`'s catch consults it: the
+   * killed child process must not relabel an aborted job as failed.
+   */
+  private aborted(jobId: string): boolean {
+    return this.jobs.get(jobId)?.status === "aborted";
+  }
+
+  private start(jobId: string): AbortSignal {
+    const controller = new AbortController();
+    this.controllers.set(jobId, controller);
+    return controller.signal;
   }
 
   async submitUnpack(archive: Buffer, archiveName: string, submitter: PortalUser): Promise<WhiteningJob> {
@@ -137,6 +151,39 @@ export class RealWhiteningApi implements WhiteningApi {
     return job;
   }
 
+  async simulate(submitter: PortalUser): Promise<WhiteningJob> {
+    const job: WhiteningJob = {
+      id: this.newId(),
+      status: "pending",
+      submittedBy: submitter.id,
+      submittedByName: submitter.displayName,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+      log: [],
+      ...simulatedWhiteningJob(),
+    };
+    this.jobs.set(job.id, job);
+    void this.runSimulation(job.id);
+    return job;
+  }
+
+  private async runSimulation(jobId: string) {
+    const signal = this.start(jobId);
+    try {
+      for (const beat of whiteningSimulation) {
+        await sleep(beat.ms, undefined, { signal });
+        if (beat.step) this.setStep(jobId, beat.step);
+        if (beat.patch) this.patch(jobId, beat.patch);
+        if (beat.line) this.appendLog(jobId, beat.line);
+      }
+    } catch {
+      // Only sleep() rejects here, and only because the job was cancelled.
+    } finally {
+      this.controllers.delete(jobId);
+      this.steps.delete(jobId);
+    }
+  }
+
   async listJobs(user: PortalUser, allUsers = false): Promise<WhiteningJob[]> {
     return [...this.jobs.values()]
       .filter((j) => allUsers || j.submittedBy === user.id)
@@ -147,10 +194,29 @@ export class RealWhiteningApi implements WhiteningApi {
     return this.jobs.get(jobId) ?? null;
   }
 
+  async cancelJob(jobId: string, user: PortalUser, allUsers = false): Promise<WhiteningJob | null> {
+    const job = this.jobs.get(jobId);
+    if (!job) return null;
+    if (!allUsers && job.submittedBy !== user.id) {
+      throw new Error("Forbidden: not your job");
+    }
+    // Finished is finished — a late Stop must not rewrite history.
+    if (job.status !== "pending" && job.status !== "in-progress") return job;
+
+    this.patch(jobId, { status: "aborted", errorMessage: undefined });
+    this.appendLog(jobId, `Aborted by ${user.displayName}.`);
+    this.controllers.get(jobId)?.abort();
+    return job;
+  }
+
   private async runCli(jobId: string, bin: string, args: string[], cwd?: string) {
     this.appendLog(jobId, `$ ${bin} ${args.join(" ")}`);
     try {
-      const result = await execFileAsync(bin, args, { cwd, maxBuffer: 20 * 1024 * 1024 });
+      // The job's signal kills the child, so Stop lands mid-clone rather than
+      // at the next step boundary. Looked up rather than threaded through every
+      // step's signature.
+      const signal = this.controllers.get(jobId)?.signal;
+      const result = await execFileAsync(bin, args, { cwd, maxBuffer: 20 * 1024 * 1024, signal });
       const lines = `${result.stdout}\n${result.stderr}`.split("\n").filter(Boolean);
       for (const line of lines) this.appendLog(jobId, line);
       return result;
@@ -166,6 +232,7 @@ export class RealWhiteningApi implements WhiteningApi {
 
   private async run(jobId: string, workDir: string, extractDir: string, packConfig: PackConfig) {
     const job = this.jobs.get(jobId)!;
+    this.start(jobId);
     try {
       this.setStep(jobId, "Prepare");
       this.patch(jobId, { status: "in-progress" });
@@ -181,12 +248,15 @@ export class RealWhiteningApi implements WhiteningApi {
       this.patch(jobId, { status: "completed" });
       this.appendLog(jobId, "Done.");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.patch(jobId, { status: "failed", errorMessage: message });
-      this.appendLog(jobId, `Error: ${message}`);
+      if (!this.aborted(jobId)) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.patch(jobId, { status: "failed", errorMessage: message });
+        this.appendLog(jobId, `Error: ${message}`);
+      }
     } finally {
       await removeTmpDir(workDir, (line) => this.appendLog(jobId, line));
       this.steps.delete(jobId);
+      this.controllers.delete(jobId);
     }
   }
 
@@ -292,7 +362,8 @@ export class RealWhiteningApi implements WhiteningApi {
       packages,
       join(workDir, "stage"),
       (line) => this.appendLog(jobId, line),
-      () => {}
+      () => {},
+      this.controllers.get(jobId)?.signal
     );
 
     const failures = results.filter((r) => r.status === "failed");

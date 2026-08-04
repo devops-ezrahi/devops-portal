@@ -14,3 +14,12 @@ export function listJobs() {
 export function getJob(id: string) {
   return request<{ job: WhiteningJob }>(`/api/whitening/jobs/${id}`);
 }
+
+export function cancelJob(id: string) {
+  return request<{ job: WhiteningJob }>(`/api/whitening/jobs/${id}/cancel`, { method: "POST" });
+}
+
+/** Dev only — the server route exists only when SSO is off. */
+export function simulateJob() {
+  return request<{ job: WhiteningJob }>("/api/whitening/jobs/simulate", { method: "POST" });
+}

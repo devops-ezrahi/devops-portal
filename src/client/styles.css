@@ -11,6 +11,10 @@
     "Noto Sans Hebrew", "Arial Hebrew", Gisha, Arial, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  /* Reserve the scrollbar track always. Job detail is taller than the form it
+     replaces, so without this the scrollbar appears on select and the centred
+     .main slides sideways — the page "jumps". */
+  scrollbar-gutter: stable;
 }
 
 * {
@@ -361,7 +365,9 @@ textarea {
 
 .primary {
   border-radius: 6px;
-  min-height: 40px;
+  /* Fixed, not min-: with an icon the content measured 41px, so a topbar that
+     only shows its button once a job is selected grew by a pixel on select. */
+  height: 40px;
   padding: 10px 14px;
   background: #20c7bd;
   color: #041113;
@@ -479,6 +485,10 @@ textarea {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  /* .primary's height, reserved: Artifactory/Whitening only render their
+     "New Job" button once a job is selected, and without this the whole grid
+     below shifts down when it appears. */
+  min-height: 40px;
   margin-bottom: 14px;
 }
 
@@ -891,7 +901,8 @@ button:focus-visible {
   color: #b7e0b8;
 }
 
-.stage-closed {
+.stage-closed,
+.stage-aborted {
   background: #2b3035;
   color: #c8d1d5;
 }
@@ -1543,6 +1554,18 @@ button:focus-visible {
   margin-bottom: -1px;
   cursor: pointer;
   transition: color 120ms ease;
+}
+
+/* Pushed to the right end of the tab row (or a bare row, for Whitening). */
+.tab-bar-action {
+  margin-left: auto;
+  align-self: center;
+}
+
+.panel-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 14px 0;
 }
 
 .tab:hover { color: #f7fbfc; }

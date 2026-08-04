@@ -123,12 +123,17 @@ async function packPackage(pkg: DiscoveredPackage, stageRoot: string, index: num
  * Pack and upload every discovered package to the npm registry layout, skipping
  * what the repo already has. Shared by the Artifactory upload module and
  * Whitening's dependency step.
+ *
+ * ponytail: `signal` is checked per package, so cancelling lets the one PUT
+ * already in flight finish. Thread it into `artifactoryRest.upload` if that
+ * ever matters.
  */
 export async function packAndUpload(
   packages: DiscoveredPackage[],
   stageRoot: string,
   onLog: (line: string) => void,
-  onProgress: (done: number, total: number) => void
+  onProgress: (done: number, total: number) => void,
+  signal?: AbortSignal
 ): Promise<PackageUploadResult[]> {
   // Nested node_modules legitimately holds the same name@version more than once.
   const unique = [...new Map(packages.map((p) => [targetPath(p.name, p.version), p])).values()];
@@ -148,6 +153,7 @@ export async function packAndUpload(
     unique.map((pkg, index) => ({ pkg, index })),
     EXISTS_CONCURRENCY,
     async ({ pkg, index }) => {
+      if (signal?.aborted) return;
       const result = results[index];
       const present = await exists(result.path);
       if (present === true) {
@@ -168,6 +174,7 @@ export async function packAndUpload(
   onProgress(done, unique.length);
 
   await pool(todo, UPLOAD_CONCURRENCY, async ({ pkg, result, index }) => {
+    if (signal?.aborted) return;
     try {
       const tgz = await packPackage(pkg, stageRoot, index);
       await upload(result.path, tgz);

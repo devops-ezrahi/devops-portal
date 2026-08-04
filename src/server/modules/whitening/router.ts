@@ -1,6 +1,7 @@
 import express from "express";
 import multer from "multer";
 import { isAdmin } from "../../auth";
+import { config } from "../../config";
 import type { WhiteningApi } from "../../types";
 
 const upload = multer({
@@ -33,6 +34,30 @@ export function createWhiteningRouter(api: WhiteningApi): express.Router {
         return;
       }
       res.status(201).json({ job });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Dev only — the Test button. Never mounted behind an SSO proxy.
+  if (!config.ssoRequired) {
+    router.post("/api/whitening/jobs/simulate", async (req, res, next) => {
+      try {
+        res.status(201).json({ job: await api.simulate(req.user!) });
+      } catch (err) {
+        next(err);
+      }
+    });
+  }
+
+  router.post("/api/whitening/jobs/:id/cancel", async (req, res, next) => {
+    try {
+      const job = await api.cancelJob(req.params.id, req.user!, isAdmin(req.user!));
+      if (!job) {
+        res.status(404).json({ error: "Job not found" });
+        return;
+      }
+      res.json({ job });
     } catch (err) {
       next(err);
     }

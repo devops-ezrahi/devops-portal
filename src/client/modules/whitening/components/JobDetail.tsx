@@ -1,8 +1,10 @@
+import { CircleStop } from "lucide-react";
 import { classifyLogLine } from "../../../logLines";
 import type { JobLogEntry, WhiteningJob, WhiteningJobStatus } from "../../../../server/types";
 
 type Props = {
   job: WhiteningJob;
+  onStop: () => void;
 };
 
 /** Consecutive entries sharing a step become one collapsible group, Jenkins-style. */
@@ -26,6 +28,7 @@ function statusClass(status: WhiteningJobStatus): string {
     case "in-progress": return "stage stage-in-progress";
     case "completed": return "stage stage-resolved";
     case "failed": return "stage stage-waiting-on-customer";
+    case "aborted": return "stage stage-aborted";
   }
 }
 
@@ -35,16 +38,27 @@ function statusLabel(status: WhiteningJobStatus): string {
     case "in-progress": return "In Progress";
     case "completed": return "Completed";
     case "failed": return "Failed";
+    case "aborted": return "Aborted";
   }
 }
 
-export function JobDetail({ job }: Props) {
+/** Only a job that hasn't reached an end state can be stopped. */
+function isRunning(status: WhiteningJobStatus): boolean {
+  return status === "pending" || status === "in-progress";
+}
+
+export function JobDetail({ job, onStop }: Props) {
   return (
     <article className="ticket-detail">
       <div className="detail-heading">
         <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
         <h2>{job.department}/{job.team}/{job.project}</h2>
         <p>{job.id}</p>
+        {isRunning(job.status) && (
+          <button className="ghost-button" onClick={onStop}>
+            <CircleStop size={16} aria-hidden="true" /> Stop
+          </button>
+        )}
       </div>
 
       {job.status === "failed" && job.errorMessage && (

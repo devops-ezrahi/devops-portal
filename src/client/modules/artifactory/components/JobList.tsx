@@ -13,6 +13,7 @@ function statusClass(status: ArtifactoryJobStatus): string {
     case "in-progress": return "stage stage-in-progress";
     case "completed": return "stage stage-resolved";
     case "failed": return "stage stage-waiting-on-customer";
+    case "aborted": return "stage stage-aborted";
   }
 }
 
@@ -22,6 +23,7 @@ function statusLabel(status: ArtifactoryJobStatus): string {
     case "in-progress": return "In Progress";
     case "completed": return "Completed";
     case "failed": return "Failed";
+    case "aborted": return "Aborted";
   }
 }
 
