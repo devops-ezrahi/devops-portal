@@ -1,5 +1,5 @@
 import { RefreshCcw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   getMe,
   setDevRole,
@@ -28,6 +28,8 @@ function moduleFromPath(pathname: string): string {
   return modules.find((m) => slugFor(m) === slug)?.id ?? modules[0].id;
 }
 
+// Stella easter eggs. She's a cat. Not load-bearing.
+
 export function App() {
   const [user, setUser] = useState<PortalUser | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -40,6 +42,17 @@ export function App() {
   const [ssoUrl, setSsoUrl] = useState("");
   const [activeModuleId, setActiveModuleId] = useState(() => moduleFromPath(window.location.pathname));
   const [refreshKey, setRefreshKey] = useState(0);
+  const [stellaPop, setStellaPop] = useState(false);
+  const [stellaWalks, setStellaWalks] = useState(false);
+  const brandClicks = useRef(0);
+
+  // 1-in-100 per page load / tab switch / refresh, she strolls through the header.
+  useEffect(() => {
+    // ponytail: ?stella forces the walk so it's testable without 100 reloads
+    if (stellaWalks || (!window.location.search.includes("stella") && Math.random() >= 0.01)) return;
+    setStellaWalks(true);
+    setTimeout(() => setStellaWalks(false), 9000);
+  }, [activeModuleId, refreshKey]);
 
   useEffect(() => {
     log("app", "shell mounted", { modules: modules.map((m) => m.id), initialModule: activeModuleId });
@@ -147,7 +160,23 @@ export function App() {
         </div>
       )}
       <header className="app-header">
-        <div className="brand">DevOps</div>
+        <div
+          className="brand"
+          onClick={() => {
+            brandClicks.current += 1;
+            if (brandClicks.current < 15) return;
+            brandClicks.current = 0;
+            setStellaPop(true);
+            setTimeout(() => setStellaPop(false), 3000);
+          }}
+        >
+          DevOps
+          {stellaPop && (
+            <div className="stella-pop">
+              <img src="/stella-1.png" alt="" />
+            </div>
+          )}
+        </div>
 
         <nav className="app-nav" aria-label="Primary navigation">
           {modules.map((mod) => {
@@ -163,6 +192,9 @@ export function App() {
               </button>
             );
           })}
+          <div className="stella-lane">
+            {stellaWalks && <img src="/stella-3.png" alt="" />}
+          </div>
         </nav>
 
         <div className="header-actions">

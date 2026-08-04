@@ -198,6 +198,65 @@ textarea {
   font-size: 17px;
   font-weight: 800;
   white-space: nowrap;
+  position: relative;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+}
+
+/* Stella. Three easter eggs, no logic depends on any of them. */
+
+/* 15 clicks on the title and she drops out from under the header. The container
+   sits exactly on the header's bottom edge (100% of the stretched brand + the
+   header's 10px padding) and clips her, so she slides out from underneath it.
+   She stops at -50%: her front half (head first — the sprite is head-down) is
+   out, her back half is still tucked up behind the header. */
+.stella-pop {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: -2px;
+  width: 72px;
+  height: 108px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.stella-pop img {
+  width: 100%;
+  display: block;
+  animation: stella-peek 3s ease-in-out both;
+}
+
+@keyframes stella-peek {
+  0% { transform: translateY(-100%); }
+  22%, 72% { transform: translateY(-50%); }
+  100% { transform: translateY(-100%); }
+}
+
+/* One in a hundred, she strolls across the gap between the tabs and your name. */
+.stella-lane {
+  position: relative;
+  flex: 1 1 auto;
+  align-self: stretch;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.stella-lane img {
+  position: absolute;
+  bottom: 2px;
+  height: 34px;
+  animation: stella-walk 9s linear, stella-bob 420ms ease-in-out infinite;
+}
+
+/* right to left — she's facing left */
+@keyframes stella-walk {
+  from { left: 100%; }
+  to { left: -80px; }
+}
+
+@keyframes stella-bob {
+  50% { transform: translateY(-2px); }
 }
 
 .app-nav,
@@ -1258,6 +1317,10 @@ button:focus-visible {
     width: 100%;
   }
 
+  .stella-lane {
+    display: none;
+  }
+
   .app-nav,
   .header-actions {
     width: 100%;
@@ -2089,6 +2152,10 @@ code {
 
   .brand {
     width: 100%;
+  }
+
+  .stella-lane {
+    display: none;
   }
 
   .app-nav,
