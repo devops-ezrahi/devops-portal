@@ -3,7 +3,8 @@ import multer from "multer";
 import { z } from "zod";
 import { isAdmin } from "../../auth";
 import { config } from "../../config";
-import type { ArtifactoryApi, FolderUploadInput } from "../../types";
+import { ARTIFACTORY_SCENARIOS } from "./devSimulation";
+import type { ArtifactoryApi, ArtifactoryScenario, FolderUploadInput } from "../../types";
 
 const urlCopySchema = z.object({
   sourceUrl: z.string().url(),
@@ -72,7 +73,9 @@ export function createArtifactoryRouter(api: ArtifactoryApi): express.Router {
   if (!config.ssoRequired) {
     router.post("/api/artifactory/jobs/simulate", async (req, res, next) => {
       try {
-        res.status(201).json({ job: await api.simulate(req.user!) });
+        const requested = req.body?.scenario as ArtifactoryScenario | undefined;
+        const scenario = ARTIFACTORY_SCENARIOS.includes(requested!) ? requested : undefined;
+        res.status(201).json({ job: await api.simulate(req.user!, scenario) });
       } catch (err) {
         next(err);
       }

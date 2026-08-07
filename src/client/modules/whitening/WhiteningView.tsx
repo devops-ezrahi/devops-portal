@@ -1,12 +1,20 @@
 import { FlaskConical, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
-import type { WhiteningJob } from "../../../server/types";
+import type { WhiteningJob, WhiteningScenario } from "../../../server/types";
 import { log, error as logError } from "../../log";
 import { cancelJob, listJobs, simulateJob } from "./api";
 import { JobDetail } from "./components/JobDetail";
 import { JobList } from "./components/JobList";
 import { ArchiveDropZone } from "./components/ArchiveDropZone";
+
+// Mirrors WHITENING_SCENARIOS in server/modules/whitening/devSimulation.ts.
+const TEST_SCENARIOS: { value: WhiteningScenario; label: string }[] = [
+  { value: "success", label: "Success" },
+  { value: "clone-failure", label: "Failure — repo not found" },
+  { value: "dependency-failure", label: "Failure — dependency upload" },
+  { value: "image-failure", label: "Failure — image push" },
+];
 
 export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) {
   const [jobs, setJobs] = useState<WhiteningJob[]>([]);
@@ -14,6 +22,7 @@ export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleView
   // Admins get everything from the server; the toggle narrows it back client-side,
   // same as the ticketing queue.
   const [showAll, setShowAll] = useState(true);
+  const [testScenario, setTestScenario] = useState<WhiteningScenario>(TEST_SCENARIOS[0].value);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   function fetchJobs() {
@@ -118,13 +127,25 @@ export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleView
               {/* Dev only: fires the server's scripted run so the step log and
                   Stop are reviewable with no Bitbucket/skopeo behind us. */}
               {user.id === "dev" && (
-                <div className="panel-actions">
+                <div className="panel-actions test-controls">
+                  <select
+                    className="test-scenario-select"
+                    aria-label="Test scenario"
+                    value={testScenario}
+                    onChange={(e) => setTestScenario(e.target.value as WhiteningScenario)}
+                  >
+                    {TEST_SCENARIOS.map((s) => (
+                      <option key={s.value} value={s.value}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
                   <button
                     type="button"
                     className="ghost-button"
                     onClick={() => {
-                      log("whitening", "starting simulated run");
-                      simulateJob()
+                      log("whitening", "starting simulated run", testScenario);
+                      simulateJob(testScenario)
                         .then((result) => handleSubmitted(result.job))
                         .catch((err: Error) => onError(err.message));
                     }}

@@ -166,11 +166,14 @@ export type FolderUploadInput = {
   files?: UploadedFile[];
 };
 
+/** Which scripted run the Test button replays — one per package type, plus two failure modes. */
+export type ArtifactoryScenario = PackageType | "partial-failure" | "total-failure";
+
 export interface ArtifactoryApi {
   submitUrlCopy(input: UrlCopyInput, submitter: PortalUser): Promise<ArtifactoryJob>;
   submitFolderUpload(input: FolderUploadInput, submitter: PortalUser): Promise<ArtifactoryJob>;
   /** Dev-only scripted run — the routers only expose it when SSO is off. */
-  simulate(submitter: PortalUser): Promise<ArtifactoryJob>;
+  simulate(submitter: PortalUser, scenario?: ArtifactoryScenario): Promise<ArtifactoryJob>;
   listJobs(user: PortalUser, allUsers?: boolean): Promise<ArtifactoryJob[]>;
   getJob(jobId: string): Promise<ArtifactoryJob | null>;
   /** `null` when there is no such job; already-finished jobs are left alone. */
@@ -204,10 +207,13 @@ export type WhiteningJob = {
   log: JobLogEntry[];
 };
 
+/** Which scripted run the Test button replays — a clean run, or a failure at one of the three stages. */
+export type WhiteningScenario = "success" | "clone-failure" | "dependency-failure" | "image-failure";
+
 export interface WhiteningApi {
   submitUnpack(archive: Buffer, archiveName: string, submitter: PortalUser): Promise<WhiteningJob>;
   /** Dev-only scripted run — the routers only expose it when SSO is off. */
-  simulate(submitter: PortalUser): Promise<WhiteningJob>;
+  simulate(submitter: PortalUser, scenario?: WhiteningScenario): Promise<WhiteningJob>;
   listJobs(user: PortalUser, allUsers?: boolean): Promise<WhiteningJob[]>;
   getJob(jobId: string): Promise<WhiteningJob | null>;
   /** `null` when there is no such job; already-finished jobs are left alone. */

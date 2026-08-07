@@ -2,7 +2,8 @@ import express from "express";
 import multer from "multer";
 import { isAdmin } from "../../auth";
 import { config } from "../../config";
-import type { WhiteningApi } from "../../types";
+import { WHITENING_SCENARIOS } from "./devSimulation";
+import type { WhiteningApi, WhiteningScenario } from "../../types";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -43,7 +44,9 @@ export function createWhiteningRouter(api: WhiteningApi): express.Router {
   if (!config.ssoRequired) {
     router.post("/api/whitening/jobs/simulate", async (req, res, next) => {
       try {
-        res.status(201).json({ job: await api.simulate(req.user!) });
+        const requested = req.body?.scenario as WhiteningScenario | undefined;
+        const scenario = WHITENING_SCENARIOS.includes(requested!) ? requested : undefined;
+        res.status(201).json({ job: await api.simulate(req.user!, scenario) });
       } catch (err) {
         next(err);
       }

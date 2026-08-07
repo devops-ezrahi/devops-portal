@@ -1,10 +1,14 @@
-import type { ArtifactoryJob, PackageUploadResult } from "../../types";
+import type { ArtifactoryJob, ArtifactoryScenario, PackageType, PackageUploadResult } from "../../types";
 
 /**
  * Scripted stand-in for a real folder upload. `npm run dev` has no Artifactory
  * behind it, so the Test button replays this instead — same job map, same log,
  * same progress and the same abort controller as a real run, which is what
  * makes the Stop button demonstrable offline.
+ *
+ * One scenario per package type exercises `packageTypes.ts`'s routing end to
+ * end; two more replay the failure paths `finish()` and the folder-upload
+ * `catch` produce for real.
  *
  * Dev only: the route that starts it is not mounted when SSO is required.
  */
@@ -15,66 +19,180 @@ export type SimulationBeat = {
   patch?: Partial<ArtifactoryJob>;
 };
 
-const WEB = "https://artifactory.example.com/ui/native/npm-local";
-
-const packages: PackageUploadResult[] = [
-  {
-    name: "arg",
-    version: "4.1.5",
-    path: "npm-local/arg/-/arg-4.1.5.tgz",
-    status: "exists",
-    url: `${WEB}/arg/-/arg-4.1.5.tgz`,
-  },
-  {
-    name: "left-pad",
-    version: "1.3.0",
-    path: "npm-local/left-pad/-/left-pad-1.3.0.tgz",
-    status: "uploaded",
-    url: `${WEB}/left-pad/-/left-pad-1.3.0.tgz`,
-  },
-  {
-    name: "@babel/core",
-    version: "7.24.0",
-    path: "npm-local/@babel/core/-/core-7.24.0.tgz",
-    status: "uploaded",
-    url: `${WEB}/@babel/core/-/core-7.24.0.tgz`,
-  },
+export const ARTIFACTORY_SCENARIOS: readonly ArtifactoryScenario[] = [
+  "npm",
+  "maven",
+  "rpm",
+  "pypi",
+  "conda",
+  "partial-failure",
+  "total-failure",
 ];
 
-/** Roughly 11 s end to end — long enough to switch tabs or hit Stop mid-run. */
-export const artifactorySimulation: SimulationBeat[] = [
-  { ms: 400, patch: { status: "in-progress" } },
-  { ms: 600, line: "Writing 6 file(s) to temp directory ..." },
-  { ms: 1200, line: "Found 3 package(s).", patch: { name: "node_modules (3 packages)" } },
-  { ms: 1200, line: "Checking 3 package(s) against npm-local ..." },
-  {
-    ms: 1500,
-    line: "1 package(s) already in the repo — skipping.",
-    patch: { progress: { done: 1, total: 3 }, packages: packages.slice(0, 1) },
+const HOST = "https://artifactory.example.com/ui/native";
+
+type PackageScenario = {
+  folderName: string;
+  repo: string;
+  items: { name: string; version: string; status: "uploaded" | "exists" }[];
+};
+
+const PACKAGE_SCENARIOS: Record<PackageType, PackageScenario> = {
+  npm: {
+    folderName: "node_modules",
+    repo: "npm-local",
+    items: [
+      { name: "arg", version: "4.1.5", status: "exists" },
+      { name: "left-pad", version: "1.3.0", status: "uploaded" },
+      { name: "@babel/core", version: "7.24.0", status: "uploaded" },
+    ],
   },
-  {
-    ms: 2500,
-    line: "Uploaded left-pad@1.3.0",
-    patch: { progress: { done: 2, total: 3 }, packages: packages.slice(0, 2) },
+  maven: {
+    folderName: "m2-repository",
+    repo: "maven-local",
+    items: [
+      { name: "org.apache.commons:commons-lang3", version: "3.12.0", status: "exists" },
+      { name: "com.google.guava:guava", version: "32.1.3-jre", status: "uploaded" },
+    ],
   },
-  {
-    ms: 3000,
-    line: "Uploaded @babel/core@7.24.0",
-    patch: { progress: { done: 3, total: 3 }, packages },
+  rpm: {
+    folderName: "rpm-packages",
+    repo: "yum-local",
+    items: [
+      { name: "openssl-libs", version: "3.0.7", status: "exists" },
+      { name: "htop", version: "3.2.2", status: "uploaded" },
+    ],
   },
-  {
+  pypi: {
+    folderName: "wheelhouse",
+    repo: "pypi-local",
+    items: [
+      { name: "requests", version: "2.31.0", status: "exists" },
+      { name: "numpy", version: "1.26.4", status: "uploaded" },
+    ],
+  },
+  conda: {
+    folderName: "conda-packages",
+    repo: "conda-local",
+    items: [
+      { name: "numpy", version: "1.26.4", status: "uploaded" },
+      { name: "scipy", version: "1.11.4", status: "uploaded" },
+    ],
+  },
+};
+
+/** A clean run through one package type: found, checked, uploaded, done. */
+function packageTypeBeats(type: PackageType): SimulationBeat[] {
+  const scenario = PACKAGE_SCENARIOS[type];
+  const web = `${HOST}/${scenario.repo}`;
+  const items: PackageUploadResult[] = scenario.items.map((i) => ({
+    ...i,
+    type,
+    path: `${scenario.repo}/${i.name}/${i.version}`,
+    url: `${web}/${i.name}/${i.version}`,
+  }));
+  const uploaded = items.filter((i) => i.status === "uploaded").length;
+  const skipped = items.length - uploaded;
+
+  const beats: SimulationBeat[] = [
+    { ms: 400, patch: { status: "in-progress" } },
+    { ms: 600, line: `Writing ${items.length + 3} file(s) to temp directory ...` },
+    {
+      ms: 1200,
+      line: `Found ${items.length} package(s).`,
+      patch: { name: `${scenario.folderName} (${items.length} packages)` },
+    },
+    { ms: 1200, line: `Checking ${items.length} package(s) against ${scenario.repo} ...` },
+  ];
+  items.forEach((item, i) => {
+    beats.push({
+      ms: 1200 + i * 500,
+      line:
+        item.status === "exists"
+          ? `${item.name}@${item.version} already in the repo — skipping.`
+          : `Uploaded ${item.name}@${item.version}`,
+      patch: { progress: { done: i + 1, total: items.length }, packages: items.slice(0, i + 1) },
+    });
+  });
+  beats.push({
     ms: 1200,
-    line: "Done. 2 uploaded, 1 already present, 0 failed.",
-    patch: { status: "completed", resultUrl: WEB },
-  },
-];
+    line: `Done. ${uploaded} uploaded, ${skipped} already present, 0 failed.`,
+    patch: { status: "completed", resultUrl: web },
+  });
+  return beats;
+}
+
+/** Mirrors `RealArtifactoryApi.finish()` when one package out of several fails. */
+function partialFailureBeats(): SimulationBeat[] {
+  const web = `${HOST}/npm-local`;
+  const items: PackageUploadResult[] = [
+    { name: "arg", version: "4.1.5", type: "npm", status: "exists", path: "npm-local/arg/4.1.5", url: `${web}/arg/4.1.5` },
+    {
+      name: "left-pad",
+      version: "1.3.0",
+      type: "npm",
+      status: "uploaded",
+      path: "npm-local/left-pad/1.3.0",
+      url: `${web}/left-pad/1.3.0`,
+    },
+    {
+      name: "@babel/core",
+      version: "7.24.0",
+      type: "npm",
+      status: "failed",
+      path: "npm-local/@babel/core/7.24.0",
+      error: "Artifactory responded 403 Forbidden",
+    },
+  ];
+  return [
+    { ms: 400, patch: { status: "in-progress" } },
+    { ms: 600, line: "Writing 6 file(s) to temp directory ..." },
+    { ms: 1200, line: "Found 3 package(s).", patch: { name: "node_modules (3 packages)" } },
+    { ms: 1200, line: "Checking 3 package(s) against npm-local ..." },
+    { ms: 1500, line: "arg@4.1.5 already in the repo — skipping.", patch: { progress: { done: 1, total: 3 }, packages: items.slice(0, 1) } },
+    { ms: 2000, line: "Uploaded left-pad@1.3.0", patch: { progress: { done: 2, total: 3 }, packages: items.slice(0, 2) } },
+    {
+      ms: 2000,
+      line: "Failed @babel/core@7.24.0: Artifactory responded 403 Forbidden",
+      patch: { progress: { done: 3, total: 3 }, packages: items },
+    },
+    {
+      ms: 1000,
+      line: "Done. 1 uploaded, 1 already present, 1 failed.",
+      patch: { status: "failed", errorMessage: "1 of 3 package(s) failed", resultUrl: web },
+    },
+  ];
+}
+
+/** Mirrors the `catch` in `runFolderUpload` when Artifactory is unreachable. */
+function totalFailureBeats(): SimulationBeat[] {
+  return [
+    { ms: 400, patch: { status: "in-progress" } },
+    { ms: 600, line: "Writing 6 file(s) to temp directory ..." },
+    { ms: 900, line: "Checking 3 package(s) against npm-local ..." },
+    {
+      ms: 1200,
+      line: "Error: connect ECONNREFUSED artifactory.example.com:443",
+      patch: { status: "failed", errorMessage: "connect ECONNREFUSED artifactory.example.com:443" },
+    },
+  ];
+}
+
+/** Roughly 8-11 s end to end — long enough to switch tabs or hit Stop mid-run. */
+export function artifactorySimulation(scenario: ArtifactoryScenario): SimulationBeat[] {
+  if (scenario === "partial-failure") return partialFailureBeats();
+  if (scenario === "total-failure") return totalFailureBeats();
+  return packageTypeBeats(scenario);
+}
 
 /** The job the beats are applied to. */
-export function simulatedArtifactoryJob(): Partial<ArtifactoryJob> {
+export function simulatedArtifactoryJob(scenario: ArtifactoryScenario): Partial<ArtifactoryJob> {
+  const folderName =
+    scenario === "partial-failure" || scenario === "total-failure" ? "node_modules" : PACKAGE_SCENARIOS[scenario].folderName;
   return {
     kind: "folder-upload",
-    name: "node_modules",
-    folderName: "node_modules",
+    name: folderName,
+    folderName,
     fileCount: 6,
     totalBytes: 224,
   };

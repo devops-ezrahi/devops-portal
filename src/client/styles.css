@@ -1568,6 +1568,23 @@ button:focus-visible {
   padding: 8px 14px 0;
 }
 
+.test-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.test-scenario-select {
+  border: 1px solid #2a3940;
+  border-radius: 6px;
+  background: #151d21;
+  color: #aeb9bf;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 8px 10px;
+  min-height: 38px;
+}
+
 .tab:hover { color: #f7fbfc; }
 
 .tab.active {

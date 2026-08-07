@@ -1,5 +1,5 @@
 import { ForbiddenError, UnauthenticatedError, request } from "../../api";
-import type { ArtifactoryJob, UrlCopyInput } from "../../../server/types";
+import type { ArtifactoryJob, ArtifactoryScenario, UrlCopyInput } from "../../../server/types";
 
 export type FileEntry = { file: File; path: string };
 
@@ -69,6 +69,9 @@ export function cancelJob(id: string) {
 }
 
 /** Dev only — the server route exists only when SSO is off. */
-export function simulateJob() {
-  return request<{ job: ArtifactoryJob }>("/api/artifactory/jobs/simulate", { method: "POST" });
+export function simulateJob(scenario: ArtifactoryScenario) {
+  return request<{ job: ArtifactoryJob }>("/api/artifactory/jobs/simulate", {
+    method: "POST",
+    body: JSON.stringify({ scenario }),
+  });
 }

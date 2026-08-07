@@ -16,6 +16,7 @@ import type { UploadItem } from "./npmPackages";
 import type {
   ArtifactoryApi,
   ArtifactoryJob,
+  ArtifactoryScenario,
   FolderUploadInput,
   PackageUploadResult,
   PortalUser,
@@ -125,7 +126,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
     return job;
   }
 
-  async simulate(submitter: PortalUser): Promise<ArtifactoryJob> {
+  async simulate(submitter: PortalUser, scenario: ArtifactoryScenario = "npm"): Promise<ArtifactoryJob> {
     const job: ArtifactoryJob = {
       id: this.newId(),
       kind: "folder-upload",
@@ -135,17 +136,17 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       createdAt: nowIso(),
       updatedAt: nowIso(),
       log: [],
-      ...simulatedArtifactoryJob(),
+      ...simulatedArtifactoryJob(scenario),
     };
     this.jobs.set(job.id, job);
-    void this.runSimulation(job.id);
+    void this.runSimulation(job.id, scenario);
     return job;
   }
 
-  private async runSimulation(jobId: string) {
+  private async runSimulation(jobId: string, scenario: ArtifactoryScenario) {
     const signal = this.start(jobId);
     try {
-      for (const beat of artifactorySimulation) {
+      for (const beat of artifactorySimulation(scenario)) {
         await sleep(beat.ms, undefined, { signal });
         if (beat.patch) this.patch(jobId, beat.patch);
         if (beat.line) this.appendLog(jobId, beat.line);

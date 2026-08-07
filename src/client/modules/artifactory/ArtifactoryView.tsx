@@ -1,7 +1,7 @@
 import { FlaskConical, FolderOpen, Link, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
-import type { ArtifactoryJob } from "../../../server/types";
+import type { ArtifactoryJob, ArtifactoryScenario } from "../../../server/types";
 import { log, error as logError } from "../../log";
 import { cancelJob, listJobs, simulateJob } from "./api";
 import { JobDetail } from "./components/JobDetail";
@@ -11,6 +11,17 @@ import { UrlCopyForm } from "./components/UrlCopyForm";
 
 type Tab = "url-copy" | "folder-upload";
 
+// Mirrors ARTIFACTORY_SCENARIOS in server/modules/artifactory/devSimulation.ts.
+const TEST_SCENARIOS: { value: ArtifactoryScenario; label: string }[] = [
+  { value: "npm", label: "npm — success" },
+  { value: "maven", label: "Maven — success" },
+  { value: "rpm", label: "RPM — success" },
+  { value: "pypi", label: "PyPI — success" },
+  { value: "conda", label: "Conda — success" },
+  { value: "partial-failure", label: "npm — one package fails" },
+  { value: "total-failure", label: "npm — Artifactory unreachable" },
+];
+
 export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) {
   const [activeTab, setActiveTab] = useState<Tab>("url-copy");
   const [jobs, setJobs] = useState<ArtifactoryJob[]>([]);
@@ -18,6 +29,7 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
   // Admins get everything from the server; the toggle narrows it back client-side,
   // same as the ticketing queue.
   const [showAll, setShowAll] = useState(true);
+  const [testScenario, setTestScenario] = useState<ArtifactoryScenario>(TEST_SCENARIOS[0].value);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   function fetchJobs() {
@@ -139,18 +151,32 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
                 {/* Dev only: fires the server's scripted run so the log, the
                     progress bar and Stop are reviewable with no Artifactory. */}
                 {user.id === "dev" && (
-                  <button
-                    type="button"
-                    className="ghost-button tab-bar-action"
-                    onClick={() => {
-                      log("artifactory", "starting simulated run");
-                      simulateJob()
-                        .then((result) => handleSubmitted(result.job))
-                        .catch((err: Error) => onError(err.message));
-                    }}
-                  >
-                    <FlaskConical size={16} aria-hidden="true" /> Test
-                  </button>
+                  <div className="tab-bar-action test-controls">
+                    <select
+                      className="test-scenario-select"
+                      aria-label="Test scenario"
+                      value={testScenario}
+                      onChange={(e) => setTestScenario(e.target.value as ArtifactoryScenario)}
+                    >
+                      {TEST_SCENARIOS.map((s) => (
+                        <option key={s.value} value={s.value}>
+                          {s.label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => {
+                        log("artifactory", "starting simulated run", testScenario);
+                        simulateJob(testScenario)
+                          .then((result) => handleSubmitted(result.job))
+                          .catch((err: Error) => onError(err.message));
+                      }}
+                    >
+                      <FlaskConical size={16} aria-hidden="true" /> Test
+                    </button>
+                  </div>
                 )}
               </div>
 

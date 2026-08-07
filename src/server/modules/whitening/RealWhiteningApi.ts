@@ -11,7 +11,7 @@ import { createTmpDir, removeTmpDir } from "../../tmp";
 import { discoverPackages, packAndUpload } from "../artifactory/npmPackages";
 import { BitbucketApi, BitbucketError } from "./BitbucketApi";
 import { simulatedWhiteningJob, whiteningSimulation } from "./devSimulation";
-import type { PortalUser, WhiteningApi, WhiteningJob } from "../../types";
+import type { PortalUser, WhiteningApi, WhiteningJob, WhiteningScenario } from "../../types";
 
 const execFileAsync = promisify(execFile);
 
@@ -151,7 +151,7 @@ export class RealWhiteningApi implements WhiteningApi {
     return job;
   }
 
-  async simulate(submitter: PortalUser): Promise<WhiteningJob> {
+  async simulate(submitter: PortalUser, scenario: WhiteningScenario = "success"): Promise<WhiteningJob> {
     const job: WhiteningJob = {
       id: this.newId(),
       status: "pending",
@@ -163,14 +163,14 @@ export class RealWhiteningApi implements WhiteningApi {
       ...simulatedWhiteningJob(),
     };
     this.jobs.set(job.id, job);
-    void this.runSimulation(job.id);
+    void this.runSimulation(job.id, scenario);
     return job;
   }
 
-  private async runSimulation(jobId: string) {
+  private async runSimulation(jobId: string, scenario: WhiteningScenario) {
     const signal = this.start(jobId);
     try {
-      for (const beat of whiteningSimulation) {
+      for (const beat of whiteningSimulation(scenario)) {
         await sleep(beat.ms, undefined, { signal });
         if (beat.step) this.setStep(jobId, beat.step);
         if (beat.patch) this.patch(jobId, beat.patch);
