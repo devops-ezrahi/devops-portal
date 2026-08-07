@@ -22,6 +22,7 @@ const jiraToken = requireEnv("JIRA_TOKEN");
 const jiraProjectKey = requireEnv("JIRA_PROJECT_KEY");
 const jiraBoardId = requireEnv("JIRA_BOARD_ID");
 const jiraMaintenanceIssueType = requireEnv("JIRA_MAINTENANCE_ISSUE_TYPE");
+const jiraStoryPointsField = requireEnv("JIRA_STORY_POINTS_FIELD");
 
 export const config = {
   ssoRequired: process.env.SSO_REQUIRED === "true",
@@ -62,6 +63,10 @@ export const config = {
     projectKey: jiraProjectKey ?? "",
     boardId: jiraBoardId ?? "",
     maintenanceIssueType: jiraMaintenanceIssueType ?? "Maintenance",
+    // Story points is a Jira custom field with an instance-specific id
+    // (customfield_10016 on many instances) — unset means the Jira backend
+    // skips reading/writing it, and only the portal's own copy is kept.
+    storyPointsField: jiraStoryPointsField ?? "",
     enabled: !!(jiraUrl && jiraToken && jiraProjectKey),
   },
   chat: {

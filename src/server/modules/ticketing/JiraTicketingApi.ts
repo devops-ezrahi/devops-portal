@@ -48,6 +48,8 @@ type JiraIssue = {
     comment?: {
       comments?: JiraComment[];
     };
+    /** Story points live under an instance-specific `customfield_*` key. */
+    [customField: string]: unknown;
   };
 };
 
@@ -80,6 +82,7 @@ export type JiraTicketingConfig = {
   projectKey: string;
   boardId: string;
   maintenanceIssueType: string;
+  storyPointsField?: string;
 };
 
 function quoteJql(value: string) {
@@ -92,6 +95,7 @@ export class JiraTicketingApi implements TicketingApi {
   private readonly projectKey: string;
   private readonly boardId: string;
   private readonly maintenanceIssueType: string;
+  private readonly storyPointsField: string;
 
   constructor(config: JiraTicketingConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, "");
@@ -99,6 +103,16 @@ export class JiraTicketingApi implements TicketingApi {
     this.projectKey = config.projectKey;
     this.boardId = config.boardId;
     this.maintenanceIssueType = config.maintenanceIssueType;
+    this.storyPointsField = config.storyPointsField ?? "";
+  }
+
+  /** `undefined` when the field isn't configured or Jira has no value yet. */
+  private storyPointsOf(fields: JiraIssue["fields"]): number | undefined {
+    if (!this.storyPointsField) {
+      return undefined;
+    }
+    const raw = fields?.[this.storyPointsField];
+    return typeof raw === "number" ? raw : undefined;
   }
 
   private async fetchJson<T>(fullPath: string, options: RequestInit = {}): Promise<T> {
@@ -186,6 +200,7 @@ export class JiraTicketingApi implements TicketingApi {
       rawStatus,
       stage: mapInternalStatus(rawStatus),
       priority: parsePriority(fields.priority?.name),
+      storyPoints: this.storyPointsOf(fields),
       assigneeId: this.userId(fields.assignee),
       assigneeName: fields.assignee ? this.userName(fields.assignee) : "",
       createdAt: created,
@@ -343,6 +358,9 @@ export class JiraTicketingApi implements TicketingApi {
     }
     if (update.teamGroups !== undefined) {
       fields.labels = update.teamGroups;
+    }
+    if (update.storyPoints !== undefined && this.storyPointsField) {
+      fields[this.storyPointsField] = update.storyPoints;
     }
 
     if (Object.keys(fields).length > 0) {

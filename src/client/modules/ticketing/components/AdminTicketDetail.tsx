@@ -4,8 +4,9 @@ import type { FormEvent } from "react";
 import { log, error as logError } from "../../../log";
 import { addAdminComment, updateAdminTicket } from "../api";
 import { priorityResponseHours, stages } from "../config";
+import { SlaOverdue } from "./SlaOverdue";
 import type { AssigneeCandidate, CustomerStage, TicketDetail } from "../../../../server/types";
-import { formatDate, isStatusMessage, priorityClass, statusMessage, statusMessageText, stageClass } from "../utils";
+import { formatDate, isOverdue, isStatusMessage, priorityClass, statusMessage, statusMessageText, stageClass } from "../utils";
 
 export function AdminTicketDetail({
   assignee,
@@ -27,6 +28,7 @@ export function AdminTicketDetail({
   const [title, setTitle] = useState(ticket.title);
   const [description, setDescription] = useState(ticket.description);
   const [stage, setStage] = useState<CustomerStage>(ticket.stage);
+  const [storyPoints, setStoryPoints] = useState(ticket.storyPoints?.toString() ?? "");
   const [rawStatus, setRawStatus] = useState(ticket.rawStatus);
   const [teamGroups, setTeamGroups] = useState(ticket.teamGroups.join(", "));
   const [body, setBody] = useState("");
@@ -49,11 +51,31 @@ export function AdminTicketDetail({
     setTitle(ticket.title);
     setDescription(ticket.description);
     setStage(ticket.stage);
+    setStoryPoints(ticket.storyPoints?.toString() ?? "");
     setRawStatus(ticket.rawStatus);
     setTeamGroups(ticket.teamGroups.join(", "));
     setBody("");
     setIsEditing(false);
   }, [ticket.id]);
+
+  const parsedPoints = storyPoints.trim() === "" ? undefined : Number(storyPoints);
+  const hasPoints = parsedPoints !== undefined && Number.isInteger(parsedPoints) && parsedPoints >= 0;
+
+  async function savePoints() {
+    if (parsedPoints === ticket.storyPoints) return;
+    if (!hasPoints) return log("ticketing/admin", "story points not a whole number — not saving", storyPoints);
+    setSubmitting(true);
+    log("ticketing/admin", "saving story points", ticket.id, parsedPoints);
+    try {
+      await updateAdminTicket(ticket.id, { storyPoints: parsedPoints });
+      await onReload();
+    } catch (err) {
+      logError("ticketing/admin", "saving story points failed", ticket.id, err);
+      throw err;
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   async function saveStage(newStage: CustomerStage) {
     if (newStage === ticket.stage) return log("ticketing/admin", "stage unchanged — skipping save", newStage);
@@ -63,6 +85,7 @@ export function AdminTicketDetail({
       await updateAdminTicket(ticket.id, {
         title,
         stage: newStage,
+        storyPoints: parsedPoints,
         rawStatus,
         description,
         teamGroups: teamGroups.split(",").map((g) => g.trim()).filter(Boolean)
@@ -133,6 +156,7 @@ export function AdminTicketDetail({
         <span className={priorityClass(ticket.priority)} title={`Response within ${priorityResponseHours[ticket.priority]} hours`}>
           {ticket.priority}
         </span>
+        {isOverdue(ticket) && <SlaOverdue ticket={ticket} />}
       </div>
 
       <div className="detail-title-row">
@@ -220,19 +244,35 @@ export function AdminTicketDetail({
 
       <div className="admin-edit-form">
         <label>
+          <span>Story points</span>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            value={storyPoints}
+            placeholder="—"
+            onChange={(e) => setStoryPoints(e.target.value)}
+            onBlur={() => savePoints().catch(() => undefined)}
+            disabled={submitting}
+          />
+        </label>
+        <label>
           <span>Stage</span>
           <select
             value={stage}
             onChange={(e) => {
               const newStage = e.target.value as CustomerStage;
               setStage(newStage);
-              saveStage(newStage).catch(() => undefined);
+              saveStage(newStage).catch(() => setStage(ticket.stage));
             }}
             disabled={submitting}
           >
             {stages.filter(Boolean).map((option) => (
-              <option key={option} value={option}>
+              // Closing signs off the work, so it stays unselectable until an
+              // estimate exists. The server rejects it too — see router.ts.
+              <option key={option} value={option} disabled={option === "Closed" && !hasPoints}>
                 {option}
+                {option === "Closed" && !hasPoints ? " (needs story points)" : ""}
               </option>
             ))}
           </select>

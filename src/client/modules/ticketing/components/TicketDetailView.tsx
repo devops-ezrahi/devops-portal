@@ -5,7 +5,8 @@ import { log, error as logError } from "../../../log";
 import { addComment } from "../api";
 import type { TicketDetail } from "../../../../server/types";
 import { priorityResponseHours } from "../config";
-import { formatDate, isStatusMessage, priorityClass, statusMessageText, stageClass } from "../utils";
+import { SlaOverdue } from "./SlaOverdue";
+import { formatDate, isOverdue, isStatusMessage, priorityClass, statusMessageText, stageClass } from "../utils";
 
 export function TicketDetailView({
   onCommentAdded,
@@ -42,6 +43,7 @@ export function TicketDetailView({
           <span className={priorityClass(ticket.priority)} title={`Response within ${priorityResponseHours[ticket.priority]} hours`}>
             {ticket.priority}
           </span>
+          {isOverdue(ticket) && <SlaOverdue ticket={ticket} />}
         </div>
         <h2>{ticket.title}</h2>
         <p>{ticket.id}</p>

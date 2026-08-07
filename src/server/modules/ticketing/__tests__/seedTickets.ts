@@ -75,6 +75,7 @@ export function seedTickets(): TicketDetail[] {
       rawStatus: "Resolved",
       stage: mapInternalStatus("Resolved"),
       priority: "Low",
+      storyPoints: 3,
       assigneeId: "",
       assigneeName: "",
       createdAt: "2026-06-01T09:45:00.000Z",

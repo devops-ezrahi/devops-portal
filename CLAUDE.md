@@ -88,6 +88,7 @@ Key variables (see `.env.example`):
 | `GIT_URL` / `GIT_TOKEN`                                      | —               | Bitbucket Server base URL + HTTP access token; required for the Whitening module to open pull requests                      |
 | `GIT_USERNAME`                                               | —               | Empty (default) puts the token alone in the clone URL; set it only if Bitbucket wants `username:token` basic auth           |
 | `JIRA_URL` / `JIRA_TOKEN` / `JIRA_PROJECT_KEY`               | —               | All three required to activate `JiraTicketingApi` (Jira Data Center, Bearer PAT); otherwise `InMemoryTicketingApi` fallback |
+| `JIRA_STORY_POINTS_FIELD`                                    | —               | Custom-field id holding story points (e.g. `customfield_10016`) — instance-specific; unset = points stay portal-only and are not synced to Jira |
 | `CHAT_API_URL` / `CHAT_API_KEY`                              | —               | Both required to enable the chat proxy; otherwise `/api/ragflow/chat` returns 503                                           |
 
 `whitening.json` at the repo root is read by the whitening packer, not by the app, and now

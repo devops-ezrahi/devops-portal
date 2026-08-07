@@ -1,10 +1,9 @@
 export type CustomerStage =
   | "Submitted"
-  | "Triaged"
   | "In Progress"
   | "Waiting on Customer"
-  | "Resolved"
-  | "Closed";
+  | "Closed"
+  | "Cancelled";
 
 export type TicketScope = "mine" | "team";
 
@@ -36,6 +35,8 @@ export type TicketSummary = {
   rawStatus: string;
   stage: CustomerStage;
   priority: TicketPriority;
+  /** Admin-set effort estimate; required before a ticket can be Closed. */
+  storyPoints?: number;
   assigneeId: string;
   assigneeName: string;
   createdAt: string;
@@ -85,6 +86,7 @@ export type CreateTicketInput = {
 
 export type AdminTicketUpdate = {
   stage?: CustomerStage;
+  storyPoints?: number;
   rawStatus?: string;
   title?: string;
   description?: string;

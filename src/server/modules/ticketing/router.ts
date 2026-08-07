@@ -19,6 +19,7 @@ const commentSchema = z.object({
 
 const adminUpdateSchema = z.object({
   stage: z.enum(customerStages as [CustomerStage, ...CustomerStage[]]).optional(),
+  storyPoints: z.number().int().min(0).max(1000).optional(),
   rawStatus: z.string().trim().min(1).optional(),
   title: z.string().trim().min(1).optional(),
   description: z.string().trim().optional(),
@@ -143,6 +144,16 @@ export function createTicketingRouter(ticketingApi: TicketingApi) {
   router.patch("/api/admin/tickets/:id", requireAdmin, async (req, res, next) => {
     try {
       const payload = adminUpdateSchema.parse(req.body);
+      // Effort has to be recorded before work is signed off. Checked here and
+      // not just in the UI — the dropdown is not the only way to reach this.
+      // Cancelled is exempt: abandoned work has no effort to estimate.
+      if (payload.stage === "Closed") {
+        const current = await ticketingApi.getAdminTicket(String(req.params.id));
+        if ((payload.storyPoints ?? current?.storyPoints) === undefined) {
+          res.status(400).json({ error: "Story points are required before a ticket can be closed." });
+          return;
+        }
+      }
       const ticket = await ticketingApi.updateAdminTicket(String(req.params.id), req.user!, payload);
       res.json({ ticket: detailWithResolvedNames(ticket) });
     } catch (error) {

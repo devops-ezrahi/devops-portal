@@ -34,6 +34,11 @@ export function createApp(
   }
   if (config.jira.enabled) {
     console.log(`[ticketing] Jira backend — url: ${config.jira.baseUrl}, project: ${config.jira.projectKey}`);
+    console.log(
+      config.jira.storyPointsField
+        ? `[ticketing] story points → ${config.jira.storyPointsField}`
+        : "[ticketing] story points not synced to Jira (set JIRA_STORY_POINTS_FIELD)"
+    );
   } else {
     console.log("[ticketing] in-memory fallback (set JIRA_URL + JIRA_TOKEN + JIRA_PROJECT_KEY for Jira)");
   }

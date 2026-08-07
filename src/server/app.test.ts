@@ -162,4 +162,25 @@ describe("portal API", () => {
       body: "We reopened this and are investigating the latest failure."
     });
   });
+
+  it("blocks closing a ticket until story points are recorded", async () => {
+    const app = ticketingApp();
+    const admin = (r: request.Test) =>
+      r.set("x-user-id", "u-admin").set("x-user-name", "Morgan Admin").set("x-user-groups", "portal-admins");
+
+    // DEVOPS-1001 has no story points in the fixture.
+    await admin(request(app).patch("/api/admin/tickets/DEVOPS-1001")).send({ stage: "Closed" }).expect(400);
+
+    // Cancelling is exempt — abandoned work has no effort to estimate.
+    await admin(request(app).patch("/api/admin/tickets/DEVOPS-1001")).send({ stage: "Cancelled" }).expect(200);
+
+    // Points supplied in the same request are enough to let it close.
+    const closed = await admin(request(app).patch("/api/admin/tickets/DEVOPS-1001"))
+      .send({ stage: "Closed", storyPoints: 5 })
+      .expect(200);
+    expect(closed.body.ticket).toMatchObject({ stage: "Closed", storyPoints: 5 });
+
+    // DEVOPS-1003 already carries points, so it closes without resupplying them.
+    await admin(request(app).patch("/api/admin/tickets/DEVOPS-1003")).send({ stage: "Closed" }).expect(200);
+  });
 });

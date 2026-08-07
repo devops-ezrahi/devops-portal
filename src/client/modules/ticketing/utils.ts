@@ -1,3 +1,4 @@
+import { priorityResponseHours } from "./config";
 import type { TicketSummary } from "../../../server/types";
 
 export function formatDate(value: string) {
@@ -16,7 +17,19 @@ export function priorityClass(priority: string) {
 }
 
 export function isDone(ticket: TicketSummary) {
-  return ticket.stage === "Resolved" || ticket.stage === "Closed";
+  return ticket.stage === "Closed" || ticket.stage === "Cancelled";
+}
+
+/** When the priority's response window runs out. */
+export function slaDueAt(ticket: TicketSummary) {
+  return new Date(ticket.createdAt).getTime() + priorityResponseHours[ticket.priority] * 3_600_000;
+}
+
+// "Answered" is approximated by the ticket leaving Submitted — that is the
+// only stage where nobody has picked it up yet, so it is the one the
+// response-time promise is actually about.
+export function isOverdue(ticket: TicketSummary) {
+  return ticket.stage === "Submitted" && Date.now() > slaDueAt(ticket);
 }
 
 const statusMessagePrefix = "[status] ";

@@ -4,7 +4,8 @@ import { log, error as logError } from "../../log";
 import { getRequestTypes, getTicket, listTickets } from "./api";
 import { CreateTicketView } from "./components/CreateTicketView";
 import { TicketDetailView } from "./components/TicketDetailView";
-import { getTicketIdFromUrl, isDone, priorityClass, setTicketIdInUrl, stageClass } from "./utils";
+import { SlaOverdue } from "./components/SlaOverdue";
+import { getTicketIdFromUrl, isDone, isOverdue, priorityClass, setTicketIdInUrl, stageClass } from "./utils";
 import type { RequestTypeDefinition, TicketDetail, TicketSummary } from "../../../server/types";
 
 const POLL_INTERVAL_MS = 8000;
@@ -163,6 +164,7 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
                   <span className="badge-row">
                     <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
                     <span className={priorityClass(ticket.priority)}>{ticket.priority}</span>
+                    {isOverdue(ticket) && <SlaOverdue ticket={ticket} />}
                   </span>
                   <strong>{ticket.title}</strong>
                   <small>{ticket.id}</small>

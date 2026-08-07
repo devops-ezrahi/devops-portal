@@ -168,6 +168,9 @@ export class InMemoryTicketingApi implements TicketingApi {
     if (update.teamGroups !== undefined) {
       ticket.teamGroups = update.teamGroups;
     }
+    if (update.storyPoints !== undefined) {
+      ticket.storyPoints = update.storyPoints;
+    }
     if (update.assigneeId !== undefined) {
       ticket.assigneeId = update.assigneeId;
       ticket.assigneeName = update.assigneeId ? (update.assigneeName ?? update.assigneeId) : "";

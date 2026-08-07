@@ -3,11 +3,10 @@ import type { CustomerStage, TicketPriority } from "../../../server/types";
 export const stages: Array<CustomerStage | ""> = [
   "",
   "Submitted",
-  "Triaged",
   "In Progress",
   "Waiting on Customer",
-  "Resolved",
-  "Closed"
+  "Closed",
+  "Cancelled"
 ];
 
 export const priorities: TicketPriority[] = ["Highest", "High", "Medium", "Low", "Lowest"];

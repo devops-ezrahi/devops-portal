@@ -881,9 +881,9 @@ button:focus-visible {
   color: #a9d8f2;
 }
 
-.stage-triaged {
-  background: #18343a;
-  color: #a8e2ea;
+.stage-cancelled {
+  background: #33272b;
+  color: #d6b5bd;
 }
 
 .stage-in-progress {
@@ -896,9 +896,27 @@ button:focus-visible {
   color: #ead49f;
 }
 
+/* No ticket stage maps here any more — kept because the artifactory and
+   whitening job badges reuse it for completed/uploaded. */
 .stage-resolved {
   background: #203922;
   color: #b7e0b8;
+}
+
+/* Unanswered past its priority's response window — deliberately the loudest
+   thing in a ticket row. */
+.sla-overdue {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 800;
+  background: #4a1d1d;
+  color: #ffb4ab;
+  border: 1px solid #6d2b2b;
 }
 
 .stage-closed,
