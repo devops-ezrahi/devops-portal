@@ -40,15 +40,21 @@ function TicketRow({
         <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
         <span className={priorityClass(ticket.priority)}>{ticket.priority}</span>
         {isOverdue(ticket) && <SlaOverdue ticket={ticket} />}
+        {/* Ownership is a triage signal, so it sits with the status pills —
+            "Unassigned" needs to be as loud as the stage. */}
+        <span className={ticket.assigneeId ? "assignee-pill assigned" : "assignee-pill unassigned"}>
+          {ticket.assigneeId ? ticket.assigneeName || ticket.assigneeId : "Unassigned"}
+        </span>
         <SlaRemaining ticket={ticket} />
       </span>
       <strong>{ticket.title}</strong>
       <div className="ticket-row-meta">
         <small>{ticket.id}</small>
-        {ticket.assigneeId
-          ? <small className="ticket-row-assignee assigned">{ticket.assigneeName || ticket.assigneeId}</small>
-          : <small className="ticket-row-assignee unassigned">Unassigned</small>
-        }
+        {/* Right-hand slot is "who raised this" portal-wide — same as the
+            submitter on artifactory/whitening job rows. */}
+        <small title={`Opened by ${ticket.requesterName || ticket.requesterId}`}>
+          {ticket.requesterName || ticket.requesterId}
+        </small>
       </div>
     </button>
   );
