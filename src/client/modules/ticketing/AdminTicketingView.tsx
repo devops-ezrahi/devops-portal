@@ -40,9 +40,9 @@ function TicketRow({
         <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
         <span className={priorityClass(ticket.priority)}>{ticket.priority}</span>
         {isOverdue(ticket) && <SlaOverdue ticket={ticket} />}
+        <SlaRemaining ticket={ticket} />
       </span>
       <strong>{ticket.title}</strong>
-      <SlaRemaining ticket={ticket} />
       <div className="ticket-row-meta">
         <small>{ticket.id}</small>
         {ticket.assigneeId

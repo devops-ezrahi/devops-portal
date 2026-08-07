@@ -787,10 +787,10 @@ button:focus-visible {
   max-width: 55%;
 }
 
-/* Sits in the row's grid flow directly above the assignee slot, so the
-   queue reads "time left / who owns it" as one right-hand column. */
+/* Pinned to the right end of the badge row, so time-left reads at the top
+   of the row opposite the stage/priority pills. */
 .ticket-row small.sla-remaining {
-  justify-self: end;
+  margin-left: auto;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.01em;
