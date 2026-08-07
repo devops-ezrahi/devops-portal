@@ -112,11 +112,16 @@ export type ArtifactoryJobStatus = "pending" | "in-progress" | "completed" | "fa
 
 export type PackageUploadStatus = "uploaded" | "exists" | "failed";
 
+/** Ecosystem an artifact belongs to — decides which repo it is uploaded to. */
+export type PackageType = "npm" | "maven" | "rpm" | "pypi" | "conda";
+
 export type PackageUploadResult = {
+  /** `arg` for npm, `org.apache.commons:commons-lang3` for Maven. */
   name: string;
   version: string;
-  /** Repo-relative target, e.g. `npm-local/arg/-/arg-4.1.5.tgz`. */
+  /** Repo-relative target, repo prefix included, e.g. `npm-local/arg/-/arg-4.1.5.tgz`. */
   path: string;
+  type?: PackageType;
   status: PackageUploadStatus;
   url?: string;
   error?: string;

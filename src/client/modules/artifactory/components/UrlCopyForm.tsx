@@ -38,11 +38,14 @@ export function UrlCopyForm({ onSubmitted, onError }: Props) {
           id="source-url"
           type="url"
           required
-          placeholder="https://artifactory.example.com/artifactory/my-repo/lodash/-/lodash-4.17.21.tgz"
+          placeholder="https://repo1.maven.org/maven2/org/apache/commons/commons-lang3/3.12.0/commons-lang3-3.12.0.jar"
           value={sourceUrl}
           onChange={(e) => setSourceUrl(e.target.value)}
         />
-        <span className="field-hint">URL of the artifact in the source Artifactory repository</span>
+        <span className="field-hint">
+          URL of the artifact in the source repository. The package type is detected from the file —
+          .tgz, .jar, .rpm, .whl and .conda each go to their own repo.
+        </span>
       </div>
 
       <button type="submit" className="primary" disabled={submitting}>

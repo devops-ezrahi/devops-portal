@@ -3,7 +3,7 @@ import { cp, mkdir, readFile, readdir } from "fs/promises";
 import { basename, join } from "path";
 import { promisify } from "util";
 import { config } from "../../config";
-import type { PackageUploadResult } from "../../types";
+import type { PackageType, PackageUploadResult } from "../../types";
 import { exists, upload, webUrl } from "./artifactoryRest";
 
 const execFileAsync = promisify(execFile);
@@ -119,40 +119,49 @@ async function packPackage(pkg: DiscoveredPackage, stageRoot: string, index: num
   return tgz;
 }
 
+export type UploadItem = {
+  /** Repo-relative target, repo prefix included. */
+  path: string;
+  name: string;
+  version: string;
+  type: PackageType;
+  /** The local file to PUT. Only called once the target is known to be absent. */
+  resolve: () => Promise<string>;
+};
+
 /**
- * Pack and upload every discovered package to the npm registry layout, skipping
- * what the repo already has. Shared by the Artifactory upload module and
- * Whitening's dependency step.
+ * Upload every item the repo does not already have. Shared by all package types:
+ * npm resolves to a freshly packed tarball, everything else to the file the user
+ * already gave us.
  *
- * ponytail: `signal` is checked per package, so cancelling lets the one PUT
- * already in flight finish. Thread it into `artifactoryRest.upload` if that
- * ever matters.
+ * ponytail: `signal` is checked per item, so cancelling lets the one PUT already
+ * in flight finish. Thread it into `artifactoryRest.upload` if that ever matters.
  */
-export async function packAndUpload(
-  packages: DiscoveredPackage[],
-  stageRoot: string,
+export async function uploadFiles(
+  items: UploadItem[],
   onLog: (line: string) => void,
   onProgress: (done: number, total: number) => void,
   signal?: AbortSignal
 ): Promise<PackageUploadResult[]> {
   // Nested node_modules legitimately holds the same name@version more than once.
-  const unique = [...new Map(packages.map((p) => [targetPath(p.name, p.version), p])).values()];
+  const unique = [...new Map(items.map((item) => [item.path, item])).values()];
 
-  const results: PackageUploadResult[] = unique.map((p) => ({
-    name: p.name,
-    version: p.version,
-    path: targetPath(p.name, p.version),
+  const results: PackageUploadResult[] = unique.map((item) => ({
+    name: item.name,
+    version: item.version,
+    path: item.path,
+    type: item.type,
     status: "failed",
     error: "not processed",
   }));
 
-  onLog(`Checking ${unique.length} package(s) against ${config.artifactory.repo} ...`);
+  onLog(`Checking ${unique.length} package(s) against Artifactory ...`);
 
-  const todo: { pkg: DiscoveredPackage; result: PackageUploadResult; index: number }[] = [];
+  const todo: { item: UploadItem; result: PackageUploadResult }[] = [];
   await pool(
-    unique.map((pkg, index) => ({ pkg, index })),
+    unique.map((item, index) => ({ item, index })),
     EXISTS_CONCURRENCY,
-    async ({ pkg, index }) => {
+    async ({ item, index }) => {
       if (signal?.aborted) return;
       const result = results[index];
       const present = await exists(result.path);
@@ -162,7 +171,7 @@ export async function packAndUpload(
         result.url = webUrl(result.path);
       } else {
         // `null` means we could not tell — upload rather than silently skip.
-        todo.push({ pkg, result, index });
+        todo.push({ item, result });
       }
     }
   );
@@ -173,11 +182,10 @@ export async function packAndUpload(
   let done = skipped;
   onProgress(done, unique.length);
 
-  await pool(todo, UPLOAD_CONCURRENCY, async ({ pkg, result, index }) => {
+  await pool(todo, UPLOAD_CONCURRENCY, async ({ item, result }) => {
     if (signal?.aborted) return;
     try {
-      const tgz = await packPackage(pkg, stageRoot, index);
-      await upload(result.path, tgz);
+      await upload(result.path, await item.resolve());
       result.status = "uploaded";
       delete result.error;
       result.url = webUrl(result.path);
@@ -192,6 +200,32 @@ export async function packAndUpload(
   });
 
   return results;
+}
+
+/** npm items for `uploadFiles` — packing is deferred until the upload is needed. */
+export function npmUploadItems(packages: DiscoveredPackage[], stageRoot: string): UploadItem[] {
+  return packages.map((pkg, index) => ({
+    path: targetPath(pkg.name, pkg.version),
+    name: pkg.name,
+    version: pkg.version,
+    type: "npm" as const,
+    resolve: () => packPackage(pkg, stageRoot, index),
+  }));
+}
+
+/**
+ * Pack and upload every discovered package to the npm registry layout, skipping
+ * what the repo already has. Shared by the Artifactory upload module and
+ * Whitening's dependency step.
+ */
+export async function packAndUpload(
+  packages: DiscoveredPackage[],
+  stageRoot: string,
+  onLog: (line: string) => void,
+  onProgress: (done: number, total: number) => void,
+  signal?: AbortSignal
+): Promise<PackageUploadResult[]> {
+  return uploadFiles(npmUploadItems(packages, stageRoot), onLog, onProgress, signal);
 }
 
 /** `arg@4.1.5` for one package, `node_modules (142 packages)` for many. */

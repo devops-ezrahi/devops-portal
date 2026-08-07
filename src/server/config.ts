@@ -6,6 +6,10 @@ const artifactoryUrl = requireEnv("ARTIFACTORY_URL");
 const artifactoryRepo = requireEnv("ARTIFACTORY_REPO");
 const artifactoryToken = requireEnv("ARTIFACTORY_TOKEN");
 const artifactoryDockerRepo = requireEnv("ARTIFACTORY_DOCKER_REPO");
+const artifactoryMavenRepo = requireEnv("ARTIFACTORY_MAVEN_REPO");
+const artifactoryRpmRepo = requireEnv("ARTIFACTORY_RPM_REPO");
+const artifactoryPypiRepo = requireEnv("ARTIFACTORY_PYPI_REPO");
+const artifactoryCondaRepo = requireEnv("ARTIFACTORY_CONDA_REPO");
 
 const gitUrl = requireEnv("GIT_URL");
 const gitToken = requireEnv("GIT_TOKEN");
@@ -35,6 +39,13 @@ export const config = {
     repo: artifactoryRepo ?? "",
     token: artifactoryToken ?? "",
     dockerRepo: artifactoryDockerRepo ?? "",
+    // Per-type repos: JFrog indexes each package type in its own repo, so a .jar
+    // cannot land in the npm repo. Unset means that type is simply unavailable —
+    // matching files are skipped with a log line, never a failed job.
+    mavenRepo: artifactoryMavenRepo ?? "",
+    rpmRepo: artifactoryRpmRepo ?? "",
+    pypiRepo: artifactoryPypiRepo ?? "",
+    condaRepo: artifactoryCondaRepo ?? "",
     enabled: !!(artifactoryUrl && artifactoryRepo && artifactoryToken),
   },
   git: {

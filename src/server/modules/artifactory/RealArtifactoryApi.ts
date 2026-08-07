@@ -1,6 +1,6 @@
 import { execFile } from "child_process";
 import { mkdir, writeFile } from "fs/promises";
-import { basename, dirname, join } from "path";
+import { basename, dirname, join, relative } from "path";
 // Rejects on abort, so a cancelled simulation stops mid-sleep instead of at the
 // end of the current beat.
 import { setTimeout as sleep } from "timers/promises";
@@ -10,7 +10,9 @@ import { redactSecrets } from "../../redact";
 import { createTmpDir, removeTmpDir } from "../../tmp";
 import { exists, upload, webUrl } from "./artifactoryRest";
 import { artifactorySimulation, simulatedArtifactoryJob } from "./devSimulation";
-import { discoverPackages, jobName, packAndUpload, pool, targetPath } from "./npmPackages";
+import { discoverPackages, jobName, npmUploadItems, pool, targetPath, uploadFiles } from "./npmPackages";
+import { classify, urlArtifactPath } from "./packageTypes";
+import type { UploadItem } from "./npmPackages";
 import type {
   ArtifactoryApi,
   ArtifactoryJob,
@@ -192,8 +194,12 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       status: failures.length > 0 ? "failed" : "completed",
       errorMessage:
         failures.length > 0 ? `${failures.length} of ${results.length} package(s) failed` : undefined,
+      // For many packages, link the repo they went to — which is no longer always
+      // the npm one, so take it from the first target rather than from config.
       resultUrl:
-        results.length === 1 ? results[0].url : webUrl(config.artifactory.repo),
+        results.length === 1
+          ? results[0].url
+          : webUrl(results[0]?.path.split("/")[0] ?? config.artifactory.repo),
     });
     this.appendLog(
       jobId,
@@ -219,15 +225,23 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       const tmpFile = join(tmpDir, safeRelativePath(filename));
       await writeFile(tmpFile, Buffer.from(await res.arrayBuffer()));
 
+      // The npm sniff reads the file itself, so it wins over any path guess.
       const identity = await readTarballIdentity(tmpFile);
-      const target = identity
-        ? targetPath(identity.name, identity.version)
-        : `${config.artifactory.repo}/${filename}`;
+      const classified = identity
+        ? null
+        : classify(urlArtifactPath(input.sourceUrl), (line) => this.appendLog(jobId, line));
 
+      let target: string;
       if (identity) {
+        target = targetPath(identity.name, identity.version);
         this.patch(jobId, { name: `${identity.name}@${identity.version}` });
+      } else if (classified) {
+        target = classified.path;
+        this.appendLog(jobId, `Detected a ${classified.type} artifact.`);
+        this.patch(jobId, { name: `${classified.name}@${classified.version}` });
       } else {
-        this.appendLog(jobId, "Not an npm tarball — uploading under its own filename.");
+        target = `${config.artifactory.repo}/${filename}`;
+        this.appendLog(jobId, "Unrecognised artifact — uploading under its own filename.");
         this.patch(jobId, { name: filename });
       }
 
@@ -272,21 +286,50 @@ export class RealArtifactoryApi implements ArtifactoryApi {
         await writeFile(dest, file.buffer);
       }
 
-      const packages = await discoverPackages(sourceDir, (line) => this.appendLog(jobId, line));
+      const log = (line: string) => this.appendLog(jobId, line);
+      const packages = await discoverPackages(sourceDir, log);
 
-      if (packages.length === 0) {
-        this.appendLog(jobId, "No npm packages found — uploading the folder as-is.");
+      // A file inside a discovered npm package ships in that package's tarball —
+      // a .jar under node_modules/foo/ is not a Maven dependency.
+      const packageDirs = packages
+        .map((p) => relative(sourceDir, p.dir).replace(/\\/g, "/"))
+        .filter(Boolean);
+      const loose = files
+        .map((f) => safeRelativePath(f.originalname))
+        .filter((p) => !packageDirs.some((d) => p === d || p.startsWith(`${d}/`)));
+
+      const items: UploadItem[] = npmUploadItems(packages, join(tmpDir, "stage"));
+      let unrecognised = 0;
+      for (const path of loose) {
+        const found = classify(path, log);
+        if (!found) {
+          unrecognised++;
+          continue;
+        }
+        // Already a finished artifact — nothing to pack, upload the file as it is.
+        items.push({ ...found, resolve: async () => join(sourceDir, path) });
+      }
+
+      if (items.length === 0) {
+        this.appendLog(jobId, "No recognised packages found — uploading the folder as-is.");
         await this.uploadRawTree(jobId, sourceDir, files, input.folderName, signal);
         return;
       }
 
       this.patch(jobId, { name: jobName(packages, input.folderName) });
-      this.appendLog(jobId, `Found ${packages.length} package(s).`);
+      const counts = new Map<string, number>();
+      for (const item of items) counts.set(item.type, (counts.get(item.type) ?? 0) + 1);
+      this.appendLog(
+        jobId,
+        `Found ${[...counts].map(([type, n]) => `${n} ${type}`).join(", ")} package(s).`
+      );
+      if (unrecognised > 0) {
+        this.appendLog(jobId, `${unrecognised} unrecognised file(s) skipped.`);
+      }
 
-      const results = await packAndUpload(
-        packages,
-        join(tmpDir, "stage"),
-        (line) => this.appendLog(jobId, line),
+      const results = await uploadFiles(
+        items,
+        log,
         (done, total) => this.patch(jobId, { progress: { done, total } }),
         signal
       );

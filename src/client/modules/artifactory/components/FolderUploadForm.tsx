@@ -138,7 +138,9 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
           ) : (
             <>
               <span>Drop a folder here</span>
-              <small>e.g. node_modules or any local package directory</small>
+              <small>
+                e.g. node_modules, a ~/.m2/repository tree, or a folder of .rpm / .whl / .conda files
+              </small>
             </>
           )}
         </div>
