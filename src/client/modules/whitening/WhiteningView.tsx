@@ -127,31 +127,33 @@ export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleView
               {/* Dev only: fires the server's scripted run so the step log and
                   Stop are reviewable with no Bitbucket/skopeo behind us. */}
               {user.id === "dev" && (
-                <div className="panel-actions test-controls">
-                  <select
-                    className="test-scenario-select"
-                    aria-label="Test scenario"
-                    value={testScenario}
-                    onChange={(e) => setTestScenario(e.target.value as WhiteningScenario)}
-                  >
-                    {TEST_SCENARIOS.map((s) => (
-                      <option key={s.value} value={s.value}>
-                        {s.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    onClick={() => {
-                      log("whitening", "starting simulated run", testScenario);
-                      simulateJob(testScenario)
-                        .then((result) => handleSubmitted(result.job))
-                        .catch((err: Error) => onError(err.message));
-                    }}
-                  >
-                    <FlaskConical size={16} aria-hidden="true" /> Test
-                  </button>
+                <div className="panel-actions">
+                  <div className="test-controls">
+                    <select
+                      className="test-scenario-select"
+                      aria-label="Test scenario"
+                      value={testScenario}
+                      onChange={(e) => setTestScenario(e.target.value as WhiteningScenario)}
+                    >
+                      {TEST_SCENARIOS.map((s) => (
+                        <option key={s.value} value={s.value}>
+                          {s.label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => {
+                        log("whitening", "starting simulated run", testScenario);
+                        simulateJob(testScenario)
+                          .then((result) => handleSubmitted(result.job))
+                          .catch((err: Error) => onError(err.message));
+                      }}
+                    >
+                      <FlaskConical size={16} aria-hidden="true" /> Test
+                    </button>
+                  </div>
                 </div>
               )}
               <ArchiveDropZone onSubmitted={handleSubmitted} onError={onError} />
