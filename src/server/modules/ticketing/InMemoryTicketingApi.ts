@@ -61,6 +61,7 @@ export class InMemoryTicketingApi implements TicketingApi {
       teamGroups: [requestType.ownerTeam, ...requester.groups],
       rawStatus: "New",
       stage: mapInternalStatus("New"),
+      priority: input.priority,
       assigneeId: "",
       assigneeName: "",
       createdAt,

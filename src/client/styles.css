@@ -855,7 +855,7 @@ button:focus-visible {
   color: #ffffff;
 }
 
-.ticket-row span:not(.stage),
+.ticket-row span:not(.stage, .priority, .badge-row),
 .ticket-row small,
 .recent-row small,
 .catalog-item span,
@@ -905,6 +905,55 @@ button:focus-visible {
 .stage-aborted {
   background: #2b3035;
   color: #c8d1d5;
+}
+
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+/* Same pill geometry as .stage, warm hues so urgency reads apart from status. */
+.priority {
+  width: max-content;
+  max-width: 100%;
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #dfe8eb;
+  background: #253038;
+}
+
+.priority-highest {
+  background: #45211f;
+  color: #f5b3ac;
+}
+
+.priority-high {
+  background: #402a1b;
+  color: #f0c49b;
+}
+
+.priority-medium {
+  background: #3a361c;
+  color: #e4dc9c;
+}
+
+.priority-low {
+  background: #24333c;
+  color: #b0cbdb;
+}
+
+.priority-lowest {
+  background: #2b3035;
+  color: #c8d1d5;
+}
+
+.field-hint {
+  color: #8d9ba2;
+  font-size: 12px;
 }
 
 .detail-panel,

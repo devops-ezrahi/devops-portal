@@ -8,7 +8,7 @@ import {
 } from "./api";
 import { log, error as logError } from "../../log";
 import { AdminTicketDetail } from "./components/AdminTicketDetail";
-import { getTicketIdFromUrl, isDone, setTicketIdInUrl, stageClass, statusMessage } from "./utils";
+import { getTicketIdFromUrl, isDone, priorityClass, setTicketIdInUrl, stageClass, statusMessage } from "./utils";
 import type { AssigneeCandidate, PortalUser, TicketDetail, TicketSummary } from "../../../server/types";
 
 const POLL_INTERVAL_MS = 8000;
@@ -34,7 +34,10 @@ function TicketRow({
       onClick={() => onOpen(ticket.id)}
     >
       {isUnread && <span className="update-dot" aria-label="Updated" />}
-      <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
+      <span className="badge-row">
+        <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
+        <span className={priorityClass(ticket.priority)}>{ticket.priority}</span>
+      </span>
       <strong>{ticket.title}</strong>
       <div className="ticket-row-meta">
         <small>{ticket.id}</small>

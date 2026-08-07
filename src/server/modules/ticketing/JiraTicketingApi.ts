@@ -1,4 +1,5 @@
 import { getRequestType, validateRequestFields } from "./catalog";
+import { parsePriority } from "./priority";
 import { mapInternalStatus } from "./status";
 import { canViewTicket } from "./visibility";
 import type {
@@ -37,6 +38,7 @@ type JiraIssue = {
     description?: string;
     issuetype?: { name?: string };
     status?: { name?: string };
+    priority?: { name?: string };
     reporter?: JiraUser;
     assignee?: JiraUser | null;
     labels?: string[];
@@ -183,6 +185,7 @@ export class JiraTicketingApi implements TicketingApi {
       teamGroups,
       rawStatus,
       stage: mapInternalStatus(rawStatus),
+      priority: parsePriority(fields.priority?.name),
       assigneeId: this.userId(fields.assignee),
       assigneeName: fields.assignee ? this.userName(fields.assignee) : "",
       createdAt: created,
@@ -241,6 +244,7 @@ export class JiraTicketingApi implements TicketingApi {
         fields: {
           project: { key: this.projectKey },
           issuetype: { name: requestType.name },
+          priority: { name: input.priority },
           summary: fields.title ?? requestType.name,
           description: fields.description ?? "",
           labels: labels.filter(Boolean)

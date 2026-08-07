@@ -11,6 +11,10 @@ export function stageClass(stage: string) {
   return `stage stage-${stage.toLowerCase().replaceAll(" ", "-")}`;
 }
 
+export function priorityClass(priority: string) {
+  return `priority priority-${priority.toLowerCase()}`;
+}
+
 export function isDone(ticket: TicketSummary) {
   return ticket.stage === "Resolved" || ticket.stage === "Closed";
 }

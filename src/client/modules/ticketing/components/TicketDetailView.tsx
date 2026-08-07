@@ -4,7 +4,8 @@ import type { FormEvent } from "react";
 import { log, error as logError } from "../../../log";
 import { addComment } from "../api";
 import type { TicketDetail } from "../../../../server/types";
-import { formatDate, isStatusMessage, statusMessageText, stageClass } from "../utils";
+import { priorityResponseHours } from "../config";
+import { formatDate, isStatusMessage, priorityClass, statusMessageText, stageClass } from "../utils";
 
 export function TicketDetailView({
   onCommentAdded,
@@ -36,7 +37,12 @@ export function TicketDetailView({
   return (
     <article className="ticket-detail">
       <div className="detail-heading">
-        <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
+        <div className="badge-row">
+          <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
+          <span className={priorityClass(ticket.priority)} title={`Response within ${priorityResponseHours[ticket.priority]} hours`}>
+            {ticket.priority}
+          </span>
+        </div>
         <h2>{ticket.title}</h2>
         <p>{ticket.id}</p>
       </div>

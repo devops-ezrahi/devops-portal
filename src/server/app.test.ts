@@ -57,6 +57,7 @@ describe("portal API", () => {
     const app = createApp();
     const payload = {
       requestType: "ci-cd-pipeline",
+      priority: "High",
       idempotencyKey: "key-123",
       fields: {
         title: "Add smoke tests",
@@ -84,6 +85,15 @@ describe("portal API", () => {
       .expect(201);
 
     expect(second.body.ticket.id).toBe(first.body.ticket.id);
+    expect(first.body.ticket.priority).toBe("High");
+
+    await request(app)
+      .post("/api/tickets")
+      .set("x-user-id", "u-alex")
+      .set("x-user-name", "Alex Morgan")
+      .set("x-user-groups", "team-alpha")
+      .send({ ...payload, priority: "Urgent", idempotencyKey: "key-124" })
+      .expect(400);
   });
 
   it("adds comments to visible tickets", async () => {

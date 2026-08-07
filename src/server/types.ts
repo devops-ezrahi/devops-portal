@@ -8,6 +8,9 @@ export type CustomerStage =
 
 export type TicketScope = "mine" | "team";
 
+/** Jira's default priority scheme — sent as `fields.priority.name` verbatim. */
+export type TicketPriority = "Highest" | "High" | "Medium" | "Low" | "Lowest";
+
 export type PortalUser = {
   id: string;
   email: string;
@@ -32,6 +35,7 @@ export type TicketSummary = {
   teamGroups: string[];
   rawStatus: string;
   stage: CustomerStage;
+  priority: TicketPriority;
   assigneeId: string;
   assigneeName: string;
   createdAt: string;
@@ -74,6 +78,7 @@ export type AdminTicketFilters = {
 
 export type CreateTicketInput = {
   requestType: string;
+  priority: TicketPriority;
   fields: Record<string, string>;
   idempotencyKey?: string;
 };

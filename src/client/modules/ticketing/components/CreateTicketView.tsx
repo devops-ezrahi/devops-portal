@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { log, warn, error as logError } from "../../../log";
 import { createTicket } from "../api";
-import type { RequestTypeDefinition, TicketDetail } from "../../../../server/types";
+import { defaultPriority, priorities, priorityResponseHours } from "../config";
+import type { RequestTypeDefinition, TicketDetail, TicketPriority } from "../../../../server/types";
 
 export function CreateTicketView({
   requestTypes,
@@ -14,12 +15,14 @@ export function CreateTicketView({
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [priority, setPriority] = useState<TicketPriority>(defaultPriority);
   const [submitting, setSubmitting] = useState(false);
   const selected = requestTypes[0];
 
   useEffect(() => {
     setTitle("");
     setDescription("");
+    setPriority(defaultPriority);
   }, []);
 
   async function submit(event: FormEvent) {
@@ -33,10 +36,11 @@ export function CreateTicketView({
       })
     );
     setSubmitting(true);
-    log("ticketing/create", "submitting", { requestType: selected.id, fields });
+    log("ticketing/create", "submitting", { requestType: selected.id, priority, fields });
     try {
       const result = await createTicket({
         requestType: selected.id,
+        priority,
         fields,
         // ponytail: crypto.randomUUID() requires a secure context (https/localhost);
         // this portal runs on plain http://*.homelab.local, so it's undefined there.
@@ -64,6 +68,21 @@ export function CreateTicketView({
           <label>
             <span>Description</span>
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} required />
+          </label>
+          <label>
+            <span>Priority</span>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value as TicketPriority)}
+              disabled={submitting}
+            >
+              {priorities.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+            <small className="field-hint">Response within {priorityResponseHours[priority]} hours</small>
           </label>
           <button className="primary" disabled={submitting}>
             <Send size={18} aria-hidden="true" /> Submit

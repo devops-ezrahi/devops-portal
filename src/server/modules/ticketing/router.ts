@@ -2,11 +2,13 @@ import express from "express";
 import { z } from "zod";
 import { requestCatalog } from "./catalog";
 import { displayNameFor, listAdminCandidates, requireAdmin } from "../../auth";
+import { ticketPriorities } from "./priority";
 import { customerStages } from "./status";
-import type { CustomerStage, TicketDetail, TicketSummary, TicketingApi } from "../../types";
+import type { CustomerStage, TicketDetail, TicketPriority, TicketSummary, TicketingApi } from "../../types";
 
 const createTicketSchema = z.object({
   requestType: z.string().min(1),
+  priority: z.enum(ticketPriorities as [TicketPriority, ...TicketPriority[]]),
   fields: z.record(z.string(), z.string()),
   idempotencyKey: z.string().optional()
 });

@@ -3,9 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { log, error as logError } from "../../../log";
 import { addAdminComment, updateAdminTicket } from "../api";
-import { stages } from "../config";
+import { priorityResponseHours, stages } from "../config";
 import type { AssigneeCandidate, CustomerStage, TicketDetail } from "../../../../server/types";
-import { formatDate, isStatusMessage, statusMessage, statusMessageText, stageClass } from "../utils";
+import { formatDate, isStatusMessage, priorityClass, statusMessage, statusMessageText, stageClass } from "../utils";
 
 export function AdminTicketDetail({
   assignee,
@@ -128,7 +128,12 @@ export function AdminTicketDetail({
 
   return (
     <article className="ticket-detail">
-      <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
+      <div className="badge-row">
+        <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
+        <span className={priorityClass(ticket.priority)} title={`Response within ${priorityResponseHours[ticket.priority]} hours`}>
+          {ticket.priority}
+        </span>
+      </div>
 
       <div className="detail-title-row">
         {isEditing ? (
