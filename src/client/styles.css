@@ -795,6 +795,14 @@ button:focus-visible {
   max-width: 100%;
 }
 
+/* Both slots hold names here, unlike the job rows the 55% cap was written
+   for. The left carries the id as well, so it wins the tie: the requester
+   yields first rather than "Unassigned" being crushed to "Una...". */
+.ticket-row .ticket-row-meta small.ticket-row-requester {
+  flex: 0 1 auto;
+  max-width: 45%;
+}
+
 /* Pinned to the right end of the badge row, so time-left reads at the top
    of the row opposite the stage/priority pills. */
 .ticket-row small.sla-remaining {
@@ -809,44 +817,11 @@ button:focus-visible {
   color: #ff6b6b;
 }
 
-.ticket-row small.ticket-row-assignee {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  flex-shrink: 0;
-}
-
-.ticket-row small.ticket-row-assignee.unassigned {
+/* Owner, inline after the ticket id. Outranks the row's blanket grey-out
+   rule so an unowned ticket still reads as one. */
+.ticket-row-origin .row-assignee.unassigned {
   color: #e05560;
-}
-
-.ticket-row small.ticket-row-assignee.assigned {
-  color: #84949b;
-}
-
-/* Ownership pill in the badge row. Quieter than the stage/priority pills
-   when owned, loud when nobody has picked the ticket up. */
-.assignee-pill {
-  width: max-content;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  border-radius: 999px;
-  padding: 4px 9px;
-  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.01em;
-}
-
-.assignee-pill.assigned {
-  background: #1e262b;
-  color: #9fb0b8;
-}
-
-.assignee-pill.unassigned {
-  background: #3a2024;
-  color: #e05560;
 }
 
 .ticket-row:hover,
@@ -880,6 +855,28 @@ button:focus-visible {
   background: #132a2c;
 }
 
+/* Past its response window: the whole row goes red rather than carrying a
+   badge. Declared after :hover and .selected because it ties with them on
+   specificity — hence the explicit combinations below, or an overdue row
+   would lose its hover feedback and its selected bar. */
+.ticket-row.overdue {
+  background: #2a1418;
+  box-shadow: inset 3px 0 0 #e05560;
+}
+
+.ticket-row.overdue strong {
+  color: #ffd9d5;
+}
+
+.ticket-row.overdue:hover {
+  background: #35191e;
+}
+
+.ticket-row.overdue.selected {
+  background: #3b1c22;
+  box-shadow: inset 3px 0 0 #20c7bd;
+}
+
 @keyframes row-glow {
   0%, 100% { box-shadow: 0 0 0 1px rgb(32 199 189 / 45%), 0 0 6px rgb(32 199 189 / 25%); }
   50%       { box-shadow: 0 0 0 1px rgb(32 199 189 / 85%), 0 0 14px rgb(32 199 189 / 55%); }
@@ -902,7 +899,7 @@ button:focus-visible {
   color: #ffffff;
 }
 
-.ticket-row span:not(.stage, .priority, .badge-row, .assignee-pill),
+.ticket-row span:not(.stage, .priority, .badge-row),
 .ticket-row small,
 .recent-row small,
 .catalog-item span,

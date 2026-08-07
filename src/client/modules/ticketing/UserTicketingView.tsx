@@ -4,7 +4,6 @@ import { log, error as logError } from "../../log";
 import { getRequestTypes, getTicket, listTickets } from "./api";
 import { CreateTicketView } from "./components/CreateTicketView";
 import { TicketDetailView } from "./components/TicketDetailView";
-import { SlaOverdue } from "./components/SlaOverdue";
 import { getTicketIdFromUrl, isDone, isOverdue, priorityClass, setTicketIdInUrl, stageClass } from "./utils";
 import type { RequestTypeDefinition, TicketDetail, TicketSummary } from "../../../server/types";
 
@@ -156,7 +155,11 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
             <div className="ticket-list">
               {activeTickets.map((ticket) => (
                 <button
-                  className={selectedTicket?.id === ticket.id ? "ticket-row selected" : "ticket-row"}
+                  className={[
+                    "ticket-row",
+                    selectedTicket?.id === ticket.id && "selected",
+                    isOverdue(ticket) && "overdue"
+                  ].filter(Boolean).join(" ")}
                   key={ticket.id}
                   onClick={() => openTicket(ticket.id).catch((err: Error) => onError(err.message))}
                 >
@@ -164,7 +167,6 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
                   <span className="badge-row">
                     <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
                     <span className={priorityClass(ticket.priority)}>{ticket.priority}</span>
-                    {isOverdue(ticket) && <SlaOverdue ticket={ticket} />}
                   </span>
                   <strong>{ticket.title}</strong>
                   <small>{ticket.id}</small>

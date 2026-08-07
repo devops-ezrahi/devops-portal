@@ -8,7 +8,6 @@ import {
 } from "./api";
 import { log, error as logError } from "../../log";
 import { AdminTicketDetail } from "./components/AdminTicketDetail";
-import { SlaOverdue } from "./components/SlaOverdue";
 import { SlaRemaining } from "./components/SlaRemaining";
 import { getTicketIdFromUrl, isDone, isOverdue, priorityClass, setTicketIdInUrl, stageClass, statusMessage } from "./utils";
 import type { AssigneeCandidate, PortalUser, TicketDetail, TicketSummary } from "../../../server/types";
@@ -27,12 +26,14 @@ function TicketRow({
   onOpen: (id: string) => void;
 }) {
   const requesterLabel = ticket.requesterName || ticket.requesterId;
+  const assigneeLabel = ticket.assigneeId ? ticket.assigneeName || ticket.assigneeId : "Unassigned";
   return (
     <button
       className={[
         "ticket-row",
         isSelected && "selected",
-        isUnread && "unread"
+        isUnread && "unread",
+        isOverdue(ticket) && "overdue"
       ].filter(Boolean).join(" ")}
       onClick={() => onOpen(ticket.id)}
     >
@@ -40,21 +41,18 @@ function TicketRow({
       <span className="badge-row">
         <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
         <span className={priorityClass(ticket.priority)}>{ticket.priority}</span>
-        {isOverdue(ticket) && <SlaOverdue ticket={ticket} />}
-        {/* Ownership is a triage signal, so it sits with the status pills —
-            "Unassigned" needs to be as loud as the stage. */}
-        <span className={ticket.assigneeId ? "assignee-pill assigned" : "assignee-pill unassigned"}>
-          {ticket.assigneeId ? ticket.assigneeName || ticket.assigneeId : "Unassigned"}
-        </span>
         <SlaRemaining ticket={ticket} />
       </span>
       <strong>{ticket.title}</strong>
       <div className="ticket-row-meta">
-        {/* Id and opener read as one "where this came from" line. The id
-            leads so an over-long name loses its tail, not the reference. */}
-        <small className="ticket-row-origin" title={`${ticket.id} — opened by ${requesterLabel}`}>
-          {ticket.id} · {requesterLabel}
+        {/* Id leads so an over-long owner name loses its tail, not the
+            reference someone needs to quote. */}
+        <small className="ticket-row-origin" title={`${ticket.id} — assigned to ${assigneeLabel}`}>
+          {ticket.id} · <span className={ticket.assigneeId ? "row-assignee" : "row-assignee unassigned"}>{assigneeLabel}</span>
         </small>
+        {/* Right-hand slot is "who raised this" portal-wide — same as the
+            submitter on artifactory/whitening job rows. */}
+        <small className="ticket-row-requester" title={`Opened by ${requesterLabel}`}>{requesterLabel}</small>
       </div>
     </button>
   );
