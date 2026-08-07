@@ -59,11 +59,11 @@ export function AdminTicketDetail({
   }, [ticket.id]);
 
   const parsedPoints = storyPoints.trim() === "" ? undefined : Number(storyPoints);
-  const hasPoints = parsedPoints !== undefined && Number.isInteger(parsedPoints) && parsedPoints >= 0;
+  const hasPoints = parsedPoints !== undefined && Number.isFinite(parsedPoints) && parsedPoints >= 0;
 
   async function savePoints() {
     if (parsedPoints === ticket.storyPoints) return;
-    if (!hasPoints) return log("ticketing/admin", "story points not a whole number — not saving", storyPoints);
+    if (!hasPoints) return log("ticketing/admin", "story points not a non-negative number — not saving", storyPoints);
     setSubmitting(true);
     log("ticketing/admin", "saving story points", ticket.id, parsedPoints);
     try {
@@ -248,7 +248,7 @@ export function AdminTicketDetail({
           <input
             type="number"
             min={0}
-            step={1}
+            step="any"
             value={storyPoints}
             placeholder="—"
             onChange={(e) => setStoryPoints(e.target.value)}

@@ -19,7 +19,9 @@ const commentSchema = z.object({
 
 const adminUpdateSchema = z.object({
   stage: z.enum(customerStages as [CustomerStage, ...CustomerStage[]]).optional(),
-  storyPoints: z.number().int().min(0).max(1000).optional(),
+  // Half points (0.5, 1.5) are normal estimation practice, so not .int().
+  // Bounded rather than free-form: z.number() alone would accept Infinity.
+  storyPoints: z.number().min(0).max(1000).optional(),
   rawStatus: z.string().trim().min(1).optional(),
   title: z.string().trim().min(1).optional(),
   description: z.string().trim().optional(),

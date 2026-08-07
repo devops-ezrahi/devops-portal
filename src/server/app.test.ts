@@ -183,4 +183,22 @@ describe("portal API", () => {
     // DEVOPS-1003 already carries points, so it closes without resupplying them.
     await admin(request(app).patch("/api/admin/tickets/DEVOPS-1003")).send({ stage: "Closed" }).expect(200);
   });
+
+  it("accepts fractional story points but not junk", async () => {
+    const app = ticketingApp();
+    const admin = (r: request.Test) =>
+      r.set("x-user-id", "u-admin").set("x-user-name", "Morgan Admin").set("x-user-groups", "portal-admins");
+
+    const half = await admin(request(app).patch("/api/admin/tickets/DEVOPS-1001"))
+      .send({ storyPoints: 0.5 })
+      .expect(200);
+    expect(half.body.ticket.storyPoints).toBe(0.5);
+
+    // 0.5 is a real estimate, so it satisfies the close gate.
+    await admin(request(app).patch("/api/admin/tickets/DEVOPS-1001")).send({ stage: "Closed" }).expect(200);
+
+    await admin(request(app).patch("/api/admin/tickets/DEVOPS-1002")).send({ storyPoints: -1 }).expect(400);
+    await admin(request(app).patch("/api/admin/tickets/DEVOPS-1002")).send({ storyPoints: 5000 }).expect(400);
+    await admin(request(app).patch("/api/admin/tickets/DEVOPS-1002")).send({ storyPoints: "3" }).expect(400);
+  });
 });
