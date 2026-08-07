@@ -26,6 +26,7 @@ function TicketRow({
   isUnread: boolean;
   onOpen: (id: string) => void;
 }) {
+  const requesterLabel = ticket.requesterName || ticket.requesterId;
   return (
     <button
       className={[
@@ -49,11 +50,10 @@ function TicketRow({
       </span>
       <strong>{ticket.title}</strong>
       <div className="ticket-row-meta">
-        <small>{ticket.id}</small>
-        {/* Right-hand slot is "who raised this" portal-wide — same as the
-            submitter on artifactory/whitening job rows. */}
-        <small title={`Opened by ${ticket.requesterName || ticket.requesterId}`}>
-          {ticket.requesterName || ticket.requesterId}
+        {/* Id and opener read as one "where this came from" line. The id
+            leads so an over-long name loses its tail, not the reference. */}
+        <small className="ticket-row-origin" title={`${ticket.id} — opened by ${requesterLabel}`}>
+          {ticket.id} · {requesterLabel}
         </small>
       </div>
     </button>

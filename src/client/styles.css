@@ -787,6 +787,14 @@ button:focus-visible {
   max-width: 55%;
 }
 
+/* Ticket queue: id and opener are one combined line, not a right-hand slot,
+   so they get the row's full width instead of that 55% cap. Specificity is
+   deliberately above the :last-child rule, which this element also matches. */
+.ticket-row .ticket-row-meta small.ticket-row-origin {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
 /* Pinned to the right end of the badge row, so time-left reads at the top
    of the row opposite the stage/priority pills. */
 .ticket-row small.sla-remaining {
