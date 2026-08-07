@@ -20,8 +20,13 @@ function nowIso() {
 }
 
 function summarize(ticket: TicketDetail): TicketSummary {
-  const { description: _description, comments: _comments, metadata: _metadata, ...summary } = ticket;
-  return summary;
+  const { description: _description, comments, metadata: _metadata, ...summary } = ticket;
+  return {
+    ...summary,
+    // Anyone other than the requester answering counts as the reply the SLA
+    // is waiting for; the requester talking to themselves does not.
+    respondedAt: comments.find((comment) => comment.authorId !== ticket.requesterId)?.createdAt
+  };
 }
 
 export class InMemoryTicketingApi implements TicketingApi {

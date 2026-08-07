@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isDone, isOverdue } from "./utils";
+import { formatSlaRemaining, isDone, isOverdue, slaRemainingMs } from "./utils";
 import type { TicketSummary } from "../../../server/types";
 
 function ticket(overrides: Partial<TicketSummary>): TicketSummary {
@@ -42,6 +42,36 @@ describe("isOverdue", () => {
     expect(isOverdue(ticket({ ...old, stage: "In Progress" }))).toBe(false);
     expect(isOverdue(ticket({ ...old, stage: "Closed" }))).toBe(false);
     expect(isOverdue(ticket({ ...old, stage: "Cancelled" }))).toBe(false);
+  });
+
+  it("stops flagging once the team has replied, even while still Submitted", () => {
+    const old = { priority: "Highest" as const, createdAt: hoursAgo(99) };
+    expect(isOverdue(ticket(old))).toBe(true);
+    expect(isOverdue(ticket({ ...old, respondedAt: hoursAgo(98) }))).toBe(false);
+  });
+});
+
+describe("slaRemainingMs", () => {
+  it("counts down while the promise is outstanding", () => {
+    // Low = 24h window, 4h elapsed.
+    const ms = slaRemainingMs(ticket({ priority: "Low", createdAt: hoursAgo(4) }));
+    expect(Math.round((ms ?? 0) / 3_600_000)).toBe(20);
+  });
+
+  it("is null once answered, moved on, or already blown", () => {
+    expect(slaRemainingMs(ticket({ priority: "Low", respondedAt: hoursAgo(1) }))).toBeNull();
+    expect(slaRemainingMs(ticket({ priority: "Low", stage: "In Progress" }))).toBeNull();
+    expect(slaRemainingMs(ticket({ priority: "Highest", createdAt: hoursAgo(9) }))).toBeNull();
+  });
+});
+
+describe("formatSlaRemaining", () => {
+  const m = (n: number) => n * 60_000;
+  it("shows minutes only when they add something", () => {
+    expect(formatSlaRemaining(m(180))).toBe("3h");
+    expect(formatSlaRemaining(m(200))).toBe("3h 20m");
+    expect(formatSlaRemaining(m(45))).toBe("45m");
+    expect(formatSlaRemaining(m(0.5))).toBe("0m");
   });
 });
 

@@ -25,11 +25,32 @@ export function slaDueAt(ticket: TicketSummary) {
   return new Date(ticket.createdAt).getTime() + priorityResponseHours[ticket.priority] * 3_600_000;
 }
 
-// "Answered" is approximated by the ticket leaving Submitted — that is the
-// only stage where nobody has picked it up yet, so it is the one the
-// response-time promise is actually about.
+// The clock stops the moment the customer hears back — either the team
+// replied, or the ticket moved off Submitted (picked up, closed, cancelled).
+// Single source of truth so the countdown and the Overdue badge cannot
+// disagree about whether the promise is still outstanding.
+export function slaRunning(ticket: TicketSummary) {
+  return ticket.stage === "Submitted" && !ticket.respondedAt;
+}
+
 export function isOverdue(ticket: TicketSummary) {
-  return ticket.stage === "Submitted" && Date.now() > slaDueAt(ticket);
+  return slaRunning(ticket) && Date.now() > slaDueAt(ticket);
+}
+
+/** Milliseconds left, or `null` once the clock has stopped or run out. */
+export function slaRemainingMs(ticket: TicketSummary) {
+  if (!slaRunning(ticket)) return null;
+  const remaining = slaDueAt(ticket) - Date.now();
+  return remaining > 0 ? remaining : null;
+}
+
+/** "3h", "3h 20m", "45m" — minutes only shown when they add something. */
+export function formatSlaRemaining(ms: number) {
+  const minutes = Math.floor(ms / 60_000);
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours === 0) return `${rest}m`;
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
 }
 
 const statusMessagePrefix = "[status] ";

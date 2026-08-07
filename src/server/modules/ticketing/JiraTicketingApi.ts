@@ -201,6 +201,9 @@ export class JiraTicketingApi implements TicketingApi {
       stage: mapInternalStatus(rawStatus),
       priority: parsePriority(fields.priority?.name),
       storyPoints: this.storyPointsOf(fields),
+      respondedAt: (fields.comment?.comments ?? []).find(
+        (comment) => this.userId(comment.author) !== this.userId(fields.reporter)
+      )?.created,
       assigneeId: this.userId(fields.assignee),
       assigneeName: fields.assignee ? this.userName(fields.assignee) : "",
       createdAt: created,
@@ -222,7 +225,9 @@ export class JiraTicketingApi implements TicketingApi {
   private async search(jql: string): Promise<JiraIssue[]> {
     const result = await this.request<JiraSearchResponse>("/search", {
       method: "POST",
-      body: JSON.stringify({ jql, maxResults: 100 })
+      // `comment` is not a navigable field, so it has to be asked for by name
+      // or every summary comes back looking like nobody has replied.
+      body: JSON.stringify({ jql, maxResults: 100, fields: ["*navigable", "comment"] })
     });
     return result.issues ?? [];
   }

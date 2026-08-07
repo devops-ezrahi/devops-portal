@@ -9,6 +9,7 @@ import {
 import { log, error as logError } from "../../log";
 import { AdminTicketDetail } from "./components/AdminTicketDetail";
 import { SlaOverdue } from "./components/SlaOverdue";
+import { SlaRemaining } from "./components/SlaRemaining";
 import { getTicketIdFromUrl, isDone, isOverdue, priorityClass, setTicketIdInUrl, stageClass, statusMessage } from "./utils";
 import type { AssigneeCandidate, PortalUser, TicketDetail, TicketSummary } from "../../../server/types";
 
@@ -41,6 +42,7 @@ function TicketRow({
         {isOverdue(ticket) && <SlaOverdue ticket={ticket} />}
       </span>
       <strong>{ticket.title}</strong>
+      <SlaRemaining ticket={ticket} />
       <div className="ticket-row-meta">
         <small>{ticket.id}</small>
         {ticket.assigneeId

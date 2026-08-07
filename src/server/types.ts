@@ -37,6 +37,12 @@ export type TicketSummary = {
   priority: TicketPriority;
   /** Admin-set effort estimate; required before a ticket can be Closed. */
   storyPoints?: number;
+  /**
+   * When the team first replied — the moment the response-time promise is
+   * met. Derived from comments, so the queue can stop the SLA clock without
+   * loading each ticket's full detail.
+   */
+  respondedAt?: string;
   assigneeId: string;
   assigneeName: string;
   createdAt: string;
