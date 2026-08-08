@@ -48,7 +48,7 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          repository: shugi12345/whitening-packer
+          repository: devops-ezrahi/whitening-packer
           path: .packer
           # token: ${{ secrets.PACKER_TOKEN }}   # only if that repo is private
 
