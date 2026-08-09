@@ -1,4 +1,4 @@
-import type { ResearchJob } from "../../../server/types";
+import type { ResearchCategory, ResearchConversation, ResearchJob } from "../../../server/types";
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
@@ -9,21 +9,35 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export async function fetchProjects(): Promise<string[]> {
-  const body = await requestJson<{ projects: string[] }>("/api/research/projects");
-  return body.projects;
+export async function fetchCategories(): Promise<ResearchCategory[]> {
+  const body = await requestJson<{ categories: ResearchCategory[] }>("/api/research/categories");
+  return body.categories;
 }
 
-export async function fetchJobs(): Promise<ResearchJob[]> {
-  const body = await requestJson<{ jobs: ResearchJob[] }>("/api/research/jobs");
+export async function fetchConversations(): Promise<ResearchConversation[]> {
+  const body = await requestJson<{ conversations: ResearchConversation[] }>("/api/research/conversations");
+  return body.conversations;
+}
+
+export async function createConversation(project: string): Promise<ResearchConversation> {
+  const body = await requestJson<{ conversation: ResearchConversation }>("/api/research/conversations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project }),
+  });
+  return body.conversation;
+}
+
+export async function fetchConversationJobs(conversationId: string): Promise<ResearchJob[]> {
+  const body = await requestJson<{ jobs: ResearchJob[] }>(`/api/research/conversations/${conversationId}/jobs`);
   return body.jobs;
 }
 
-export async function submitQuestion(project: string, question: string): Promise<ResearchJob> {
-  const body = await requestJson<{ job: ResearchJob }>("/api/research/jobs", {
+export async function submitQuestion(conversationId: string, question: string): Promise<ResearchJob> {
+  const body = await requestJson<{ job: ResearchJob }>(`/api/research/conversations/${conversationId}/jobs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ project, question }),
+    body: JSON.stringify({ question }),
   });
   return body.job;
 }

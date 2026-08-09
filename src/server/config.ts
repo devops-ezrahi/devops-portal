@@ -1,17 +1,46 @@
+import { readFileSync, readdirSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
+
 function requireEnv(name: string): string | undefined {
   return process.env[name] || undefined;
 }
 
-// "name=repoUrl|name=repoUrl" — "=" not ":" splits name from URL because both
-// https:// and git@host: URLs contain colons of their own.
-function parseResearchProjects(raw: string | undefined): Record<string, string> {
-  const projects: Record<string, string> = {};
-  for (const entry of (raw ?? "").split("|").map((e) => e.trim()).filter(Boolean)) {
-    const eq = entry.indexOf("=");
-    if (eq === -1) continue;
-    const name = entry.slice(0, eq).trim();
-    const url = entry.slice(eq + 1).trim();
-    if (name && url) projects[name] = url;
+export type ResearchProject = { description: string; repoUrl: string };
+
+// Registry lives as SKILL.md files, not an env var: opencode natively reads
+// skills from ~/.claude/skills/<name>/SKILL.md, so mounting one skill per
+// researchable repo there (dev: real home dir; prod: a ConfigMap volume,
+// see homelab) makes the same files double as this app's project registry.
+// Only `research-*`-prefixed skills count, so unrelated global skills
+// (usage-bar, whitening-packer, ...) aren't picked up as "repos".
+function scanResearchSkills(): Record<string, ResearchProject> {
+  const skillsDir = join(homedir(), ".claude", "skills");
+  const projects: Record<string, ResearchProject> = {};
+  let entries: string[];
+  try {
+    entries = readdirSync(skillsDir);
+  } catch {
+    return projects;
+  }
+
+  for (const entry of entries) {
+    if (!entry.startsWith("research-")) continue;
+    const skillPath = join(skillsDir, entry, "SKILL.md");
+    let text: string;
+    try {
+      text = readFileSync(skillPath, "utf8");
+    } catch {
+      continue;
+    }
+
+    const frontmatter = text.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? "";
+    const description = frontmatter.match(/^description:\s*(.+)$/m)?.[1]?.trim() ?? "";
+    const repoUrl = text.match(/^Repo:\s*(\S+)/m)?.[1]?.trim() ?? "";
+    if (!repoUrl) continue;
+
+    const name = entry.slice("research-".length);
+    projects[name] = { description, repoUrl };
   }
   return projects;
 }
@@ -28,7 +57,7 @@ const artifactoryCondaRepo = requireEnv("ARTIFACTORY_CONDA_REPO");
 const gitUrl = requireEnv("GIT_URL");
 const gitToken = requireEnv("GIT_TOKEN");
 
-const researchProjectsRaw = requireEnv("RESEARCH_PROJECTS");
+const researchProjects = scanResearchSkills();
 const opencodeApiKey = requireEnv("OPENCODE_API_KEY");
 
 const jiraUrl = requireEnv("JIRA_URL");
@@ -84,14 +113,14 @@ export const config = {
     enabled: !!(jiraUrl && jiraToken && jiraProjectKey),
   },
   research: {
-    // name -> git clone URL, e.g. { homelab: "git@github.com:owner/homelab.git" }
-    projects: parseResearchProjects(researchProjectsRaw),
+    // name -> { description, repoUrl }, sourced from ~/.claude/skills/research-*/SKILL.md
+    projects: researchProjects,
     // Empty is valid: opencode's own free-tier "opencode/*-free" models need
     // no key at all — a non-empty placeholder gets treated as a real key and
     // rejected. Only providers that actually require credentials (Anthropic,
     // OpenAI, ...) need this set.
     apiKey: opencodeApiKey ?? "",
     model: requireEnv("OPENCODE_MODEL") ?? "anthropic/claude-sonnet-5",
-    enabled: !!researchProjectsRaw,
+    enabled: Object.keys(researchProjects).length > 0,
   },
 };

@@ -3,8 +3,18 @@ import { useEffect, useRef, useState } from "react";
 import { getPortalConfig } from "../../api";
 import { log, warn, error as logError } from "../../log";
 import type { ModuleViewProps } from "../../moduleTypes";
-import type { ChatMessage, ResearchJob } from "../../../server/types";
-import { cancelJob, fetchJobs, fetchProjects, pollJob, submitQuestion } from "./api";
+import type { ChatMessage, ResearchCategory, ResearchConversation, ResearchJob } from "../../../server/types";
+import {
+  cancelJob,
+  createConversation,
+  fetchCategories,
+  fetchConversationJobs,
+  fetchConversations,
+  pollJob,
+  submitQuestion,
+} from "./api";
+import { CategoryPicker } from "./components/CategoryPicker";
+import { ConversationSidebar } from "./components/ConversationSidebar";
 import { MessageList } from "./components/MessageList";
 
 const POLL_MS = 2000;
@@ -29,9 +39,11 @@ function jobToMessages(job: ResearchJob): ChatMessage[] {
 
 export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
   const [researchEnabled, setResearchEnabled] = useState<boolean | null>(null);
-  const [projects, setProjects] = useState<string[]>([]);
-  const [project, setProject] = useState("");
+  const [categories, setCategories] = useState<ResearchCategory[]>([]);
+  const [conversations, setConversations] = useState<ResearchConversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [jobs, setJobs] = useState<ResearchJob[]>([]);
+  const [showPicker, setShowPicker] = useState(false);
   const [input, setInput] = useState("");
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -41,18 +53,19 @@ export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
   useEffect(() => {
     log("research", "view mounted");
     getPortalConfig().then((cfg) => {
-      if (!cfg.researchEnabled) warn("research", "disabled — RESEARCH_PROJECTS/OPENCODE_API_KEY not set on the server");
+      if (!cfg.researchEnabled) warn("research", "disabled — no research-* skills or OPENCODE_API_KEY not set");
       setResearchEnabled(cfg.researchEnabled ?? false);
     });
-    fetchProjects()
-      .then((names) => {
-        setProjects(names);
-        setProject((prev) => prev || names[0] || "");
+    fetchCategories()
+      .then(setCategories)
+      .catch((err) => logError("research", "failed to load categories", err));
+    fetchConversations()
+      .then((list) => {
+        setConversations(list);
+        if (list[0]) selectConversation(list[0].id);
       })
-      .catch((err) => logError("research", "failed to load projects", err));
-    fetchJobs()
-      .then((history) => setJobs(history.slice().reverse()))
-      .catch((err) => logError("research", "failed to load job history", err));
+      .catch((err) => logError("research", "failed to load conversations", err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -65,6 +78,29 @@ export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [jobs]);
+
+  function selectConversation(id: string) {
+    stopPollingRef.current = true;
+    setActiveJobId(null);
+    setActiveConversationId(id);
+    fetchConversationJobs(id)
+      .then(setJobs)
+      .catch((err) => logError("research", "failed to load conversation jobs", err));
+  }
+
+  async function pickCategory(project: string) {
+    try {
+      const conversation = await createConversation(project);
+      log("research", "conversation started", { id: conversation.id, project });
+      setConversations((prev) => [conversation, ...prev]);
+      setJobs([]);
+      setActiveConversationId(conversation.id);
+      setShowPicker(false);
+    } catch (err) {
+      logError("research", "failed to start conversation", err);
+      onError(err instanceof Error ? err.message : "Failed to start chat");
+    }
+  }
 
   function adjustTextarea() {
     const el = textareaRef.current;
@@ -88,6 +124,11 @@ export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
       setJobs((prev) => prev.map((j) => (j.id === jobId ? job : j)));
       if (!isPending(job.status)) {
         setActiveJobId(null);
+        setConversations((prev) =>
+          prev
+            .map((c) => (c.id === job.conversationId ? { ...c, updatedAt: job.updatedAt } : c))
+            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        );
         return;
       }
     }
@@ -95,8 +136,8 @@ export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
 
   async function sendMessage() {
     const question = input.trim();
-    if (!question || !project || activeJobId) {
-      log("research", "send ignored", { empty: !question, project, activeJobId });
+    if (!question || !activeConversationId || activeJobId) {
+      log("research", "send ignored", { empty: !question, activeConversationId, activeJobId });
       return;
     }
 
@@ -105,9 +146,9 @@ export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
     stopPollingRef.current = false;
 
     try {
-      const job = await submitQuestion(project, question);
-      log("research", "job submitted", { id: job.id, project });
-      setJobs((prev) => [job, ...prev]);
+      const job = await submitQuestion(activeConversationId, question);
+      log("research", "job submitted", { id: job.id, conversationId: activeConversationId });
+      setJobs((prev) => [...prev, job]);
       setActiveJobId(job.id);
       void pollUntilDone(job.id);
     } catch (err) {
@@ -147,38 +188,52 @@ export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
           <Search size={40} style={{ opacity: 0.25 }} aria-hidden="true" />
           <p style={{ margin: 0, fontWeight: 700, color: "#c8d3d7" }}>Research not configured</p>
           <p style={{ margin: 0, fontSize: 13, maxWidth: 420 }}>
-            Set <code>RESEARCH_PROJECTS</code> + <code>OPENCODE_API_KEY</code> (and optionally{" "}
-            <code>OPENCODE_MODEL</code>) — see <code>.env.example</code>.
+            Add a <code>research-*</code> skill under <code>~/.claude/skills/</code> and set{" "}
+            <code>OPENCODE_API_KEY</code> (optionally <code>OPENCODE_MODEL</code>) — see{" "}
+            <code>.env.example</code>.
           </p>
         </div>
       </div>
     );
   }
 
-  const messages = jobs.slice().reverse().flatMap(jobToMessages);
+  const activeConversation = conversations.find((c) => c.id === activeConversationId) ?? null;
+  const messages = jobs.flatMap(jobToMessages);
 
   return (
     <div className="chat-module">
+      <ConversationSidebar
+        conversations={conversations}
+        activeId={activeConversationId}
+        onNewChat={() => setShowPicker(true)}
+        onSwitchTo={selectConversation}
+      />
+
+      {showPicker && (
+        <CategoryPicker categories={categories} onPick={(p) => void pickCategory(p)} onClose={() => setShowPicker(false)} />
+      )}
+
       <div className="chat-main">
         <div className="chat-topbar">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Search size={17} style={{ color: "#20c7bd" }} aria-hidden="true" />
-            <h2 style={{ margin: 0, fontSize: 15 }}>Research</h2>
+            <h2 style={{ margin: 0, fontSize: 15 }}>
+              {activeConversation ? activeConversation.title || activeConversation.project : "Research"}
+            </h2>
           </div>
-          <select
-            value={project}
-            onChange={(e) => setProject(e.target.value)}
-            disabled={!!activeJobId || projects.length === 0}
-            aria-label="Project to research"
-          >
-            {projects.length === 0 && <option value="">No projects configured</option>}
-            {projects.map((name) => (
-              <option key={name} value={name}>{name}</option>
-            ))}
-          </select>
         </div>
 
-        <MessageList messages={messages} isPending={!!activeJobId} bottomRef={bottomRef} />
+        {!activeConversationId ? (
+          <div className="chat-empty">
+            <Search size={40} style={{ opacity: 0.18 }} aria-hidden="true" />
+            <p style={{ margin: 0, fontWeight: 700, color: "#c8d3d7" }}>Start a new chat</p>
+            <p style={{ margin: 0, fontSize: 13, maxWidth: 360 }}>
+              Pick what it's about — the repo stays fixed for the rest of that chat.
+            </p>
+          </div>
+        ) : (
+          <MessageList messages={messages} isPending={!!activeJobId} bottomRef={bottomRef} />
+        )}
 
         <div className="chat-input-row">
           <textarea
@@ -186,9 +241,13 @@ export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
             value={input}
             onChange={(e) => { setInput(e.target.value); adjustTextarea(); }}
             onKeyDown={handleKeyDown}
-            placeholder={project ? `Ask about ${project}… (Enter to send, Shift+Enter for new line)` : "No project selected"}
+            placeholder={
+              activeConversation
+                ? `Ask about ${activeConversation.project}… (Enter to send, Shift+Enter for new line)`
+                : "Start a new chat to ask a question"
+            }
             rows={1}
-            disabled={!!activeJobId || !project}
+            disabled={!!activeJobId || !activeConversationId}
           />
           {activeJobId ? (
             <button className="chat-send-btn" onClick={() => void stopActiveJob()} aria-label="Stop">
@@ -198,7 +257,7 @@ export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
             <button
               className="chat-send-btn"
               onClick={() => void sendMessage()}
-              disabled={!input.trim() || !project}
+              disabled={!input.trim() || !activeConversationId}
               aria-label="Send message"
             >
               <Send size={17} aria-hidden="true" />

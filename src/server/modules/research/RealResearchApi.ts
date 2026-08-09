@@ -5,7 +5,7 @@ import { dirname, join } from "path";
 import { promisify } from "util";
 import { config } from "../../config";
 import { redactSecrets } from "../../redact";
-import type { PortalUser, ResearchApi, ResearchJob } from "../../types";
+import type { PortalUser, ResearchApi, ResearchCategory, ResearchConversation, ResearchJob } from "../../types";
 
 const execFileAsync = promisify(execFile);
 const isWindows = platform() === "win32";
@@ -20,18 +20,6 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-// opencode writes its tool-use trace (glob/read/bash calls) to stderr, ANSI-
-// colored, with a "> build · <model>" banner line — this strips both down to
-// plain text so it can be shown as the job's "thinking".
-function stripOpencodeChrome(stderr: string): string | undefined {
-  const lines = stderr
-    .replace(/\x1b\[[0-9;]*m/g, "")
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith("> build"));
-  return lines.length > 0 ? lines.join("\n") : undefined;
-}
-
 async function pathExists(path: string): Promise<boolean> {
   try {
     await stat(path);
@@ -41,14 +29,40 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
+function truncateTitle(question: string): string {
+  return question.length > 60 ? question.slice(0, 60) + "…" : question;
+}
+
+type OpencodeEvent = {
+  type: string;
+  sessionID?: string;
+  part?: {
+    tool?: string;
+    text?: string;
+    state?: { input?: unknown };
+  };
+};
+
 export class RealResearchApi implements ResearchApi {
+  private conversations = new Map<string, ResearchConversation>();
   private jobs = new Map<string, ResearchJob>();
-  private counter = 0;
+  private conversationCounter = 0;
+  private jobCounter = 0;
   /** One per running job, so `cancelJob`/timeout can stop the work already in flight. */
   private controllers = new Map<string, AbortController>();
 
-  private newId() {
-    return `RES-${String(++this.counter).padStart(4, "0")}`;
+  private newConversationId() {
+    return `CONV-${String(++this.conversationCounter).padStart(4, "0")}`;
+  }
+
+  private newJobId() {
+    return `RES-${String(++this.jobCounter).padStart(4, "0")}`;
+  }
+
+  private patchConversation(conversationId: string, updates: Partial<ResearchConversation>) {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return;
+    Object.assign(conversation, { ...updates, updatedAt: nowIso() });
   }
 
   private patch(jobId: string, updates: Partial<ResearchJob>) {
@@ -69,31 +83,57 @@ export class RealResearchApi implements ResearchApi {
     return join(tmpdir(), "research-clones", safe);
   }
 
-  listProjects(): string[] {
-    return Object.keys(config.research.projects);
+  listCategories(): ResearchCategory[] {
+    return Object.entries(config.research.projects).map(([name, p]) => ({ name, description: p.description }));
   }
 
-  async submitQuestion(project: string, question: string, submitter: PortalUser): Promise<ResearchJob> {
+  async startConversation(project: string, submitter: PortalUser): Promise<ResearchConversation> {
+    if (!config.research.projects[project]) throw new Error(`Unknown project "${project}"`);
+    const conversation: ResearchConversation = {
+      id: this.newConversationId(),
+      title: "",
+      project,
+      submittedBy: submitter.id,
+      submittedByName: submitter.displayName,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    this.conversations.set(conversation.id, conversation);
+    return conversation;
+  }
+
+  async listConversations(user: PortalUser, allUsers = false): Promise<ResearchConversation[]> {
+    return [...this.conversations.values()]
+      .filter((c) => allUsers || c.submittedBy === user.id)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async submitQuestion(conversationId: string, question: string, submitter: PortalUser): Promise<ResearchJob> {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) throw new Error("Conversation not found");
+    if (!conversation.title) this.patchConversation(conversationId, { title: truncateTitle(question) });
+
     const job: ResearchJob = {
-      id: this.newId(),
+      id: this.newJobId(),
+      conversationId,
       status: "pending",
       submittedBy: submitter.id,
       submittedByName: submitter.displayName,
       createdAt: nowIso(),
       updatedAt: nowIso(),
-      project,
+      project: conversation.project,
       question,
       log: [],
     };
     this.jobs.set(job.id, job);
-    void this.run(job.id, project, question);
+    void this.run(job.id, conversationId, question);
     return job;
   }
 
-  async listJobs(user: PortalUser, allUsers = false): Promise<ResearchJob[]> {
+  async listJobs(conversationId: string, user: PortalUser, allUsers = false): Promise<ResearchJob[]> {
     return [...this.jobs.values()]
-      .filter((j) => allUsers || j.submittedBy === user.id)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      .filter((j) => j.conversationId === conversationId && (allUsers || j.submittedBy === user.id))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
   async getJob(jobId: string): Promise<ResearchJob | null> {
@@ -114,7 +154,7 @@ export class RealResearchApi implements ResearchApi {
     return job;
   }
 
-  private async run(jobId: string, project: string, question: string) {
+  private async run(jobId: string, conversationId: string, question: string) {
     const controller = new AbortController();
     this.controllers.set(jobId, controller);
     const signal = controller.signal;
@@ -133,20 +173,36 @@ export class RealResearchApi implements ResearchApi {
     try {
       this.patch(jobId, { status: "in-progress" });
 
-      const repoUrl = config.research.projects[project];
-      if (!repoUrl) throw new Error(`Unknown project "${project}"`);
-      const cloneDir = this.cloneDirFor(project);
+      const conversation = this.conversations.get(conversationId);
+      if (!conversation) throw new Error("Conversation not found");
+      const repoUrl = config.research.projects[conversation.project]?.repoUrl;
+      if (!repoUrl) throw new Error(`Unknown project "${conversation.project}"`);
+      const cloneDir = this.cloneDirFor(conversation.project);
 
       if (!(await pathExists(cloneDir))) {
-        this.appendLog(jobId, `Cloning ${project} ...`);
+        this.appendLog(jobId, `Cloning ${conversation.project} ...`);
         await mkdir(dirname(cloneDir), { recursive: true });
         await this.runCli(jobId, "git", ["clone", "--depth", "1", repoUrl, cloneDir], undefined, signal);
       } else {
-        this.appendLog(jobId, `Using existing clone of ${project}.`);
+        // Every question re-pulls — a plain `git pull` can choke on a shallow
+        // (--depth 1) history, so fetch + hard-reset instead.
+        this.appendLog(jobId, `Refreshing ${conversation.project} ...`);
+        await this.runCli(jobId, "git", ["fetch", "--depth", "1", "origin"], cloneDir, signal);
+        await this.runCli(jobId, "git", ["reset", "--hard", "origin/HEAD"], cloneDir, signal);
       }
 
       this.appendLog(jobId, "Asking opencode ...");
-      const { answer, thinking } = await this.askOpencode(jobId, cloneDir, question, signal);
+      const { answer, thinking, sessionId } = await this.askOpencode(
+        jobId,
+        cloneDir,
+        question,
+        conversation.opencodeSessionId,
+        signal
+      );
+
+      if (!conversation.opencodeSessionId && sessionId) {
+        this.patchConversation(conversationId, { opencodeSessionId: sessionId });
+      }
 
       if (this.jobs.get(jobId)?.status === "in-progress") {
         this.patch(jobId, { status: "completed", answer, thinking });
@@ -168,19 +224,28 @@ export class RealResearchApi implements ResearchApi {
     jobId: string,
     cwd: string,
     question: string,
+    existingSessionId: string | undefined,
     signal: AbortSignal
-  ): Promise<{ answer: string; thinking?: string }> {
+  ): Promise<{ answer: string; thinking?: string; sessionId?: string }> {
     // opencode resolves provider credentials from a PROVIDER_API_KEY env var,
     // e.g. anthropic/claude-sonnet-5 -> ANTHROPIC_API_KEY.
     const provider = config.research.model.split("/")[0] || "anthropic";
     const envVar = `${provider.toUpperCase()}_API_KEY`;
     const env = { ...process.env, [envVar]: config.research.apiKey };
-    this.appendLog(jobId, `$ opencode run --dir ${cwd} --model ${config.research.model} "<question>"`);
+    this.appendLog(
+      jobId,
+      `$ opencode run --dir ${cwd} --model ${config.research.model}` +
+        (existingSessionId ? ` --session ${existingSessionId}` : "") +
+        ` --format json "<question>"`
+    );
 
-    // spawn, not execFile: execFile only hands back stdout/stderr once the
-    // process exits, so the job's "thinking" only appeared after opencode had
-    // already finished. Reading the streams as data arrives lets each poll
-    // show more of the trace while the job is still in-progress.
+    // --format json: every event carries sessionID (continuity) and tool_use
+    // events give a structured trace instead of scraping ANSI terminal text.
+    // Confirmed empirically: all JSON events land on stdout, stderr is empty.
+    //
+    // spawn, not execFile: reading stdout as data arrives lets the job's
+    // "thinking" grow across polls instead of only appearing once the whole
+    // process exits.
     //
     // Plain spawn("opencode", [...]) hangs indefinitely on Windows when its
     // parent is node.exe rather than an interactive shell — reproduced with
@@ -195,38 +260,77 @@ export class RealResearchApi implements ResearchApi {
     const [bin, args, spawnEnv] = isWindows
       ? [
           "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
-          ["-c", 'opencode run --dir "$R_DIR" --model "$R_MODEL" --auto "$R_QUESTION" < /dev/null'],
-          { ...env, R_DIR: cwd, R_MODEL: config.research.model, R_QUESTION: question },
+          [
+            "-c",
+            'opencode run --dir "$R_DIR" --model "$R_MODEL" --auto --format json' +
+              (existingSessionId ? ' --session "$R_SESSION"' : "") +
+              ' "$R_QUESTION" < /dev/null',
+          ],
+          { ...env, R_DIR: cwd, R_MODEL: config.research.model, R_QUESTION: question, R_SESSION: existingSessionId ?? "" },
         ]
-      : (["opencode", ["run", "--dir", cwd, "--model", config.research.model, "--auto", question], env] as const);
+      : ([
+          "opencode",
+          [
+            "run",
+            "--dir", cwd,
+            "--model", config.research.model,
+            "--auto",
+            "--format", "json",
+            ...(existingSessionId ? ["--session", existingSessionId] : []),
+            question,
+          ],
+          env,
+        ] as const);
 
     return new Promise((resolve, reject) => {
       const child = spawn(bin, args, { env: spawnEnv, signal, stdio: ["ignore", "pipe", "pipe"] });
-      let stdout = "";
-      let stderr = "";
+      let buffer = "";
+      const thinkingLines: string[] = [];
+      const answerParts: string[] = [];
+      let sessionId: string | undefined;
+      let stderrText = "";
+
+      const handleLine = (line: string) => {
+        if (!line.trim()) return;
+        let event: OpencodeEvent;
+        try {
+          event = JSON.parse(line);
+        } catch {
+          return;
+        }
+        if (!sessionId && event.sessionID) sessionId = event.sessionID;
+        if (event.type === "tool_use" && event.part?.tool) {
+          const input = event.part.state?.input;
+          thinkingLines.push(input ? `${event.part.tool} ${JSON.stringify(input)}` : event.part.tool);
+          this.patch(jobId, { thinking: redactSecrets(thinkingLines.join("\n")) });
+        } else if (event.type === "text" && event.part?.text) {
+          answerParts.push(event.part.text);
+        }
+      };
 
       child.stdout.on("data", (chunk: Buffer) => {
-        stdout += chunk;
+        buffer += chunk;
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) handleLine(line);
       });
       child.stderr.on("data", (chunk: Buffer) => {
-        stderr += chunk;
-        const thinking = stripOpencodeChrome(stderr);
-        if (thinking) this.patch(jobId, { thinking: redactSecrets(thinking) });
+        stderrText += chunk;
       });
       child.on("error", (err: NodeJS.ErrnoException) => {
         reject(err.code === "ENOENT" ? new Error("opencode not found — ensure it is on PATH") : err);
       });
       child.on("close", (code) => {
+        if (buffer.trim()) handleLine(buffer);
         if (code === 0) {
-          const thinking = stripOpencodeChrome(stderr);
           resolve({
-            answer: stdout.trim() || "(opencode returned no answer)",
-            thinking: thinking ? redactSecrets(thinking) : undefined,
+            answer: answerParts.join("").trim() || "(opencode returned no answer)",
+            thinking: thinkingLines.length ? redactSecrets(thinkingLines.join("\n")) : undefined,
+            sessionId,
           });
           return;
         }
-        const detail = [stderr, stdout].find(Boolean) ?? `opencode exited with code ${code}`;
-        reject(new Error((stripOpencodeChrome(detail) ?? detail).trim()));
+        reject(new Error(stderrText.trim() || `opencode exited with code ${code}`));
       });
     });
   }

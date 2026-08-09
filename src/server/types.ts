@@ -242,8 +242,29 @@ export type ChatMessage = {
 
 export type ResearchJobStatus = "pending" | "in-progress" | "completed" | "failed" | "aborted";
 
+/** One researchable repo, sourced from a research-* skill file — shown in the new-chat category picker. */
+export type ResearchCategory = {
+  name: string;
+  description: string;
+};
+
+export type ResearchConversation = {
+  id: string;
+  /** First question, truncated — shown in the chat list. */
+  title: string;
+  /** Picked once at creation; fixed for the conversation's life. */
+  project: string;
+  /** Set after the first turn completes; reused via --session on every later turn. */
+  opencodeSessionId?: string;
+  submittedBy: string;
+  submittedByName: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ResearchJob = {
   id: string;
+  conversationId: string;
   status: ResearchJobStatus;
   submittedBy: string;
   submittedByName: string;
@@ -259,10 +280,12 @@ export type ResearchJob = {
 };
 
 export interface ResearchApi {
-  /** Names from RESEARCH_PROJECTS, for the project picker. */
-  listProjects(): string[];
-  submitQuestion(project: string, question: string, submitter: PortalUser): Promise<ResearchJob>;
-  listJobs(user: PortalUser, allUsers?: boolean): Promise<ResearchJob[]>;
+  /** Researchable repos, for the new-chat category picker. */
+  listCategories(): ResearchCategory[];
+  startConversation(project: string, submitter: PortalUser): Promise<ResearchConversation>;
+  listConversations(user: PortalUser, allUsers?: boolean): Promise<ResearchConversation[]>;
+  submitQuestion(conversationId: string, question: string, submitter: PortalUser): Promise<ResearchJob>;
+  listJobs(conversationId: string, user: PortalUser, allUsers?: boolean): Promise<ResearchJob[]>;
   getJob(jobId: string): Promise<ResearchJob | null>;
   /** `null` when there is no such job; already-finished jobs are left alone. */
   cancelJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<ResearchJob | null>;

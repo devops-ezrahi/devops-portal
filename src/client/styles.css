@@ -2053,6 +2053,43 @@ code {
   background: rgb(224 92 92 / 12%);
 }
 
+.chat-category-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 20px 20px;
+}
+
+.chat-category-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid #1e2d34;
+  background: #101a1f;
+  color: #c8d3d7;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.chat-category-item:hover {
+  background: #182229;
+  border-color: #2a3940;
+}
+
+.chat-category-name {
+  font-weight: 700;
+  font-size: 13.5px;
+  color: #f4f7f8;
+}
+
+.chat-category-description {
+  font-size: 12px;
+  color: #8d9ba2;
+}
+
 /* ── Main chat area ────────────────────────────────────────────────── */
 
 .chat-main {
