@@ -4,7 +4,7 @@ export type PortalConfig = {
   ssoRequired: boolean;
   ssoUrl: string;
   artifactoryEnabled: boolean;
-  chatEnabled: boolean;
+  researchEnabled: boolean;
 };
 
 export class UnauthenticatedError extends Error {

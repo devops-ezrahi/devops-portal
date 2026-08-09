@@ -11,7 +11,7 @@ import { AccessDeniedScreen } from "./AccessDeniedScreen";
 import { ErrorScreen } from "./ErrorScreen";
 import { LoginScreen } from "./LoginScreen";
 import { artifactoryModule } from "./modules/artifactory";
-import { ragflowModule } from "./modules/ragflow";
+import { researchModule } from "./modules/research";
 import { ticketingModule } from "./modules/ticketing";
 import { whiteningModule } from "./modules/whitening";
 import type { PortalModule } from "./moduleTypes";
@@ -21,7 +21,7 @@ import type { PortalUser } from "../server/types";
 // package.json before `docker build`, so this is the released version.
 import { version } from "../../package.json";
 
-const modules: PortalModule[] = [ticketingModule, artifactoryModule, whiteningModule, ragflowModule];
+const modules: PortalModule[] = [ticketingModule, artifactoryModule, whiteningModule, researchModule];
 
 function slugFor(mod: PortalModule) {
   return mod.userNav.label.toLowerCase();

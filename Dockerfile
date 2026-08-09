@@ -31,10 +31,23 @@ FROM node:20-slim AS production
 # as a 502 from the ingress rather than an obvious crash. This went unnoticed
 # while the cluster served plain HTTP.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
 
-RUN groupadd --system appgroup && useradd --system --gid appgroup --no-create-home appuser
+# Research module's engine. Installed globally, invoked as a child process
+# per question (see src/server/modules/research/RealResearchApi.ts).
+RUN npm install -g opencode-ai
+
+# --create-home (not the previous --no-create-home): the Research module's
+# opencode config and skill discovery both live under ~ for whichever repo
+# opencode is pointed at (opencode.json's permission block, and any skills
+# ConfigMap mounted at ~/.claude/skills — see homelab chart). ENV HOME is set
+# explicitly rather than relying on useradd's default, so that path is fixed.
+RUN groupadd --system appgroup && useradd --system --gid appgroup --create-home appuser
+ENV HOME=/home/appuser
+RUN mkdir -p /home/appuser/.config/opencode
+COPY docker/opencode.json /home/appuser/.config/opencode/opencode.json
+RUN chown -R appuser:appgroup /home/appuser
 
 WORKDIR /app
 

@@ -11,7 +11,8 @@ vi.mock("../../config", () => ({
       mavenRepo: "maven-local",
       rpmRepo: "rpm-local",
     },
-    git: { token: "" }, // redactSecrets reads both
+    git: { token: "" }, // redactSecrets reads all three
+    research: { apiKey: "" },
   },
 }));
 

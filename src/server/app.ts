@@ -5,19 +5,21 @@ import { isAdmin, requireSession, setDevRole } from "./auth";
 import { config } from "./config";
 import { RealArtifactoryApi } from "./modules/artifactory/RealArtifactoryApi";
 import { createArtifactoryRouter } from "./modules/artifactory/router";
-import { createRagflowRouter } from "./modules/ragflow/router";
+import { RealResearchApi } from "./modules/research/RealResearchApi";
+import { createResearchRouter } from "./modules/research/router";
 import { InMemoryTicketingApi } from "./modules/ticketing/InMemoryTicketingApi";
 import { JiraTicketingApi } from "./modules/ticketing/JiraTicketingApi";
 import { createTicketingRouter } from "./modules/ticketing/router";
 import { RealWhiteningApi } from "./modules/whitening/RealWhiteningApi";
 import { createWhiteningRouter } from "./modules/whitening/router";
 import { sweepOldTmpDirs } from "./tmp";
-import type { ArtifactoryApi, TicketingApi, WhiteningApi } from "./types";
+import type { ArtifactoryApi, ResearchApi, TicketingApi, WhiteningApi } from "./types";
 
 export function createApp(
   ticketingApi: TicketingApi = config.jira.enabled ? new JiraTicketingApi(config.jira) : new InMemoryTicketingApi(),
   artifactoryApi: ArtifactoryApi = new RealArtifactoryApi(),
-  whiteningApi: WhiteningApi = new RealWhiteningApi()
+  whiteningApi: WhiteningApi = new RealWhiteningApi(),
+  researchApi: ResearchApi = new RealResearchApi()
 ) {
   void sweepOldTmpDirs();
   // Dev mode is "no SSO proxy in front" — the same switch that makes `auth.ts`
@@ -42,10 +44,12 @@ export function createApp(
   } else {
     console.log("[ticketing] in-memory fallback (set JIRA_URL + JIRA_TOKEN + JIRA_PROJECT_KEY for Jira)");
   }
-  if (config.chat.enabled) {
-    console.log(`[chat] url: ${config.chat.apiUrl}, model: ${config.chat.model}`);
+  if (config.research.enabled) {
+    console.log(
+      `[research] opencode model: ${config.research.model}, projects: ${Object.keys(config.research.projects).join(", ") || "(none)"}`
+    );
   } else {
-    console.log("[chat] not configured (set CHAT_API_URL + CHAT_API_KEY)");
+    console.log("[research] not configured (set RESEARCH_PROJECTS + OPENCODE_API_KEY)");
   }
 
   const app = express();
@@ -58,7 +62,7 @@ export function createApp(
     res.json({
       ssoUrl: config.ssoUrl,
       artifactoryEnabled: config.artifactory.enabled,
-      chatEnabled: config.chat.enabled,
+      researchEnabled: config.research.enabled,
     });
   });
 
@@ -79,7 +83,7 @@ export function createApp(
   app.use(createTicketingRouter(ticketingApi));
   app.use(createArtifactoryRouter(artifactoryApi));
   app.use(createWhiteningRouter(whiteningApi));
-  app.use(createRagflowRouter());
+  app.use(createResearchRouter(researchApi));
 
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (error instanceof z.ZodError) {

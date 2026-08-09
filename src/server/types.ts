@@ -233,17 +233,35 @@ export interface WhiteningApi {
   cancelJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<WhiteningJob | null>;
 }
 
-// ---- RAGFlow / Chat Module ----
+// ---- Research Module ----
 
 export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
 };
 
-export type ChatSession = {
+export type ResearchJobStatus = "pending" | "in-progress" | "completed" | "failed" | "aborted";
+
+export type ResearchJob = {
   id: string;
-  title: string;
-  messages: ChatMessage[];
-  createdAt: number;
-  updatedAt: number;
+  status: ResearchJobStatus;
+  submittedBy: string;
+  submittedByName: string;
+  createdAt: string;
+  updatedAt: string;
+  project: string;
+  question: string;
+  answer?: string;
+  errorMessage?: string;
+  log: JobLogEntry[];
 };
+
+export interface ResearchApi {
+  /** Names from RESEARCH_PROJECTS, for the project picker. */
+  listProjects(): string[];
+  submitQuestion(project: string, question: string, submitter: PortalUser): Promise<ResearchJob>;
+  listJobs(user: PortalUser, allUsers?: boolean): Promise<ResearchJob[]>;
+  getJob(jobId: string): Promise<ResearchJob | null>;
+  /** `null` when there is no such job; already-finished jobs are left alone. */
+  cancelJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<ResearchJob | null>;
+}

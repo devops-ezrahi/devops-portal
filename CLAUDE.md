@@ -29,7 +29,7 @@ src/
     modules/
       ticketing/      # router.ts + JiraTicketingApi.ts + InMemoryTicketingApi.ts + domain files
       artifactory/    # router.ts + RealArtifactoryApi.ts
-      ragflow/        # router.ts (single real backend, reads config.chat)
+      research/       # router.ts + RealResearchApi.ts (clones a registered repo, asks opencode CLI)
   client/
     App.tsx           # thin shell: loads /api/me, renders nav, mounts active module View
     api.ts            # cross-cutting fetch helpers only (request, getMe, getPortalConfig, demo users)
@@ -49,7 +49,7 @@ Each feature is a self-contained module in two mirrored folders. **Conform new m
 
 - `router.ts` exports `create<Name>Router(...)` and is mounted in `src/server/app.ts`.
 - The data layer lives **inside the module folder** — never add data files at `src/server/*.ts`.
-- **Inject the data API into the router only when more than one implementation exists.** Ticketing (`JiraTicketingApi` / `InMemoryTicketingApi`) and Artifactory (`RealArtifactoryApi`) take an injected API instance — this keeps them swappable and unit-testable. Single-backend modules (`ragflow`) keep their logic in a sibling `service.ts` (or inline in the router for `ragflow`) that the router imports directly; no DI ceremony.
+- **Inject the data API into the router only when more than one implementation exists.** Ticketing (`JiraTicketingApi` / `InMemoryTicketingApi`), Artifactory (`RealArtifactoryApi`), Whitening (`RealWhiteningApi`) and Research (`RealResearchApi`) take an injected API instance — this keeps them swappable and unit-testable.
 - `app.ts` selects the implementation by config, e.g. `config.jira.enabled ? new JiraTicketingApi(config.jira) : new InMemoryTicketingApi()`.
 
 **Client** — `src/client/modules/<name>/`:
@@ -89,7 +89,7 @@ Key variables (see `.env.example`):
 | `GIT_USERNAME`                                               | —               | Empty (default) puts the token alone in the clone URL; set it only if Bitbucket wants `username:token` basic auth           |
 | `JIRA_URL` / `JIRA_TOKEN` / `JIRA_PROJECT_KEY`               | —               | All three required to activate `JiraTicketingApi` (Jira Data Center, Bearer PAT); otherwise `InMemoryTicketingApi` fallback |
 | `JIRA_STORY_POINTS_FIELD`                                    | —               | Custom-field id holding story points (e.g. `customfield_10016`) — instance-specific; unset = points stay portal-only and are not synced to Jira |
-| `CHAT_API_URL` / `CHAT_API_KEY`                              | —               | Both required to enable the chat proxy; otherwise `/api/ragflow/chat` returns 503                                           |
+| `RESEARCH_PROJECTS` / `OPENCODE_API_KEY`                     | —               | Both required to activate the Research module. `RESEARCH_PROJECTS` is pipe-separated `name=gitCloneUrl` pairs; the server clones on first question and answers via `opencode` CLI. `OPENCODE_MODEL` (default `anthropic/claude-sonnet-5`) picks the provider — the env var opencode reads for credentials is derived from it (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) |
 
 `whitening.json` at the repo root is read by the whitening packer, not by the app, and now
 holds only `images: false`. **Department, team and repository come from the CI job that

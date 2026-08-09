@@ -2,6 +2,20 @@ function requireEnv(name: string): string | undefined {
   return process.env[name] || undefined;
 }
 
+// "name=repoUrl|name=repoUrl" — "=" not ":" splits name from URL because both
+// https:// and git@host: URLs contain colons of their own.
+function parseResearchProjects(raw: string | undefined): Record<string, string> {
+  const projects: Record<string, string> = {};
+  for (const entry of (raw ?? "").split("|").map((e) => e.trim()).filter(Boolean)) {
+    const eq = entry.indexOf("=");
+    if (eq === -1) continue;
+    const name = entry.slice(0, eq).trim();
+    const url = entry.slice(eq + 1).trim();
+    if (name && url) projects[name] = url;
+  }
+  return projects;
+}
+
 const artifactoryUrl = requireEnv("ARTIFACTORY_URL");
 const artifactoryRepo = requireEnv("ARTIFACTORY_REPO");
 const artifactoryToken = requireEnv("ARTIFACTORY_TOKEN");
@@ -14,8 +28,8 @@ const artifactoryCondaRepo = requireEnv("ARTIFACTORY_CONDA_REPO");
 const gitUrl = requireEnv("GIT_URL");
 const gitToken = requireEnv("GIT_TOKEN");
 
-const chatApiUrl = requireEnv("CHAT_API_URL");
-const chatApiKey = requireEnv("CHAT_API_KEY");
+const researchProjectsRaw = requireEnv("RESEARCH_PROJECTS");
+const opencodeApiKey = requireEnv("OPENCODE_API_KEY");
 
 const jiraUrl = requireEnv("JIRA_URL");
 const jiraToken = requireEnv("JIRA_TOKEN");
@@ -69,10 +83,11 @@ export const config = {
     storyPointsField: jiraStoryPointsField ?? "",
     enabled: !!(jiraUrl && jiraToken && jiraProjectKey),
   },
-  chat: {
-    apiUrl: chatApiUrl ?? "",
-    apiKey: chatApiKey ?? "",
-    model: requireEnv("CHAT_MODEL") ?? "gpt-4o-mini",
-    enabled: !!(chatApiUrl && chatApiKey),
+  research: {
+    // name -> git clone URL, e.g. { homelab: "git@github.com:owner/homelab.git" }
+    projects: parseResearchProjects(researchProjectsRaw),
+    apiKey: opencodeApiKey ?? "",
+    model: requireEnv("OPENCODE_MODEL") ?? "anthropic/claude-sonnet-5",
+    enabled: !!(researchProjectsRaw && opencodeApiKey),
   },
 };
