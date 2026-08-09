@@ -18,9 +18,12 @@ function jobToMessages(job: ResearchJob): ChatMessage[] {
     job.status === "failed" ? `⚠️ ${job.errorMessage ?? "Failed"}` :
     job.status === "aborted" ? "_Stopped._" :
     (job.answer ?? "");
+  // Rendered as a blockquote so it reads as opencode's own tool trace, not
+  // part of the answer — markdown blockquotes need no extra rendering setup.
+  const thinking = job.thinking ? job.thinking.split("\n").map((l) => `> ${l}`).join("\n") + "\n\n" : "";
   return [
     { role: "user", content: job.question },
-    { role: "assistant", content: answer },
+    { role: "assistant", content: thinking + answer },
   ];
 }
 

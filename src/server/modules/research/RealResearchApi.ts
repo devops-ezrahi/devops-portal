@@ -20,6 +20,18 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+// opencode writes its tool-use trace (glob/read/bash calls) to stderr, ANSI-
+// colored, with a "> build · <model>" banner line — this strips both down to
+// plain text so it can be shown as the job's "thinking".
+function stripOpencodeChrome(stderr: string): string | undefined {
+  const lines = stderr
+    .replace(/\x1b\[[0-9;]*m/g, "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("> build"));
+  return lines.length > 0 ? lines.join("\n") : undefined;
+}
+
 async function pathExists(path: string): Promise<boolean> {
   try {
     await stat(path);
@@ -134,10 +146,10 @@ export class RealResearchApi implements ResearchApi {
       }
 
       this.appendLog(jobId, "Asking opencode ...");
-      const answer = await this.askOpencode(jobId, cloneDir, question, signal);
+      const { answer, thinking } = await this.askOpencode(jobId, cloneDir, question, signal);
 
       if (this.jobs.get(jobId)?.status === "in-progress") {
-        this.patch(jobId, { status: "completed", answer });
+        this.patch(jobId, { status: "completed", answer, thinking });
         this.appendLog(jobId, "Done.");
       }
     } catch (err) {
@@ -152,7 +164,12 @@ export class RealResearchApi implements ResearchApi {
     }
   }
 
-  private async askOpencode(jobId: string, cwd: string, question: string, signal: AbortSignal): Promise<string> {
+  private async askOpencode(
+    jobId: string,
+    cwd: string,
+    question: string,
+    signal: AbortSignal
+  ): Promise<{ answer: string; thinking?: string }> {
     // opencode resolves provider credentials from a PROVIDER_API_KEY env var,
     // e.g. anthropic/claude-sonnet-5 -> ANTHROPIC_API_KEY.
     const provider = config.research.model.split("/")[0] || "anthropic";
@@ -185,7 +202,11 @@ export class RealResearchApi implements ResearchApi {
             ["run", "--dir", cwd, "--model", config.research.model, "--auto", question],
             { maxBuffer: 20 * 1024 * 1024, signal, env }
           );
-      return result.stdout.trim() || "(opencode returned no answer)";
+      const thinking = stripOpencodeChrome(result.stderr);
+      return {
+        answer: result.stdout.trim() || "(opencode returned no answer)",
+        thinking: thinking ? redactSecrets(thinking) : undefined,
+      };
     } catch (err: unknown) {
       const e = err as NodeJS.ErrnoException & { stderr?: string; stdout?: string };
       if (e.code === "ENOENT") throw new Error("opencode not found — ensure it is on PATH");

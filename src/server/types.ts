@@ -251,6 +251,8 @@ export type ResearchJob = {
   updatedAt: string;
   project: string;
   question: string;
+  /** opencode's own tool-use trace (glob/read/bash calls) — its "thinking", not the final answer. */
+  thinking?: string;
   answer?: string;
   errorMessage?: string;
   log: JobLogEntry[];
