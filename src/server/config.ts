@@ -8,14 +8,17 @@ function requireEnv(name: string): string | undefined {
 
 export type ResearchProject = { description: string; repoUrl: string };
 
-// Registry lives as SKILL.md files, not an env var: opencode natively reads
-// skills from ~/.claude/skills/<name>/SKILL.md, so mounting one skill per
-// researchable repo there (dev: real home dir; prod: a ConfigMap volume,
-// see homelab) makes the same files double as this app's project registry.
-// Only `research-*`-prefixed skills count, so unrelated global skills
-// (usage-bar, whitening-packer, ...) aren't picked up as "repos".
+// Registry lives as SKILL.md-shaped files, not an env var — but only this
+// app's own code ever reads them (opencode's own skill-discovery is never
+// invoked for the research flow itself), so the directory is entirely our
+// choice, not constrained to opencode's global skills path. RESEARCH_SKILLS_DIR
+// makes it mountable wherever a given environment wants — a different
+// ConfigMap path per cluster/deployment, no code change needed. Defaults to
+// ~/.claude/skills so local dev keeps working with no env var set. Only
+// `research-*`-prefixed entries count, everywhere, so a shared directory
+// doesn't pick up unrelated skills (usage-bar, whitening-packer, ...) as repos.
 function scanResearchSkills(): Record<string, ResearchProject> {
-  const skillsDir = join(homedir(), ".claude", "skills");
+  const skillsDir = requireEnv("RESEARCH_SKILLS_DIR") ?? join(homedir(), ".claude", "skills");
   const projects: Record<string, ResearchProject> = {};
   let entries: string[];
   try {
