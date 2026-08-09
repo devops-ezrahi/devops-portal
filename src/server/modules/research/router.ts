@@ -3,7 +3,7 @@ import { z } from "zod";
 import { isAdmin } from "../../auth";
 import type { ResearchApi } from "../../types";
 
-const startSchema = z.object({ project: z.string().min(1) });
+const startSchema = z.object({ project: z.string().min(1).nullable() });
 const questionSchema = z.object({ question: z.string().min(1) });
 
 export function createResearchRouter(api: ResearchApi): express.Router {
@@ -16,7 +16,7 @@ export function createResearchRouter(api: ResearchApi): express.Router {
   router.post("/api/research/conversations", async (req, res, next) => {
     try {
       const { project } = startSchema.parse(req.body);
-      if (!api.listCategories().some((c) => c.name === project)) {
+      if (project && !api.listCategories().some((c) => c.name === project)) {
         res.status(400).json({ error: `Unknown project "${project}"` });
         return;
       }

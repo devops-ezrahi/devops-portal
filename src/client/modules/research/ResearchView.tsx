@@ -88,7 +88,7 @@ export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
       .catch((err) => logError("research", "failed to load conversation jobs", err));
   }
 
-  async function pickCategory(project: string) {
+  async function pickCategory(project: string | null) {
     try {
       const conversation = await createConversation(project);
       log("research", "conversation started", { id: conversation.id, project });
@@ -124,11 +124,12 @@ export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
       setJobs((prev) => prev.map((j) => (j.id === jobId ? job : j)));
       if (!isPending(job.status)) {
         setActiveJobId(null);
-        setConversations((prev) =>
-          prev
-            .map((c) => (c.id === job.conversationId ? { ...c, updatedAt: job.updatedAt } : c))
-            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-        );
+        // Re-fetch rather than patch in place: an "I'm not sure" conversation's
+        // `project` only resolves server-side once this turn's classification
+        // step runs, so a partial local patch would miss it.
+        fetchConversations()
+          .then(setConversations)
+          .catch((err) => logError("research", "failed to refresh conversations", err));
         return;
       }
     }
@@ -218,7 +219,7 @@ export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Search size={17} style={{ color: "#20c7bd" }} aria-hidden="true" />
             <h2 style={{ margin: 0, fontSize: 15 }}>
-              {activeConversation ? activeConversation.title || activeConversation.project : "Research"}
+              {activeConversation ? activeConversation.title || activeConversation.project || "New chat" : "Research"}
             </h2>
           </div>
         </div>
@@ -242,9 +243,11 @@ export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
             onChange={(e) => { setInput(e.target.value); adjustTextarea(); }}
             onKeyDown={handleKeyDown}
             placeholder={
-              activeConversation
-                ? `Ask about ${activeConversation.project}… (Enter to send, Shift+Enter for new line)`
-                : "Start a new chat to ask a question"
+              !activeConversation
+                ? "Start a new chat to ask a question"
+                : activeConversation.project
+                  ? `Ask about ${activeConversation.project}… (Enter to send, Shift+Enter for new line)`
+                  : "Ask your question — I'll figure out which repo fits"
             }
             rows={1}
             disabled={!!activeJobId || !activeConversationId}

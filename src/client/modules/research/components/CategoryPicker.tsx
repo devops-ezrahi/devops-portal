@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { HelpCircle, X } from "lucide-react";
 import type { ResearchCategory } from "../../../../server/types";
 
 export function CategoryPicker({
@@ -7,7 +7,7 @@ export function CategoryPicker({
   onClose,
 }: {
   categories: ResearchCategory[];
-  onPick: (name: string) => void;
+  onPick: (name: string | null) => void;
   onClose: () => void;
 }) {
   return (
@@ -32,6 +32,17 @@ export function CategoryPicker({
               {c.description && <span className="chat-category-description">{c.description}</span>}
             </button>
           ))}
+          {categories.length > 1 && (
+            <button className="chat-category-item chat-category-unsure" onClick={() => onPick(null)}>
+              <span className="chat-category-name">
+                <HelpCircle size={14} aria-hidden="true" style={{ marginRight: 6, verticalAlign: -2 }} />
+                I'm not sure
+              </span>
+              <span className="chat-category-description">
+                Ask your question first — it'll figure out which repo fits from the list above.
+              </span>
+            </button>
+          )}
         </div>
       </section>
     </div>

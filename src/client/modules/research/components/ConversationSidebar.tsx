@@ -27,9 +27,9 @@ export function ConversationSidebar({
             key={c.id}
             className={`chat-sidebar-item${c.id === activeId ? " active" : ""}`}
             onClick={() => onSwitchTo(c.id)}
-            title={c.title || c.project}
+            title={c.title || c.project || "New chat"}
           >
-            <span className="chat-sidebar-title">{c.title || c.project}</span>
+            <span className="chat-sidebar-title">{c.title || c.project || "New chat"}</span>
           </button>
         ))}
       </div>

@@ -19,7 +19,7 @@ export async function fetchConversations(): Promise<ResearchConversation[]> {
   return body.conversations;
 }
 
-export async function createConversation(project: string): Promise<ResearchConversation> {
+export async function createConversation(project: string | null): Promise<ResearchConversation> {
   const body = await requestJson<{ conversation: ResearchConversation }>("/api/research/conversations", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

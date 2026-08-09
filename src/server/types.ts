@@ -252,8 +252,12 @@ export type ResearchConversation = {
   id: string;
   /** First question, truncated — shown in the chat list. */
   title: string;
-  /** Picked once at creation; fixed for the conversation's life. */
-  project: string;
+  /**
+   * Picked once, fixed for the conversation's life. `null` means "not sure" —
+   * the first question classifies it, using the same skill-derived category
+   * list, before that turn proceeds.
+   */
+  project: string | null;
   /** Set after the first turn completes; reused via --session on every later turn. */
   opencodeSessionId?: string;
   submittedBy: string;
@@ -282,7 +286,8 @@ export type ResearchJob = {
 export interface ResearchApi {
   /** Researchable repos, for the new-chat category picker. */
   listCategories(): ResearchCategory[];
-  startConversation(project: string, submitter: PortalUser): Promise<ResearchConversation>;
+  /** `project: null` starts an "I'm not sure" conversation — classified from the first question. */
+  startConversation(project: string | null, submitter: PortalUser): Promise<ResearchConversation>;
   listConversations(user: PortalUser, allUsers?: boolean): Promise<ResearchConversation[]>;
   submitQuestion(conversationId: string, question: string, submitter: PortalUser): Promise<ResearchJob>;
   listJobs(conversationId: string, user: PortalUser, allUsers?: boolean): Promise<ResearchJob[]>;

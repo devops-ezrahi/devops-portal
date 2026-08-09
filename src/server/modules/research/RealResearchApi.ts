@@ -83,12 +83,42 @@ export class RealResearchApi implements ResearchApi {
     return join(tmpdir(), "research-clones", safe);
   }
 
+  /**
+   * "I'm not sure" conversations: pick a category from the question text
+   * itself, using the same skill-derived category list the picker shows —
+   * one opencode call, no repo clone needed since it only reasons over the
+   * category descriptions we already have, not any file contents.
+   */
+  private async classifyProject(jobId: string, question: string, signal: AbortSignal): Promise<string> {
+    const categories = this.listCategories();
+    if (categories.length === 0) throw new Error("No research categories configured");
+    if (categories.length === 1) return categories[0].name;
+
+    this.appendLog(jobId, "Figuring out which repo fits your question ...");
+    const scratchDir = join(tmpdir(), "research-clones", "_classify");
+    await mkdir(scratchDir, { recursive: true });
+
+    const list = categories.map((c) => `- ${c.name}: ${c.description}`).join("\n");
+    const prompt =
+      `Categories:\n${list}\n\nQuestion: ${question}\n\n` +
+      `Which category best fits this question? Reply with ONLY the category name from the list above, nothing else.`;
+
+    const { answer } = await this.askOpencode(jobId, scratchDir, prompt, undefined, signal);
+    const picked = answer.trim().split("\n")[0].replace(/[.:,]+$/, "").trim().toLowerCase();
+    const match = categories.find((c) => c.name.toLowerCase() === picked || picked.includes(c.name.toLowerCase()));
+    if (!match) {
+      throw new Error(`Couldn't tell which repo fits (got "${answer.trim()}") — start a new chat and pick one explicitly.`);
+    }
+    this.appendLog(jobId, `Chose: ${match.name}`);
+    return match.name;
+  }
+
   listCategories(): ResearchCategory[] {
     return Object.entries(config.research.projects).map(([name, p]) => ({ name, description: p.description }));
   }
 
-  async startConversation(project: string, submitter: PortalUser): Promise<ResearchConversation> {
-    if (!config.research.projects[project]) throw new Error(`Unknown project "${project}"`);
+  async startConversation(project: string | null, submitter: PortalUser): Promise<ResearchConversation> {
+    if (project && !config.research.projects[project]) throw new Error(`Unknown project "${project}"`);
     const conversation: ResearchConversation = {
       id: this.newConversationId(),
       title: "",
@@ -121,7 +151,7 @@ export class RealResearchApi implements ResearchApi {
       submittedByName: submitter.displayName,
       createdAt: nowIso(),
       updatedAt: nowIso(),
-      project: conversation.project,
+      project: conversation.project ?? "",
       question,
       log: [],
     };
@@ -175,18 +205,26 @@ export class RealResearchApi implements ResearchApi {
 
       const conversation = this.conversations.get(conversationId);
       if (!conversation) throw new Error("Conversation not found");
-      const repoUrl = config.research.projects[conversation.project]?.repoUrl;
-      if (!repoUrl) throw new Error(`Unknown project "${conversation.project}"`);
-      const cloneDir = this.cloneDirFor(conversation.project);
+
+      if (!conversation.project) {
+        const chosen = await this.classifyProject(jobId, question, signal);
+        this.patchConversation(conversationId, { project: chosen });
+        this.patch(jobId, { project: chosen });
+      }
+      const project = conversation.project!;
+
+      const repoUrl = config.research.projects[project]?.repoUrl;
+      if (!repoUrl) throw new Error(`Unknown project "${project}"`);
+      const cloneDir = this.cloneDirFor(project);
 
       if (!(await pathExists(cloneDir))) {
-        this.appendLog(jobId, `Cloning ${conversation.project} ...`);
+        this.appendLog(jobId, `Cloning ${project} ...`);
         await mkdir(dirname(cloneDir), { recursive: true });
         await this.runCli(jobId, "git", ["clone", "--depth", "1", repoUrl, cloneDir], undefined, signal);
       } else {
         // Every question re-pulls — a plain `git pull` can choke on a shallow
         // (--depth 1) history, so fetch + hard-reset instead.
-        this.appendLog(jobId, `Refreshing ${conversation.project} ...`);
+        this.appendLog(jobId, `Refreshing ${project} ...`);
         await this.runCli(jobId, "git", ["fetch", "--depth", "1", "origin"], cloneDir, signal);
         await this.runCli(jobId, "git", ["reset", "--hard", "origin/HEAD"], cloneDir, signal);
       }

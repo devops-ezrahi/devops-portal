@@ -2090,6 +2090,10 @@ code {
   color: #8d9ba2;
 }
 
+.chat-category-unsure {
+  border-style: dashed;
+}
+
 /* ── Main chat area ────────────────────────────────────────────────── */
 
 .chat-main {
