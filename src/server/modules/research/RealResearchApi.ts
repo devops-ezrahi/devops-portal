@@ -8,14 +8,7 @@ import { redactSecrets } from "../../redact";
 import type { PortalUser, ResearchApi, ResearchJob } from "../../types";
 
 const execFileAsync = promisify(execFile);
-
-// Node's execFile does a plain PATH lookup (no shell), which is fine on
-// Linux where `npm install -g` puts a real executable on PATH — but on
-// Windows the global bin is a `.cmd` shim, and execFile won't resolve it
-// without the extension (shelling out with `shell: true` instead would
-// re-open command injection via the untrusted question text, so this is
-// the safer fix).
-const OPENCODE_BIN = platform() === "win32" ? "opencode.cmd" : "opencode";
+const isWindows = platform() === "win32";
 
 // ponytail: fixed 5m ceiling — opencode retries silently forever on a bad/
 // exhausted API key rather than erroring, so this is the only thing that
@@ -164,23 +157,34 @@ export class RealResearchApi implements ResearchApi {
     // e.g. anthropic/claude-sonnet-5 -> ANTHROPIC_API_KEY.
     const provider = config.research.model.split("/")[0] || "anthropic";
     const envVar = `${provider.toUpperCase()}_API_KEY`;
+    const env = { ...process.env, [envVar]: config.research.apiKey };
     this.appendLog(jobId, `$ opencode run --dir ${cwd} --model ${config.research.model} "<question>"`);
     try {
-      const result = await execFileAsync(
-        OPENCODE_BIN,
-        ["run", "--dir", cwd, "--model", config.research.model, "--auto", question],
-        {
-          maxBuffer: 20 * 1024 * 1024,
-          signal,
-          env: { ...process.env, [envVar]: config.research.apiKey },
-          // ponytail: .cmd shims can't be spawned directly on Windows (EINVAL)
-          // without shell:true. Scoped to win32 only — production is the
-          // Linux image, a real executable on PATH, no shell needed there, so
-          // this never widens the injection surface the baked opencode.json
-          // permission deny-list is actually guarding against.
-          shell: platform() === "win32",
-        }
-      );
+      // Plain execFile("opencode", [...]) hangs indefinitely on Windows when
+      // its parent is node.exe rather than an interactive shell — reproduced
+      // with an A/B test (same command, same machine, immediately
+      // sequential: direct-under-bash succeeds in seconds, node-spawned hangs
+      // every time regardless of shell/stdio/exe-path options tried). Not a
+      // quoting or EINVAL issue — genuinely parent-process-specific. Windows
+      // dev routes through the git-bash shell that's proven to work; question
+      // travels via an env var so bash's `"$VAR"` expansion handles quoting,
+      // no cmd.exe, no manual escaping. Production is the Linux image, where
+      // plain execFile already works (proven in this same investigation).
+      const result = isWindows
+        ? await execFileAsync(
+            "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
+            ["-c", 'opencode run --dir "$R_DIR" --model "$R_MODEL" --auto "$R_QUESTION" < /dev/null'],
+            {
+              maxBuffer: 20 * 1024 * 1024,
+              signal,
+              env: { ...env, R_DIR: cwd, R_MODEL: config.research.model, R_QUESTION: question },
+            }
+          )
+        : await execFileAsync(
+            "opencode",
+            ["run", "--dir", cwd, "--model", config.research.model, "--auto", question],
+            { maxBuffer: 20 * 1024 * 1024, signal, env }
+          );
       return result.stdout.trim() || "(opencode returned no answer)";
     } catch (err: unknown) {
       const e = err as NodeJS.ErrnoException & { stderr?: string; stdout?: string };
