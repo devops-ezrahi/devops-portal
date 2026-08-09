@@ -1,4 +1,4 @@
-import { execFile } from "child_process";
+import { execFile, spawn } from "child_process";
 import { mkdir, stat } from "fs/promises";
 import { platform, tmpdir } from "os";
 import { dirname, join } from "path";
@@ -164,7 +164,7 @@ export class RealResearchApi implements ResearchApi {
     }
   }
 
-  private async askOpencode(
+  private askOpencode(
     jobId: string,
     cwd: string,
     question: string,
@@ -176,43 +176,59 @@ export class RealResearchApi implements ResearchApi {
     const envVar = `${provider.toUpperCase()}_API_KEY`;
     const env = { ...process.env, [envVar]: config.research.apiKey };
     this.appendLog(jobId, `$ opencode run --dir ${cwd} --model ${config.research.model} "<question>"`);
-    try {
-      // Plain execFile("opencode", [...]) hangs indefinitely on Windows when
-      // its parent is node.exe rather than an interactive shell — reproduced
-      // with an A/B test (same command, same machine, immediately
-      // sequential: direct-under-bash succeeds in seconds, node-spawned hangs
-      // every time regardless of shell/stdio/exe-path options tried). Not a
-      // quoting or EINVAL issue — genuinely parent-process-specific. Windows
-      // dev routes through the git-bash shell that's proven to work; question
-      // travels via an env var so bash's `"$VAR"` expansion handles quoting,
-      // no cmd.exe, no manual escaping. Production is the Linux image, where
-      // plain execFile already works (proven in this same investigation).
-      const result = isWindows
-        ? await execFileAsync(
-            "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
-            ["-c", 'opencode run --dir "$R_DIR" --model "$R_MODEL" --auto "$R_QUESTION" < /dev/null'],
-            {
-              maxBuffer: 20 * 1024 * 1024,
-              signal,
-              env: { ...env, R_DIR: cwd, R_MODEL: config.research.model, R_QUESTION: question },
-            }
-          )
-        : await execFileAsync(
-            "opencode",
-            ["run", "--dir", cwd, "--model", config.research.model, "--auto", question],
-            { maxBuffer: 20 * 1024 * 1024, signal, env }
-          );
-      const thinking = stripOpencodeChrome(result.stderr);
-      return {
-        answer: result.stdout.trim() || "(opencode returned no answer)",
-        thinking: thinking ? redactSecrets(thinking) : undefined,
-      };
-    } catch (err: unknown) {
-      const e = err as NodeJS.ErrnoException & { stderr?: string; stdout?: string };
-      if (e.code === "ENOENT") throw new Error("opencode not found — ensure it is on PATH");
-      const detail = [e.stderr, e.stdout, e.message].find(Boolean) ?? "opencode command failed";
-      throw new Error(detail.toString().trim());
-    }
+
+    // spawn, not execFile: execFile only hands back stdout/stderr once the
+    // process exits, so the job's "thinking" only appeared after opencode had
+    // already finished. Reading the streams as data arrives lets each poll
+    // show more of the trace while the job is still in-progress.
+    //
+    // Plain spawn("opencode", [...]) hangs indefinitely on Windows when its
+    // parent is node.exe rather than an interactive shell — reproduced with
+    // an A/B test (same command, same machine, immediately sequential:
+    // direct-under-bash succeeds in seconds, node-spawned hangs every time
+    // regardless of shell/stdio/exe-path options tried). Not a quoting or
+    // EINVAL issue — genuinely parent-process-specific. Windows dev routes
+    // through the git-bash shell that's proven to work; question travels via
+    // an env var so bash's `"$VAR"` expansion handles quoting, no cmd.exe,
+    // no manual escaping. Production is the Linux image, where a plain spawn
+    // already works (proven in this same investigation).
+    const [bin, args, spawnEnv] = isWindows
+      ? [
+          "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
+          ["-c", 'opencode run --dir "$R_DIR" --model "$R_MODEL" --auto "$R_QUESTION" < /dev/null'],
+          { ...env, R_DIR: cwd, R_MODEL: config.research.model, R_QUESTION: question },
+        ]
+      : (["opencode", ["run", "--dir", cwd, "--model", config.research.model, "--auto", question], env] as const);
+
+    return new Promise((resolve, reject) => {
+      const child = spawn(bin, args, { env: spawnEnv, signal, stdio: ["ignore", "pipe", "pipe"] });
+      let stdout = "";
+      let stderr = "";
+
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk;
+      });
+      child.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk;
+        const thinking = stripOpencodeChrome(stderr);
+        if (thinking) this.patch(jobId, { thinking: redactSecrets(thinking) });
+      });
+      child.on("error", (err: NodeJS.ErrnoException) => {
+        reject(err.code === "ENOENT" ? new Error("opencode not found — ensure it is on PATH") : err);
+      });
+      child.on("close", (code) => {
+        if (code === 0) {
+          const thinking = stripOpencodeChrome(stderr);
+          resolve({
+            answer: stdout.trim() || "(opencode returned no answer)",
+            thinking: thinking ? redactSecrets(thinking) : undefined,
+          });
+          return;
+        }
+        const detail = [stderr, stdout].find(Boolean) ?? `opencode exited with code ${code}`;
+        reject(new Error((stripOpencodeChrome(detail) ?? detail).trim()));
+      });
+    });
   }
 
   private async runCli(jobId: string, bin: string, args: string[], cwd: string | undefined, signal: AbortSignal) {
