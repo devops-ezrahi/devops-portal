@@ -2094,6 +2094,14 @@ code {
   border-style: dashed;
 }
 
+.chat-thinking-note {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #8d9ba2;
+  font-style: italic;
+}
+
 /* ── Main chat area ────────────────────────────────────────────────── */
 
 .chat-main {

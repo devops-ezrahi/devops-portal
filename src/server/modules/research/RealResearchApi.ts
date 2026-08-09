@@ -1,4 +1,5 @@
 import { execFile, spawn } from "child_process";
+import { mkdirSync, writeFileSync } from "fs";
 import { mkdir, stat } from "fs/promises";
 import { platform, tmpdir } from "os";
 import { dirname, join } from "path";
@@ -15,6 +16,44 @@ const isWindows = platform() === "win32";
 // stops a job hanging forever. Make it configurable if real questions
 // routinely need longer.
 const RUN_TIMEOUT_MS = 5 * 60 * 1000;
+
+// Read-only, enforced in code rather than by a mounted file. This used to live
+// only in docker/opencode.json, which meant dev (where opencode auto-creates an
+// EMPTY ~/.config/opencode/opencode.jsonc) had no deny rules at all — combined
+// with --auto, the agent could edit files in the clone. That failure mode is
+// fail-OPEN, so the policy now travels with the code: written to disk at
+// startup and passed via OPENCODE_CONFIG, which takes precedence over any
+// ambient user/project config. A missing mount can no longer grant write access.
+const OPENCODE_POLICY = {
+  $schema: "https://opencode.ai/config.json",
+  permission: {
+    read: "allow",
+    glob: "allow",
+    grep: "allow",
+    skill: "allow",
+    lsp: "allow",
+    edit: "deny",
+    write: "deny",
+    patch: "deny",
+    bash: "deny",
+    webfetch: "deny",
+    websearch: "deny",
+    task: "deny",
+    external_directory: "deny",
+    question: "deny",
+  },
+};
+
+/** Written once per process; opencode reads it via OPENCODE_CONFIG. */
+function writeOpencodePolicy(): string {
+  const dir = join(tmpdir(), "research-opencode");
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, "opencode.json");
+  writeFileSync(path, JSON.stringify(OPENCODE_POLICY, null, 2));
+  return path;
+}
+
+const OPENCODE_CONFIG_PATH = writeOpencodePolicy();
 
 function nowIso() {
   return new Date().toISOString();
@@ -269,7 +308,13 @@ export class RealResearchApi implements ResearchApi {
     // e.g. anthropic/claude-sonnet-5 -> ANTHROPIC_API_KEY.
     const provider = config.research.model.split("/")[0] || "anthropic";
     const envVar = `${provider.toUpperCase()}_API_KEY`;
-    const env = { ...process.env, [envVar]: config.research.apiKey };
+    const env = {
+      ...process.env,
+      [envVar]: config.research.apiKey,
+      // Highest-precedence config — carries the read-only deny-list, so this
+      // never depends on a file existing at opencode's default config path.
+      OPENCODE_CONFIG: OPENCODE_CONFIG_PATH,
+    };
     this.appendLog(
       jobId,
       `$ opencode run --dir ${cwd} --model ${config.research.model}` +

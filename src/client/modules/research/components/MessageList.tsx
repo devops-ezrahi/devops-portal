@@ -1,9 +1,35 @@
-import { Search } from "lucide-react";
-import type { RefObject } from "react";
+import { Sparkles } from "lucide-react";
+import { useEffect, useState, type RefObject } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage } from "../../../../server/types";
+
+/** After this long, the bare dots stop being reassuring — say what's happening. */
+const EXPLAIN_AFTER_MS = 10_000;
+
+function ThinkingIndicator() {
+  const [explain, setExplain] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setExplain(true), EXPLAIN_AFTER_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  return (
+    <>
+      <span className="chat-typing" aria-label="Thinking">
+        <span /><span /><span />
+      </span>
+      {explain && (
+        <p className="chat-thinking-note">
+          Still working — it's opening and reading the actual files in the repo so the answer is
+          grounded in the real code, not a guess. Bigger questions take longer.
+        </p>
+      )}
+    </>
+  );
+}
 
 export function MessageList({
   messages,
@@ -18,16 +44,19 @@ export function MessageList({
     <div className="chat-messages">
       {messages.length === 0 && (
         <div className="chat-empty">
-          <Search size={40} style={{ opacity: 0.18 }} aria-hidden="true" />
-          <p style={{ margin: 0, fontWeight: 700, color: "#c8d3d7" }}>Pick a project and ask</p>
+          <Sparkles size={40} style={{ opacity: 0.18 }} aria-hidden="true" />
+          <p style={{ margin: 0, fontWeight: 700, color: "#c8d3d7" }}>Ask anything about this repo</p>
           <p style={{ margin: 0, fontSize: 13, maxWidth: 360 }}>
-            The server clones the repo (once) and reads it via opencode to answer your question.
+            It pulls the latest code and reads the real files to answer.
           </p>
         </div>
       )}
 
       {messages.map((msg, i) => {
         const isLastAssistant = msg.role === "assistant" && i === messages.length - 1 && isPending;
+        // While pending, `content` still holds the streamed tool trace — show it
+        // alongside the dots rather than hiding progress behind them.
+        const hasTrace = isLastAssistant && msg.content.trim().length > 0;
         return (
           <div
             key={i}
@@ -35,19 +64,20 @@ export function MessageList({
           >
             {msg.role === "user" ? (
               msg.content
-            ) : isLastAssistant ? (
-              <span className="chat-typing" aria-label="Researching">
-                <span /><span /><span />
-              </span>
             ) : (
-              <div className="chat-md">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[[rehypeHighlight, { detect: true }]]}
-                >
-                  {msg.content || " "}
-                </ReactMarkdown>
-              </div>
+              <>
+                {(hasTrace || !isLastAssistant) && (
+                  <div className="chat-md">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      rehypePlugins={[[rehypeHighlight, { detect: true }]]}
+                    >
+                      {msg.content || " "}
+                    </ReactMarkdown>
+                  </div>
+                )}
+                {isLastAssistant && <ThinkingIndicator />}
+              </>
             )}
           </div>
         );

@@ -38,15 +38,15 @@ RUN apt-get update \
 # per question (see src/server/modules/research/RealResearchApi.ts).
 RUN npm install -g opencode-ai
 
-# --create-home (not the previous --no-create-home): the Research module's
-# opencode config and skill discovery both live under ~ for whichever repo
-# opencode is pointed at (opencode.json's permission block, and any skills
-# ConfigMap mounted at ~/.claude/skills — see homelab chart). ENV HOME is set
-# explicitly rather than relying on useradd's default, so that path is fixed.
+# --create-home (not the previous --no-create-home): opencode keeps its session
+# store and scratch state under ~, and the default RESEARCH_SKILLS_DIR is
+# ~/.claude/skills. ENV HOME is set explicitly rather than relying on useradd's
+# default, so that path is fixed.
+# The read-only permission policy is NOT a file here any more — it's inlined in
+# RealResearchApi.ts and passed via OPENCODE_CONFIG, so a missing/overwritten
+# config file can't silently re-grant write access.
 RUN groupadd --system appgroup && useradd --system --gid appgroup --create-home appuser
 ENV HOME=/home/appuser
-RUN mkdir -p /home/appuser/.config/opencode
-COPY docker/opencode.json /home/appuser/.config/opencode/opencode.json
 RUN chown -R appuser:appgroup /home/appuser
 
 WORKDIR /app
