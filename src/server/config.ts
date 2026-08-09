@@ -86,8 +86,12 @@ export const config = {
   research: {
     // name -> git clone URL, e.g. { homelab: "git@github.com:owner/homelab.git" }
     projects: parseResearchProjects(researchProjectsRaw),
+    // Empty is valid: opencode's own free-tier "opencode/*-free" models need
+    // no key at all — a non-empty placeholder gets treated as a real key and
+    // rejected. Only providers that actually require credentials (Anthropic,
+    // OpenAI, ...) need this set.
     apiKey: opencodeApiKey ?? "",
     model: requireEnv("OPENCODE_MODEL") ?? "anthropic/claude-sonnet-5",
-    enabled: !!(researchProjectsRaw && opencodeApiKey),
+    enabled: !!researchProjectsRaw,
   },
 };
