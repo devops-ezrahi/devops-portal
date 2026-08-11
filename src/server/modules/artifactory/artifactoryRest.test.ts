@@ -6,7 +6,7 @@ const config = {
 
 vi.mock("../../config", () => ({ config }));
 
-const { exists, serviceUrl, webUrl } = await import("./artifactoryRest");
+const { exists, serviceUrl, webUrl, nativeUrl } = await import("./artifactoryRest");
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -33,13 +33,21 @@ describe("serviceUrl", () => {
 describe("webUrl", () => {
   it("builds a UI tree link from the platform base URL", () => {
     expect(webUrl("npm-local/arg/-/arg-4.1.5.tgz")).toBe(
-      "https://art.example.com/ui/tree/General/npm-local/arg/-/arg-4.1.5.tgz"
+      "https://art.example.com/ui/repos/tree/General/npm-local/arg/-/arg-4.1.5.tgz"
     );
   });
 
   it("strips a trailing /artifactory so the link is not doubled up", () => {
     config.artifactory.url = "https://art.example.com/artifactory";
-    expect(webUrl("npm-local/arg")).toBe("https://art.example.com/ui/tree/General/npm-local/arg");
+    expect(webUrl("npm-local/arg")).toBe("https://art.example.com/ui/repos/tree/General/npm-local/arg");
+  });
+});
+
+describe("nativeUrl", () => {
+  it("builds a UI native package link from the platform base URL", () => {
+    expect(nativeUrl("maven-local/com/google/guava/guava/32.1.3-jre/guava-32.1.3-jre.pom")).toBe(
+      "https://art.example.com/ui/native/maven-local/com/google/guava/guava/32.1.3-jre/guava-32.1.3-jre.pom"
+    );
   });
 });
 

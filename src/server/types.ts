@@ -136,7 +136,10 @@ export type PackageUploadResult = {
   path: string;
   type?: PackageType;
   status: PackageUploadStatus;
+  /** Repo tree browser link. */
   url?: string;
+  /** Native package view link — `/ui/native/<path>` instead of the tree browser. */
+  nativeUrl?: string;
   error?: string;
 };
 
@@ -155,8 +158,10 @@ export type ArtifactoryJob = {
   fileCount?: number;
   totalBytes?: number;
   errorMessage?: string;
-  /** Artifactory web UI link to the uploaded artifact (or the repo, for many). */
+  /** Artifactory repo tree link to the uploaded artifact (or the repo, for many). */
   resultUrl?: string;
+  /** Artifactory native package view link, same target as `resultUrl`. */
+  resultNativeUrl?: string;
   progress?: { done: number; total: number };
   packages?: PackageUploadResult[];
   log: string[];

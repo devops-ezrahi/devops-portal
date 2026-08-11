@@ -17,10 +17,18 @@ export function serviceUrl(): string {
   return /\/artifactory(\/|$)/.test(trimmed) ? trimmed : `${trimmed}/artifactory`;
 }
 
-/** Web UI link for a repo-relative path: `<base>/ui/tree/General/<path>`. */
+function uiBase(): string {
+  return config.artifactory.url.replace(/\/+$/, "").replace(/\/artifactory$/, "");
+}
+
+/** Repo tree browser link for a repo-relative path: `<base>/ui/repos/tree/General/<path>`. */
 export function webUrl(path: string): string {
-  const base = config.artifactory.url.replace(/\/+$/, "").replace(/\/artifactory$/, "");
-  return `${base}/ui/tree/General/${path}`;
+  return `${uiBase()}/ui/repos/tree/General/${path}`;
+}
+
+/** Native package view link for a repo-relative path: `<base>/ui/native/<path>`. */
+export function nativeUrl(path: string): string {
+  return `${uiBase()}/ui/native/${path}`;
 }
 
 function authHeaders(): Record<string, string> {

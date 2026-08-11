@@ -1870,6 +1870,19 @@ button:focus-visible {
   word-break: break-word;
 }
 
+.package-native-link {
+  margin-left: 8px;
+  font-size: 11px;
+  color: #84949b;
+}
+
+.artifactory-links {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 /* ---- Job log: collapsible steps ---- */
 
 .job-log-steps {

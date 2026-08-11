@@ -4,7 +4,7 @@ import { basename, join } from "path";
 import { promisify } from "util";
 import { config } from "../../config";
 import type { PackageType, PackageUploadResult } from "../../types";
-import { exists, upload, webUrl } from "./artifactoryRest";
+import { exists, nativeUrl, upload, webUrl } from "./artifactoryRest";
 
 const execFileAsync = promisify(execFile);
 
@@ -169,6 +169,7 @@ export async function uploadFiles(
         result.status = "exists";
         delete result.error;
         result.url = webUrl(result.path);
+        result.nativeUrl = nativeUrl(result.path);
       } else {
         // `null` means we could not tell — upload rather than silently skip.
         todo.push({ item, result });
@@ -189,6 +190,7 @@ export async function uploadFiles(
       result.status = "uploaded";
       delete result.error;
       result.url = webUrl(result.path);
+      result.nativeUrl = nativeUrl(result.path);
       onLog(`Uploaded ${result.name}@${result.version}`);
     } catch (err) {
       result.status = "failed";

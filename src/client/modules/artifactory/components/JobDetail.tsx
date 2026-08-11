@@ -121,8 +121,13 @@ export function JobDetail({ job, onStop }: Props) {
         {job.resultUrl && (
           <div>
             <dt>Artifactory</dt>
-            <dd>
+            <dd className="artifactory-links">
               <a href={job.resultUrl} target="_blank" rel="noreferrer">View in Artifactory</a>
+              {job.resultNativeUrl && (
+                <a className="ghost-button" href={job.resultNativeUrl} target="_blank" rel="noreferrer">
+                  Open package view
+                </a>
+              )}
             </dd>
           </div>
         )}
@@ -149,6 +154,11 @@ export function JobDetail({ job, onStop }: Props) {
                     <a href={pkg.url} target="_blank" rel="noreferrer">{pkg.name}@{pkg.version}</a>
                   ) : (
                     <>{pkg.name}@{pkg.version}</>
+                  )}
+                  {pkg.nativeUrl && (
+                    <a className="package-native-link" href={pkg.nativeUrl} target="_blank" rel="noreferrer">
+                      package view
+                    </a>
                   )}
                 </span>
                 <span className={`stage ${packageStatusClass(pkg.status)}`}>{packageStatusLabel(pkg.status)}</span>

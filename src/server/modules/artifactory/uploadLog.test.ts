@@ -25,7 +25,8 @@ vi.mock("./artifactoryRest", () => ({
       throw new Error("Artifactory responded 403 Forbidden: deploy denied for path");
     }
   },
-  webUrl: (path: string) => `https://art.example.com/ui/tree/General/${path}`,
+  webUrl: (path: string) => `https://art.example.com/ui/repos/tree/General/${path}`,
+  nativeUrl: (path: string) => `https://art.example.com/ui/native/${path}`,
 }));
 
 const { RealArtifactoryApi } = await import("./RealArtifactoryApi");

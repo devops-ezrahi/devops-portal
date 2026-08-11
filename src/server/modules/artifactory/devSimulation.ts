@@ -29,7 +29,20 @@ export const ARTIFACTORY_SCENARIOS: readonly ArtifactoryScenario[] = [
   "total-failure",
 ];
 
-const HOST = "https://artifactory.example.com/ui/native";
+const BASE = "https://artifactory.example.com";
+
+/**
+ * Maven's `path` differs from every other type: `name` is `groupId:artifactId`
+ * for display, but the repo layout wants the groupId's dots turned into
+ * directories, e.g. `com.google.guava:guava` + `32.1.3-jre` ->
+ * `com/google/guava/guava/32.1.3-jre/guava-32.1.3-jre.jar` — mirrors
+ * `classifyMaven` in packageTypes.ts for a package this simulation invents
+ * rather than reads off disk.
+ */
+function mavenPath(repo: string, name: string, version: string): string {
+  const [groupId, artifactId] = name.split(":");
+  return `${repo}/${groupId.replace(/\./g, "/")}/${artifactId}/${version}/${artifactId}-${version}.jar`;
+}
 
 type PackageScenario = {
   folderName: string;
@@ -84,13 +97,11 @@ const PACKAGE_SCENARIOS: Record<PackageType, PackageScenario> = {
 /** A clean run through one package type: found, checked, uploaded, done. */
 function packageTypeBeats(type: PackageType): SimulationBeat[] {
   const scenario = PACKAGE_SCENARIOS[type];
-  const web = `${HOST}/${scenario.repo}`;
-  const items: PackageUploadResult[] = scenario.items.map((i) => ({
-    ...i,
-    type,
-    path: `${scenario.repo}/${i.name}/${i.version}`,
-    url: `${web}/${i.name}/${i.version}`,
-  }));
+  const items: PackageUploadResult[] = scenario.items.map((i) => {
+    const path =
+      type === "maven" ? mavenPath(scenario.repo, i.name, i.version) : `${scenario.repo}/${i.name}/${i.version}`;
+    return { ...i, type, path, url: `${BASE}/ui/repos/tree/General/${path}`, nativeUrl: `${BASE}/ui/native/${path}` };
+  });
   const uploaded = items.filter((i) => i.status === "uploaded").length;
   const skipped = items.length - uploaded;
 
@@ -117,23 +128,37 @@ function packageTypeBeats(type: PackageType): SimulationBeat[] {
   beats.push({
     ms: 1200,
     line: `Done. ${uploaded} uploaded, ${skipped} already present, 0 failed.`,
-    patch: { status: "completed", resultUrl: web },
+    patch: {
+      status: "completed",
+      resultUrl: `${BASE}/ui/repos/tree/General/${scenario.repo}`,
+      resultNativeUrl: `${BASE}/ui/native/${scenario.repo}`,
+    },
   });
   return beats;
 }
 
 /** Mirrors `RealArtifactoryApi.finish()` when one package out of several fails. */
 function partialFailureBeats(): SimulationBeat[] {
-  const web = `${HOST}/npm-local`;
+  const tree = `${BASE}/ui/repos/tree/General/npm-local`;
+  const native = `${BASE}/ui/native/npm-local`;
   const items: PackageUploadResult[] = [
-    { name: "arg", version: "4.1.5", type: "npm", status: "exists", path: "npm-local/arg/4.1.5", url: `${web}/arg/4.1.5` },
+    {
+      name: "arg",
+      version: "4.1.5",
+      type: "npm",
+      status: "exists",
+      path: "npm-local/arg/4.1.5",
+      url: `${tree}/arg/4.1.5`,
+      nativeUrl: `${native}/arg/4.1.5`,
+    },
     {
       name: "left-pad",
       version: "1.3.0",
       type: "npm",
       status: "uploaded",
       path: "npm-local/left-pad/1.3.0",
-      url: `${web}/left-pad/1.3.0`,
+      url: `${tree}/left-pad/1.3.0`,
+      nativeUrl: `${native}/left-pad/1.3.0`,
     },
     {
       name: "@babel/core",
@@ -159,7 +184,7 @@ function partialFailureBeats(): SimulationBeat[] {
     {
       ms: 1000,
       line: "Done. 1 uploaded, 1 already present, 1 failed.",
-      patch: { status: "failed", errorMessage: "1 of 3 package(s) failed", resultUrl: web },
+      patch: { status: "failed", errorMessage: "1 of 3 package(s) failed", resultUrl: tree, resultNativeUrl: native },
     },
   ];
 }

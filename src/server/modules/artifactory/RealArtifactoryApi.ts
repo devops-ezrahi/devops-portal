@@ -8,7 +8,7 @@ import { promisify } from "util";
 import { config } from "../../config";
 import { redactSecrets } from "../../redact";
 import { createTmpDir, removeTmpDir } from "../../tmp";
-import { exists, upload, webUrl } from "./artifactoryRest";
+import { exists, nativeUrl, upload, webUrl } from "./artifactoryRest";
 import { artifactorySimulation, simulatedArtifactoryJob } from "./devSimulation";
 import { discoverPackages, jobName, npmUploadItems, pool, targetPath, uploadFiles } from "./npmPackages";
 import { classify, urlArtifactPath } from "./packageTypes";
@@ -201,6 +201,10 @@ export class RealArtifactoryApi implements ArtifactoryApi {
         results.length === 1
           ? results[0].url
           : webUrl(results[0]?.path.split("/")[0] ?? config.artifactory.repo),
+      resultNativeUrl:
+        results.length === 1
+          ? results[0].nativeUrl
+          : nativeUrl(results[0]?.path.split("/")[0] ?? config.artifactory.repo),
     });
     this.appendLog(
       jobId,
@@ -248,14 +252,14 @@ export class RealArtifactoryApi implements ArtifactoryApi {
 
       if ((await exists(target)) === true) {
         this.appendLog(jobId, `${target} already exists — skipping upload.`);
-        this.patch(jobId, { status: "completed", resultUrl: webUrl(target) });
+        this.patch(jobId, { status: "completed", resultUrl: webUrl(target), resultNativeUrl: nativeUrl(target) });
         return;
       }
 
       this.appendLog(jobId, `Uploading to ${target} ...`);
       await upload(target, tmpFile);
 
-      this.patch(jobId, { status: "completed", resultUrl: webUrl(target) });
+      this.patch(jobId, { status: "completed", resultUrl: webUrl(target), resultNativeUrl: nativeUrl(target) });
       this.appendLog(jobId, `Done. Artifact available at ${target}.`);
     } catch (err) {
       if (this.aborted(jobId)) return;
@@ -381,6 +385,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       status: failures.length > 0 ? "failed" : "completed",
       errorMessage: failures.length > 0 ? `${failures.length} of ${paths.length} file(s) failed` : undefined,
       resultUrl: webUrl(prefix),
+      resultNativeUrl: nativeUrl(prefix),
     });
     this.appendLog(jobId, `Done. ${paths.length - failures.length} file(s) deployed to ${prefix}/.`);
   }
