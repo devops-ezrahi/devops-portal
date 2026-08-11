@@ -17,7 +17,6 @@ const TEST_SCENARIOS: { value: ArtifactoryScenario; label: string }[] = [
   { value: "maven", label: "Maven — success" },
   { value: "rpm", label: "RPM — success" },
   { value: "pypi", label: "PyPI — success" },
-  { value: "conda", label: "Conda — success" },
   { value: "partial-failure", label: "npm — one package fails" },
   { value: "total-failure", label: "npm — Artifactory unreachable" },
 ];

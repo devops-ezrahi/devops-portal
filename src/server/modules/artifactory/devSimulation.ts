@@ -24,7 +24,9 @@ export const ARTIFACTORY_SCENARIOS: readonly ArtifactoryScenario[] = [
   "maven",
   "rpm",
   "pypi",
-  "conda",
+  // ponytail: conda dropped from the Test menu — its repo path/link shape isn't
+  // decided yet. PACKAGE_SCENARIOS.conda stays below so re-adding it is a
+  // one-line change once that's settled.
   "partial-failure",
   "total-failure",
 ];
@@ -35,13 +37,25 @@ const BASE = "https://artifactory.example.com";
  * Maven's `path` differs from every other type: `name` is `groupId:artifactId`
  * for display, but the repo layout wants the groupId's dots turned into
  * directories, e.g. `com.google.guava:guava` + `32.1.3-jre` ->
- * `com/google/guava/guava/32.1.3-jre/guava-32.1.3-jre.jar` — mirrors
+ * `com/google/guava/guava/32.1.3-jre/guava-32.1.3-jre.pom` — mirrors
  * `classifyMaven` in packageTypes.ts for a package this simulation invents
- * rather than reads off disk.
+ * rather than reads off disk. Links the `.pom`, not the `.jar`: every published
+ * coordinate has one (some, like a parent POM, have no jar at all).
  */
 function mavenPath(repo: string, name: string, version: string): string {
   const [groupId, artifactId] = name.split(":");
-  return `${repo}/${groupId.replace(/\./g, "/")}/${artifactId}/${version}/${artifactId}-${version}.jar`;
+  return `${repo}/${groupId.replace(/\./g, "/")}/${artifactId}/${version}/${artifactId}-${version}.pom`;
+}
+
+/** Mirrors `targetPath` in npmPackages.ts, without npmPackages' hard dependency on `config`. */
+function npmPath(repo: string, name: string, version: string): string {
+  const filename = `${name.split("/").pop()}-${version}.tgz`;
+  return `${repo}/${name}/-/${filename}`;
+}
+
+/** PyPI builds ship their wheel in `dist/` — link that file, not the package root. */
+function pypiPath(repo: string, name: string, version: string): string {
+  return `${repo}/dist/${name}-${version}-py3-none-any.whl`;
 }
 
 type PackageScenario = {
@@ -99,7 +113,13 @@ function packageTypeBeats(type: PackageType): SimulationBeat[] {
   const scenario = PACKAGE_SCENARIOS[type];
   const items: PackageUploadResult[] = scenario.items.map((i) => {
     const path =
-      type === "maven" ? mavenPath(scenario.repo, i.name, i.version) : `${scenario.repo}/${i.name}/${i.version}`;
+      type === "maven"
+        ? mavenPath(scenario.repo, i.name, i.version)
+        : type === "npm"
+          ? npmPath(scenario.repo, i.name, i.version)
+          : type === "pypi"
+            ? pypiPath(scenario.repo, i.name, i.version)
+            : `${scenario.repo}/${i.name}/${i.version}`;
     return { ...i, type, path, url: `${BASE}/ui/repos/tree/General/${path}`, nativeUrl: `${BASE}/ui/native/${path}` };
   });
   const uploaded = items.filter((i) => i.status === "uploaded").length;
@@ -137,31 +157,33 @@ function packageTypeBeats(type: PackageType): SimulationBeat[] {
 function partialFailureBeats(): SimulationBeat[] {
   const tree = `${BASE}/ui/repos/tree/General/npm-local`;
   const native = `${BASE}/ui/native/npm-local`;
+  const argPath = npmPath("npm-local", "arg", "4.1.5");
+  const leftPadPath = npmPath("npm-local", "left-pad", "1.3.0");
   const items: PackageUploadResult[] = [
     {
       name: "arg",
       version: "4.1.5",
       type: "npm",
       status: "exists",
-      path: "npm-local/arg/4.1.5",
-      url: `${tree}/arg/4.1.5`,
-      nativeUrl: `${native}/arg/4.1.5`,
+      path: argPath,
+      url: `${BASE}/ui/repos/tree/General/${argPath}`,
+      nativeUrl: `${BASE}/ui/native/${argPath}`,
     },
     {
       name: "left-pad",
       version: "1.3.0",
       type: "npm",
       status: "uploaded",
-      path: "npm-local/left-pad/1.3.0",
-      url: `${tree}/left-pad/1.3.0`,
-      nativeUrl: `${native}/left-pad/1.3.0`,
+      path: leftPadPath,
+      url: `${BASE}/ui/repos/tree/General/${leftPadPath}`,
+      nativeUrl: `${BASE}/ui/native/${leftPadPath}`,
     },
     {
       name: "@babel/core",
       version: "7.24.0",
       type: "npm",
       status: "failed",
-      path: "npm-local/@babel/core/7.24.0",
+      path: npmPath("npm-local", "@babel/core", "7.24.0"),
       error: "Artifactory responded 403 Forbidden",
     },
   ];
