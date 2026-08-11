@@ -128,11 +128,7 @@ function packageTypeBeats(type: PackageType): SimulationBeat[] {
   beats.push({
     ms: 1200,
     line: `Done. ${uploaded} uploaded, ${skipped} already present, 0 failed.`,
-    patch: {
-      status: "completed",
-      resultUrl: `${BASE}/ui/repos/tree/General/${scenario.repo}`,
-      resultNativeUrl: `${BASE}/ui/native/${scenario.repo}`,
-    },
+    patch: { status: "completed", resultUrl: `${BASE}/ui/repos/tree/General/${scenario.repo}` },
   });
   return beats;
 }
@@ -184,7 +180,7 @@ function partialFailureBeats(): SimulationBeat[] {
     {
       ms: 1000,
       line: "Done. 1 uploaded, 1 already present, 1 failed.",
-      patch: { status: "failed", errorMessage: "1 of 3 package(s) failed", resultUrl: tree, resultNativeUrl: native },
+      patch: { status: "failed", errorMessage: "1 of 3 package(s) failed", resultUrl: tree },
     },
   ];
 }

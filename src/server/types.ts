@@ -160,8 +160,6 @@ export type ArtifactoryJob = {
   errorMessage?: string;
   /** Artifactory repo tree link to the uploaded artifact (or the repo, for many). */
   resultUrl?: string;
-  /** Artifactory native package view link, same target as `resultUrl`. */
-  resultNativeUrl?: string;
   progress?: { done: number; total: number };
   packages?: PackageUploadResult[];
   log: string[];

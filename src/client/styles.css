@@ -1876,13 +1876,6 @@ button:focus-visible {
   color: #84949b;
 }
 
-.artifactory-links {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
 /* ---- Job log: collapsible steps ---- */
 
 .job-log-steps {
