@@ -44,12 +44,12 @@ async function run() {
   await page.goto(BASE, { waitUntil: 'networkidle' });
   await ss(page, '01-home');
 
-  const navCount = await page.locator('nav.app-nav button').count();
-  console.log(`[nav] ${navCount} module buttons`);
+  const navCount = await page.locator('nav.app-nav .nav-button').count();
+  console.log(`[nav] ${navCount} module tabs`);
   if (navCount === 0) throw new Error('Nav failed to render — server may be down');
 
   // ── 2. Walk every module ─────────────────────────────────────────────────
-  const modules = await page.locator('nav.app-nav button').all();
+  const modules = await page.locator('nav.app-nav .nav-button').all();
   for (let i = 0; i < modules.length; i++) {
     const label = (await modules[i].textContent())?.trim() ?? `module-${i}`;
     console.log(`[nav] → ${label}`);
@@ -60,7 +60,7 @@ async function run() {
 
   // ── 3. Ticket creation flow ───────────────────────────────────────────────
   console.log('[ticket] Creating new ticket...');
-  await page.locator('nav.app-nav button').first().click();
+  await page.locator('nav.app-nav .nav-button').first().click();
   await page.waitForTimeout(400);
 
   await page.locator('button', { hasText: /^\+?\s*New$/ }).first().click();
@@ -83,7 +83,7 @@ async function run() {
     console.log('[role] Switching to Admin...');
     await adminBtn.click();
     await page.waitForTimeout(600);
-    await page.locator('nav.app-nav button').first().click();
+    await page.locator('nav.app-nav .nav-button').first().click();
     await page.waitForTimeout(600);
     await ss(page, '13-admin-queue');
   }
