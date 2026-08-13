@@ -4,7 +4,7 @@ import { join } from "path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../config", () => ({
-  config: { artifactory: { url: "https://art.example.com", repo: "npm-local", token: "t" } },
+  config: { artifactory: { url: "https://art.example.com", repo: "npm-local", npmRepo: "npm-local", token: "t" } },
 }));
 
 const { discoverPackages, pool, targetPath } = await import("./npmPackages");

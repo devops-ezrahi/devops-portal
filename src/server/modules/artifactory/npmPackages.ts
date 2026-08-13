@@ -36,7 +36,7 @@ export async function pool<T>(items: T[], limit: number, fn: (item: T) => Promis
  */
 export function targetPath(name: string, version: string): string {
   const filename = `${name.split("/").pop()}-${version}.tgz`;
-  return `${config.artifactory.repo}/${name}/-/${filename}`;
+  return `${config.artifactory.npmRepo}/${name}/-/${filename}`;
 }
 
 /**

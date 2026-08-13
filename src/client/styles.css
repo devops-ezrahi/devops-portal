@@ -22,7 +22,10 @@
 }
 
 /* Links inherit the app accent instead of the browser's default blue/purple.
-   .primary, .chat-md a and .dev-banner-link are class selectors and still win. */
+   .primary, .chat-md a and .dev-banner-link are class selectors and still win
+   for the unvisited state — but `a:visited` here is (0,1,1), so a class that
+   wants to keep its colour after a click has to name :visited too (see
+   .package-native-link). */
 a,
 a:visited {
   color: #20c7bd;
@@ -1890,7 +1893,11 @@ button:focus-visible {
   word-break: break-word;
 }
 
-.package-native-link {
+/* :visited is spelled out because the global `a, a:visited` rule at the top of
+   this file is (0,1,1) and outranks a bare class — without it, clicking the
+   link turned it teal instead of leaving it grey. */
+.package-native-link,
+.package-native-link:visited {
   margin-left: 8px;
   font-size: 11px;
   color: #84949b;

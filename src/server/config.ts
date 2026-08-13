@@ -52,6 +52,7 @@ const artifactoryUrl = requireEnv("ARTIFACTORY_URL");
 const artifactoryRepo = requireEnv("ARTIFACTORY_REPO");
 const artifactoryToken = requireEnv("ARTIFACTORY_TOKEN");
 const artifactoryDockerRepo = requireEnv("ARTIFACTORY_DOCKER_REPO");
+const artifactoryNpmRepo = requireEnv("ARTIFACTORY_NPM_REPO");
 const artifactoryMavenRepo = requireEnv("ARTIFACTORY_MAVEN_REPO");
 const artifactoryRpmRepo = requireEnv("ARTIFACTORY_RPM_REPO");
 const artifactoryPypiRepo = requireEnv("ARTIFACTORY_PYPI_REPO");
@@ -90,6 +91,13 @@ export const config = {
     // Per-type repos: JFrog indexes each package type in its own repo, so a .jar
     // cannot land in the npm repo. Unset means that type is simply unavailable —
     // matching files are skipped with a log line, never a failed job.
+    //
+    // npm is the exception that used to have no var of its own: ARTIFACTORY_REPO
+    // was both "the npm repo" and the generic fallback. ARTIFACTORY_NPM_REPO now
+    // names it like every other type, and falls back to ARTIFACTORY_REPO so
+    // existing deployments keep working untouched. `repo` stays the fallback for
+    // unrecognised artifacts and the enabled gate.
+    npmRepo: artifactoryNpmRepo || artifactoryRepo || "",
     mavenRepo: artifactoryMavenRepo ?? "",
     rpmRepo: artifactoryRpmRepo ?? "",
     pypiRepo: artifactoryPypiRepo ?? "",

@@ -5,6 +5,7 @@ vi.mock("../../config", () => ({
     artifactory: {
       url: "https://art.example.com",
       repo: "npm-local",
+      npmRepo: "npm-local",
       token: "t",
       mavenRepo: "maven-local",
       rpmRepo: "rpm-local",
@@ -86,7 +87,8 @@ describe("classify conda", () => {
   it("takes the subdir from the channel directory, else noarch", async () => {
     vi.resetModules();
     vi.doMock("../../config", () => ({
-      config: { artifactory: { repo: "npm-local", condaRepo: "conda-local" } },
+      config: { artifactory: { repo: "npm-local",
+      npmRepo: "npm-local", condaRepo: "conda-local" } },
     }));
     const { classify: c } = await import("./packageTypes");
 
