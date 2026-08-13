@@ -38,12 +38,15 @@ node .claude/skills/run-devops-portal/driver.mjs [base-url] [screenshot-dir]
 ```
 
 The driver:
-1. Navigates to every module nav button (Tickets, Artifactory, Chat)
+1. Walks every button in `nav.app-nav` — whatever modules are registered in
+   `src/client/App.tsx` (currently Tickets, Artifactory, Whitening, Research).
+   It reads the labels off the page, so adding a module needs no driver change.
 2. Opens the "New" ticket modal, fills Name + Description, submits
 3. Switches to Admin role and captures the queue view
 4. Saves numbered PNGs to `screenshot-dir` and exits 0
 
-Typical run: ~10 s, 13 screenshots.
+Typical run: ~10 s, one screenshot per module plus four (home, modal, filled,
+submitted) and a fifth if the Admin toggle is present.
 
 Check which port Vite chose before running the driver:
 
@@ -78,7 +81,9 @@ npm run build  # tsc --noEmit + vite build — catches type errors
 
 - **Submit button has no `type="submit"`.** It's `<button class="primary">Submit</button>`. Use `page.locator('button.primary', { hasText: /submit/i })`.
 
-- **Tickets state is in-memory.** Each `npm run dev` restart clears all tickets. The seed ticket "DEVOPS-1001" comes from `InMemoryTicketingApi`.
+- **The ticket list starts empty.** Without Jira configured the server falls back to `InMemoryTicketingApi`, which seeds nothing — fixtures live in `modules/ticketing/__tests__/seedTickets.ts` and are only injected by tests. State is in-memory, so each `npm run dev` restart clears whatever the driver created.
+
+- **The Test button on Artifactory / Whitening only exists in dev.** Both routers mount `POST /api/<module>/jobs/simulate` only when `SSO_REQUIRED` is not `true`, and the client renders the button only for the `dev` user. Job lists start empty; a run exists only once you press it.
 
 - **`curl` is not available** in this environment. Use `node` + Playwright, or `fetch` via Node 20+ (`node -e "fetch(...).then(r => r.json()).then(console.log)"`), to probe the API.
 

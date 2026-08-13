@@ -30,7 +30,9 @@ git -C ../homelab log --oneline -1 origin/main          # chore: portal image 1.
 kubectl -n argocd get app devops-portal                 # Synced / Healthy
 ```
 
-ArgoCD reconciles every 180s. To stop waiting:
+ArgoCD reconciles every 30s (both `timeout.reconciliation` and repo-server's
+`--revision-cache-expiration` — they stack; see `../homelab/CLAUDE.md` →
+ArgoCD). Commit to synced is ~90s. To skip the wait:
 
 ```bash
 kubectl -n argocd patch app devops-portal --type merge -p '{"operation":{"sync":{}}}'
