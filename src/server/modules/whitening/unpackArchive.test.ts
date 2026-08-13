@@ -10,7 +10,8 @@ vi.mock("../../config", () => ({
   config: {
     artifactory: { url: "", repo: "", npmRepo: "", token: "", dockerRepo: "" },
     git: { url: "https://bitbucket.example.com", token: "git-token", username: "" },
-    research: { apiKey: "" },
+    // redactSecrets reads all three token/key sources, so all three must exist.
+    ai: { apiKey: "" },
   },
 }));
 
