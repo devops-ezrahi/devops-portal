@@ -112,14 +112,32 @@ export class RealWhiteningApi implements WhiteningApi {
     let packConfig: PackConfig;
     try {
       await mkdir(extractDir, { recursive: true });
-      await writeFile(join(workDir, "pack.tgz"), archive);
+      // Zip needs its own extractor: Debian's GNU tar cannot read the format at
+      // all. (It appears to work on Windows only because tar.exe there is
+      // bsdtar.) The runtime image installs unzip for this — see Dockerfile.
+      const isZip = /\.zip$/i.test(archiveName);
+      const packFile = isZip ? "pack.zip" : "pack.tgz";
+      await writeFile(join(workDir, packFile), archive);
       try {
         // tar ships with Linux and Windows 10+ — no unpacking library needed.
         // Relative paths run from `cwd`: GNU tar reads a leading `C:` as a
         // remote host spec and refuses to open the archive.
-        await execFileAsync("tar", ["-xzf", "pack.tgz", "-C", "extracted"], { cwd: workDir });
-      } catch {
-        throw new Error(`Could not extract ${archiveName} — expected a .tgz from the whitening packer`);
+        await execFileAsync(
+          isZip ? "unzip" : "tar",
+          isZip ? ["-q", packFile, "-d", "extracted"] : ["-xzf", packFile, "-C", "extracted"],
+          { cwd: workDir }
+        );
+      } catch (err) {
+        // unzip exits 1 for "extracted, with warnings" and only >= 2 for a real
+        // failure. A zip built on Windows warns about backslash separators and
+        // still unpacks correctly, so treating 1 as fatal would reject packs
+        // that are perfectly usable.
+        const code = (err as { code?: number }).code;
+        if (!isZip || code !== 1) {
+          throw new Error(
+            `Could not extract ${archiveName} — expected a .tgz or .zip from the whitening packer`
+          );
+        }
       }
       const configPath = join(extractDir, "repository", "config.json");
       if (!(await pathExists(configPath))) {

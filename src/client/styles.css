@@ -1868,7 +1868,14 @@ button:focus-visible {
   gap: 6px;
   max-height: 320px;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #2a3940 transparent;
 }
+
+.package-table::-webkit-scrollbar { width: 6px }
+.package-table::-webkit-scrollbar-track { background: transparent }
+.package-table::-webkit-scrollbar-thumb { background: #203238; border-radius: 999px }
+.package-table::-webkit-scrollbar-thumb:hover { background: #2a3940 }
 
 .package-row {
   display: flex;
@@ -1947,7 +1954,16 @@ button:focus-visible {
   color: #9fe4dc;
   white-space: pre-wrap;
   word-break: break-word;
+  /* Same thin dark bar the chat panes use, instead of the browser default
+     light one cutting across a dark log. */
+  scrollbar-width: thin;
+  scrollbar-color: #2a3940 transparent;
 }
+
+.job-log-body::-webkit-scrollbar { width: 6px; height: 6px }
+.job-log-body::-webkit-scrollbar-track { background: transparent }
+.job-log-body::-webkit-scrollbar-thumb { background: #203238; border-radius: 999px }
+.job-log-body::-webkit-scrollbar-thumb:hover { background: #2a3940 }
 
 /* ---- Chat / RAGFlow module ---- */
 

@@ -30,8 +30,13 @@ FROM node:20-slim AS production
 # certificate signed by unknown authority" and the proxy exits, which surfaces
 # as a 502 from the ingress rather than an obvious crash. This went unnoticed
 # while the cluster served plain HTTP.
+#
+# unzip is for the Whitening module's .zip packs. The tgz path uses tar, which
+# is already here, but Debian's tar is GNU tar and cannot read zip at all —
+# only Windows dev appears to work without this, because tar.exe there is
+# bsdtar. Dropping unzip breaks .zip uploads in the cluster and nowhere else.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git \
+    && apt-get install -y --no-install-recommends ca-certificates git unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Research module's engine. Installed globally, invoked as a child process
