@@ -1,5 +1,5 @@
 import { Plus } from "lucide-react";
-import type { ResearchConversation } from "../../../../server/types";
+import type { AiConversation } from "../../../../server/types";
 
 export function ConversationSidebar({
   conversations,
@@ -7,7 +7,7 @@ export function ConversationSidebar({
   onNewChat,
   onSwitchTo,
 }: {
-  conversations: ResearchConversation[];
+  conversations: AiConversation[];
   activeId: string | null;
   onNewChat: () => void;
   onSwitchTo: (id: string) => void;

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { getPortalConfig } from "../../api";
 import { log, warn, error as logError } from "../../log";
 import type { ModuleViewProps } from "../../moduleTypes";
-import type { ChatMessage, ResearchCategory, ResearchConversation, ResearchJob } from "../../../server/types";
+import type { ChatMessage, AiCategory, AiConversation, AiJob } from "../../../server/types";
 import {
   cancelJob,
   createConversation,
@@ -19,11 +19,11 @@ import { MessageList } from "./components/MessageList";
 
 const POLL_MS = 2000;
 
-function isPending(status: ResearchJob["status"]) {
+function isPending(status: AiJob["status"]) {
   return status === "pending" || status === "in-progress";
 }
 
-function jobToMessages(job: ResearchJob): ChatMessage[] {
+function jobToMessages(job: AiJob): ChatMessage[] {
   const answer =
     job.status === "failed" ? `⚠️ ${job.errorMessage ?? "Failed"}` :
     job.status === "aborted" ? "_Stopped._" :
@@ -37,12 +37,12 @@ function jobToMessages(job: ResearchJob): ChatMessage[] {
   ];
 }
 
-export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
-  const [researchEnabled, setResearchEnabled] = useState<boolean | null>(null);
-  const [categories, setCategories] = useState<ResearchCategory[]>([]);
-  const [conversations, setConversations] = useState<ResearchConversation[]>([]);
+export function AiView({ refreshKey, onError }: ModuleViewProps) {
+  const [aiEnabled, setAiEnabled] = useState<boolean | null>(null);
+  const [categories, setCategories] = useState<AiCategory[]>([]);
+  const [conversations, setConversations] = useState<AiConversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
-  const [jobs, setJobs] = useState<ResearchJob[]>([]);
+  const [jobs, setJobs] = useState<AiJob[]>([]);
   const [showPicker, setShowPicker] = useState(false);
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -56,20 +56,20 @@ export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
   const pendingJob = jobs.find((j) => isPending(j.status)) ?? null;
 
   useEffect(() => {
-    log("research", "view mounted");
+    log("ai", "view mounted");
     getPortalConfig().then((cfg) => {
-      if (!cfg.researchEnabled) warn("research", "disabled — no research-* skills or OPENCODE_API_KEY not set");
-      setResearchEnabled(cfg.researchEnabled ?? false);
+      if (!cfg.aiEnabled) warn("ai", "disabled — no ai-* skills or OPENCODE_API_KEY not set");
+      setAiEnabled(cfg.aiEnabled ?? false);
     });
     fetchCategories()
       .then(setCategories)
-      .catch((err) => logError("research", "failed to load categories", err));
+      .catch((err) => logError("ai", "failed to load categories", err));
     fetchConversations()
       .then((list) => {
         setConversations(list);
         if (list[0]) selectConversation(list[0].id);
       })
-      .catch((err) => logError("research", "failed to load conversations", err));
+      .catch((err) => logError("ai", "failed to load conversations", err));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -89,11 +89,11 @@ export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
     if (!pendingJob) return;
     let cancelled = false;
     const timer = setInterval(async () => {
-      let job: ResearchJob;
+      let job: AiJob;
       try {
         job = await pollJob(pendingJob.id);
       } catch (err) {
-        logError("research", "poll failed", { jobId: pendingJob.id }, err);
+        logError("ai", "poll failed", { jobId: pendingJob.id }, err);
         onError(err instanceof Error ? err.message : "Failed to check job status");
         clearInterval(timer);
         return;
@@ -106,7 +106,7 @@ export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
         // step runs, so a partial local patch would miss it.
         fetchConversations()
           .then(setConversations)
-          .catch((err) => logError("research", "failed to refresh conversations", err));
+          .catch((err) => logError("ai", "failed to refresh conversations", err));
       }
     }, POLL_MS);
     return () => {
@@ -119,19 +119,19 @@ export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
     setActiveConversationId(id);
     fetchConversationJobs(id)
       .then(setJobs)
-      .catch((err) => logError("research", "failed to load conversation jobs", err));
+      .catch((err) => logError("ai", "failed to load conversation jobs", err));
   }
 
   async function pickCategory(project: string | null) {
     try {
       const conversation = await createConversation(project);
-      log("research", "conversation started", { id: conversation.id, project });
+      log("ai", "conversation started", { id: conversation.id, project });
       setConversations((prev) => [conversation, ...prev]);
       setJobs([]);
       setActiveConversationId(conversation.id);
       setShowPicker(false);
     } catch (err) {
-      logError("research", "failed to start conversation", err);
+      logError("ai", "failed to start conversation", err);
       onError(err instanceof Error ? err.message : "Failed to start chat");
     }
   }
@@ -146,7 +146,7 @@ export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
   async function sendMessage() {
     const question = input.trim();
     if (!question || !activeConversationId || pendingJob) {
-      log("research", "send ignored", { empty: !question, activeConversationId, pending: pendingJob?.id });
+      log("ai", "send ignored", { empty: !question, activeConversationId, pending: pendingJob?.id });
       return;
     }
 
@@ -155,10 +155,10 @@ export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
 
     try {
       const job = await submitQuestion(activeConversationId, question);
-      log("research", "job submitted", { id: job.id, conversationId: activeConversationId });
+      log("ai", "job submitted", { id: job.id, conversationId: activeConversationId });
       setJobs((prev) => [...prev, job]);
     } catch (err) {
-      logError("research", "submit failed", err);
+      logError("ai", "submit failed", err);
       onError(err instanceof Error ? err.message : "Failed to submit question");
     }
   }
@@ -169,7 +169,7 @@ export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
       const job = await cancelJob(pendingJob.id);
       setJobs((prev) => prev.map((j) => (j.id === job.id ? job : j)));
     } catch (err) {
-      logError("research", "cancel failed", err);
+      logError("ai", "cancel failed", err);
       onError(err instanceof Error ? err.message : "Failed to stop job");
     }
   }
@@ -181,18 +181,18 @@ export function ResearchView({ refreshKey, onError }: ModuleViewProps) {
     }
   }
 
-  if (researchEnabled === null) {
+  if (aiEnabled === null) {
     return <div className="loading-state" aria-label="Loading" />;
   }
 
-  if (!researchEnabled) {
+  if (!aiEnabled) {
     return (
       <div className="chat-module">
         <div className="chat-not-configured">
           <Sparkles size={40} style={{ opacity: 0.25 }} aria-hidden="true" />
           <p style={{ margin: 0, fontWeight: 700, color: "#c8d3d7" }}>AI not configured</p>
           <p style={{ margin: 0, fontSize: 13, maxWidth: 420 }}>
-            Add a <code>research-*</code> skill under <code>RESEARCH_SKILLS_DIR</code> and set{" "}
+            Add a <code>ai-*</code> skill under <code>AI_SKILLS_DIR</code> and set{" "}
             <code>OPENCODE_API_KEY</code> (optionally <code>OPENCODE_MODEL</code>) — see{" "}
             <code>.env.example</code>.
           </p>

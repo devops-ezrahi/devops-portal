@@ -1,19 +1,19 @@
 import express from "express";
 import { z } from "zod";
 import { isAdmin } from "../../auth";
-import type { ResearchApi } from "../../types";
+import type { AiApi } from "../../types";
 
 const startSchema = z.object({ project: z.string().min(1).nullable() });
 const questionSchema = z.object({ question: z.string().min(1) });
 
-export function createResearchRouter(api: ResearchApi): express.Router {
+export function createAiRouter(api: AiApi): express.Router {
   const router = express.Router();
 
-  router.get("/api/research/categories", (_req, res) => {
+  router.get("/api/ai/categories", (_req, res) => {
     res.json({ categories: api.listCategories() });
   });
 
-  router.post("/api/research/conversations", async (req, res, next) => {
+  router.post("/api/ai/conversations", async (req, res, next) => {
     try {
       const { project } = startSchema.parse(req.body);
       if (project && !api.listCategories().some((c) => c.name === project)) {
@@ -27,7 +27,7 @@ export function createResearchRouter(api: ResearchApi): express.Router {
     }
   });
 
-  router.get("/api/research/conversations", async (req, res, next) => {
+  router.get("/api/ai/conversations", async (req, res, next) => {
     try {
       const conversations = await api.listConversations(req.user!, isAdmin(req.user!));
       res.json({ conversations });
@@ -36,7 +36,7 @@ export function createResearchRouter(api: ResearchApi): express.Router {
     }
   });
 
-  router.post("/api/research/conversations/:id/jobs", async (req, res, next) => {
+  router.post("/api/ai/conversations/:id/jobs", async (req, res, next) => {
     try {
       const { question } = questionSchema.parse(req.body);
       const job = await api.submitQuestion(req.params.id, question, req.user!);
@@ -46,7 +46,7 @@ export function createResearchRouter(api: ResearchApi): express.Router {
     }
   });
 
-  router.get("/api/research/conversations/:id/jobs", async (req, res, next) => {
+  router.get("/api/ai/conversations/:id/jobs", async (req, res, next) => {
     try {
       const jobs = await api.listJobs(req.params.id, req.user!, isAdmin(req.user!));
       res.json({ jobs });
@@ -55,7 +55,7 @@ export function createResearchRouter(api: ResearchApi): express.Router {
     }
   });
 
-  router.post("/api/research/jobs/:id/cancel", async (req, res, next) => {
+  router.post("/api/ai/jobs/:id/cancel", async (req, res, next) => {
     try {
       const job = await api.cancelJob(req.params.id, req.user!, isAdmin(req.user!));
       if (!job) {
@@ -68,7 +68,7 @@ export function createResearchRouter(api: ResearchApi): express.Router {
     }
   });
 
-  router.get("/api/research/jobs/:id", async (req, res, next) => {
+  router.get("/api/ai/jobs/:id", async (req, res, next) => {
     try {
       const job = await api.getJob(req.params.id);
       if (!job) throw new Error("Job not found");

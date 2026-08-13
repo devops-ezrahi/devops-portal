@@ -5,21 +5,21 @@ import { isAdmin, requireSession, setDevRole } from "./auth";
 import { config } from "./config";
 import { RealArtifactoryApi } from "./modules/artifactory/RealArtifactoryApi";
 import { createArtifactoryRouter } from "./modules/artifactory/router";
-import { RealResearchApi } from "./modules/research/RealResearchApi";
-import { createResearchRouter } from "./modules/research/router";
+import { RealAiApi } from "./modules/ai/RealAiApi";
+import { createAiRouter } from "./modules/ai/router";
 import { InMemoryTicketingApi } from "./modules/ticketing/InMemoryTicketingApi";
 import { JiraTicketingApi } from "./modules/ticketing/JiraTicketingApi";
 import { createTicketingRouter } from "./modules/ticketing/router";
 import { RealWhiteningApi } from "./modules/whitening/RealWhiteningApi";
 import { createWhiteningRouter } from "./modules/whitening/router";
 import { sweepOldTmpDirs } from "./tmp";
-import type { ArtifactoryApi, ResearchApi, TicketingApi, WhiteningApi } from "./types";
+import type { ArtifactoryApi, AiApi, TicketingApi, WhiteningApi } from "./types";
 
 export function createApp(
   ticketingApi: TicketingApi = config.jira.enabled ? new JiraTicketingApi(config.jira) : new InMemoryTicketingApi(),
   artifactoryApi: ArtifactoryApi = new RealArtifactoryApi(),
   whiteningApi: WhiteningApi = new RealWhiteningApi(),
-  researchApi: ResearchApi = new RealResearchApi()
+  aiApi: AiApi = new RealAiApi()
 ) {
   void sweepOldTmpDirs();
   // Dev mode is "no SSO proxy in front" — the same switch that makes `auth.ts`
@@ -44,12 +44,21 @@ export function createApp(
   } else {
     console.log("[ticketing] in-memory fallback (set JIRA_URL + JIRA_TOKEN + JIRA_PROJECT_KEY for Jira)");
   }
-  if (config.research.enabled) {
+  // The skills dir is always named, enabled or not: an empty registry is the
+  // one failure here that is otherwise silent — the module just reports itself
+  // "not configured" whether the path is wrong, unmounted, or holds entries
+  // under the old research-* prefix.
+  const projectNames = Object.keys(config.ai.projects);
+  console.log(
+    `[ai] skills dir: ${config.ai.skillsDir} — ${projectNames.length} ai-* project(s)` +
+      `${projectNames.length ? `: ${projectNames.join(", ")}` : ""}`
+  );
+  if (config.ai.enabled) {
     console.log(
-      `[research] opencode model: ${config.research.model}, projects: ${Object.keys(config.research.projects).join(", ") || "(none)"}`
+      `[ai] opencode model: ${config.ai.model}${config.ai.baseUrl ? ` via ${config.ai.baseUrl}` : ""}`
     );
   } else {
-    console.log("[research] not configured (set RESEARCH_PROJECTS + OPENCODE_API_KEY)");
+    console.log("[ai] not configured — no ai-* skills found in the directory above");
   }
 
   const app = express();
@@ -62,7 +71,7 @@ export function createApp(
     res.json({
       ssoUrl: config.ssoUrl,
       artifactoryEnabled: config.artifactory.enabled,
-      researchEnabled: config.research.enabled,
+      aiEnabled: config.ai.enabled,
     });
   });
 
@@ -83,7 +92,7 @@ export function createApp(
   app.use(createTicketingRouter(ticketingApi));
   app.use(createArtifactoryRouter(artifactoryApi));
   app.use(createWhiteningRouter(whiteningApi));
-  app.use(createResearchRouter(researchApi));
+  app.use(createAiRouter(aiApi));
 
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (error instanceof z.ZodError) {

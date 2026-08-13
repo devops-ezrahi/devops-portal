@@ -6,7 +6,7 @@ import { dirname, join } from "path";
 import { promisify } from "util";
 import { config } from "../../config";
 import { redactSecrets } from "../../redact";
-import type { PortalUser, ResearchApi, ResearchCategory, ResearchConversation, ResearchJob } from "../../types";
+import type { PortalUser, AiApi, AiCategory, AiConversation, AiJob } from "../../types";
 
 const execFileAsync = promisify(execFile);
 const isWindows = platform() === "win32";
@@ -44,12 +44,31 @@ const OPENCODE_POLICY = {
   },
 };
 
-/** Written once per process; opencode reads it via OPENCODE_CONFIG. */
+/** `anthropic/claude-sonnet-5` -> `anthropic`. */
+function providerOf(model: string): string {
+  return model.split("/")[0] || "anthropic";
+}
+
+/**
+ * Written once per process; opencode reads it via OPENCODE_CONFIG.
+ *
+ * OPENCODE_BASE_URL rides along in the same file because opencode exposes no
+ * env var for it — a custom endpoint is only `provider.<id>.options.baseURL`.
+ * The id is the provider half of OPENCODE_MODEL, so pointing the module at a
+ * gateway means setting both vars together.
+ */
 function writeOpencodePolicy(): string {
-  const dir = join(tmpdir(), "research-opencode");
+  const dir = join(tmpdir(), "ai-opencode");
   mkdirSync(dir, { recursive: true });
   const path = join(dir, "opencode.json");
-  writeFileSync(path, JSON.stringify(OPENCODE_POLICY, null, 2));
+  const baseUrl = config.ai.baseUrl;
+  const contents = baseUrl
+    ? {
+        ...OPENCODE_POLICY,
+        provider: { [providerOf(config.ai.model)]: { options: { baseURL: baseUrl } } },
+      }
+    : OPENCODE_POLICY;
+  writeFileSync(path, JSON.stringify(contents, null, 2));
   return path;
 }
 
@@ -82,9 +101,9 @@ type OpencodeEvent = {
   };
 };
 
-export class RealResearchApi implements ResearchApi {
-  private conversations = new Map<string, ResearchConversation>();
-  private jobs = new Map<string, ResearchJob>();
+export class RealAiApi implements AiApi {
+  private conversations = new Map<string, AiConversation>();
+  private jobs = new Map<string, AiJob>();
   private conversationCounter = 0;
   private jobCounter = 0;
   /** One per running job, so `cancelJob`/timeout can stop the work already in flight. */
@@ -98,13 +117,13 @@ export class RealResearchApi implements ResearchApi {
     return `RES-${String(++this.jobCounter).padStart(4, "0")}`;
   }
 
-  private patchConversation(conversationId: string, updates: Partial<ResearchConversation>) {
+  private patchConversation(conversationId: string, updates: Partial<AiConversation>) {
     const conversation = this.conversations.get(conversationId);
     if (!conversation) return;
     Object.assign(conversation, { ...updates, updatedAt: nowIso() });
   }
 
-  private patch(jobId: string, updates: Partial<ResearchJob>) {
+  private patch(jobId: string, updates: Partial<AiJob>) {
     const job = this.jobs.get(jobId);
     if (!job) return;
     Object.assign(job, { ...updates, updatedAt: nowIso() });
@@ -113,13 +132,13 @@ export class RealResearchApi implements ResearchApi {
   private appendLog(jobId: string, line: string) {
     const job = this.jobs.get(jobId);
     if (!job) return;
-    job.log.push({ step: "Research", line: redactSecrets(line) });
+    job.log.push({ step: "AI", line: redactSecrets(line) });
     job.updatedAt = nowIso();
   }
 
   private cloneDirFor(project: string): string {
     const safe = project.replace(/[^a-zA-Z0-9_-]/g, "_");
-    return join(tmpdir(), "research-clones", safe);
+    return join(tmpdir(), "ai-clones", safe);
   }
 
   /**
@@ -130,11 +149,11 @@ export class RealResearchApi implements ResearchApi {
    */
   private async classifyProject(jobId: string, question: string, signal: AbortSignal): Promise<string> {
     const categories = this.listCategories();
-    if (categories.length === 0) throw new Error("No research categories configured");
+    if (categories.length === 0) throw new Error("No AI categories configured");
     if (categories.length === 1) return categories[0].name;
 
     this.appendLog(jobId, "Figuring out which repo fits your question ...");
-    const scratchDir = join(tmpdir(), "research-clones", "_classify");
+    const scratchDir = join(tmpdir(), "ai-clones", "_classify");
     await mkdir(scratchDir, { recursive: true });
 
     const list = categories.map((c) => `- ${c.name}: ${c.description}`).join("\n");
@@ -152,13 +171,13 @@ export class RealResearchApi implements ResearchApi {
     return match.name;
   }
 
-  listCategories(): ResearchCategory[] {
-    return Object.entries(config.research.projects).map(([name, p]) => ({ name, description: p.description }));
+  listCategories(): AiCategory[] {
+    return Object.entries(config.ai.projects).map(([name, p]) => ({ name, description: p.description }));
   }
 
-  async startConversation(project: string | null, submitter: PortalUser): Promise<ResearchConversation> {
-    if (project && !config.research.projects[project]) throw new Error(`Unknown project "${project}"`);
-    const conversation: ResearchConversation = {
+  async startConversation(project: string | null, submitter: PortalUser): Promise<AiConversation> {
+    if (project && !config.ai.projects[project]) throw new Error(`Unknown project "${project}"`);
+    const conversation: AiConversation = {
       id: this.newConversationId(),
       title: "",
       project,
@@ -171,18 +190,18 @@ export class RealResearchApi implements ResearchApi {
     return conversation;
   }
 
-  async listConversations(user: PortalUser, allUsers = false): Promise<ResearchConversation[]> {
+  async listConversations(user: PortalUser, allUsers = false): Promise<AiConversation[]> {
     return [...this.conversations.values()]
       .filter((c) => allUsers || c.submittedBy === user.id)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
-  async submitQuestion(conversationId: string, question: string, submitter: PortalUser): Promise<ResearchJob> {
+  async submitQuestion(conversationId: string, question: string, submitter: PortalUser): Promise<AiJob> {
     const conversation = this.conversations.get(conversationId);
     if (!conversation) throw new Error("Conversation not found");
     if (!conversation.title) this.patchConversation(conversationId, { title: truncateTitle(question) });
 
-    const job: ResearchJob = {
+    const job: AiJob = {
       id: this.newJobId(),
       conversationId,
       status: "pending",
@@ -199,17 +218,17 @@ export class RealResearchApi implements ResearchApi {
     return job;
   }
 
-  async listJobs(conversationId: string, user: PortalUser, allUsers = false): Promise<ResearchJob[]> {
+  async listJobs(conversationId: string, user: PortalUser, allUsers = false): Promise<AiJob[]> {
     return [...this.jobs.values()]
       .filter((j) => j.conversationId === conversationId && (allUsers || j.submittedBy === user.id))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
-  async getJob(jobId: string): Promise<ResearchJob | null> {
+  async getJob(jobId: string): Promise<AiJob | null> {
     return this.jobs.get(jobId) ?? null;
   }
 
-  async cancelJob(jobId: string, user: PortalUser, allUsers = false): Promise<ResearchJob | null> {
+  async cancelJob(jobId: string, user: PortalUser, allUsers = false): Promise<AiJob | null> {
     const job = this.jobs.get(jobId);
     if (!job) return null;
     if (!allUsers && job.submittedBy !== user.id) {
@@ -252,7 +271,7 @@ export class RealResearchApi implements ResearchApi {
       }
       const project = conversation.project!;
 
-      const repoUrl = config.research.projects[project]?.repoUrl;
+      const repoUrl = config.ai.projects[project]?.repoUrl;
       if (!repoUrl) throw new Error(`Unknown project "${project}"`);
       const cloneDir = this.cloneDirFor(project);
 
@@ -306,18 +325,17 @@ export class RealResearchApi implements ResearchApi {
   ): Promise<{ answer: string; thinking?: string; sessionId?: string }> {
     // opencode resolves provider credentials from a PROVIDER_API_KEY env var,
     // e.g. anthropic/claude-sonnet-5 -> ANTHROPIC_API_KEY.
-    const provider = config.research.model.split("/")[0] || "anthropic";
-    const envVar = `${provider.toUpperCase()}_API_KEY`;
+    const envVar = `${providerOf(config.ai.model).toUpperCase()}_API_KEY`;
     const env = {
       ...process.env,
-      [envVar]: config.research.apiKey,
+      [envVar]: config.ai.apiKey,
       // Highest-precedence config — carries the read-only deny-list, so this
       // never depends on a file existing at opencode's default config path.
       OPENCODE_CONFIG: OPENCODE_CONFIG_PATH,
     };
     this.appendLog(
       jobId,
-      `$ opencode run --dir ${cwd} --model ${config.research.model}` +
+      `$ opencode run --dir ${cwd} --model ${config.ai.model}` +
         (existingSessionId ? ` --session ${existingSessionId}` : "") +
         ` --format json "<question>"`
     );
@@ -349,14 +367,14 @@ export class RealResearchApi implements ResearchApi {
               (existingSessionId ? ' --session "$R_SESSION"' : "") +
               ' "$R_QUESTION" < /dev/null',
           ],
-          { ...env, R_DIR: cwd, R_MODEL: config.research.model, R_QUESTION: question, R_SESSION: existingSessionId ?? "" },
+          { ...env, R_DIR: cwd, R_MODEL: config.ai.model, R_QUESTION: question, R_SESSION: existingSessionId ?? "" },
         ]
       : ([
           "opencode",
           [
             "run",
             "--dir", cwd,
-            "--model", config.research.model,
+            "--model", config.ai.model,
             "--auto",
             "--format", "json",
             ...(existingSessionId ? ["--session", existingSessionId] : []),

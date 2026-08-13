@@ -39,12 +39,12 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates git unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Research module's engine. Installed globally, invoked as a child process
-# per question (see src/server/modules/research/RealResearchApi.ts).
+# AI module's engine. Installed globally, invoked as a child process
+# per question (see src/server/modules/ai/RealAiApi.ts).
 RUN npm install -g opencode-ai
 
 # --create-home (not the previous --no-create-home): opencode keeps its session
-# store and scratch state under ~, and the default RESEARCH_SKILLS_DIR is
+# store and scratch state under ~, and the default AI_SKILLS_DIR is
 # ~/.claude/skills. ENV HOME is set explicitly rather than relying on useradd's
 # default, so that path is fixed.
 # The read-only permission policy is NOT a file here any more — it's inlined in
