@@ -73,6 +73,10 @@ const jiraStoryPointsField = requireEnv("JIRA_STORY_POINTS_FIELD");
 export const config = {
   ssoRequired: process.env.SSO_REQUIRED === "true",
   ssoUrl: requireEnv("SSO_URL") ?? "",
+  // Header carrying the IdP's `name` claim. Lowercased because Node lowercases
+  // incoming header names. Unset keeps the previous behaviour: fall back to
+  // the preferred-username headers.
+  ssoNameHeader: (requireEnv("SSO_NAME_HEADER") ?? "").trim().toLowerCase(),
   adminGroups: (requireEnv("ADMIN_GROUP") ?? "portal-admins")
     .split("|")
     .map((g) => g.trim())

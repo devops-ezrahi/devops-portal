@@ -341,6 +341,21 @@ textarea {
   color: #aeb9bf;
 }
 
+/* .nav-button is an <a> (so middle-click opens a new tab), which drags in two
+   global link rules: `a:visited` is (0,1,1) and outranks the bare class above,
+   turning every visited tab teal, and `a:hover` underlines it. Both are
+   restated here rather than weakened globally. */
+.nav-button:visited {
+  color: #aeb9bf;
+}
+
+.nav-button,
+.nav-button:hover {
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 120ms ease;
+}
+
 .nav-button svg,
 .ghost-button svg {
   flex: 0 0 auto;

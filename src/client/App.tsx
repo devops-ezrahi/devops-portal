@@ -195,14 +195,24 @@ export function App() {
           {modules.map((mod) => {
             const nav = isAdmin ? mod.adminNav : mod.userNav;
             return (
-              <button
+              // An anchor, not a button: middle-click and ctrl/cmd-click only
+              // open a new tab for elements that actually carry an href. The
+              // onClick keeps normal clicks as in-app navigation, and bails on
+              // modified clicks so the browser handles those itself.
+              <a
                 key={mod.id}
+                href={`/${slugFor(mod)}`}
                 className={`nav-button${activeModuleId === mod.id ? " active" : ""}`}
-                onClick={() => navigateTo(mod.id)}
+                aria-current={activeModuleId === mod.id ? "page" : undefined}
+                onClick={(e) => {
+                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                  e.preventDefault();
+                  navigateTo(mod.id);
+                }}
               >
                 <nav.Icon aria-hidden="true" />
                 {nav.label}
-              </button>
+              </a>
             );
           })}
           <div className="stella-lane">
@@ -212,7 +222,9 @@ export function App() {
 
         <div className="header-actions">
           <div className="user-box">
-            <span>{user?.displayName ?? "Signed in user"}</span>
+            {/* dir="auto" so a Hebrew name from the SSO `name` claim renders
+                right-to-left instead of reversed. */}
+            <span dir="auto">{user?.displayName ?? "Signed in user"}</span>
           </div>
 
           <button

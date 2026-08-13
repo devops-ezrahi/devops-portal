@@ -14,6 +14,21 @@ function readHeader(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+/**
+ * Node parses header bytes as latin-1, so a UTF-8 name — Hebrew, Cyrillic,
+ * anything accented — arrives mojibaked ("×“×‘×™" rather than "דבי").
+ * Reinterpreting the same bytes as UTF-8 recovers it.
+ *
+ * Only applied when the value actually contains high bytes and decodes without
+ * a replacement character, so a name that really is latin-1 is left untouched
+ * rather than mangled the other way.
+ */
+export function decodeHeaderText(value: string): string {
+  if (!/[-ÿ]/.test(value)) return value;
+  const decoded = Buffer.from(value, "latin1").toString("utf8");
+  return decoded.includes("�") ? value : decoded;
+}
+
 // oauth2-proxy comma-joins multiple groups into one X-Forwarded-Groups
 // header value, which collides with LDAP/AD-style group DNs
 // (CN=foo,OU=bar,DC=baz) that use commas as their own separator — naively
@@ -46,10 +61,16 @@ export function userFromSsoHeaders(req: Request): PortalUser | null {
     readHeader(req.headers["x-forwarded-email"]) ??
     readHeader(req.headers["x-user-email"]) ??
     `${id}@example.com`;
-  const displayName =
-    readHeader(req.headers["x-forwarded-preferred-username"]) ??
-    readHeader(req.headers["x-user-name"]) ??
-    id;
+  // SSO_NAME_HEADER first, so a deployment can point at whichever header its
+  // proxy carries the IdP's `name` claim in — oauth2-proxy's own passthrough
+  // header name differs by configuration, and the claim is a person's full
+  // name rather than the username the two fallbacks below hold.
+  const displayName = decodeHeaderText(
+    (config.ssoNameHeader ? readHeader(req.headers[config.ssoNameHeader]) : undefined) ??
+      readHeader(req.headers["x-forwarded-preferred-username"]) ??
+      readHeader(req.headers["x-user-name"]) ??
+      id
+  );
   const rawGroups =
     readHeader(req.headers["x-forwarded-groups"]) ??
     readHeader(req.headers["x-user-groups"]) ??
