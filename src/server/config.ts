@@ -6,20 +6,22 @@ function requireEnv(name: string): string | undefined {
   return process.env[name] || undefined;
 }
 
-export type ResearchProject = { description: string; repoUrl: string };
+export type AiProject = { description: string; repoUrl: string };
 
 // Registry lives as SKILL.md-shaped files, not an env var — but only this
 // app's own code ever reads them (opencode's own skill-discovery is never
-// invoked for the research flow itself), so the directory is entirely our
-// choice, not constrained to opencode's global skills path. RESEARCH_SKILLS_DIR
+// invoked for the AI flow itself), so the directory is entirely our
+// choice, not constrained to opencode's global skills path. AI_SKILLS_DIR
 // makes it mountable wherever a given environment wants — a different
 // ConfigMap path per cluster/deployment, no code change needed. Defaults to
 // ~/.claude/skills so local dev keeps working with no env var set. Only
-// `research-*`-prefixed entries count, everywhere, so a shared directory
+// `ai-*`-prefixed entries count, everywhere, so a shared directory
 // doesn't pick up unrelated skills (usage-bar, whitening-packer, ...) as repos.
-function scanResearchSkills(): Record<string, ResearchProject> {
-  const skillsDir = requireEnv("RESEARCH_SKILLS_DIR") ?? join(homedir(), ".claude", "skills");
-  const projects: Record<string, ResearchProject> = {};
+const aiSkillsDir = requireEnv("AI_SKILLS_DIR") ?? join(homedir(), ".claude", "skills");
+
+function scanAiSkills(): Record<string, AiProject> {
+  const skillsDir = aiSkillsDir;
+  const projects: Record<string, AiProject> = {};
   let entries: string[];
   try {
     entries = readdirSync(skillsDir);
@@ -28,7 +30,7 @@ function scanResearchSkills(): Record<string, ResearchProject> {
   }
 
   for (const entry of entries) {
-    if (!entry.startsWith("research-")) continue;
+    if (!entry.startsWith("ai-")) continue;
     const skillPath = join(skillsDir, entry, "SKILL.md");
     let text: string;
     try {
@@ -42,7 +44,7 @@ function scanResearchSkills(): Record<string, ResearchProject> {
     const repoUrl = text.match(/^Repo:\s*(\S+)/m)?.[1]?.trim() ?? "";
     if (!repoUrl) continue;
 
-    const name = entry.slice("research-".length);
+    const name = entry.slice("ai-".length);
     projects[name] = { description, repoUrl };
   }
   return projects;
@@ -60,7 +62,7 @@ const artifactoryCondaRepo = requireEnv("ARTIFACTORY_CONDA_REPO");
 const gitUrl = requireEnv("GIT_URL");
 const gitToken = requireEnv("GIT_TOKEN");
 
-const researchProjects = scanResearchSkills();
+const aiProjects = scanAiSkills();
 const opencodeApiKey = requireEnv("OPENCODE_API_KEY");
 
 const jiraUrl = requireEnv("JIRA_URL");
@@ -115,15 +117,22 @@ export const config = {
     storyPointsField: jiraStoryPointsField ?? "",
     enabled: !!(jiraUrl && jiraToken && jiraProjectKey),
   },
-  research: {
-    // name -> { description, repoUrl }, sourced from ~/.claude/skills/research-*/SKILL.md
-    projects: researchProjects,
+  ai: {
+    // name -> { description, repoUrl }, sourced from ~/.claude/skills/ai-*/SKILL.md
+    projects: aiProjects,
+    // Reported at startup: an empty registry is otherwise indistinguishable
+    // from a wrong or unmounted path.
+    skillsDir: aiSkillsDir,
     // Empty is valid: opencode's own free-tier "opencode/*-free" models need
     // no key at all — a non-empty placeholder gets treated as a real key and
     // rejected. Only providers that actually require credentials (Anthropic,
     // OpenAI, ...) need this set.
     apiKey: opencodeApiKey ?? "",
     model: requireEnv("OPENCODE_MODEL") ?? "anthropic/claude-sonnet-5",
-    enabled: Object.keys(researchProjects).length > 0,
+    // Points the provider at a gateway/proxy instead of its public endpoint.
+    // opencode has no env var for this — it is provider.<id>.options.baseURL in
+    // its config file, which we already generate (see RealAiApi's policy).
+    baseUrl: requireEnv("OPENCODE_BASE_URL") ?? "",
+    enabled: Object.keys(aiProjects).length > 0,
   },
 };

@@ -236,22 +236,22 @@ export interface WhiteningApi {
   cancelJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<WhiteningJob | null>;
 }
 
-// ---- Research Module ----
+// ---- AI Module ----
 
 export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
 };
 
-export type ResearchJobStatus = "pending" | "in-progress" | "completed" | "failed" | "aborted";
+export type AiJobStatus = "pending" | "in-progress" | "completed" | "failed" | "aborted";
 
-/** One researchable repo, sourced from a research-* skill file — shown in the new-chat category picker. */
-export type ResearchCategory = {
+/** One repo the AI module can answer about, sourced from a ai-* skill file — shown in the new-chat category picker. */
+export type AiCategory = {
   name: string;
   description: string;
 };
 
-export type ResearchConversation = {
+export type AiConversation = {
   id: string;
   /** First question, truncated — shown in the chat list. */
   title: string;
@@ -269,10 +269,10 @@ export type ResearchConversation = {
   updatedAt: string;
 };
 
-export type ResearchJob = {
+export type AiJob = {
   id: string;
   conversationId: string;
-  status: ResearchJobStatus;
+  status: AiJobStatus;
   submittedBy: string;
   submittedByName: string;
   createdAt: string;
@@ -286,15 +286,15 @@ export type ResearchJob = {
   log: JobLogEntry[];
 };
 
-export interface ResearchApi {
-  /** Researchable repos, for the new-chat category picker. */
-  listCategories(): ResearchCategory[];
+export interface AiApi {
+  /** Repos the AI module can answer about, for the new-chat category picker. */
+  listCategories(): AiCategory[];
   /** `project: null` starts an "I'm not sure" conversation — classified from the first question. */
-  startConversation(project: string | null, submitter: PortalUser): Promise<ResearchConversation>;
-  listConversations(user: PortalUser, allUsers?: boolean): Promise<ResearchConversation[]>;
-  submitQuestion(conversationId: string, question: string, submitter: PortalUser): Promise<ResearchJob>;
-  listJobs(conversationId: string, user: PortalUser, allUsers?: boolean): Promise<ResearchJob[]>;
-  getJob(jobId: string): Promise<ResearchJob | null>;
+  startConversation(project: string | null, submitter: PortalUser): Promise<AiConversation>;
+  listConversations(user: PortalUser, allUsers?: boolean): Promise<AiConversation[]>;
+  submitQuestion(conversationId: string, question: string, submitter: PortalUser): Promise<AiJob>;
+  listJobs(conversationId: string, user: PortalUser, allUsers?: boolean): Promise<AiJob[]>;
+  getJob(jobId: string): Promise<AiJob | null>;
   /** `null` when there is no such job; already-finished jobs are left alone. */
-  cancelJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<ResearchJob | null>;
+  cancelJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<AiJob | null>;
 }

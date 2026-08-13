@@ -1,12 +1,12 @@
 import { HelpCircle, X } from "lucide-react";
-import type { ResearchCategory } from "../../../../server/types";
+import type { AiCategory } from "../../../../server/types";
 
 export function CategoryPicker({
   categories,
   onPick,
   onClose,
 }: {
-  categories: ResearchCategory[];
+  categories: AiCategory[];
   onPick: (name: string | null) => void;
   onClose: () => void;
 }) {
@@ -22,7 +22,7 @@ export function CategoryPicker({
         <div className="chat-category-list">
           {categories.length === 0 && (
             <p style={{ margin: 0, fontSize: 13 }}>
-              No repos registered — add a <code>research-*</code> skill under{" "}
+              No repos registered — add a <code>ai-*</code> skill under{" "}
               <code>~/.claude/skills/</code>.
             </p>
           )}

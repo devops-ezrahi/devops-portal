@@ -12,7 +12,7 @@ vi.mock("../../config", () => ({
       rpmRepo: "rpm-local",
     },
     git: { token: "" }, // redactSecrets reads all three
-    research: { apiKey: "" },
+    ai: { apiKey: "" },
   },
 }));
 

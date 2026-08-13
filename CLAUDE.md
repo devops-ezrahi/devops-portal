@@ -28,8 +28,9 @@ src/
     types.ts          # shared cross-module types (API interfaces, DTOs)
     modules/
       ticketing/      # router.ts + JiraTicketingApi.ts + InMemoryTicketingApi.ts + domain files
-      artifactory/    # router.ts + RealArtifactoryApi.ts
-      research/       # router.ts + RealResearchApi.ts (clones a registered repo, asks opencode CLI)
+      artifactory/    # router.ts + RealArtifactoryApi.ts + devSimulation.ts
+      whitening/      # router.ts + RealWhiteningApi.ts + devSimulation.ts
+      ai/             # router.ts + RealAiApi.ts (clones a registered repo, asks opencode CLI)
   client/
     App.tsx           # thin shell: loads /api/me, renders nav, mounts active module View
     api.ts            # cross-cutting fetch helpers only (request, getMe, getPortalConfig, demo users)
@@ -89,8 +90,9 @@ Key variables (see `.env.example`):
 | `GIT_USERNAME`                                               | —               | Empty (default) puts the token alone in the clone URL; set it only if Bitbucket wants `username:token` basic auth           |
 | `JIRA_URL` / `JIRA_TOKEN` / `JIRA_PROJECT_KEY`               | —               | All three required to activate `JiraTicketingApi` (Jira Data Center, Bearer PAT); otherwise `InMemoryTicketingApi` fallback |
 | `JIRA_STORY_POINTS_FIELD`                                    | —               | Custom-field id holding story points (e.g. `customfield_10016`) — instance-specific; unset = points stay portal-only and are not synced to Jira |
-| `RESEARCH_SKILLS_DIR`                                         | `~/.claude/skills` | Where the Research module's project registry lives — one `research-<name>/SKILL.md` per repo (frontmatter `description` + a `Repo:` line). Only this app's own code reads this directory (opencode's own skill-discovery is never invoked for research), so it can point anywhere a deployment mounts it — e.g. a different ConfigMap path per cluster. The module activates once at least one `research-*` entry is found there. |
+| `AI_SKILLS_DIR`                                               | `~/.claude/skills` | Where the AI module's project registry lives — one `ai-<name>/SKILL.md` per repo (frontmatter `description` + a `Repo:` line). Only this app's own code reads this directory (opencode's own skill-discovery is never invoked for it), so it can point anywhere a deployment mounts it — e.g. a different ConfigMap path per cluster. The module activates once at least one `ai-*` entry is found there. The server logs the resolved path and the project count at startup, because an empty registry is otherwise indistinguishable from a wrong path. |
 | `OPENCODE_API_KEY`                                            | —               | `OPENCODE_MODEL` (default `anthropic/claude-sonnet-5`) picks the provider — the env var opencode reads for credentials is derived from it (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) and set from `OPENCODE_API_KEY`. Leave `OPENCODE_API_KEY` empty for opencode's own free `opencode/*-free` models — they reject a non-empty placeholder as an invalid key. |
+| `OPENCODE_BASE_URL`                                           | —               | Points the provider at a gateway/proxy instead of its public endpoint. opencode exposes no env var for this, so the server writes it into the opencode config it already generates for the read-only policy, as `provider.<id>.options.baseURL` — `<id>` is the provider half of `OPENCODE_MODEL`, so set the two together. |
 
 `whitening.json` at the repo root is read by the whitening packer, not by the app, and now
 holds only `images: false`. **Department, team and repository come from the CI job that

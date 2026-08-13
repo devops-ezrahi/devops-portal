@@ -1,10 +1,10 @@
 import { Sparkles } from "lucide-react";
 import type { PortalModule } from "../../moduleTypes";
-import { ResearchView } from "./ResearchView";
+import { AiView } from "./AiView";
 
-export const researchModule: PortalModule = {
-  id: "research",
+export const aiModule: PortalModule = {
+  id: "ai",
   userNav: { label: "AI", Icon: Sparkles },
   adminNav: { label: "AI", Icon: Sparkles },
-  View: ResearchView,
+  View: AiView,
 };

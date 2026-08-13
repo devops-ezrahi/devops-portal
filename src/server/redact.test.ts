@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("./config", () => ({
-  config: { git: { token: "git-secret" }, artifactory: { token: "art-secret" }, research: { apiKey: "research-secret" } },
+  config: { git: { token: "git-secret" }, artifactory: { token: "art-secret" }, ai: { apiKey: "ai-secret" } },
 }));
 
 const { redactSecrets } = await import("./redact");
