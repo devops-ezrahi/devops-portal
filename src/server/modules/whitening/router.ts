@@ -10,7 +10,7 @@ const upload = multer({
   limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB — packs include dependencies + image tars
 });
 
-const ARCHIVE_NAME = /\.(tgz|tar\.gz)$/i;
+const ARCHIVE_NAME = /\.(tgz|tar\.gz|zip)$/i;
 
 export function createWhiteningRouter(api: WhiteningApi): express.Router {
   const router = express.Router();
@@ -23,7 +23,7 @@ export function createWhiteningRouter(api: WhiteningApi): express.Router {
         return;
       }
       if (!ARCHIVE_NAME.test(file.originalname)) {
-        res.status(400).json({ error: "file must be a .tgz" });
+        res.status(400).json({ error: "file must be a .tgz or .zip" });
         return;
       }
       let job;

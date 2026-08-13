@@ -25,9 +25,9 @@ export function ArchiveDropZone({ onSubmitted, onError }: Props) {
     setDragOver(false);
     const dropped = e.dataTransfer.files[0];
     if (!dropped) return log("whitening/upload", "drop with no files");
-    if (!/\.(tgz|tar\.gz)$/i.test(dropped.name)) {
-      warn("whitening/upload", "rejected non-tgz drop", { name: dropped.name, type: dropped.type });
-      onError("Please drop a .tgz file.");
+    if (!/\.(tgz|tar\.gz|zip)$/i.test(dropped.name)) {
+      warn("whitening/upload", "rejected unsupported drop", { name: dropped.name, type: dropped.type });
+      onError("Please drop a .tgz or .zip file.");
       return;
     }
     log("whitening/upload", "archive selected", { name: dropped.name, bytes: dropped.size });
@@ -66,7 +66,7 @@ export function ArchiveDropZone({ onSubmitted, onError }: Props) {
           onDrop={handleDrop}
         >
           <FileArchive size={36} aria-hidden="true" />
-          <span>Drop a packed .tgz here</span>
+          <span>Drop a packed .tgz or .zip here</span>
           <small>from the whitening packer — must contain repository/config.json</small>
         </div>
       ) : (
