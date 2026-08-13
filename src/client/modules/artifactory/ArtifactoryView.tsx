@@ -105,7 +105,9 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
                   setShowAll((v) => !v);
                 }}
               >
-                {showAll ? "All jobs" : "My jobs"}
+                {/* Labels the action, not the state — the heading beside it
+                    already says which list you're looking at. */}
+                {showAll ? "My jobs" : "All jobs"}
               </button>
             )}
           </div>
@@ -179,11 +181,17 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
                 )}
               </div>
 
-              {activeTab === "url-copy" ? (
+              {/* Both forms stay mounted and the inactive one is hidden, the
+                  same trick App.tsx uses for modules. Swapping them unmounted
+                  the active form mid-upload, throwing away its scanned folder
+                  and progress bar — which read as "switching tabs stops the
+                  run" even though nothing was ever cancelled. */}
+              <div hidden={activeTab !== "url-copy"}>
                 <UrlCopyForm onSubmitted={handleSubmitted} onError={onError} />
-              ) : (
+              </div>
+              <div hidden={activeTab !== "folder-upload"}>
                 <FolderUploadForm onSubmitted={handleSubmitted} onError={onError} />
-              )}
+              </div>
             </section>
           )}
         </div>

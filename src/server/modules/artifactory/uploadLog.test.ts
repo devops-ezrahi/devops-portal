@@ -7,6 +7,7 @@ vi.mock("../../config", () => ({
     artifactory: {
       url: "https://art.example.com",
       repo: "npm-local",
+      npmRepo: "npm-local",
       token: "AKCp8-fake-token",
       mavenRepo: "maven-local",
       rpmRepo: "rpm-local",
@@ -115,5 +116,79 @@ describe("folder upload log", () => {
       "rpm-local/nginx-1.24.0-1.el9.x86_64.rpm",
     ]);
     expect(job.log).toContain("1 unrecognised file(s) skipped.");
+  });
+
+  // This used to fall back to uploading the tree verbatim under the folder's
+  // own name, which quietly published junk into the npm repo.
+  it("fails the job when nothing in the folder is a package", async () => {
+    const job = await run([file("notes.txt"), file("photo.png"), file("data.csv")], "junk");
+
+    expect(job.status).toBe("failed");
+    expect(job.errorMessage).toContain("No recognised packages in junk");
+    expect(job.packages ?? []).toEqual([]);
+  });
+
+  // classify() ignores .tgz on purpose — the filename can't give the scope —
+  // so a folder of loose tarballs is only recognised by reading each manifest.
+  it("recognises loose .tgz tarballs by their manifest, scope included", async () => {
+    const { execFile } = await import("child_process");
+    const { promisify } = await import("util");
+    const { mkdtemp, mkdir, writeFile, readFile } = await import("fs/promises");
+    const { tmpdir } = await import("os");
+    const { join } = await import("path");
+    const execFileAsync = promisify(execFile);
+
+    // A real npm-shaped tarball: tar reads package/package.json out of it.
+    const dir = await mkdtemp(join(tmpdir(), "tgz-"));
+    await mkdir(join(dir, "package"), { recursive: true });
+    await writeFile(
+      join(dir, "package", "package.json"),
+      JSON.stringify({ name: "@acme/parser", version: "7.24.0" })
+    );
+    await execFileAsync("tar", ["-czf", "parser-7.24.0.tgz", "package"], { cwd: dir });
+    const tarball = await readFile(join(dir, "parser-7.24.0.tgz"));
+
+    const job = await run(
+      [{ originalname: "tarballs/parser-7.24.0.tgz", mimetype: "application/gzip", buffer: tarball }],
+      "tarballs"
+    );
+
+    expect(job.status).toBe("completed");
+    expect(job.packages!.map((p) => p.path)).toEqual([
+      "npm-local/@acme/parser/-/parser-7.24.0.tgz"
+    ]);
+  });
+});
+
+// A URL copy used to run its own bespoke exists/upload tail and set only `log`
+// and `resultUrl`. JobDetail renders the progress bar off `progress` and the
+// package table (with its direct link) off `packages`, so neither appeared for
+// a URL copy — the reason its output looked nothing like a folder upload's.
+describe("url copy", () => {
+  it("reports packages and progress like a folder upload does", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(Buffer.from("not really a tarball"), { status: 200 }))
+    );
+
+    const api = new RealArtifactoryApi();
+    const { id } = await api.submitUrlCopy(
+      { sourceUrl: "https://repo1.maven.org/maven2/org/foo/bar/1.0.0/bar-1.0.0.jar" },
+      user
+    );
+
+    let job = await api.getJob(id);
+    while (job && (job.status === "pending" || job.status === "in-progress")) {
+      await new Promise((r) => setTimeout(r, 20));
+      job = await api.getJob(id);
+    }
+
+    expect(job!.status).toBe("completed");
+    expect(job!.packages).toHaveLength(1);
+    expect(job!.packages![0].path).toBe("maven-local/org/foo/bar/1.0.0/bar-1.0.0.jar");
+    expect(job!.packages![0].nativeUrl).toBeTruthy();
+    expect(job!.progress).toEqual({ done: 1, total: 1 });
+
+    vi.unstubAllGlobals();
   });
 });

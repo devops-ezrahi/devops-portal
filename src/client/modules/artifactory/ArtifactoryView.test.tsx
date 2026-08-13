@@ -49,15 +49,18 @@ describe("ArtifactoryView job scope", () => {
     expect(screen.getByText("Dev User")).toBeInTheDocument();
   });
 
+  // The button names the list it switches TO — the heading beside it already
+  // says which list is on screen. It used to name the current state, so while
+  // showing all jobs it read "All jobs" and did the opposite of its label.
   it("narrows to the admin's own jobs when the toggle is flipped", async () => {
     renderView(true);
     await waitFor(() => expect(screen.getByText("arg@4.1.5")).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole("button", { name: "All jobs" }));
+    fireEvent.click(screen.getByRole("button", { name: "My jobs" }));
 
     expect(screen.queryByText("arg@4.1.5")).not.toBeInTheDocument();
     expect(screen.getByText("node_modules (3 packages)")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "My jobs" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "All jobs" })).toBeInTheDocument();
   });
 
   it("gives non-admins no toggle at all", async () => {

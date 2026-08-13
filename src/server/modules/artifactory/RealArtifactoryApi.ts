@@ -8,7 +8,7 @@ import { promisify } from "util";
 import { config } from "../../config";
 import { redactSecrets } from "../../redact";
 import { createTmpDir, removeTmpDir } from "../../tmp";
-import { exists, upload, webUrl } from "./artifactoryRest";
+import { webUrl } from "./artifactoryRest";
 import { artifactorySimulation, simulatedArtifactoryJob } from "./devSimulation";
 import { discoverPackages, jobName, npmUploadItems, pool, targetPath, uploadFiles } from "./npmPackages";
 import { classify, urlArtifactPath } from "./packageTypes";
@@ -20,14 +20,20 @@ import type {
   FolderUploadInput,
   PackageUploadResult,
   PortalUser,
-  UploadedFile,
   UrlCopyInput,
 } from "../../types";
 
 const execFileAsync = promisify(execFile);
 
-/** Raw-tree fallback for folders that contain no npm packages at all. */
-const RAW_UPLOAD_CONCURRENCY = 8;
+/**
+ * Staging the upload to disk is IO-bound, not CPU-bound, so overlapping it wins
+ * a lot on a big node_modules. Kept well under the default file-descriptor
+ * limit — every worker holds one open write at a time.
+ *
+ * ponytail: a flat constant, not a measured optimum. Raise it if staging is
+ * still the slow part on the real hardware.
+ */
+const TEMP_WRITE_CONCURRENCY = 16;
 
 function nowIso() {
   return new Date().toISOString();
@@ -232,31 +238,43 @@ export class RealArtifactoryApi implements ArtifactoryApi {
         ? null
         : classify(urlArtifactPath(input.sourceUrl), (line) => this.appendLog(jobId, line));
 
-      let target: string;
+      let item: UploadItem;
       if (identity) {
-        target = targetPath(identity.name, identity.version);
+        item = {
+          path: targetPath(identity.name, identity.version),
+          name: identity.name,
+          version: identity.version,
+          type: "npm",
+          resolve: async () => tmpFile,
+        };
         this.patch(jobId, { name: `${identity.name}@${identity.version}` });
       } else if (classified) {
-        target = classified.path;
+        item = { ...classified, resolve: async () => tmpFile };
         this.appendLog(jobId, `Detected a ${classified.type} artifact.`);
         this.patch(jobId, { name: `${classified.name}@${classified.version}` });
       } else {
-        target = `${config.artifactory.repo}/${filename}`;
+        item = {
+          path: `${config.artifactory.repo}/${filename}`,
+          name: filename,
+          version: "",
+          type: "npm",
+          resolve: async () => tmpFile,
+        };
         this.appendLog(jobId, "Unrecognised artifact — uploading under its own filename.");
         this.patch(jobId, { name: filename });
       }
 
-      if ((await exists(target)) === true) {
-        this.appendLog(jobId, `${target} already exists — skipping upload.`);
-        this.patch(jobId, { status: "completed", resultUrl: webUrl(target) });
-        return;
-      }
+      // Same uploadFiles/finish path as a folder upload, so a URL copy fills in
+      // `packages` and `progress` too — which is what makes the package table
+      // (and its direct link) and the progress bar render for it at all.
+      const results = await uploadFiles(
+        [item],
+        (line) => this.appendLog(jobId, line),
+        (done, total) => this.patch(jobId, { progress: { done, total } }),
+        signal
+      );
 
-      this.appendLog(jobId, `Uploading to ${target} ...`);
-      await upload(target, tmpFile);
-
-      this.patch(jobId, { status: "completed", resultUrl: webUrl(target) });
-      this.appendLog(jobId, `Done. Artifact available at ${target}.`);
+      this.finish(jobId, results);
     } catch (err) {
       if (this.aborted(jobId)) return;
       const message = err instanceof Error ? err.message : String(err);
@@ -281,11 +299,14 @@ export class RealArtifactoryApi implements ArtifactoryApi {
 
       this.appendLog(jobId, `Writing ${files.length} file(s) to temp directory ...`);
       const sourceDir = join(tmpDir, "source");
-      for (const file of files) {
+      // Pooled rather than a plain for-await: a dropped node_modules is tens of
+      // thousands of files, and one serialized mkdir+writeFile round trip each
+      // was the bulk of the wait before any upload had started.
+      await pool(files, TEMP_WRITE_CONCURRENCY, async (file) => {
         const dest = join(sourceDir, safeRelativePath(file.originalname));
         await mkdir(dirname(dest), { recursive: true });
         await writeFile(dest, file.buffer);
-      }
+      });
 
       const log = (line: string) => this.appendLog(jobId, line);
       const packages = await discoverPackages(sourceDir, log);
@@ -303,18 +324,38 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       let unrecognised = 0;
       for (const path of loose) {
         const found = classify(path, log);
-        if (!found) {
-          unrecognised++;
+        if (found) {
+          // Already a finished artifact — nothing to pack, upload it as it is.
+          items.push({ ...found, resolve: async () => join(sourceDir, path) });
           continue;
         }
-        // Already a finished artifact — nothing to pack, upload the file as it is.
-        items.push({ ...found, resolve: async () => join(sourceDir, path) });
+        // classify() deliberately leaves .tgz alone: the filename can't give the
+        // scope (@babel/core ships as core-7.0.0.tgz), so the manifest inside
+        // decides. Without this a folder of loose tarballs looks unrecognised.
+        const identity = path.toLowerCase().endsWith(".tgz")
+          ? await readTarballIdentity(join(sourceDir, path))
+          : null;
+        if (identity) {
+          items.push({
+            path: targetPath(identity.name, identity.version),
+            name: identity.name,
+            version: identity.version,
+            type: "npm",
+            resolve: async () => join(sourceDir, path),
+          });
+          continue;
+        }
+        unrecognised++;
       }
 
       if (items.length === 0) {
-        this.appendLog(jobId, "No recognised packages found — uploading the folder as-is.");
-        await this.uploadRawTree(jobId, sourceDir, files, input.folderName, signal);
-        return;
+        // Uploading the tree verbatim used to be the fallback here, which
+        // quietly published a junk folder into the npm repo under its own name.
+        // Failing is the honest answer: nothing in the drop was a package.
+        throw new Error(
+          `No recognised packages in ${input.folderName} — ` +
+            `${loose.length} file(s) matched no known package type. Nothing was uploaded.`
+        );
       }
 
       this.patch(jobId, { name: jobName(packages, input.folderName) });
@@ -347,43 +388,6 @@ export class RealArtifactoryApi implements ArtifactoryApi {
     }
   }
 
-  /** Preserves the old behaviour for folders that aren't npm packages. */
-  private async uploadRawTree(
-    jobId: string,
-    sourceDir: string,
-    files: UploadedFile[],
-    folderName: string,
-    signal?: AbortSignal
-  ) {
-    const prefix = `${config.artifactory.repo}/${safeRelativePath(folderName)}`;
-    const paths = files.map((f) => safeRelativePath(f.originalname));
-    let done = 0;
-    const failures: string[] = [];
-
-    this.patch(jobId, { progress: { done: 0, total: paths.length } });
-
-    await pool(paths, RAW_UPLOAD_CONCURRENCY, async (relative) => {
-      if (signal?.aborted) return;
-      const target = `${prefix}/${relative}`;
-      try {
-        if ((await exists(target)) !== true) await upload(target, join(sourceDir, relative));
-      } catch (err) {
-        failures.push(`${relative}: ${err instanceof Error ? err.message : String(err)}`);
-      } finally {
-        this.patch(jobId, { progress: { done: ++done, total: paths.length } });
-      }
-    });
-
-    if (this.aborted(jobId)) return;
-    for (const failure of failures) this.appendLog(jobId, `Failed ${failure}`);
-
-    this.patch(jobId, {
-      status: failures.length > 0 ? "failed" : "completed",
-      errorMessage: failures.length > 0 ? `${failures.length} of ${paths.length} file(s) failed` : undefined,
-      resultUrl: webUrl(prefix),
-    });
-    this.appendLog(jobId, `Done. ${paths.length - failures.length} file(s) deployed to ${prefix}/.`);
-  }
 }
 
 /**

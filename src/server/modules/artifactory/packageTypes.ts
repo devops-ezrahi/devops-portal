@@ -35,12 +35,12 @@ const CONDA_RE = /^(.+)-([^-]+)-[^-]+$/;
 const SDIST_RE = /^(.+?)-(\d[^-]*)\.tar\.gz$/;
 
 function repoFor(type: PackageType): string {
-  const { repo, mavenRepo, rpmRepo, pypiRepo, condaRepo } = config.artifactory;
-  return { npm: repo, maven: mavenRepo, rpm: rpmRepo, pypi: pypiRepo, conda: condaRepo }[type];
+  const { npmRepo, mavenRepo, rpmRepo, pypiRepo, condaRepo } = config.artifactory;
+  return { npm: npmRepo, maven: mavenRepo, rpm: rpmRepo, pypi: pypiRepo, conda: condaRepo }[type];
 }
 
 function envVarFor(type: PackageType): string {
-  return type === "npm" ? "ARTIFACTORY_REPO" : `ARTIFACTORY_${type.toUpperCase()}_REPO`;
+  return `ARTIFACTORY_${type.toUpperCase()}_REPO`;
 }
 
 /**
