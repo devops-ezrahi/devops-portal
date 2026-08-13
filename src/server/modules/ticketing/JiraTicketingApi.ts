@@ -83,6 +83,7 @@ export type JiraTicketingConfig = {
   boardId: string;
   maintenanceIssueType: string;
   storyPointsField?: string;
+  ticketLabel?: string;
 };
 
 function quoteJql(value: string) {
@@ -96,6 +97,7 @@ export class JiraTicketingApi implements TicketingApi {
   private readonly boardId: string;
   private readonly maintenanceIssueType: string;
   private readonly storyPointsField: string;
+  private readonly ticketLabel: string;
 
   constructor(config: JiraTicketingConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, "");
@@ -104,6 +106,15 @@ export class JiraTicketingApi implements TicketingApi {
     this.boardId = config.boardId;
     this.maintenanceIssueType = config.maintenanceIssueType;
     this.storyPointsField = config.storyPointsField ?? "";
+    this.ticketLabel = config.ticketLabel ?? "";
+  }
+
+  // Scopes every listing to one label so the portal can share a Jira project
+  // with work it shouldn't show. Unset = no clause, i.e. the whole project.
+  // createTicket applies the same label, or the portal would immediately lose
+  // sight of the tickets it just made.
+  private scopeClauses(): string[] {
+    return this.ticketLabel ? [`labels = ${quoteJql(this.ticketLabel)}`] : [];
   }
 
   /** `undefined` when the field isn't configured or Jira has no value yet. */
@@ -248,6 +259,7 @@ export class JiraTicketingApi implements TicketingApi {
     }
 
     const labels = [
+      this.ticketLabel,
       requestType.ownerTeam,
       ...requester.groups,
       ...Object.entries(fields)
@@ -276,7 +288,7 @@ export class JiraTicketingApi implements TicketingApi {
   }
 
   async listTickets(user: PortalUser, filters: TicketFilters): Promise<TicketSummary[]> {
-    const clauses: string[] = [`project = ${quoteJql(this.projectKey)}`];
+    const clauses: string[] = [`project = ${quoteJql(this.projectKey)}`, ...this.scopeClauses()];
     if (filters.scope === "mine") {
       clauses.push(`reporter = ${quoteJql(user.id)}`);
     }
@@ -321,7 +333,7 @@ export class JiraTicketingApi implements TicketingApi {
   }
 
   async listAdminTickets(filters: AdminTicketFilters): Promise<TicketSummary[]> {
-    const clauses: string[] = [`project = ${quoteJql(this.projectKey)}`];
+    const clauses: string[] = [`project = ${quoteJql(this.projectKey)}`, ...this.scopeClauses()];
     if (this.maintenanceIssueType) {
       clauses.push(`issuetype = ${quoteJql(this.maintenanceIssueType)}`);
     }

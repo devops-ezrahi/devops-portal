@@ -69,6 +69,7 @@ const jiraProjectKey = requireEnv("JIRA_PROJECT_KEY");
 const jiraBoardId = requireEnv("JIRA_BOARD_ID");
 const jiraMaintenanceIssueType = requireEnv("JIRA_MAINTENANCE_ISSUE_TYPE");
 const jiraStoryPointsField = requireEnv("JIRA_STORY_POINTS_FIELD");
+const jiraTicketLabel = requireEnv("JIRA_TICKET_LABEL");
 
 export const config = {
   ssoRequired: process.env.SSO_REQUIRED === "true",
@@ -113,6 +114,10 @@ export const config = {
     // (customfield_10016 on many instances) — unset means the Jira backend
     // skips reading/writing it, and only the portal's own copy is kept.
     storyPointsField: jiraStoryPointsField ?? "",
+    // Only issues carrying this label are listed, and every ticket the portal
+    // creates gets it. Unset = the whole project is in scope, which is the
+    // behaviour before this var existed.
+    ticketLabel: jiraTicketLabel ?? "",
     enabled: !!(jiraUrl && jiraToken && jiraProjectKey),
   },
   research: {

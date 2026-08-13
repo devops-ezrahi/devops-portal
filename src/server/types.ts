@@ -1,6 +1,7 @@
 export type CustomerStage =
   | "Submitted"
   | "In Progress"
+  | "In Review"
   | "Waiting on Customer"
   | "Closed"
   | "Cancelled";
