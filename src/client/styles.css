@@ -672,6 +672,12 @@ h3 {
      at weight 800 the browser abandoned the stack and fell back to Times New
      Roman, so typing Hebrew here turned serif mid-form. */
   font-weight: 400;
+  /* The number input's spin buttons are a native bitmap — they take no colour
+     or border styling, so on a #0d1316 field the browser's light-mode arrows
+     read as a bright smudge. color-scheme is the only lever that recolours
+     them; scoped to these controls rather than :root so the rest of the
+     hardcoded dark theme keeps deciding its own colours. */
+  color-scheme: dark;
 }
 
 .search input {
@@ -935,6 +941,13 @@ button:focus-visible {
   color: #9fe4dc;
 }
 
+/* Between In Progress (teal) and Waiting on Customer (amber): the work is
+   done but not yet merged. Purple keeps it distinct from both. */
+.stage-in-review {
+  background: #2b2544;
+  color: #c9bdf0;
+}
+
 .stage-waiting-on-customer {
   background: #3d321c;
   color: #ead49f;
@@ -945,22 +958,6 @@ button:focus-visible {
 .stage-resolved {
   background: #203922;
   color: #b7e0b8;
-}
-
-/* Unanswered past its priority's response window — deliberately the loudest
-   thing in a ticket row. */
-.sla-overdue {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  width: max-content;
-  border-radius: 999px;
-  padding: 4px 9px;
-  font-size: 12px;
-  font-weight: 800;
-  background: #4a1d1d;
-  color: #ffb4ab;
-  border: 1px solid #6d2b2b;
 }
 
 .stage-closed,
@@ -1035,11 +1032,21 @@ button:focus-visible {
   border-bottom: 1px solid #202b31;
   padding-bottom: 12px;
   margin-bottom: 12px;
+  flex-wrap: wrap;
 }
 
+/* Its own full-width row: a bordered title shrink-wrapped between the badges
+   and the id reads as a button rather than a heading. Matches the admin
+   detail's .detail-title-row. */
 .detail-heading h2 {
   font-size: 17px;
   margin: 8px 0 4px;
+  flex: 1 0 100%;
+  min-width: 0;
+  border: 1px solid #2a3940;
+  border-radius: 6px;
+  padding-block: 6px;
+  padding-inline: 10px;
 }
 
 .owner-select {
@@ -1124,6 +1131,10 @@ button:focus-visible {
   margin: 0;
   flex: 1 1 auto;
   min-width: 0;
+  border: 1px solid #2a3940;
+  border-radius: 6px;
+  padding-block: 6px;
+  padding-inline: 10px;
 }
 
 .edit-toggle {
@@ -1136,26 +1147,28 @@ button:focus-visible {
   color: #c8d3d7;
 }
 
+/* Full box rather than an underline so the field lines up with the read-only
+   <h2> it replaces — same border, radius and padding, no layout shift. */
 .title-edit-input {
   flex: 1 1 auto;
   font-size: 17px;
   font-weight: 700;
   background: transparent;
-  border: none;
-  border-bottom: 1px solid #3a5060;
-  border-radius: 0;
-  padding: 2px 0;
+  border: 1px solid #3a5060;
+  border-radius: 6px;
+  padding-block: 6px;
+  padding-inline: 10px;
   color: #f4f7f8;
   min-width: 0;
 }
 
 .title-edit-input {
-  transition: border-bottom-color 150ms ease;
+  transition: border-color 150ms ease;
 }
 
 .title-edit-input:focus {
   outline: none;
-  border-bottom-color: #20c7bd;
+  border-color: #20c7bd;
 }
 
 .description-edit-textarea {
@@ -1185,11 +1198,18 @@ button:focus-visible {
   border-color: #20c7bd;
 }
 
+/* Same box as .description-edit-textarea so toggling edit mode doesn't shift
+   the text. Logical padding: ticket content can be Hebrew (see the bidi block
+   at the end of this file). */
 .description-text {
   color: #c8d3d7;
   line-height: 1.5;
   margin-bottom: 14px;
   white-space: pre-wrap;
+  border: 1px solid #2a3940;
+  border-radius: 6px;
+  padding-block: 8px;
+  padding-inline: 10px;
 }
 
 .metadata-grid {

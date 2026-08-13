@@ -15,9 +15,13 @@ const normalizedMappings: Record<string, CustomerStage> = {
   implementing: "In Progress",
   development: "In Progress",
   "work in progress": "In Progress",
+  "in review": "In Review",
+  "pull request": "In Review",
+  review: "In Review",
   "waiting for customer": "Waiting on Customer",
   "waiting on customer": "Waiting on Customer",
   "customer action required": "Waiting on Customer",
+  stuck: "Waiting on Customer",
   blocked: "Waiting on Customer",
   resolved: "Closed",
   done: "Closed",
@@ -36,6 +40,7 @@ export function mapInternalStatus(rawStatus: string): CustomerStage {
 export const customerStages: CustomerStage[] = [
   "Submitted",
   "In Progress",
+  "In Review",
   "Waiting on Customer",
   "Closed",
   "Cancelled"

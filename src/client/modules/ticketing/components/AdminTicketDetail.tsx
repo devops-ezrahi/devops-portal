@@ -4,9 +4,8 @@ import type { FormEvent } from "react";
 import { log, error as logError } from "../../../log";
 import { addAdminComment, updateAdminTicket } from "../api";
 import { priorityResponseHours, stages } from "../config";
-import { SlaOverdue } from "./SlaOverdue";
 import type { AssigneeCandidate, CustomerStage, TicketDetail } from "../../../../server/types";
-import { formatDate, isOverdue, isStatusMessage, priorityClass, statusMessage, statusMessageText, stageClass } from "../utils";
+import { formatDate, isStatusMessage, priorityClass, statusMessage, statusMessageText, stageClass } from "../utils";
 
 export function AdminTicketDetail({
   assignee,
@@ -156,7 +155,6 @@ export function AdminTicketDetail({
         <span className={priorityClass(ticket.priority)} title={`Response within ${priorityResponseHours[ticket.priority]} hours`}>
           {ticket.priority}
         </span>
-        {isOverdue(ticket) && <SlaOverdue ticket={ticket} />}
       </div>
 
       <div className="detail-title-row">
