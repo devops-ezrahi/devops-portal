@@ -1053,15 +1053,13 @@ button:focus-visible {
   flex-wrap: wrap;
 }
 
-/* Its own full-width row, closed by a rule rather than boxed in — a full
-   border read as a button. Matches the admin detail's .detail-title-row. */
+/* Its own full-width row, undecorated — a border of any kind read as a
+   button. Matches the admin detail's .detail-title-row. */
 .detail-heading h2 {
   font-size: 17px;
   margin: 24px 0 0;
   flex: 1 0 100%;
   min-width: 0;
-  border-bottom: 1px solid #2a3940;
-  padding-bottom: 10px;
 }
 
 /* Id rides the badge row, pushed to the far end of it — which needs the row
@@ -1157,8 +1155,6 @@ button:focus-visible {
   margin: 0;
   flex: 1 1 auto;
   min-width: 0;
-  border-bottom: 1px solid #2a3940;
-  padding-bottom: 10px;
 }
 
 .edit-toggle {
