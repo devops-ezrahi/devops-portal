@@ -137,7 +137,7 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
   return (
     <>
       <header className="topbar">
-        <h1>My Tickets</h1>
+        <h1>Tickets</h1>
         <button
           className="primary"
           onClick={() => {
@@ -151,6 +151,9 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
 
       <div className="workspace-grid">
         <div className="ticket-column">
+          <div className="ticket-list-header">
+            <h2>My Tickets</h2>
+          </div>
           <section className="ticket-list-panel" aria-label="Tickets">
             <div className="ticket-list">
               {activeTickets.map((ticket) => (

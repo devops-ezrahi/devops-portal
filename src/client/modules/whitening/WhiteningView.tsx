@@ -89,7 +89,7 @@ export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleView
       <div className="workspace-grid">
         <div className="ticket-column">
           <div className="ticket-list-header">
-            <h2>{isAdmin && showAll ? "All Jobs" : "Recent Jobs"}</h2>
+            <h2>{isAdmin && showAll ? "All Jobs" : "My Jobs"}</h2>
             {isAdmin && (
               <button
                 className="ghost-button"
@@ -98,7 +98,9 @@ export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleView
                   setShowAll((v) => !v);
                 }}
               >
-                {showAll ? "All jobs" : "My jobs"}
+                {/* Labels the action, not the state — the heading beside it
+                    already says which list you're looking at. */}
+                {showAll ? "My jobs" : "All jobs"}
               </button>
             )}
           </div>

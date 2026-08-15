@@ -96,7 +96,7 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
         {/* Left: job history */}
         <div className="ticket-column">
           <div className="ticket-list-header">
-            <h2>{isAdmin && showAll ? "All Jobs" : "Recent Jobs"}</h2>
+            <h2>{isAdmin && showAll ? "All Jobs" : "My Jobs"}</h2>
             {isAdmin && (
               <button
                 className="ghost-button"
