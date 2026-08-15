@@ -1053,18 +1053,22 @@ button:focus-visible {
   flex-wrap: wrap;
 }
 
-/* Its own full-width row: a bordered title shrink-wrapped between the badges
-   and the id reads as a button rather than a heading. Matches the admin
-   detail's .detail-title-row. */
+/* Its own full-width row, closed by a rule rather than boxed in — a full
+   border read as a button. Matches the admin detail's .detail-title-row. */
 .detail-heading h2 {
   font-size: 17px;
-  margin: 18px 0 4px;
+  margin: 24px 0 0;
   flex: 1 0 100%;
   min-width: 0;
-  border: 1px solid #2a3940;
-  border-radius: 6px;
-  padding-block: 6px;
-  padding-inline: 10px;
+  border-bottom: 1px solid #2a3940;
+  padding-bottom: 10px;
+}
+
+/* Id closes the block from the opposite corner to the badges above. */
+.detail-heading > p {
+  flex: 1 0 100%;
+  margin: 8px 0 0;
+  text-align: right;
 }
 
 .owner-select {
@@ -1140,7 +1144,7 @@ button:focus-visible {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 18px;
+  margin-top: 24px;
   margin-bottom: 8px;
 }
 
@@ -1149,10 +1153,8 @@ button:focus-visible {
   margin: 0;
   flex: 1 1 auto;
   min-width: 0;
-  border: 1px solid #2a3940;
-  border-radius: 6px;
-  padding-block: 6px;
-  padding-inline: 10px;
+  border-bottom: 1px solid #2a3940;
+  padding-bottom: 10px;
 }
 
 .edit-toggle {

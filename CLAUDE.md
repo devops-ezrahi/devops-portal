@@ -116,6 +116,16 @@ git checkout -b fix/<short-description>       # bug fix
 
 Use the existing branch only if the work is a direct continuation of what that branch already contains.
 
+This is enforced, not just advised: the global Stop hook
+(`~/.claude/hooks/auto-commit-push.sh`, registered in `~/.claude/settings.json`
+so it covers every repo on this machine) refuses to commit onto
+`main`/`master`/`dev`/`develop`/`trunk`. When a turn ends with changes on one of
+those, it creates a branch named after the generated commit subject
+(`feat(auth): add login retry` → `feat/add-login-retry`) and commits there.
+Follow-up turns are already off the protected branch, so they stay put — one
+branch per task, not per turn. Merging back to `dev`/`main` is a deliberate act,
+which is also what cuts the release.
+
 Two long-lived branches: `main` is the stable release channel, `dev` is the
 prerelease channel (`1.1.0-dev.1`, …). Push to either cuts a release — see
 Versioning & releases below.
@@ -153,8 +163,9 @@ diff to the Messages API (Haiku 4.5) to name the change, and falls back to
 subject line.
 
 That call needs `ANTHROPIC_API_KEY` in the environment — **without it every
-auto-commit is a bare `chore: checkpoint`**. Set it in the `env` block of
-`.claude/settings.local.json`, which is gitignored:
+auto-commit is a bare `chore: checkpoint`** (and every auto-branch a bare
+`chore/checkpoint-<ts>`). The hook is global now, so set the key once in the
+`env` block of `~/.claude/settings.json` rather than per project:
 
 ```json
 { "env": { "ANTHROPIC_API_KEY": "sk-ant-..." } }
@@ -166,7 +177,7 @@ file) to write one line — ~$0.025 and ~11s on every single turn.
 
 ## Pushing
 
-After committing, push the branch to origin so work is backed up and reviewable. A Stop hook does this automatically after every turn; the manual commands below are for pushing by hand.
+After committing, push the branch to origin so work is backed up and reviewable. The Stop hook does this automatically after every turn — but only when `origin` is under `shugi12345` or `devops-ezrahi`, so third-party clones get local checkpoints and no push. The manual commands below are for pushing by hand.
 
 ```bash
 git push -u origin <branch-name>   # first push on a new branch
