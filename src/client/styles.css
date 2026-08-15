@@ -1064,11 +1064,15 @@ button:focus-visible {
   padding-bottom: 10px;
 }
 
-/* Id closes the block from the opposite corner to the badges above. */
-.detail-heading > p {
+/* Id rides the badge row, pushed to the far end of it — which needs the row
+   itself to span the heading, not shrink-wrap its pills. */
+.detail-heading .badge-row {
   flex: 1 0 100%;
-  margin: 8px 0 0;
-  text-align: right;
+}
+
+.detail-id {
+  margin-left: auto;
+  color: #8d9ba2;
 }
 
 .owner-select {

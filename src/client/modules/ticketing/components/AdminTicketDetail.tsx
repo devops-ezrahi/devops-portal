@@ -155,6 +155,7 @@ export function AdminTicketDetail({
         <span className={priorityClass(ticket.priority)} title={`Response within ${priorityResponseHours[ticket.priority]} hours`}>
           {ticket.priority}
         </span>
+        <span className="detail-id">{ticket.id}</span>
       </div>
 
       <div className="detail-title-row">
@@ -196,9 +197,6 @@ export function AdminTicketDetail({
       )}
 
       <div className="detail-heading">
-        <div>
-          <p>{ticket.id}</p>
-        </div>
         <label className="owner-select">
           <span>Owner</span>
           <div className="owner-select-row">
