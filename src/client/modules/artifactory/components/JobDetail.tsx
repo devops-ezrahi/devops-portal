@@ -62,14 +62,18 @@ export function JobDetail({ job, onStop }: Props) {
   return (
     <article className="ticket-detail">
       <div className="detail-heading">
-        <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
-        <h2>{job.name ?? (job.kind === "url-copy" ? "URL Copy" : "Folder Upload")}</h2>
-        <p>{job.id}</p>
-        {isRunning(job.status) && (
-          <button className="ghost-button" onClick={onStop}>
-            <CircleStop size={16} aria-hidden="true" /> Stop
-          </button>
-        )}
+        <div className="badge-row">
+          <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
+          <span className="detail-id">{job.id}</span>
+        </div>
+        <div className="detail-title-row">
+          <h2>{job.name ?? (job.kind === "url-copy" ? "URL Copy" : "Folder Upload")}</h2>
+          {isRunning(job.status) && (
+            <button className="ghost-button" onClick={onStop}>
+              <CircleStop size={16} aria-hidden="true" /> Stop
+            </button>
+          )}
+        </div>
       </div>
 
       {job.status === "failed" && job.errorMessage && (

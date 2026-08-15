@@ -1064,7 +1064,8 @@ button:focus-visible {
 
 /* Id rides the badge row, pushed to the far end of it — which needs the row
    itself to span the heading, not shrink-wrap its pills. */
-.detail-heading .badge-row {
+.detail-heading .badge-row,
+.detail-heading .detail-title-row {
   flex: 1 0 100%;
 }
 

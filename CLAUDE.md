@@ -158,22 +158,20 @@ the floor (see Versioning & releases), so `chore:` means "don't call this a
 feature", not "don't ship this".
 
 The Stop hook's auto-commits follow the same convention: it posts the staged
-diff to the Messages API (Haiku 4.5) to name the change, and falls back to
+diff to opencode's free zen models to name the change, and falls back to
 `chore: checkpoint <ts>` if that fails or returns anything that isn't a valid
 subject line.
 
-That call needs `ANTHROPIC_API_KEY` in the environment — **without it every
-auto-commit is a bare `chore: checkpoint`** (and every auto-branch a bare
-`chore/checkpoint-<ts>`). The hook is global now, so set the key once in the
-`env` block of `~/.claude/settings.json` rather than per project:
+**No API key is involved.** `https://opencode.ai/zen/v1/chat/completions` is
+OpenAI-compatible and serves the `*-free` models unauthenticated, so this costs
+nothing per turn and there is no credential to configure or rotate. It replaced
+a Haiku call over the Anthropic Messages API, which needed `ANTHROPIC_API_KEY`
+set per machine and was in practice never set — which is why the history before
+this is wall-to-wall `chore: checkpoint`.
 
-```json
-{ "env": { "ANTHROPIC_API_KEY": "sk-ant-..." } }
-```
-
-It calls the API directly rather than shelling out to `claude -p`, which booted
-the whole CLI harness (~30k tokens of system prompt, tool definitions and this
-file) to write one line — ~$0.025 and ~11s on every single turn.
+Details of the model choice (which free models are unusable, and why it is the
+completions endpoint rather than `opencode run`) are in the hook itself and in
+the global `~/.claude/CLAUDE.md`.
 
 ## Pushing
 
