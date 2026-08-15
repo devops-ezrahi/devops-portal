@@ -42,9 +42,9 @@ export function TicketDetailView({
           <span className={priorityClass(ticket.priority)} title={`Response within ${priorityResponseHours[ticket.priority]} hours`}>
             {ticket.priority}
           </span>
+          <span className="detail-id">{ticket.id}</span>
         </div>
         <h2>{ticket.title}</h2>
-        <p>{ticket.id}</p>
       </div>
 
       <p className="description-text">{ticket.description}</p>

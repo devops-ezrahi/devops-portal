@@ -4,7 +4,7 @@ import { log, error as logError } from "../../log";
 import { getRequestTypes, getTicket, listTickets } from "./api";
 import { CreateTicketView } from "./components/CreateTicketView";
 import { TicketDetailView } from "./components/TicketDetailView";
-import { getTicketIdFromUrl, isDone, isOverdue, priorityClass, setTicketIdInUrl, stageClass } from "./utils";
+import { getTicketIdFromUrl, isDone, priorityClass, setTicketIdInUrl, stageClass } from "./utils";
 import type { RequestTypeDefinition, TicketDetail, TicketSummary } from "../../../server/types";
 
 const POLL_INTERVAL_MS = 8000;
@@ -158,10 +158,11 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
             <div className="ticket-list">
               {activeTickets.map((ticket) => (
                 <button
+                  // ponytail: no overdue styling here — the red row is an
+                  // admin-queue signal, not something the requester acts on.
                   className={[
                     "ticket-row",
-                    selectedTicket?.id === ticket.id && "selected",
-                    isOverdue(ticket) && "overdue"
+                    selectedTicket?.id === ticket.id && "selected"
                   ].filter(Boolean).join(" ")}
                   key={ticket.id}
                   onClick={() => openTicket(ticket.id).catch((err: Error) => onError(err.message))}

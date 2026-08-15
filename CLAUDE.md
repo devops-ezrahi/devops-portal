@@ -116,6 +116,16 @@ git checkout -b fix/<short-description>       # bug fix
 
 Use the existing branch only if the work is a direct continuation of what that branch already contains.
 
+This is enforced, not just advised: the global Stop hook
+(`~/.claude/hooks/auto-commit-push.sh`, registered in `~/.claude/settings.json`
+so it covers every repo on this machine) refuses to commit onto
+`main`/`master`/`dev`/`develop`/`trunk`. When a turn ends with changes on one of
+those, it creates a branch named after the generated commit subject
+(`feat(auth): add login retry` → `feat/add-login-retry`) and commits there.
+Follow-up turns are already off the protected branch, so they stay put — one
+branch per task, not per turn. Merging back to `dev`/`main` is a deliberate act,
+which is also what cuts the release.
+
 Two long-lived branches: `main` is the stable release channel, `dev` is the
 prerelease channel (`1.1.0-dev.1`, …). Push to either cuts a release — see
 Versioning & releases below.
@@ -148,25 +158,24 @@ the floor (see Versioning & releases), so `chore:` means "don't call this a
 feature", not "don't ship this".
 
 The Stop hook's auto-commits follow the same convention: it posts the staged
-diff to the Messages API (Haiku 4.5) to name the change, and falls back to
+diff to opencode's free zen models to name the change, and falls back to
 `chore: checkpoint <ts>` if that fails or returns anything that isn't a valid
 subject line.
 
-That call needs `ANTHROPIC_API_KEY` in the environment — **without it every
-auto-commit is a bare `chore: checkpoint`**. Set it in the `env` block of
-`.claude/settings.local.json`, which is gitignored:
+**No API key is involved.** `https://opencode.ai/zen/v1/chat/completions` is
+OpenAI-compatible and serves the `*-free` models unauthenticated, so this costs
+nothing per turn and there is no credential to configure or rotate. It replaced
+a Haiku call over the Anthropic Messages API, which needed `ANTHROPIC_API_KEY`
+set per machine and was in practice never set — which is why the history before
+this is wall-to-wall `chore: checkpoint`.
 
-```json
-{ "env": { "ANTHROPIC_API_KEY": "sk-ant-..." } }
-```
-
-It calls the API directly rather than shelling out to `claude -p`, which booted
-the whole CLI harness (~30k tokens of system prompt, tool definitions and this
-file) to write one line — ~$0.025 and ~11s on every single turn.
+Details of the model choice (which free models are unusable, and why it is the
+completions endpoint rather than `opencode run`) are in the hook itself and in
+the global `~/.claude/CLAUDE.md`.
 
 ## Pushing
 
-After committing, push the branch to origin so work is backed up and reviewable. A Stop hook does this automatically after every turn; the manual commands below are for pushing by hand.
+After committing, push the branch to origin so work is backed up and reviewable. The Stop hook does this automatically after every turn — but only when `origin` is under `shugi12345` or `devops-ezrahi`, so third-party clones get local checkpoints and no push. The manual commands below are for pushing by hand.
 
 ```bash
 git push -u origin <branch-name>   # first push on a new branch
