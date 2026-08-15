@@ -1058,7 +1058,7 @@ button:focus-visible {
    Matches the admin detail's .detail-title-row. */
 .detail-heading h2 {
   font-size: 17px;
-  margin: 8px 0 4px;
+  margin: 18px 0 4px;
   flex: 1 0 100%;
   min-width: 0;
   border-bottom: 1px solid #2a3940;
@@ -1138,7 +1138,7 @@ button:focus-visible {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 8px;
+  margin-top: 18px;
   margin-bottom: 8px;
 }
 

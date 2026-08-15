@@ -196,63 +196,69 @@ export function AdminTicketingView({
   }
 
   return (
-    <div className="workspace-grid">
-      <div className="ticket-column">
-        <div className="ticket-list-header">
-          <h1>Queue</h1>
-          <button
-            className="ghost-button"
-            onClick={() => {
-              log("ticketing/admin", `filter → ${showAll ? "mine & unassigned" : "all tickets"}`);
-              setShowAll((v) => !v);
-            }}
-          >
-            {showAll ? "Mine & Unassigned" : "All tickets"}
-          </button>
-        </div>
-        <section className="ticket-list-panel" aria-label="Admin tickets">
-          <div className="ticket-list">
-            {activeTickets.map((ticket) => <TicketRow key={ticket.id} ticket={ticket} isSelected={selectedAdminTicket?.id === ticket.id} isUnread={unreadIds.has(ticket.id)} onOpen={handleOpenTicket} />)}
-            {activeTickets.length === 0 && <div className="empty-state">No tickets.</div>}
+    <>
+      <header className="topbar">
+        <h1>Tickets</h1>
+      </header>
+
+      <div className="workspace-grid">
+        <div className="ticket-column">
+          <div className="ticket-list-header">
+            <h2>{showAll ? "All Tickets" : "My Tickets"}</h2>
+            <button
+              className="ghost-button"
+              onClick={() => {
+                log("ticketing/admin", `filter → ${showAll ? "mine & unassigned" : "all tickets"}`);
+                setShowAll((v) => !v);
+              }}
+            >
+              {showAll ? "Mine & Unassigned" : "All tickets"}
+            </button>
           </div>
-        </section>
-
-        {doneTickets.length > 0 && (
-          <details className="ticket-list-panel done-panel" aria-label="Done admin tickets">
-            <summary>Done</summary>
+          <section className="ticket-list-panel" aria-label="Admin tickets">
             <div className="ticket-list">
-              {doneTickets.map((ticket) => <TicketRow key={ticket.id} ticket={ticket} isSelected={selectedAdminTicket?.id === ticket.id} isUnread={unreadIds.has(ticket.id)} onOpen={handleOpenTicket} />)}
+              {activeTickets.map((ticket) => <TicketRow key={ticket.id} ticket={ticket} isSelected={selectedAdminTicket?.id === ticket.id} isUnread={unreadIds.has(ticket.id)} onOpen={handleOpenTicket} />)}
+              {activeTickets.length === 0 && <div className="empty-state">No tickets.</div>}
             </div>
-          </details>
-        )}
+          </section>
+  
+          {doneTickets.length > 0 && (
+            <details className="ticket-list-panel done-panel" aria-label="Done admin tickets">
+              <summary>Done</summary>
+              <div className="ticket-list">
+                {doneTickets.map((ticket) => <TicketRow key={ticket.id} ticket={ticket} isSelected={selectedAdminTicket?.id === ticket.id} isUnread={unreadIds.has(ticket.id)} onOpen={handleOpenTicket} />)}
+              </div>
+            </details>
+          )}
+        </div>
+  
+        <section className="detail-panel" aria-label="Ticket detail">
+          {selectedAdminTicket ? (
+            <AdminTicketDetail
+              key={selectedAdminTicket.id}
+              assignee={selectedAdminTicket.assigneeId}
+              assignees={assignees}
+              currentUserId={user.id}
+              currentUserName={user.displayName}
+              onAssigneeChange={async (assigneeId, assigneeName) => {
+                const ownerName = assigneeName || "Unassigned";
+                log("ticketing/admin", "reassigning ticket", selectedAdminTicket.id, {
+                  from: selectedAdminTicket.assigneeId ?? "-",
+                  to: assigneeId || "-",
+                  ownerName,
+                });
+                await updateAdminTicket(selectedAdminTicket.id, { assigneeId, assigneeName });
+                await addAdminComment(selectedAdminTicket.id, statusMessage(`Owner changed to ${ownerName}.`));
+                await reloadAdminTicket(selectedAdminTicket.id);
+              }}
+              onReload={() => reloadAdminTicket(selectedAdminTicket.id)}
+              ticket={selectedAdminTicket}
+            />
+          ) : (
+            <div className="empty-state">Select a ticket.</div>
+          )}
+        </section>
       </div>
-
-      <section className="detail-panel" aria-label="Ticket detail">
-        {selectedAdminTicket ? (
-          <AdminTicketDetail
-            key={selectedAdminTicket.id}
-            assignee={selectedAdminTicket.assigneeId}
-            assignees={assignees}
-            currentUserId={user.id}
-            currentUserName={user.displayName}
-            onAssigneeChange={async (assigneeId, assigneeName) => {
-              const ownerName = assigneeName || "Unassigned";
-              log("ticketing/admin", "reassigning ticket", selectedAdminTicket.id, {
-                from: selectedAdminTicket.assigneeId ?? "-",
-                to: assigneeId || "-",
-                ownerName,
-              });
-              await updateAdminTicket(selectedAdminTicket.id, { assigneeId, assigneeName });
-              await addAdminComment(selectedAdminTicket.id, statusMessage(`Owner changed to ${ownerName}.`));
-              await reloadAdminTicket(selectedAdminTicket.id);
-            }}
-            onReload={() => reloadAdminTicket(selectedAdminTicket.id)}
-            ticket={selectedAdminTicket}
-          />
-        ) : (
-          <div className="empty-state">Select a ticket.</div>
-        )}
-      </section>
-    </div>
+    </>
   );
 }
