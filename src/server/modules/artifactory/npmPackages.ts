@@ -65,7 +65,8 @@ export async function discoverPackages(
       return;
     }
 
-    if (entries.some((e) => e.isFile() && e.name === "package.json")) {
+    const hasManifest = entries.some((e) => e.isFile() && e.name === "package.json");
+    if (hasManifest) {
       const manifestPath = join(dir, "package.json");
       try {
         const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
@@ -79,8 +80,22 @@ export async function discoverPackages(
       }
     }
 
-    // Recurse regardless — a package can contain nested node_modules, and a
-    // node_modules root has no package.json of its own.
+    if (hasManifest) {
+      // Once a directory is a package, the only place another *distinct*
+      // package can legitimately live inside it is its own node_modules —
+      // src/, dist/, test/, examples/ etc. are that package's own content,
+      // not dependencies, and walking into them risks picking up an
+      // unrelated package.json (a bundled example app, a test fixture) as if
+      // it were something to publish.
+      const nodeModules = entries.find(
+        (e) => e.isDirectory() && e.name === "node_modules" && !e.isSymbolicLink()
+      );
+      if (nodeModules) await walk(join(dir, "node_modules"));
+      return;
+    }
+
+    // Not a package itself (e.g. a bare node_modules root or a `@scope`
+    // folder) — keep looking through every subdirectory for one that is.
     for (const entry of entries) {
       if (entry.isDirectory() && !entry.isSymbolicLink()) await walk(join(dir, entry.name));
     }

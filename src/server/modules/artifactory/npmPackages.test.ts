@@ -37,6 +37,9 @@ beforeAll(async () => {
   // A package with its own nested node_modules.
   await writePackage(join(root, "outer"), "outer", "1.0.0");
   await writePackage(join(root, "outer", "node_modules", "inner"), "inner", "2.0.0");
+  // A package.json buried in the package's own subtree (an example app), not
+  // inside node_modules — must not be discovered as if it were a dependency.
+  await writePackage(join(root, "outer", "examples", "demo"), "demo-app", "0.0.1");
   // Junk that must be skipped rather than crash the walk.
   await mkdir(join(root, ".bin"), { recursive: true });
   await mkdir(join(root, "broken"), { recursive: true });
@@ -71,6 +74,11 @@ describe("discoverPackages", () => {
 
   it("returns nothing for a directory with no packages", async () => {
     expect(await discoverPackages(join(root, ".bin"))).toEqual([]);
+  });
+
+  it("does not descend into a package's own non-node_modules subdirectories", async () => {
+    const found = await discoverPackages(root);
+    expect(found.some((p) => p.name === "demo-app")).toBe(false);
   });
 });
 
