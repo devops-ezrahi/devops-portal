@@ -8,6 +8,7 @@ import { config } from "../../config";
 import { log, userMessage } from "../../log";
 import { redactSecrets } from "../../redact";
 import type { PortalUser, AiApi, AiCategory, AiConversation, AiJob } from "../../types";
+import { sweepConversations } from "./sweepConversations";
 
 const execFileAsync = promisify(execFile);
 const isWindows = platform() === "win32";
@@ -224,6 +225,18 @@ export class RealAiApi implements AiApi {
   }
 
   async listConversations(user: PortalUser, allUsers = false): Promise<AiConversation[]> {
+    // ponytail: swept on read, not on a timer — every open tab reloads this
+    // list, and there is nothing to reclaim while nobody is looking. Add an
+    // unref'd interval only if idle-process memory ever actually matters.
+    const { archived, deleted } = sweepConversations(
+      this.conversations,
+      this.jobs,
+      config.ai.archiveAfterMs,
+      config.ai.deleteAfterMs
+    );
+    // A chat vanishing from someone's list should be greppable in the pod log.
+    if (archived || deleted) log.info("ai", "swept idle chats", { archived, deleted });
+
     return [...this.conversations.values()]
       .filter((c) => allUsers || c.submittedBy === user.id)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -232,7 +245,10 @@ export class RealAiApi implements AiApi {
   async submitQuestion(conversationId: string, question: string, submitter: PortalUser): Promise<AiJob> {
     const conversation = this.conversations.get(conversationId);
     if (!conversation) throw new Error("Conversation not found");
-    if (!conversation.title) this.patchConversation(conversationId, { title: truncateTitle(question) });
+    // Unconditional, even when there is nothing to change: patchConversation
+    // restamps `updatedAt`, and that is the only clock the idle sweep reads.
+    // Stamping it just on the first question would archive a chat in active use.
+    this.patchConversation(conversationId, conversation.title ? {} : { title: truncateTitle(question) });
 
     const job: AiJob = {
       id: this.newJobId(),

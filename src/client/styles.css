@@ -1987,7 +1987,7 @@ button:focus-visible {
 .job-log-body::-webkit-scrollbar-thumb { background: #203238; border-radius: 999px }
 .job-log-body::-webkit-scrollbar-thumb:hover { background: #2a3940 }
 
-/* ---- Chat / RAGFlow module ---- */
+/* ---- AI module ---- */
 
 code {
   background: #1a272c;
@@ -1998,130 +1998,46 @@ code {
   color: #9fe4dc;
 }
 
-.chat-module {
-  display: flex;
-  flex-direction: row;
-  height: calc(100vh - 108px);
-  background: #12191d;
-  border: 1px solid #202b31;
-  border-radius: 6px;
-  overflow: hidden;
-  animation: panel-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-/* ── Sidebar ───────────────────────────────────────────────────────── */
-
-.chat-sidebar {
-  width: 220px;
-  flex-shrink: 0;
+/* The one layout rule the AI page needs on top of the shared .detail-panel:
+   .workspace-grid is align-items:start, so the panel has no height of its own
+   and the message list would grow the page instead of scrolling under a pinned
+   input. Same trick as .art-panel — a module-specific class beside the shared
+   one, not a bespoke shell.
+   162px = the 108px the old .chat-module used (header + .main's padding) plus
+   the .topbar block above it (40px min-height + 14px margin). Tuned without the
+   dev banner, which is dev-only and just makes the page scroll a little. */
+.chat-panel {
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #202b31;
-  background: #0d1316;
-  overflow: hidden;
+  height: calc(100vh - 162px);
+  padding: 0;
 }
 
-.chat-sidebar-header {
-  padding: 10px 10px 8px;
-  border-bottom: 1px solid #202b31;
-  flex-shrink: 0;
-}
-
-.chat-new-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 7px 10px;
-  border-radius: 6px;
-  border: 1px solid #2a3940;
-  background: transparent;
-  color: #c8d3d7;
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.chat-new-btn:hover {
-  background: #151f24;
-  border-color: #3a5060;
-  color: #f4f7f8;
-}
-
-.chat-sidebar-list {
+/* Shared .empty-state is a padded block; inside the chat panel it has to fill
+   the space above the pinned input instead. Replaces the old .chat-empty and
+   .chat-not-configured, which were the same box twice. */
+.chat-panel .empty-state {
   flex: 1 1 auto;
-  overflow-y: auto;
-  padding: 6px 6px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  scrollbar-width: thin;
-  scrollbar-color: #1e2d34 transparent;
-}
-
-.chat-sidebar-list::-webkit-scrollbar { width: 4px }
-.chat-sidebar-list::-webkit-scrollbar-track { background: transparent }
-.chat-sidebar-list::-webkit-scrollbar-thumb { background: #1e2d34; border-radius: 999px }
-
-.chat-sidebar-empty {
-  font-size: 12px;
-  color: #4a6070;
-  text-align: center;
-  padding: 20px 8px;
-}
-
-.chat-sidebar-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  width: 100%;
-  padding: 7px 8px;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: #8d9ba2;
-  font-size: 12.5px;
-  text-align: left;
-  cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
-}
-
-.chat-sidebar-item:hover {
-  background: #151f24;
-  color: #c8d3d7;
-}
-
-.chat-sidebar-item.active {
-  background: #182229;
-  border-color: #2a3940;
-  color: #f4f7f8;
-}
-
-.chat-sidebar-title {
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chat-sidebar-delete {
-  flex-shrink: 0;
-  display: none;
   align-items: center;
   justify-content: center;
-  padding: 2px;
-  border-radius: 4px;
-  color: #4a6070;
-  cursor: pointer;
+  gap: 10px;
+  text-align: center;
+  padding: 32px;
 }
 
-.chat-sidebar-item:hover .chat-sidebar-delete,
-.chat-sidebar-item.active .chat-sidebar-delete {
-  display: flex;
+.chat-panel .empty-state strong {
+  color: #c8d3d7;
 }
 
-.chat-sidebar-delete:hover {
-  color: #e05c5c;
-  background: rgb(224 92 92 / 12%);
+.chat-panel .empty-state p {
+  margin-bottom: 0;
+  max-width: 400px;
+}
+
+.chat-panel .empty-icon {
+  opacity: 0.2;
 }
 
 .chat-category-list {
@@ -2151,6 +2067,9 @@ code {
 }
 
 .chat-category-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 700;
   font-size: 13.5px;
   color: #f4f7f8;
@@ -2175,26 +2094,6 @@ code {
 
 /* ── Main chat area ────────────────────────────────────────────────── */
 
-.chat-main {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.chat-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px;
-  border-bottom: 1px solid #202b31;
-  flex-shrink: 0;
-}
-
-.chat-topbar h2 {
-  margin-bottom: 0;
-}
-
 .chat-messages {
   flex: 1 1 auto;
   overflow-y: auto;
@@ -2213,22 +2112,6 @@ code {
   border-radius: 999px;
 }
 .chat-messages::-webkit-scrollbar-thumb:hover { background: #2a3940 }
-
-.chat-empty {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  color: #6f8088;
-  text-align: center;
-  padding: 32px;
-}
-
-.chat-empty p {
-  margin-bottom: 0;
-}
 
 .chat-msg {
   max-width: 78%;
@@ -2370,22 +2253,6 @@ code {
 .chat-send-btn:disabled {
   background: #1e2e33;
   color: #3a5060;
-}
-
-.chat-not-configured {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  color: #8d9ba2;
-  text-align: center;
-  padding: 32px;
-}
-
-.chat-not-configured p {
-  margin-bottom: 0;
 }
 
 /* ── Markdown renderer ─────────────────────────────────────────────── */
@@ -2650,7 +2517,6 @@ code {
 .request-form input,
 .request-form textarea,
 .chat-msg,
-.chat-sidebar-title,
 .chat-input-row textarea,
 .chat-md p,
 .chat-md li,

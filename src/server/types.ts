@@ -263,6 +263,12 @@ export type AiConversation = {
   project: string | null;
   /** Set after the first turn completes; reused via --session on every later turn. */
   opencodeSessionId?: string;
+  /**
+   * Stamped by the idle sweep once a chat goes quiet, and cleared the moment it
+   * is used again — the client folds archived chats into a collapsed section
+   * rather than hiding them. Never set by a user action; there is no button.
+   */
+  archivedAt?: string;
   submittedBy: string;
   submittedByName: string;
   createdAt: string;

@@ -70,6 +70,12 @@ const artifactoryCondaRepo = requireEnv("ARTIFACTORY_CONDA_REPO");
 const gitUrl = requireEnv("GIT_URL");
 const gitToken = requireEnv("GIT_TOKEN");
 
+/** Hours from env to ms, falling back on anything that isn't a number (0 is valid — it makes the sweep immediate, which is how you test it). */
+function hours(raw: string | undefined, fallback: number): number {
+  const n = Number(raw);
+  return (Number.isFinite(n) && n >= 0 ? n : fallback) * 3_600_000;
+}
+
 const aiProjects = scanAiSkills();
 const opencodeApiKey = requireEnv("OPENCODE_API_KEY");
 
@@ -161,6 +167,12 @@ export const config = {
     // opencode has no env var for this — it is provider.<id>.options.baseURL in
     // its config file, which we already generate (see RealAiApi's policy).
     baseUrl: requireEnv("OPENCODE_BASE_URL") ?? "",
+    // Chats are throwaway Q&A against a repo, not tickets. Idle past the first
+    // threshold and a chat folds into the client's "Archived" section; past the
+    // second it and its jobs are dropped from memory entirely, which is the only
+    // thing that reclaims the tool traces and logs a job carries.
+    archiveAfterMs: hours(requireEnv("AI_ARCHIVE_AFTER_HOURS"), 4),
+    deleteAfterMs: hours(requireEnv("AI_DELETE_AFTER_HOURS"), 48),
     enabled: Object.keys(aiProjects).length > 0,
   },
 };

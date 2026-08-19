@@ -43,12 +43,10 @@ export function MessageList({
   return (
     <div className="chat-messages">
       {messages.length === 0 && (
-        <div className="chat-empty">
-          <Sparkles size={40} style={{ opacity: 0.18 }} aria-hidden="true" />
-          <p style={{ margin: 0, fontWeight: 700, color: "#c8d3d7" }}>Ask anything about this repo</p>
-          <p style={{ margin: 0, fontSize: 13, maxWidth: 360 }}>
-            It pulls the latest code and reads the real files to answer.
-          </p>
+        <div className="empty-state">
+          <Sparkles size={40} className="empty-icon" aria-hidden="true" />
+          <strong>Ask anything about this repo</strong>
+          <p className="field-hint">It pulls the latest code and reads the real files to answer.</p>
         </div>
       )}
 
