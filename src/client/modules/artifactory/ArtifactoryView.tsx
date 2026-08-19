@@ -1,5 +1,5 @@
 import { FlaskConical, FolderOpen, Link, Plus } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ArtifactoryJob, ArtifactoryScenario } from "../../../server/types";
 import { log, error as logError } from "../../log";
@@ -29,7 +29,6 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
   // same as the ticketing queue.
   const [showAll, setShowAll] = useState(true);
   const [testScenario, setTestScenario] = useState<ArtifactoryScenario>(TEST_SCENARIOS[0].value);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   function fetchJobs() {
     listJobs()
@@ -51,14 +50,16 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
     fetchJobs();
   }, [refreshKey]);
 
+  // Only a running job changes on its own. Polling every 2s while the list is
+  // idle re-sends every job's full log to every open tab for nothing.
+  const anyRunning = jobs.some((j) => j.status === "pending" || j.status === "in-progress");
+
   useEffect(() => {
-    log("artifactory", "starting 2s job poll");
-    intervalRef.current = setInterval(fetchJobs, 2000);
-    return () => {
-      log("artifactory", "stopping job poll");
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, []);
+    const every = anyRunning ? 2000 : 15000;
+    log("artifactory", `job poll every ${every}ms`);
+    const id = setInterval(fetchJobs, every);
+    return () => clearInterval(id);
+  }, [anyRunning]);
 
   function handleSubmitted(job: ArtifactoryJob) {
     log("artifactory", "job submitted", job);

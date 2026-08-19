@@ -1,6 +1,9 @@
 import { zipSync } from "fflate";
+import { mkdtemp, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import { describe, expect, it, vi } from "vitest";
-import type { PortalUser, UploadedFile } from "../../types";
+import type { PortalUser } from "../../types";
 
 vi.mock("../../config", () => ({
   config: {
@@ -36,19 +39,18 @@ vi.mock("./artifactoryRest", () => ({
 
 const { RealArtifactoryApi } = await import("./RealArtifactoryApi");
 
-function pkg(dir: string, name: string, version: string): UploadedFile[] {
+/** One tree entry: relative path -> contents, the shape a dropped folder has. */
+type Entry = [path: string, contents: Buffer];
+
+function pkg(dir: string, name: string, version: string): Entry[] {
   return [
-    {
-      originalname: `${dir}/package.json`,
-      mimetype: "application/json",
-      buffer: Buffer.from(JSON.stringify({ name, version, main: "index.js" })),
-    },
-    { originalname: `${dir}/index.js`, mimetype: "text/javascript", buffer: Buffer.from("module.exports = 1;\n") },
+    [`${dir}/package.json`, Buffer.from(JSON.stringify({ name, version, main: "index.js" }))],
+    [`${dir}/index.js`, Buffer.from("module.exports = 1;\n")],
   ];
 }
 
-function file(path: string): UploadedFile {
-  return { originalname: path, mimetype: "application/octet-stream", buffer: Buffer.from(path) };
+function file(path: string, contents = Buffer.from(path)): Entry {
+  return [path, contents];
 }
 
 const user: PortalUser = {
@@ -58,15 +60,25 @@ const user: PortalUser = {
   groups: [],
 };
 
-/** Submit a folder upload and wait for the job to settle. */
-async function run(files: UploadedFile[], folderName: string) {
+/**
+ * Submit a folder upload and wait for the job to settle. The tree is zipped to a
+ * temp file first, because that is exactly what the router hands the job: multer
+ * streams the client's archive to disk and passes down its path.
+ */
+async function run(entries: Entry[], folderName: string) {
+  const inputs: Record<string, Uint8Array> = {};
+  for (const [path, contents] of entries) inputs[path] = new Uint8Array(contents);
+  const dir = await mkdtemp(join(tmpdir(), "art-"));
+  const archivePath = join(dir, "upload.zip");
+  await writeFile(archivePath, zipSync(inputs));
+
   const api = new RealArtifactoryApi();
   const { id } = await api.submitFolderUpload(
     {
       folderName,
-      fileCount: files.length,
-      totalBytes: files.reduce((n, f) => n + f.buffer.length, 0),
-      files,
+      fileCount: entries.length,
+      totalBytes: entries.reduce((n, [, contents]) => n + contents.length, 0),
+      archivePath,
     },
     user
   );
@@ -100,7 +112,7 @@ describe("folder upload log", () => {
   });
 
   it("routes each type to its own repo and leaves node_modules contents alone", async () => {
-    const files: UploadedFile[] = [
+    const files: Entry[] = [
       ...pkg("node_modules/left-pad", "left-pad", "1.3.0"),
       // A jar inside an npm package ships in that package's tarball — it must not
       // be picked up as a Maven dependency of its own.
@@ -152,58 +164,12 @@ describe("folder upload log", () => {
     await execFileAsync("tar", ["-czf", "parser-7.24.0.tgz", "package"], { cwd: dir });
     const tarball = await readFile(join(dir, "parser-7.24.0.tgz"));
 
-    const job = await run(
-      [{ originalname: "tarballs/parser-7.24.0.tgz", mimetype: "application/gzip", buffer: tarball }],
-      "tarballs"
-    );
+    const job = await run([file("tarballs/parser-7.24.0.tgz", tarball)], "tarballs");
 
     expect(job.status).toBe("completed");
     expect(job.packages!.map((p) => p.path)).toEqual([
       "npm-local/@acme/parser/-/parser-7.24.0.tgz"
     ]);
-  });
-});
-
-// The client now zips a dropped folder before sending it (thousands of raw
-// multipart parts is what made a node_modules-sized drop ~100x slower than
-// dragging a hand-made zip of the same folder) and the server unzips it back
-// out before running the exact same discovery/publish pipeline `run()` above
-// already covers via `files[]`. This proves the archive path lands on the
-// same outcome as the equivalent `files[]` input, not just that it runs.
-describe("archive upload", () => {
-  it("unzips a folder archive and matches the files[] result for the same tree", async () => {
-    const files = [
-      ...pkg("node_modules/arg", "arg", "4.1.5"),
-      ...pkg("node_modules/left-pad", "left-pad", "1.3.0"),
-      ...pkg("node_modules/@babel/core", "@babel/core", "7.24.0"),
-    ];
-    const inputs: Record<string, Uint8Array> = {};
-    for (const f of files) inputs[f.originalname] = new Uint8Array(f.buffer);
-    const archive = Buffer.from(zipSync(inputs));
-
-    const api = new RealArtifactoryApi();
-    const { id } = await api.submitFolderUpload(
-      {
-        folderName: "node_modules",
-        fileCount: files.length,
-        totalBytes: files.reduce((n, f) => n + f.buffer.length, 0),
-        archive,
-      },
-      user
-    );
-
-    let job = await api.getJob(id);
-    while (job && (job.status === "pending" || job.status === "in-progress")) {
-      await new Promise((r) => setTimeout(r, 20));
-      job = await api.getJob(id);
-    }
-
-    console.log(`\n--- ${id} archive (${job!.status}) ---\n${job!.log.join("\n")}\n`);
-
-    expect(job!.status).toBe("failed");
-    expect(job!.log).toContain("Uploaded left-pad@1.3.0");
-    expect(job!.log.some((l) => l.includes("1 package(s) already in the repo"))).toBe(true);
-    expect(job!.log.some((l) => l.startsWith("Failed @babel/core@7.24.0:"))).toBe(true);
   });
 });
 

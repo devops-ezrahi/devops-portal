@@ -1,23 +1,36 @@
+import { dirname } from "path";
 import express from "express";
 import multer from "multer";
 import { z } from "zod";
 import { isAdmin } from "../../auth";
 import { config } from "../../config";
+import { createTmpDir, removeTmpDir } from "../../tmp";
 import { ARTIFACTORY_SCENARIOS } from "./devSimulation";
-import type { ArtifactoryApi, ArtifactoryScenario, FolderUploadInput } from "../../types";
+import type { ArtifactoryApi, ArtifactoryScenario } from "../../types";
 
 const urlCopySchema = z.object({
   sourceUrl: z.string().url(),
 });
 
+/**
+ * 500 MB, matching the whitening module — a zipped node_modules is sizeable
+ * even compressed. The client checks the same number before spending minutes
+ * zipping a folder it cannot send (`MAX_ARCHIVE_BYTES` in FolderUploadForm).
+ */
+const MAX_ARCHIVE_BYTES = 500 * 1024 * 1024;
+
 const upload = multer({
-  storage: multer.memoryStorage(),
-  // 500 MB: matches the whitening module's archive limit — a zipped node_modules
-  // can be sizeable even compressed. Still covers the legacy per-file `files` field.
-  limits: { fileSize: 500 * 1024 * 1024 },
-  // Without this busboy basenames every part, so a folder upload arrives flat and
-  // only the last package.json survives. `safeRelativePath` sanitises the paths.
-  preservePath: true,
+  // Straight to disk. `memoryStorage` held the whole archive in the heap and
+  // then wrote a second copy out — two full-size copies of a 500 MB upload,
+  // pinned for as long as the job ran. Each request gets its own `art-` dir,
+  // which the boot-time temp sweeper already covers if a crash orphans one.
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      createTmpDir("art-").then((dir) => cb(null, dir), (err: Error) => cb(err, ""));
+    },
+    filename: (_req, _file, cb) => cb(null, "upload.zip"),
+  }),
+  limits: { fileSize: MAX_ARCHIVE_BYTES, files: 1 },
 });
 
 export function createArtifactoryRouter(api: ArtifactoryApi): express.Router {
@@ -35,41 +48,32 @@ export function createArtifactoryRouter(api: ArtifactoryApi): express.Router {
 
   router.post(
     "/api/artifactory/jobs/folder-upload",
-    upload.fields([{ name: "files" }, { name: "archive", maxCount: 1 }]),
+    upload.single("archive"),
     async (req, res, next) => {
+      // The job takes ownership of multer's temp dir on success; every path
+      // that does not reach it has to drop the dir itself, or a 500 MB archive
+      // sits on disk until the 24h sweep.
+      const archivePath = req.file?.path;
       try {
         const folderName = String(req.body.folderName ?? "").trim();
-        if (!folderName) {
-          res.status(400).json({ error: "folderName is required" });
+        if (!folderName || !archivePath) {
+          if (archivePath) await removeTmpDir(dirname(archivePath));
+          res.status(400).json({ error: !folderName ? "folderName is required" : "archive is required" });
           return;
         }
 
-        const fieldFiles = (req.files as Record<string, Express.Multer.File[]> | undefined) ?? {};
-        const multerFiles = fieldFiles.files ?? [];
-        const files = multerFiles.map((f) => ({
-          originalname: f.originalname,
-          mimetype: f.mimetype,
-          buffer: f.buffer,
-        }));
-        const archive = fieldFiles.archive?.[0]?.buffer;
-
-        const fileCount =
-          files.length || Number(req.body.fileCount ?? 0);
-        const totalBytes =
-          files.reduce((sum, f) => sum + f.buffer.length, 0) ||
-          Number(req.body.totalBytes ?? 0);
-
-        const input: FolderUploadInput = {
-          folderName,
-          fileCount,
-          totalBytes,
-          files: files.length > 0 ? files : undefined,
-          archive,
-        };
-
-        const job = await api.submitFolderUpload(input, req.user!);
+        const job = await api.submitFolderUpload(
+          {
+            folderName,
+            fileCount: Number(req.body.fileCount ?? 0),
+            totalBytes: Number(req.body.totalBytes ?? 0),
+            archivePath,
+          },
+          req.user!
+        );
         res.status(201).json({ job });
       } catch (err) {
+        if (archivePath) await removeTmpDir(dirname(archivePath));
         next(err);
       }
     }

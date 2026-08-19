@@ -40,10 +40,10 @@ function authHeaders(): Record<string, string> {
  * Unknown must stay distinct from absent: a repo we can write but not read would
  * otherwise report every package as already uploaded and silently skip the job.
  */
-export async function exists(path: string): Promise<boolean | null> {
+export async function exists(path: string, signal?: AbortSignal): Promise<boolean | null> {
   let res: Response;
   try {
-    res = await fetch(`${serviceUrl()}/${path}`, { method: "HEAD", headers: authHeaders() });
+    res = await fetch(`${serviceUrl()}/${path}`, { method: "HEAD", headers: authHeaders(), signal });
   } catch {
     return null;
   }
@@ -59,11 +59,12 @@ export async function exists(path: string): Promise<boolean | null> {
  * trusted (bad response, network error, unexpected shape); callers must fall
  * back to per-item `exists()` rather than treat `null` as "nothing exists".
  */
-export async function listExisting(repoPath: string): Promise<Set<string> | null> {
+export async function listExisting(repoPath: string, signal?: AbortSignal): Promise<Set<string> | null> {
   let res: Response;
   try {
     res = await fetch(`${serviceUrl()}/api/storage/${repoPath}?list&deep=1&listFolders=0`, {
       headers: authHeaders(),
+      signal,
     });
   } catch {
     return null;
@@ -94,12 +95,18 @@ export async function listExisting(repoPath: string): Promise<Set<string> | null
   return paths;
 }
 
-/** PUT a local file to a repo-relative path. Throws with Artifactory's own error body. */
-export async function upload(path: string, localFile: string): Promise<void> {
+/**
+ * PUT a local file to a repo-relative path. Throws with Artifactory's own error
+ * body. `signal` aborts the transfer itself: without it, stopping a job left a
+ * multi-hundred-MB PUT streaming on from a temp dir the job was already
+ * deleting.
+ */
+export async function upload(path: string, localFile: string, signal?: AbortSignal): Promise<void> {
   const { size } = await stat(localFile);
   const res = await fetch(`${serviceUrl()}/${path}`, {
     method: "PUT",
     headers: { ...authHeaders(), "Content-Length": String(size) },
+    signal,
     body: Readable.toWeb(createReadStream(localFile)) as ReadableStream,
     // Node requires this for a streaming request body.
     duplex: "half",

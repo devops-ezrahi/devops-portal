@@ -14,10 +14,18 @@ const execFileAsync = promisify(execFile);
  * costs Artifactory real write-path work, so kept more conservative: past a
  * point more concurrency just fragments the same egress bandwidth.
  *
- * ponytail: informed guesses, not measured optima — same as TEMP_WRITE_CONCURRENCY.
+ * ponytail: informed guesses, not measured optima. Tune against real hardware.
  */
 const EXISTS_CONCURRENCY = 32;
 const UPLOAD_CONCURRENCY = 8;
+
+/**
+ * Below this many npm items, ask per package instead of listing the repo. The
+ * bulk listing is one request either way, but `?list&deep=1` makes Artifactory
+ * walk the *whole* npm repo — cheap against a 3,000-package node_modules,
+ * pointlessly expensive (and slow on a large repo) to check three tarballs.
+ */
+const BULK_LIST_THRESHOLD = 25;
 
 export type DiscoveredPackage = {
   dir: string;
@@ -154,10 +162,8 @@ export type UploadItem = {
 /**
  * Upload every item the repo does not already have. Shared by all package types:
  * npm resolves to a freshly packed tarball, everything else to the file the user
- * already gave us.
- *
- * ponytail: `signal` is checked per item, so cancelling lets the one PUT already
- * in flight finish. Thread it into `artifactoryRest.upload` if that ever matters.
+ * already gave us. `signal` is both checked between items and handed to each
+ * request, so Stop drops the transfer in flight rather than waiting it out.
  */
 export async function uploadFiles(
   items: UploadItem[],
@@ -195,7 +201,10 @@ export async function uploadFiles(
   // listing itself is not usable.
   const indexed = unique.map((item, index) => ({ item, index }));
   const npmEntries = indexed.filter(({ item }) => item.type === "npm");
-  const existingNpm = npmEntries.length > 0 ? await listExisting(config.artifactory.npmRepo) : null;
+  const existingNpm =
+    npmEntries.length >= BULK_LIST_THRESHOLD
+      ? await listExisting(config.artifactory.npmRepo, signal)
+      : null;
 
   if (existingNpm) {
     for (const { item, index } of npmEntries) {
@@ -210,7 +219,7 @@ export async function uploadFiles(
   await pool(toCheck, EXISTS_CONCURRENCY, async ({ item, index }) => {
     if (signal?.aborted) return;
     const result = results[index];
-    const present = await exists(result.path);
+    const present = await exists(result.path, signal);
     if (present === true) {
       markExisting(result);
     } else {
@@ -228,7 +237,7 @@ export async function uploadFiles(
   await pool(todo, UPLOAD_CONCURRENCY, async ({ item, result }) => {
     if (signal?.aborted) return;
     try {
-      await upload(result.path, await item.resolve());
+      await upload(result.path, await item.resolve(), signal);
       result.status = "uploaded";
       delete result.error;
       result.url = webUrl(result.path);

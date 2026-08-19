@@ -93,35 +93,46 @@ describe("uploadFiles bulk existence check", () => {
     uploadMock.mockReset().mockResolvedValue(undefined);
   });
 
+  /** Enough npm items to be worth one repo listing (BULK_LIST_THRESHOLD). */
+  function manyNpmItems(): UploadItem[] {
+    return [
+      npmItem("arg", "4.1.5"),
+      ...Array.from({ length: 24 }, (_, i) => npmItem(`pkg-${i}`, "1.0.0")),
+    ];
+  }
+
   it("skips per-item HEAD entirely when the bulk listing succeeds", async () => {
     listExistingMock.mockResolvedValue(new Set([targetPath("arg", "4.1.5")]));
 
-    const results = await uploadFiles(
-      [npmItem("arg", "4.1.5"), npmItem("left-pad", "1.3.0")],
-      () => {},
-      () => {}
-    );
+    const results = await uploadFiles(manyNpmItems(), () => {}, () => {});
 
-    expect(listExistingMock).toHaveBeenCalledWith("npm-local");
+    expect(listExistingMock.mock.calls[0][0]).toBe("npm-local");
     expect(existsMock).not.toHaveBeenCalled();
     expect(results.find((r) => r.name === "arg")!.status).toBe("exists");
-    expect(results.find((r) => r.name === "left-pad")!.status).toBe("uploaded");
-    expect(uploadMock).toHaveBeenCalledTimes(1);
+    expect(results.find((r) => r.name === "pkg-0")!.status).toBe("uploaded");
+    expect(uploadMock).toHaveBeenCalledTimes(24);
   });
 
   it("falls back to per-item HEAD when the bulk listing is not usable", async () => {
     listExistingMock.mockResolvedValue(null);
     existsMock.mockImplementation(async (path: string) => path.includes("/arg/"));
 
-    const results = await uploadFiles(
-      [npmItem("arg", "4.1.5"), npmItem("left-pad", "1.3.0")],
-      () => {},
-      () => {}
-    );
+    const results = await uploadFiles(manyNpmItems(), () => {}, () => {});
 
-    expect(existsMock).toHaveBeenCalledTimes(2);
+    expect(existsMock).toHaveBeenCalledTimes(25);
     expect(results.find((r) => r.name === "arg")!.status).toBe("exists");
-    expect(results.find((r) => r.name === "left-pad")!.status).toBe("uploaded");
+    expect(results.find((r) => r.name === "pkg-0")!.status).toBe("uploaded");
+  });
+
+  // `?list&deep=1` makes Artifactory walk the whole npm repo. That pays for a
+  // node_modules-sized drop and is pure overhead for a couple of tarballs.
+  it("does not list the repo for a handful of packages", async () => {
+    existsMock.mockResolvedValue(false);
+
+    await uploadFiles([npmItem("arg", "4.1.5"), npmItem("left-pad", "1.3.0")], () => {}, () => {});
+
+    expect(listExistingMock).not.toHaveBeenCalled();
+    expect(existsMock).toHaveBeenCalledTimes(2);
   });
 });
 

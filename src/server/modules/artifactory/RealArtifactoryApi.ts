@@ -1,6 +1,10 @@
 import { execFile } from "child_process";
-import { mkdir, readdir, writeFile } from "fs/promises";
+import { createWriteStream } from "fs";
+import { mkdir, readdir } from "fs/promises";
 import { basename, dirname, join, relative } from "path";
+import { pipeline } from "stream/promises";
+import { Readable } from "stream";
+import type { ReadableStream as WebReadableStream } from "stream/web";
 // Rejects on abort, so a cancelled simulation stops mid-sleep instead of at the
 // end of the current beat.
 import { setTimeout as sleep } from "timers/promises";
@@ -10,7 +14,7 @@ import { redactSecrets } from "../../redact";
 import { createTmpDir, removeTmpDir } from "../../tmp";
 import { webUrl } from "./artifactoryRest";
 import { artifactorySimulation, simulatedArtifactoryJob } from "./devSimulation";
-import { discoverPackages, jobName, npmUploadItems, pool, targetPath, uploadFiles } from "./npmPackages";
+import { discoverPackages, jobName, npmUploadItems, targetPath, uploadFiles } from "./npmPackages";
 import { classify, urlArtifactPath } from "./packageTypes";
 import type { UploadItem } from "./npmPackages";
 import type {
@@ -26,14 +30,14 @@ import type {
 const execFileAsync = promisify(execFile);
 
 /**
- * Staging the upload to disk is IO-bound, not CPU-bound, so overlapping it wins
- * a lot on a big node_modules. Kept well under the default file-descriptor
- * limit — every worker holds one open write at a time.
+ * Jobs live in memory for the life of the process, and a node_modules upload
+ * carries a result row per package plus a log line per upload — so the oldest
+ * finished ones are dropped rather than kept forever.
  *
- * ponytail: a flat constant, not a measured optimum. Raise it if staging is
- * still the slow part on the real hardware.
+ * ponytail: a flat cap, not an age policy. Persist jobs if history ever has to
+ * survive a restart.
  */
-const TEMP_WRITE_CONCURRENCY = 16;
+const MAX_JOBS = 200;
 
 function nowIso() {
   return new Date().toISOString();
@@ -82,6 +86,18 @@ export class RealArtifactoryApi implements ArtifactoryApi {
     return `ART-${String(++this.counter).padStart(4, "0")}`;
   }
 
+  /** Record a new job, evicting the oldest finished ones once over the cap. */
+  private remember(job: ArtifactoryJob) {
+    this.jobs.set(job.id, job);
+    // Map iterates in insertion order, so this walks oldest first. Running jobs
+    // are skipped — their controllers are live and the user is watching them.
+    for (const [id, old] of this.jobs) {
+      if (this.jobs.size <= MAX_JOBS) break;
+      if (old.status === "pending" || old.status === "in-progress") continue;
+      this.jobs.delete(id);
+    }
+  }
+
   private patch(jobId: string, updates: Partial<ArtifactoryJob>) {
     const job = this.jobs.get(jobId);
     if (!job) return;
@@ -122,7 +138,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       sourceUrl: input.sourceUrl,
       log: [],
     };
-    this.jobs.set(job.id, job);
+    this.remember(job);
     void this.runUrlCopy(job.id, input);
     return job;
   }
@@ -142,7 +158,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       totalBytes: input.totalBytes,
       log: [],
     };
-    this.jobs.set(job.id, job);
+    this.remember(job);
     void this.runFolderUpload(job.id, input);
     return job;
   }
@@ -159,7 +175,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       log: [],
       ...simulatedArtifactoryJob(scenario),
     };
-    this.jobs.set(job.id, job);
+    this.remember(job);
     void this.runSimulation(job.id, scenario);
     return job;
   }
@@ -240,12 +256,20 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       if (!res.ok) {
         throw new Error(`Source responded with ${res.status} ${res.statusText}`);
       }
+      if (!res.body) throw new Error("Source returned an empty body");
 
       const filename = new URL(input.sourceUrl).pathname.split("/").filter(Boolean).pop();
       if (!filename) throw new Error("Cannot determine filename from source URL");
 
+      // Streamed, not buffered: an artifact is routinely hundreds of MB, and
+      // `arrayBuffer()` would hold all of it in the heap on the way to disk.
       const tmpFile = join(tmpDir, safeRelativePath(filename));
-      await writeFile(tmpFile, Buffer.from(await res.arrayBuffer()));
+      // fetch hands back the DOM stream type; Readable.fromWeb wants node's.
+      await pipeline(
+        Readable.fromWeb(res.body as unknown as WebReadableStream<Uint8Array>),
+        createWriteStream(tmpFile),
+        { signal }
+      );
 
       // The npm sniff reads the file itself, so it wins over any path guess.
       const identity = await readTarballIdentity(tmpFile);
@@ -303,50 +327,33 @@ export class RealArtifactoryApi implements ArtifactoryApi {
 
   private async runFolderUpload(jobId: string, input: FolderUploadInput) {
     const signal = this.start(jobId);
-    const tmpDir = await createTmpDir("art-");
+    // multer streamed the archive into a dir of its own; the job owns it now,
+    // and drops it (archive included) in the `finally` below.
+    const tmpDir = dirname(input.archivePath);
     try {
       this.patch(jobId, { status: "in-progress" });
 
-      const files = input.files ?? [];
-      if (files.length === 0 && !input.archive) {
-        throw new Error("No file data received — ensure the client sends actual files");
-      }
-
+      // One compressed blob + one native unzip beats tens of thousands of
+      // uncompressed multipart parts and as many individual fs writes — this
+      // is the whole reason a folder drop used to be ~100x slower than
+      // dragging a hand-made zip of the same folder.
       const sourceDir = join(tmpDir, "source");
-      let relPaths: string[];
-      if (input.archive) {
-        // One compressed blob + one native unzip beats tens of thousands of
-        // uncompressed multipart parts and as many individual fs writes — this
-        // is the whole reason a folder drop used to be ~100x slower than
-        // dragging a hand-made zip of the same folder.
-        this.appendLog(jobId, "Extracting uploaded archive ...");
-        await mkdir(sourceDir, { recursive: true });
-        const zipPath = join(tmpDir, "upload.zip");
-        await writeFile(zipPath, input.archive);
-        try {
-          await execFileAsync("unzip", ["-q", "upload.zip", "-d", "source"], { cwd: tmpDir });
-        } catch (err) {
-          // unzip exits 1 for "extracted, with warnings" (e.g. a Windows-built
-          // zip warning about backslash separators) and only >= 2 for a real
-          // failure — see RealWhiteningApi.submitUnpack for the same handling.
-          const code = (err as { code?: number }).code;
-          if (code !== 1) {
-            throw new Error("Could not extract the uploaded folder archive");
-          }
-        }
-        relPaths = await listFilesRecursive(sourceDir);
-      } else {
-        this.appendLog(jobId, `Writing ${files.length} file(s) to temp directory ...`);
-        // Pooled rather than a plain for-await: a dropped node_modules is tens of
-        // thousands of files, and one serialized mkdir+writeFile round trip each
-        // was the bulk of the wait before any upload had started.
-        await pool(files, TEMP_WRITE_CONCURRENCY, async (file) => {
-          const dest = join(sourceDir, safeRelativePath(file.originalname));
-          await mkdir(dirname(dest), { recursive: true });
-          await writeFile(dest, file.buffer);
+      this.appendLog(jobId, "Extracting uploaded archive ...");
+      await mkdir(sourceDir, { recursive: true });
+      try {
+        await execFileAsync("unzip", ["-q", basename(input.archivePath), "-d", "source"], {
+          cwd: tmpDir,
         });
-        relPaths = files.map((f) => safeRelativePath(f.originalname));
+      } catch (err) {
+        // unzip exits 1 for "extracted, with warnings" (e.g. a Windows-built
+        // zip warning about backslash separators) and only >= 2 for a real
+        // failure — see RealWhiteningApi.submitUnpack for the same handling.
+        const code = (err as { code?: number }).code;
+        if (code !== 1) {
+          throw new Error("Could not extract the uploaded folder archive");
+        }
       }
+      const relPaths = await listFilesRecursive(sourceDir);
 
       const log = (line: string) => this.appendLog(jobId, line);
       const packages = await discoverPackages(sourceDir, log);

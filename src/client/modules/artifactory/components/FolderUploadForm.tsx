@@ -1,4 +1,4 @@
-import { zip, type AsyncZippable } from "fflate";
+import { AsyncZipDeflate, Zip } from "fflate";
 import { FolderOpen, Upload, X } from "lucide-react";
 import { useState } from "react";
 import { log, warn, error as logError } from "../../../log";
@@ -12,23 +12,63 @@ type ScannedFolder = {
   totalBytes: number;
 };
 
+/** Mirrors MAX_ARCHIVE_BYTES in server/modules/artifactory/router.ts. */
+const MAX_ARCHIVE_BYTES = 500 * 1024 * 1024;
+
+/** Fold zip output into the Blob this often, so RAM holds a batch, not the archive. */
+const BLOB_FLUSH_BYTES = 32 * 1024 * 1024;
+
 /**
  * A raw multipart-per-file upload is what makes a node_modules-sized folder
  * drop ~100x slower than dragging a hand-made zip of the same folder — one
  * compressed blob beats tens of thousands of uncompressed multipart parts.
- * fflate's async API keeps this off the UI thread for a big tree.
+ *
+ * Streamed rather than fflate's one-shot `zip()`: that needs every file's bytes
+ * in memory at once and then the whole archive on top, which is roughly 2x the
+ * folder — a real node_modules took the tab out. Here one file is read at a
+ * time and the output is flushed into a Blob (browser-backed, spillable to
+ * disk) as it comes.
  */
-async function zipEntries(entries: FileEntry[]): Promise<Blob> {
-  const inputs: AsyncZippable = {};
-  await Promise.all(
-    entries.map(async ({ file, path }) => {
-      inputs[path] = new Uint8Array(await file.arrayBuffer());
-    })
-  );
-  const zipped = await new Promise<Uint8Array>((resolve, reject) => {
-    zip(inputs, (err, data) => (err ? reject(err) : resolve(data)));
+export async function zipEntries(
+  entries: FileEntry[],
+  onProgress: (done: number) => void
+): Promise<Blob> {
+  const parts: BlobPart[] = [];
+  let batch: Uint8Array[] = [];
+  let batchBytes = 0;
+
+  let settle!: (err?: Error) => void;
+  const finished = new Promise<void>((resolve, reject) => {
+    settle = (err) => (err ? reject(err) : resolve());
   });
-  return new Blob([zipped as BlobPart], { type: "application/zip" });
+
+  const zip = new Zip((err, chunk, final) => {
+    if (err) return settle(err);
+    batch.push(chunk);
+    batchBytes += chunk.length;
+    if (final || batchBytes >= BLOB_FLUSH_BYTES) {
+      parts.push(new Blob(batch as BlobPart[]));
+      batch = [];
+      batchBytes = 0;
+    }
+    if (final) settle();
+  });
+
+  for (const [index, { file, path }] of entries.entries()) {
+    // level 1: node_modules is mostly text, where the cheapest deflate already
+    // gets most of the ratio — and the folder can be gigabytes, so CPU per byte
+    // is what the user waits on.
+    const entry = new AsyncZipDeflate(path, { level: 1 });
+    zip.add(entry);
+    // Sequential on purpose. Reading the files in parallel puts the whole
+    // folder in memory again, which is the bug this shape exists to avoid.
+    entry.push(new Uint8Array(await file.arrayBuffer()), true);
+    onProgress(index + 1);
+  }
+  zip.end();
+  await finished;
+
+  return new Blob(parts, { type: "application/zip" });
 }
 
 type Props = {
@@ -73,6 +113,7 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
   const [dragOver, setDragOver] = useState(false);
   const [scannedFolder, setScannedFolder] = useState<ScannedFolder | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [zipped, setZipped] = useState({ done: 0, total: 0 });
   const [submitting, setSubmitting] = useState(false);
   const [uploadPercent, setUploadPercent] = useState(0);
 
@@ -101,11 +142,17 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
 
     log("artifactory/upload", "scanning folder", entry.name);
     setScanning(true);
+    setZipped({ done: 0, total: 0 });
     const startedAt = performance.now();
     try {
       const entries = await collectEntries(entry as FileSystemDirectoryEntry);
       const totalBytes = entries.reduce((sum, e) => sum + e.file.size, 0);
-      const archive = await zipEntries(entries);
+      setZipped({ done: 0, total: entries.length });
+      // Zipping a big tree takes minutes; without a count the drop zone just
+      // says "Preparing folder..." and looks hung.
+      const archive = await zipEntries(entries, (done) =>
+        setZipped((prev) => (done % 50 === 0 || done === entries.length ? { ...prev, done } : prev))
+      );
       log("artifactory/upload", "scan+zip done", {
         folder: entry.name,
         files: entries.length,
@@ -113,6 +160,14 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
         zippedBytes: archive.size,
         ms: Number((performance.now() - startedAt).toFixed(0)),
       });
+      // The server rejects this too, but only after the whole archive has been
+      // pushed over the wire — which is a long wait to be told no.
+      if (archive.size > MAX_ARCHIVE_BYTES) {
+        onError(
+          `Zipped folder is ${formatBytes(archive.size)} — over the ${formatBytes(MAX_ARCHIVE_BYTES)} upload limit. Upload it in parts.`
+        );
+        return;
+      }
       setScannedFolder({ name: entry.name, archive, fileCount: entries.length, totalBytes });
     } catch (err) {
       logError("artifactory/upload", "folder scan failed", entry.name, err);
@@ -164,7 +219,10 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
         >
           <FolderOpen size={36} aria-hidden="true" />
           {scanning ? (
-            <span>Preparing folder...</span>
+            <span>
+              Preparing folder...
+              {zipped.total > 0 && ` ${zipped.done.toLocaleString()} / ${zipped.total.toLocaleString()} files`}
+            </span>
           ) : (
             <>
               <span>Drop a folder here</span>

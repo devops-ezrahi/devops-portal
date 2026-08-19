@@ -1,13 +1,26 @@
+import { readFile } from "fs/promises";
+import { dirname } from "path";
 import express from "express";
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
+import { removeTmpDir } from "../../tmp";
 import { createArtifactoryRouter } from "./router";
 import type { ArtifactoryApi, FolderUploadInput } from "../../types";
 
 vi.mock("../../auth", () => ({ isAdmin: () => false }));
 
+function appWith(api: ArtifactoryApi) {
+  const app = express();
+  app.use((req, _res, next) => {
+    req.user = { id: "dev" } as never;
+    next();
+  });
+  app.use(createArtifactoryRouter(api));
+  return app;
+}
+
 describe("folder-upload route", () => {
-  it("keeps the folder structure in each file's name", async () => {
+  it("streams the archive to disk and hands the job its path", async () => {
     let received: FolderUploadInput | undefined;
     const api = {
       async submitFolderUpload(input: FolderUploadInput) {
@@ -16,29 +29,34 @@ describe("folder-upload route", () => {
       },
     } as unknown as ArtifactoryApi;
 
-    const app = express();
-    app.use((req, _res, next) => {
-      req.user = { id: "dev" } as never;
-      next();
-    });
-    app.use(createArtifactoryRouter(api));
+    const archive = Buffer.from("PK pretend zip");
+    await request(appWith(api))
+      .post("/api/artifactory/jobs/folder-upload")
+      .field("folderName", "node_modules")
+      .field("fileCount", "3")
+      .field("totalBytes", "1234")
+      .attach("archive", archive, "archive.zip")
+      .expect(201);
 
-    // Hand-rolled multipart: superagent's .attach() basenames the filename, which
-    // is exactly the behaviour under test.
-    const boundary = "----portaltest";
-    const body =
-      `--${boundary}\r\nContent-Disposition: form-data; name="folderName"\r\n\r\nnode_modules\r\n` +
-      `--${boundary}\r\nContent-Disposition: form-data; name="files"; filename="node_modules/arg/package.json"\r\n` +
-      `Content-Type: application/json\r\n\r\n{}\r\n--${boundary}--\r\n`;
+    // The job is handed a path, never a Buffer: multer must not be holding a
+    // second full-size copy of the upload in the heap.
+    expect(received?.folderName).toBe("node_modules");
+    expect(received?.fileCount).toBe(3);
+    expect(received?.totalBytes).toBe(1234);
+    expect(await readFile(received!.archivePath)).toEqual(archive);
+
+    await removeTmpDir(dirname(received!.archivePath));
+  });
+
+  it("rejects a request with no archive instead of starting a job", async () => {
+    const submitFolderUpload = vi.fn();
+    const app = appWith({ submitFolderUpload } as unknown as ArtifactoryApi);
 
     await request(app)
       .post("/api/artifactory/jobs/folder-upload")
-      .set("Content-Type", `multipart/form-data; boundary=${boundary}`)
-      .send(body)
-      .expect(201);
+      .field("folderName", "node_modules")
+      .expect(400);
 
-    // busboy basenames every part unless multer gets `preservePath` — without it
-    // every package.json collides and only one package survives the upload.
-    expect(received?.files?.[0].originalname).toBe("node_modules/arg/package.json");
+    expect(submitFolderUpload).not.toHaveBeenCalled();
   });
 });

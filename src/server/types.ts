@@ -170,19 +170,16 @@ export type UrlCopyInput = {
   sourceUrl: string;
 };
 
-export type UploadedFile = {
-  originalname: string;
-  mimetype: string;
-  buffer: Buffer;
-};
-
 export type FolderUploadInput = {
   folderName: string;
   fileCount: number;
   totalBytes: number;
-  files?: UploadedFile[];
-  /** A zipped folder drop — unzipped server-side instead of writing `files` one by one. */
-  archive?: Buffer;
+  /**
+   * The dropped folder, zipped by the client and streamed straight to disk by
+   * multer. The job owns the file and the directory holding it, and deletes
+   * both when it ends.
+   */
+  archivePath: string;
 };
 
 /** Which scripted run the Test button replays — one per package type, plus two failure modes. */

@@ -116,6 +116,12 @@ export function createApp(
       res.status(403).json({ error: error.message });
       return;
     }
+    // multer aborts the request mid-stream once an upload passes its limit, and
+    // otherwise surfaces as a bare 500 to a user who just spent minutes zipping.
+    if (error instanceof Error && (error as { code?: string }).code === "LIMIT_FILE_SIZE") {
+      res.status(413).json({ error: "Upload is too large — the limit is 500 MB." });
+      return;
+    }
     if (error instanceof Error && error.message.includes("Jira request failed")) {
       res.status(502).json({ error: error.message });
       return;
