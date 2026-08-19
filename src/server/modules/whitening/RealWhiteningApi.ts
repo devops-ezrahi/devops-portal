@@ -6,6 +6,7 @@ import { join } from "path";
 import { setTimeout as sleep } from "timers/promises";
 import { promisify } from "util";
 import { config } from "../../config";
+import { describeError, log, userMessage } from "../../log";
 import { redactSecrets } from "../../redact";
 import { createTmpDir, removeTmpDir } from "../../tmp";
 import { discoverPackages, packAndUpload } from "../artifactory/npmPackages";
@@ -83,11 +84,16 @@ export class RealWhiteningApi implements WhiteningApi {
     this.steps.set(jobId, step);
   }
 
+  // Mirrored to stdout with the job id and the current step, so `kubectl logs`
+  // tells the same story the job drawer does — including the `$ git ...` and
+  // `$ skopeo ...` command echoes, which is where these runs actually fail.
   private appendLog(jobId: string, line: string) {
     const job = this.jobs.get(jobId);
     if (!job) return;
-    job.log.push({ step: this.steps.get(jobId) ?? "General", line: redactSecrets(line) });
+    const step = this.steps.get(jobId) ?? "General";
+    job.log.push({ step, line: redactSecrets(line) });
     job.updatedAt = nowIso();
+    log.info(`whitening ${jobId}`, `[${step}] ${line}`);
   }
 
   /**
@@ -145,6 +151,11 @@ export class RealWhiteningApi implements WhiteningApi {
       }
       packConfig = parsePackConfig(await readFile(configPath, "utf8"));
     } catch (err) {
+      // No job exists yet, so this failure has no job log to land in — without
+      // a line here a rejected pack is invisible outside the 400 the user got.
+      log.warn("whitening", `rejected ${archiveName} from ${submitter.id}: ${describeError(err)}`, {
+        bytes: archive.length,
+      });
       await removeTmpDir(workDir);
       throw err;
     }
@@ -165,6 +176,15 @@ export class RealWhiteningApi implements WhiteningApi {
       log: [],
     };
     this.jobs.set(job.id, job);
+    log.info("whitening", `${job.id} submitted`, {
+      by: submitter.id,
+      archive: archiveName,
+      bytes: archive.length,
+      department,
+      team,
+      project,
+      version,
+    });
     void this.run(job.id, workDir, extractDir, packConfig);
     return job;
   }
@@ -267,9 +287,11 @@ export class RealWhiteningApi implements WhiteningApi {
       this.appendLog(jobId, "Done.");
     } catch (err) {
       if (!this.aborted(jobId)) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = userMessage(err);
         this.patch(jobId, { status: "failed", errorMessage: message });
         this.appendLog(jobId, `Error: ${message}`);
+        // The stack and cause chain, which the user-facing job log omits.
+        log.error("whitening", `${jobId} failed at step ${this.steps.get(jobId) ?? "?"}`, err);
       }
     } finally {
       await removeTmpDir(workDir, (line) => this.appendLog(jobId, line));

@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { config } from "./config";
+import { log } from "./log";
 import type { AssigneeCandidate, PortalUser } from "./types";
 
 declare global {
@@ -122,7 +123,15 @@ export async function requireSession(req: Request, res: Response, next: NextFunc
 
   if (!user) {
     if (config.ssoRequired) {
-      res.status(401).json({ error: "Authentication required", ssoUrl: config.ssoUrl });
+      // The proxy is meant to inject these; arriving without them means the
+      // request bypassed it or the proxy is misconfigured — name the headers
+      // that were actually present so it is debuggable from the pod log alone.
+      log.warn("auth", "401 — no SSO headers on the request", {
+        id: req.id,
+        route: `${req.method} ${req.originalUrl}`,
+        headers: Object.keys(req.headers).filter((h) => h.startsWith("x-")).join(",") || "(none)",
+      });
+      res.status(401).json({ error: "Authentication required", ssoUrl: config.ssoUrl, requestId: req.id });
       return;
     }
     // Dev fallback: synthesize a user so the app works without an SSO proxy
@@ -140,11 +149,32 @@ export async function requireSession(req: Request, res: Response, next: NextFunc
     const userGroups = req.user!.groups;
     const allowed = config.allowedGroups.some((g) => userGroups.includes(g));
     if (!allowed) {
-      res.status(403).json({ error: "Access denied: your group is not permitted to use this portal" });
+      // Both sides of the comparison, because this is nearly always a mismatch
+      // between ALLOWED_GROUPS and what the IdP actually sends (DN vs. CN,
+      // wrong realm, group not mapped into the token) rather than a real denial.
+      log.warn("auth", "403 — user is in none of ALLOWED_GROUPS", {
+        id: req.id,
+        user: req.user!.id,
+        userGroups: userGroups.join("|") || "(none)",
+        allowedGroups: config.allowedGroups.join("|"),
+      });
+      res.status(403).json({
+        error: "Access denied: your group is not permitted to use this portal",
+        requestId: req.id,
+      });
       return;
     }
   }
 
+  if (!knownUsers.has(req.user!.id)) {
+    log.info("auth", "first request from user this process has seen", {
+      id: req.id,
+      user: req.user!.id,
+      name: req.user!.displayName,
+      groups: req.user!.groups.join("|") || "(none)",
+      admin: isAdmin(req.user!),
+    });
+  }
   rememberUser(req.user!);
   next();
 }

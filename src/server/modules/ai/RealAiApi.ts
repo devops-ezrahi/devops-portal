@@ -5,6 +5,7 @@ import { platform, tmpdir } from "os";
 import { dirname, join } from "path";
 import { promisify } from "util";
 import { config } from "../../config";
+import { log, userMessage } from "../../log";
 import { redactSecrets } from "../../redact";
 import type { PortalUser, AiApi, AiCategory, AiConversation, AiJob } from "../../types";
 
@@ -158,11 +159,14 @@ export class RealAiApi implements AiApi {
     Object.assign(job, { ...updates, updatedAt: nowIso() });
   }
 
+  // Mirrored to stdout with the job id — a question that fails inside opencode
+  // leaves no other trace in the pod.
   private appendLog(jobId: string, line: string) {
     const job = this.jobs.get(jobId);
     if (!job) return;
     job.log.push({ step: "AI", line: redactSecrets(line) });
     job.updatedAt = nowIso();
+    log.info(`ai ${jobId}`, line);
   }
 
   private cloneDirFor(project: string): string {
@@ -349,9 +353,10 @@ export class RealAiApi implements AiApi {
       }
     } catch (err) {
       if (this.jobs.get(jobId)?.status === "in-progress") {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = userMessage(err);
         this.patch(jobId, { status: "failed", errorMessage: message });
         this.appendLog(jobId, `Error: ${message}`);
+        log.error("ai", `${jobId} failed`, err);
       }
     } finally {
       clearTimeout(timeout);
@@ -426,8 +431,10 @@ export class RealAiApi implements AiApi {
           env,
         ] as const);
 
+    const started = Date.now();
     return new Promise((resolve, reject) => {
       const child = spawn(bin, args, { env: spawnEnv, signal, stdio: ["ignore", "pipe", "pipe"] });
+      log.info("ai", `${jobId} spawned opencode`, { pid: child.pid, model: config.ai.model, cwd, session: existingSessionId });
       let buffer = "";
       const thinkingLines: string[] = [];
       const answerParts: string[] = [];
@@ -466,6 +473,16 @@ export class RealAiApi implements AiApi {
       });
       child.on("close", (code) => {
         if (buffer.trim()) handleLine(buffer);
+        const ms = Date.now() - started;
+        // stderr is normally empty (all JSON events go to stdout), so anything
+        // on it is worth a line even when the run succeeded.
+        log[code === 0 ? "info" : "warn"](`ai ${jobId}`, `opencode exited ${code}`, {
+          ms,
+          answerChars: answerParts.join("").length,
+          toolCalls: thinkingLines.length,
+          session: sessionId,
+          stderr: stderrText.trim().slice(0, 500) || undefined,
+        });
         if (code === 0) {
           resolve({
             answer: answerParts.join("").trim() || "(opencode returned no answer)",

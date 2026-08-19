@@ -1,3 +1,4 @@
+import { describeError, log } from "../../log";
 import { getRequestType, validateRequestFields } from "./catalog";
 import { parsePriority } from "./priority";
 import { mapInternalStatus } from "./status";
@@ -127,6 +128,8 @@ export class JiraTicketingApi implements TicketingApi {
   }
 
   private async fetchJson<T>(fullPath: string, options: RequestInit = {}): Promise<T> {
+    const method = (options.method ?? "GET").toUpperCase();
+    const started = Date.now();
     let response: Response;
     try {
       response = await fetch(`${this.baseUrl}${fullPath}`, {
@@ -139,19 +142,27 @@ export class JiraTicketingApi implements TicketingApi {
         }
       });
     } catch (cause) {
-      const reason = cause instanceof Error ? cause.message : String(cause);
+      log.error("jira", `${method} ${fullPath} unreachable`, cause, { ms: Date.now() - started, url: this.baseUrl });
+      const reason = describeError(cause);
       throw new Error(`Jira request failed: could not reach ${this.baseUrl}${fullPath} (${reason})`);
     }
 
+    const ms = Date.now() - started;
     if (!response.ok) {
       const body = await response.text().catch(() => "");
+      log.warn("jira", `${method} ${fullPath} ${response.status} ${response.statusText}`, {
+        ms,
+        body: body.trim().slice(0, 500) || undefined,
+      });
       throw new Error(`Jira request failed: ${response.status} ${response.statusText} ${body}`.trim());
     }
+    log.debug("jira", `${method} ${fullPath} ${response.status}`, { ms });
 
     const text = await response.text();
     try {
       return (text ? JSON.parse(text) : {}) as T;
     } catch {
+      log.warn("jira", `${method} ${fullPath} returned non-JSON`, { ms, body: text.slice(0, 300) });
       throw new Error(
         `Jira request failed: ${fullPath} returned a non-JSON response (got "${text.slice(0, 120)}") — check JIRA_URL/JIRA_TOKEN`
       );

@@ -10,6 +10,7 @@ import type { ReadableStream as WebReadableStream } from "stream/web";
 import { setTimeout as sleep } from "timers/promises";
 import { promisify } from "util";
 import { config } from "../../config";
+import { log, userMessage } from "../../log";
 import { redactSecrets } from "../../redact";
 import { createTmpDir, removeTmpDir } from "../../tmp";
 import { webUrl } from "./artifactoryRest";
@@ -104,11 +105,15 @@ export class RealArtifactoryApi implements ArtifactoryApi {
     Object.assign(job, { ...updates, updatedAt: nowIso() });
   }
 
+  // Every line the user sees in the job drawer is also a pod-log line, tagged
+  // with the job id. That is the whole point of these logs: a support request
+  // is "ART-0007 failed", and `kubectl logs | grep ART-0007` has to answer it.
   private appendLog(jobId: string, line: string) {
     const job = this.jobs.get(jobId);
     if (!job) return;
     job.log.push(redactSecrets(line));
     job.updatedAt = nowIso();
+    log.info(`artifactory ${jobId}`, line);
   }
 
   /**
@@ -139,6 +144,11 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       log: [],
     };
     this.remember(job);
+    log.info("artifactory", `${job.id} url-copy submitted`, {
+      by: submitter.id,
+      source: input.sourceUrl,
+      jobs: this.jobs.size,
+    });
     void this.runUrlCopy(job.id, input);
     return job;
   }
@@ -159,6 +169,14 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       log: [],
     };
     this.remember(job);
+    log.info("artifactory", `${job.id} folder-upload submitted`, {
+      by: submitter.id,
+      folder: input.folderName,
+      files: input.fileCount,
+      bytes: input.totalBytes,
+      archive: input.archivePath,
+      jobs: this.jobs.size,
+    });
     void this.runFolderUpload(job.id, input);
     return job;
   }
@@ -316,9 +334,14 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       this.finish(jobId, results);
     } catch (err) {
       if (this.aborted(jobId)) return;
-      const message = err instanceof Error ? err.message : String(err);
+      // userMessage, not err.message: Node's fetch throws a bare "fetch failed"
+      // and the reason the user needs (ENOTFOUND, self-signed cert) is in .cause.
+      const message = userMessage(err);
       this.patch(jobId, { status: "failed", errorMessage: message });
       this.appendLog(jobId, `Error: ${message}`);
+      // appendLog already mirrored the message; this adds the stack and the
+      // cause chain, which the user-facing job log deliberately does not carry.
+      log.error("artifactory", `${jobId} failed`, err);
     } finally {
       await removeTmpDir(tmpDir, (line) => this.appendLog(jobId, line));
       this.controllers.delete(jobId);
@@ -426,9 +449,14 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       this.finish(jobId, results);
     } catch (err) {
       if (this.aborted(jobId)) return;
-      const message = err instanceof Error ? err.message : String(err);
+      // userMessage, not err.message: Node's fetch throws a bare "fetch failed"
+      // and the reason the user needs (ENOTFOUND, self-signed cert) is in .cause.
+      const message = userMessage(err);
       this.patch(jobId, { status: "failed", errorMessage: message });
       this.appendLog(jobId, `Error: ${message}`);
+      // appendLog already mirrored the message; this adds the stack and the
+      // cause chain, which the user-facing job log deliberately does not carry.
+      log.error("artifactory", `${jobId} failed`, err);
     } finally {
       await removeTmpDir(tmpDir, (line) => this.appendLog(jobId, line));
       this.controllers.delete(jobId);

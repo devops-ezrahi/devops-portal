@@ -82,6 +82,10 @@ const jiraStoryPointsField = requireEnv("JIRA_STORY_POINTS_FIELD");
 const jiraTicketLabel = requireEnv("JIRA_TICKET_LABEL");
 
 export const config = {
+  // debug|info|warn|error. `debug` adds the successful GET lines (job and
+  // ticket lists poll every 2-8s per open tab) and the per-call detail of every
+  // outbound Artifactory/Jira/Bitbucket request.
+  logLevel: (requireEnv("LOG_LEVEL") ?? "info").trim().toLowerCase(),
   ssoRequired: process.env.SSO_REQUIRED === "true",
   ssoUrl: requireEnv("SSO_URL") ?? "",
   // Header carrying the IdP's `name` claim. Lowercased because Node lowercases

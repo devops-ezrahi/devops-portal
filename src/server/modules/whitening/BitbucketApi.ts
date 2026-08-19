@@ -1,3 +1,5 @@
+import { describeError, log } from "../../log";
+
 export type BitbucketConfig = {
   url: string;
   token: string;
@@ -49,6 +51,8 @@ export class BitbucketApi {
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const url = `${this.baseUrl}/rest/api/1.0${path}`;
+    const method = (options.method ?? "GET").toUpperCase();
+    const started = Date.now();
     let response: Response;
     try {
       response = await fetch(url, {
@@ -61,17 +65,23 @@ export class BitbucketApi {
         },
       });
     } catch (cause) {
-      const reason = cause instanceof Error ? cause.message : String(cause);
-      throw new BitbucketError(`Bitbucket request failed: could not reach ${url} (${reason})`, 0);
+      log.error("bitbucket", `${method} ${path} unreachable`, cause, { ms: Date.now() - started, url });
+      throw new BitbucketError(`Bitbucket request failed: could not reach ${url} (${describeError(cause)})`, 0);
     }
 
+    const ms = Date.now() - started;
     if (!response.ok) {
       const body = await response.text().catch(() => "");
+      log.warn("bitbucket", `${method} ${path} ${response.status} ${response.statusText}`, {
+        ms,
+        body: body.trim().slice(0, 500) || undefined,
+      });
       throw new BitbucketError(
         `Bitbucket request failed: ${response.status} ${response.statusText} ${body}`.trim(),
         response.status
       );
     }
+    log.debug("bitbucket", `${method} ${path} ${response.status}`, { ms });
 
     const text = await response.text();
     return (text ? JSON.parse(text) : {}) as T;

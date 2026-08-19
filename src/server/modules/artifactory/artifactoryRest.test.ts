@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const config = {
   artifactory: { url: "https://art.example.com", repo: "npm-local", token: "art-token" },
+  // The log lines here run through redactSecrets, which reads all three tokens.
+  git: { token: "" },
+  ai: { apiKey: "" },
 };
 
 vi.mock("../../config", () => ({ config }));

@@ -79,6 +79,7 @@ Key variables (see `.env.example`):
 
 | Variable                                                     | Default         | Effect                                                                                                                      |
 | ------------------------------------------------------------ | --------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `LOG_LEVEL`                                                  | `info`          | `debug` \| `info` \| `warn` \| `error`. Everything goes to stdout (one stream, so ordering survives). `info` is one line per mutation, per 4xx/5xx, per slow (>1s) request, plus every job-log line mirrored with its job id — `kubectl logs \| grep ART-0007` reconstructs a run. `debug` adds successful GETs (the lists poll every 2-8s per open tab) and per-call Artifactory/Jira/Bitbucket detail. |
 | `SSO_REQUIRED`                                               | `false`         | Enforce SSO proxy headers; returns 401 if absent                                                                            |
 | `SSO_URL`                                                    | —               | SSO login URL sent to the client on 401                                                                                     |
 | `SSO_NAME_HEADER`                                            | —               | Header the proxy carries the IdP's `name` claim in (the person's full name, not the username). Unset = fall back to `X-Forwarded-Preferred-Username`. Node parses header bytes as latin-1, so `auth.ts` re-decodes non-ASCII names (Hebrew, accents) as UTF-8 when that is what they are. The proxy must be configured to pass the claim through — that half lives in the homelab chart, not here. |
@@ -104,6 +105,33 @@ Whitening module reads (never the filename).
 Groups are pipe-separated (not comma) so LDAP-style DNs containing commas work. Set `ALLOWED_GROUPS`/`ADMIN_GROUP` to plain group names (e.g. `devops-admins`), even when the IdP's groups claim sends full DNs (`CN=devops-admins,OU=...,DC=...`) — `auth.ts`'s `parseGroups` detects `CN=` and extracts just the CN for matching, since oauth2-proxy comma-joins multiple groups into one `X-Forwarded-Groups` header value and a naive split can't tell a group boundary from a comma inside a DN.
 
 Adding a new env var: add to `.env.example`, expose it in `src/server/config.ts`, consume via the config object.
+
+## Logging
+
+`src/server/log.ts` is the only logger — `log.info/warn/error/debug(scope, message, fields?)`,
+one line each, `2026-08-19T20:28:23.500Z WARN  [scope] message key=value`. Never
+`console.log` in server code: every line here goes through `redactSecrets`, and that
+is the single choke point that keeps tokens out of the log.
+
+- **`log.error(scope, msg, err)`** takes the error itself and walks the whole `.cause`
+  chain, then prints the stack. Node's `fetch` throws a bare `TypeError: fetch failed`
+  and hides `ENOTFOUND`/`ECONNREFUSED`/cert errors one level down, so passing the error
+  rather than `err.message` is the difference between a usable log and a useless one.
+- **`userMessage(err)`** is the same information phrased for the UI — `fetch failed
+  (getaddrinfo ENOTFOUND artifactory.example.com)`. Job failures and the 500 branch of
+  the error handler both use it, so what a developer reads on screen names the real cause.
+- **Correlation.** `requestLogger` gives every request an id, returns it as
+  `X-Request-Id`, and every error body carries it as `requestId`. The client appends
+  `(ref <id>)` to the message it throws, so the string on screen greps the pod log
+  directly. The browser console prints the same `ref` on every response.
+- **Job logs are mirrored to stdout** with the job id (`[artifactory ART-0007]`,
+  `[whitening WHT-0003]`, `[ai RES-0012]`) — each module's `appendLog` does it, so
+  anything the user sees in the job drawer is also in `kubectl logs`.
+- **Client:** `src/client/log.ts` wraps `window.fetch` once, so every request is logged
+  with timing, status and `ref` without any module's `api.ts` knowing. Verbose output is
+  on in dev, and in prod per browser via `localStorage.portalDebug = "1"`. Errors ignore
+  that gate and always print — a user reporting a problem shouldn't have to reproduce it
+  twice.
 
 ## Branching
 

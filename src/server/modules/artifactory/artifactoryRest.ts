@@ -2,6 +2,7 @@ import { createReadStream } from "fs";
 import { stat } from "fs/promises";
 import { Readable } from "stream";
 import { config } from "../../config";
+import { describeError, log } from "../../log";
 
 /**
  * Artifactory wants the service URL (https://host/artifactory), not the JFrog
@@ -41,14 +42,21 @@ function authHeaders(): Record<string, string> {
  * otherwise report every package as already uploaded and silently skip the job.
  */
 export async function exists(path: string, signal?: AbortSignal): Promise<boolean | null> {
+  const started = Date.now();
   let res: Response;
   try {
     res = await fetch(`${serviceUrl()}/${path}`, { method: "HEAD", headers: authHeaders(), signal });
-  } catch {
+  } catch (err) {
+    // Aborting a job cancels these in flight; that is not a fault worth a line.
+    if (!signal?.aborted) log.warn("artifactory", `HEAD ${path} could not be sent: ${describeError(err)}`);
     return null;
   }
+  log.debug("artifactory", `HEAD ${path} ${res.status}`, { ms: Date.now() - started });
   if (res.ok) return true;
   if (res.status === 404) return false;
+  // Neither present nor absent: 401/403 here is the token missing read access,
+  // which without this line looks exactly like a repo full of new packages.
+  log.warn("artifactory", `HEAD ${path} answered ${res.status} ${res.statusText} — treating existence as unknown`);
   return null;
 }
 
@@ -60,27 +68,42 @@ export async function exists(path: string, signal?: AbortSignal): Promise<boolea
  * back to per-item `exists()` rather than treat `null` as "nothing exists".
  */
 export async function listExisting(repoPath: string, signal?: AbortSignal): Promise<Set<string> | null> {
+  const started = Date.now();
+  const url = `${serviceUrl()}/api/storage/${repoPath}?list&deep=1&listFolders=0`;
   let res: Response;
   try {
-    res = await fetch(`${serviceUrl()}/api/storage/${repoPath}?list&deep=1&listFolders=0`, {
-      headers: authHeaders(),
-      signal,
-    });
-  } catch {
+    res = await fetch(url, { headers: authHeaders(), signal });
+  } catch (err) {
+    if (!signal?.aborted) {
+      log.warn("artifactory", `listing ${repoPath} could not be sent: ${describeError(err)} — falling back to one HEAD per package`);
+    }
     return null;
   }
-  if (!res.ok) return null;
+  if (!res.ok) {
+    const detail = (await res.text().catch(() => "")).trim().slice(0, 300);
+    log.warn(
+      "artifactory",
+      `listing ${repoPath} answered ${res.status} ${res.statusText} — falling back to one HEAD per package`,
+      { detail: detail || undefined }
+    );
+    return null;
+  }
 
   let body: unknown;
   try {
     body = await res.json();
-  } catch {
+  } catch (err) {
+    log.warn("artifactory", `listing ${repoPath} returned non-JSON: ${describeError(err)}`);
     return null;
   }
 
   const files = (body as { files?: unknown } | null)?.files;
-  if (!Array.isArray(files)) return null;
+  if (!Array.isArray(files)) {
+    log.warn("artifactory", `listing ${repoPath} had no "files" array — falling back to one HEAD per package`);
+    return null;
+  }
 
+  log.info("artifactory", `listed ${files.length} existing file(s) under ${repoPath}`, { ms: Date.now() - started });
   const paths = new Set<string>();
   for (const entry of files) {
     if (
@@ -103,6 +126,8 @@ export async function listExisting(repoPath: string, signal?: AbortSignal): Prom
  */
 export async function upload(path: string, localFile: string, signal?: AbortSignal): Promise<void> {
   const { size } = await stat(localFile);
+  const started = Date.now();
+  log.debug("artifactory", `PUT ${path}`, { bytes: size, from: localFile });
   const res = await fetch(`${serviceUrl()}/${path}`, {
     method: "PUT",
     headers: { ...authHeaders(), "Content-Length": String(size) },
@@ -112,8 +137,11 @@ export async function upload(path: string, localFile: string, signal?: AbortSign
     duplex: "half",
   } as RequestInit);
 
+  const ms = Date.now() - started;
   if (!res.ok) {
     const detail = (await res.text().catch(() => "")).trim();
+    log.warn("artifactory", `PUT ${path} failed ${res.status} ${res.statusText}`, { ms, bytes: size, detail: detail.slice(0, 300) || undefined });
     throw new Error(`Artifactory responded ${res.status} ${res.statusText}${detail ? `: ${detail}` : ""}`);
   }
+  log.debug("artifactory", `PUT ${path} ${res.status}`, { ms, bytes: size });
 }

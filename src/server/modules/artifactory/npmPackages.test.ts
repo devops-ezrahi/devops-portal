@@ -4,7 +4,12 @@ import { join } from "path";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../config", () => ({
-  config: { artifactory: { url: "https://art.example.com", repo: "npm-local", npmRepo: "npm-local", token: "t" } },
+  config: {
+    artifactory: { url: "https://art.example.com", repo: "npm-local", npmRepo: "npm-local", token: "t" },
+    // redactSecrets, reached via the REST layer's log lines, reads all three.
+    git: { token: "" },
+    ai: { apiKey: "" },
+  },
 }));
 
 const listExistingMock = vi.fn();
