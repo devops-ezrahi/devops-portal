@@ -45,7 +45,7 @@ export function JobList({ jobs, selectedJobId, isAdmin, onSelect }: Props) {
           <div className="ticket-row-meta">
             <small>{job.archiveName}</small>
             {/* Admins see who submitted it; users already know it's theirs. */}
-            <small>{isAdmin ? job.submittedByName : job.id}</small>
+            <small dir="auto">{isAdmin ? job.submittedByName : job.id}</small>
           </div>
         </button>
       ))}

@@ -60,7 +60,7 @@ export function TicketDetailView({
               </div>
             ) : (
               <div className="comment" key={comment.id}>
-                <strong>{comment.authorName}</strong>
+                <strong dir="auto">{comment.authorName}</strong>
                 <small>{formatDate(comment.createdAt)}</small>
                 <p>{comment.body}</p>
               </div>

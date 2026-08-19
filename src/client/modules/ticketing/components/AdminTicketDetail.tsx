@@ -216,10 +216,12 @@ export function AdminTicketDetail({
                 // Assigned to someone not in the known-admins roster (e.g. they
                 // haven't logged in since the last restart) — keep them selectable
                 // instead of silently blanking the dropdown.
-                <option value={assignee}>{ticket.assigneeName || assignee}</option>
+                <option value={assignee} dir="auto">
+                  {ticket.assigneeName || assignee}
+                </option>
               )}
               {assignees.map((a) => (
-                <option key={a.id} value={a.id}>
+                <option key={a.id} value={a.id} dir="auto">
                   {a.displayName}
                   {a.id === currentUserId ? " (me)" : ""}
                 </option>
@@ -286,7 +288,7 @@ export function AdminTicketDetail({
               </div>
             ) : (
               <div className="comment" key={comment.id}>
-                <strong>{comment.authorName}</strong>
+                <strong dir="auto">{comment.authorName}</strong>
                 <small>{formatDate(comment.createdAt)}</small>
                 <p>{comment.body}</p>
               </div>

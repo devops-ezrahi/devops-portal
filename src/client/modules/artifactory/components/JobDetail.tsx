@@ -83,7 +83,7 @@ export function JobDetail({ job, onStop }: Props) {
       <dl className="metadata-list">
         <div>
           <dt>Submitted by</dt>
-          <dd>{job.submittedByName}</dd>
+          <dd dir="auto">{job.submittedByName}</dd>
         </div>
         <div>
           <dt>Created</dt>
