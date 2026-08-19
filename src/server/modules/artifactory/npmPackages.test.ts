@@ -1,13 +1,26 @@
 import { mkdtemp, mkdir, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../config", () => ({
   config: { artifactory: { url: "https://art.example.com", repo: "npm-local", npmRepo: "npm-local", token: "t" } },
 }));
 
-const { discoverPackages, pool, targetPath } = await import("./npmPackages");
+const listExistingMock = vi.fn();
+const existsMock = vi.fn();
+const uploadMock = vi.fn(async (_path: string, _localFile: string) => {});
+
+vi.mock("./artifactoryRest", () => ({
+  listExisting: (repoPath: string) => listExistingMock(repoPath),
+  exists: (path: string) => existsMock(path),
+  upload: (path: string, localFile: string) => uploadMock(path, localFile),
+  webUrl: (path: string) => path,
+  nativeUrl: (path: string) => path,
+}));
+
+const { discoverPackages, pool, targetPath, uploadFiles } = await import("./npmPackages");
+type UploadItem = Parameters<typeof uploadFiles>[0][number];
 
 async function writePackage(dir: string, name: string, version: string) {
   await mkdir(dir, { recursive: true });
@@ -58,6 +71,49 @@ describe("discoverPackages", () => {
 
   it("returns nothing for a directory with no packages", async () => {
     expect(await discoverPackages(join(root, ".bin"))).toEqual([]);
+  });
+});
+
+describe("uploadFiles bulk existence check", () => {
+  function npmItem(name: string, version: string): UploadItem {
+    return { path: targetPath(name, version), name, version, type: "npm", resolve: async () => "/dev/null" };
+  }
+
+  beforeEach(() => {
+    listExistingMock.mockReset();
+    existsMock.mockReset();
+    uploadMock.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("skips per-item HEAD entirely when the bulk listing succeeds", async () => {
+    listExistingMock.mockResolvedValue(new Set([targetPath("arg", "4.1.5")]));
+
+    const results = await uploadFiles(
+      [npmItem("arg", "4.1.5"), npmItem("left-pad", "1.3.0")],
+      () => {},
+      () => {}
+    );
+
+    expect(listExistingMock).toHaveBeenCalledWith("npm-local");
+    expect(existsMock).not.toHaveBeenCalled();
+    expect(results.find((r) => r.name === "arg")!.status).toBe("exists");
+    expect(results.find((r) => r.name === "left-pad")!.status).toBe("uploaded");
+    expect(uploadMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to per-item HEAD when the bulk listing is not usable", async () => {
+    listExistingMock.mockResolvedValue(null);
+    existsMock.mockImplementation(async (path: string) => path.includes("/arg/"));
+
+    const results = await uploadFiles(
+      [npmItem("arg", "4.1.5"), npmItem("left-pad", "1.3.0")],
+      () => {},
+      () => {}
+    );
+
+    expect(existsMock).toHaveBeenCalledTimes(2);
+    expect(results.find((r) => r.name === "arg")!.status).toBe("exists");
+    expect(results.find((r) => r.name === "left-pad")!.status).toBe("uploaded");
   });
 });
 

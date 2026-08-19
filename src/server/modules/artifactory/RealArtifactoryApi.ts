@@ -1,5 +1,5 @@
 import { execFile } from "child_process";
-import { mkdir, writeFile } from "fs/promises";
+import { mkdir, readdir, writeFile } from "fs/promises";
 import { basename, dirname, join, relative } from "path";
 // Rejects on abort, so a cancelled simulation stops mid-sleep instead of at the
 // end of the current beat.
@@ -55,6 +55,21 @@ function safeRelativePath(name: string): string {
     throw new Error(`Rejected unsafe path in upload: ${name}`);
   }
   return segments.join("/");
+}
+
+/** Every file under `root`, as forward-slash paths relative to `root`. */
+async function listFilesRecursive(root: string): Promise<string[]> {
+  const out: string[] = [];
+  async function walk(dir: string) {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) await walk(full);
+      else if (entry.isFile()) out.push(relative(root, full).replace(/\\/g, "/"));
+    }
+  }
+  await walk(root);
+  return out;
 }
 
 export class RealArtifactoryApi implements ArtifactoryApi {
@@ -293,20 +308,45 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       this.patch(jobId, { status: "in-progress" });
 
       const files = input.files ?? [];
-      if (files.length === 0) {
+      if (files.length === 0 && !input.archive) {
         throw new Error("No file data received — ensure the client sends actual files");
       }
 
-      this.appendLog(jobId, `Writing ${files.length} file(s) to temp directory ...`);
       const sourceDir = join(tmpDir, "source");
-      // Pooled rather than a plain for-await: a dropped node_modules is tens of
-      // thousands of files, and one serialized mkdir+writeFile round trip each
-      // was the bulk of the wait before any upload had started.
-      await pool(files, TEMP_WRITE_CONCURRENCY, async (file) => {
-        const dest = join(sourceDir, safeRelativePath(file.originalname));
-        await mkdir(dirname(dest), { recursive: true });
-        await writeFile(dest, file.buffer);
-      });
+      let relPaths: string[];
+      if (input.archive) {
+        // One compressed blob + one native unzip beats tens of thousands of
+        // uncompressed multipart parts and as many individual fs writes — this
+        // is the whole reason a folder drop used to be ~100x slower than
+        // dragging a hand-made zip of the same folder.
+        this.appendLog(jobId, "Extracting uploaded archive ...");
+        await mkdir(sourceDir, { recursive: true });
+        const zipPath = join(tmpDir, "upload.zip");
+        await writeFile(zipPath, input.archive);
+        try {
+          await execFileAsync("unzip", ["-q", "upload.zip", "-d", "source"], { cwd: tmpDir });
+        } catch (err) {
+          // unzip exits 1 for "extracted, with warnings" (e.g. a Windows-built
+          // zip warning about backslash separators) and only >= 2 for a real
+          // failure — see RealWhiteningApi.submitUnpack for the same handling.
+          const code = (err as { code?: number }).code;
+          if (code !== 1) {
+            throw new Error("Could not extract the uploaded folder archive");
+          }
+        }
+        relPaths = await listFilesRecursive(sourceDir);
+      } else {
+        this.appendLog(jobId, `Writing ${files.length} file(s) to temp directory ...`);
+        // Pooled rather than a plain for-await: a dropped node_modules is tens of
+        // thousands of files, and one serialized mkdir+writeFile round trip each
+        // was the bulk of the wait before any upload had started.
+        await pool(files, TEMP_WRITE_CONCURRENCY, async (file) => {
+          const dest = join(sourceDir, safeRelativePath(file.originalname));
+          await mkdir(dirname(dest), { recursive: true });
+          await writeFile(dest, file.buffer);
+        });
+        relPaths = files.map((f) => safeRelativePath(f.originalname));
+      }
 
       const log = (line: string) => this.appendLog(jobId, line);
       const packages = await discoverPackages(sourceDir, log);
@@ -316,9 +356,9 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       const packageDirs = packages
         .map((p) => relative(sourceDir, p.dir).replace(/\\/g, "/"))
         .filter(Boolean);
-      const loose = files
-        .map((f) => safeRelativePath(f.originalname))
-        .filter((p) => !packageDirs.some((d) => p === d || p.startsWith(`${d}/`)));
+      const loose = relPaths.filter(
+        (p) => !packageDirs.some((d) => p === d || p.startsWith(`${d}/`))
+      );
 
       const items: UploadItem[] = npmUploadItems(packages, join(tmpDir, "stage"));
       let unrecognised = 0;

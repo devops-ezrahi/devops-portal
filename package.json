@@ -17,6 +17,7 @@
     "cors": "^2.8.5",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "fflate": "^0.8.3",
     "highlight.js": "^11.11.1",
     "lucide-react": "^0.556.0",
     "multer": "^2.1.1",

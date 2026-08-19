@@ -52,6 +52,48 @@ export async function exists(path: string): Promise<boolean | null> {
   return null;
 }
 
+/**
+ * Every existing file under a repo-relative folder, in one request — replaces
+ * what would otherwise be one `HEAD` per item, the same round-trip cost
+ * whether checking 1 package or 1,000. `null` means the listing could not be
+ * trusted (bad response, network error, unexpected shape); callers must fall
+ * back to per-item `exists()` rather than treat `null` as "nothing exists".
+ */
+export async function listExisting(repoPath: string): Promise<Set<string> | null> {
+  let res: Response;
+  try {
+    res = await fetch(`${serviceUrl()}/api/storage/${repoPath}?list&deep=1&listFolders=0`, {
+      headers: authHeaders(),
+    });
+  } catch {
+    return null;
+  }
+  if (!res.ok) return null;
+
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    return null;
+  }
+
+  const files = (body as { files?: unknown } | null)?.files;
+  if (!Array.isArray(files)) return null;
+
+  const paths = new Set<string>();
+  for (const entry of files) {
+    if (
+      entry &&
+      typeof entry === "object" &&
+      typeof (entry as { uri?: unknown }).uri === "string" &&
+      (entry as { folder?: unknown }).folder !== true
+    ) {
+      paths.add(`${repoPath}${(entry as { uri: string }).uri}`);
+    }
+  }
+  return paths;
+}
+
 /** PUT a local file to a repo-relative path. Throws with Artifactory's own error body. */
 export async function upload(path: string, localFile: string): Promise<void> {
   const { size } = await stat(localFile);

@@ -14,19 +14,23 @@ export function submitUrlCopy(input: UrlCopyInput) {
  * XHR rather than the shared `requestFormData`: a node_modules upload is hundreds
  * of MB and `fetch` cannot report upload progress at all. Same error mapping as
  * the shared helper.
+ *
+ * The folder is sent as a single zipped `archive` part rather than one part per
+ * file — thousands of raw multipart parts is what made a node_modules-sized
+ * folder drop ~100x slower than dragging a hand-made zip of the same folder.
  */
 export function submitFolderUpload(
   folderName: string,
-  entries: FileEntry[],
+  archive: Blob,
+  fileCount: number,
+  totalBytes: number,
   onProgress: (percent: number) => void = () => {}
 ): Promise<{ job: ArtifactoryJob }> {
   const formData = new FormData();
   formData.append("folderName", folderName);
-
-  for (const { file, path } of entries) {
-    // Third arg sets the filename in the multipart part — server reads it as originalname
-    formData.append("files", file, path);
-  }
+  formData.append("fileCount", String(fileCount));
+  formData.append("totalBytes", String(totalBytes));
+  formData.append("archive", archive, "archive.zip");
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();

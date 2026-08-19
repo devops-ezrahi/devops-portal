@@ -1,3 +1,4 @@
+import { zip, type AsyncZippable } from "fflate";
 import { FolderOpen, Upload, X } from "lucide-react";
 import { useState } from "react";
 import { log, warn, error as logError } from "../../../log";
@@ -6,9 +7,29 @@ import type { ArtifactoryJob } from "../../../../server/types";
 
 type ScannedFolder = {
   name: string;
-  entries: FileEntry[];
+  archive: Blob;
+  fileCount: number;
   totalBytes: number;
 };
+
+/**
+ * A raw multipart-per-file upload is what makes a node_modules-sized folder
+ * drop ~100x slower than dragging a hand-made zip of the same folder — one
+ * compressed blob beats tens of thousands of uncompressed multipart parts.
+ * fflate's async API keeps this off the UI thread for a big tree.
+ */
+async function zipEntries(entries: FileEntry[]): Promise<Blob> {
+  const inputs: AsyncZippable = {};
+  await Promise.all(
+    entries.map(async ({ file, path }) => {
+      inputs[path] = new Uint8Array(await file.arrayBuffer());
+    })
+  );
+  const zipped = await new Promise<Uint8Array>((resolve, reject) => {
+    zip(inputs, (err, data) => (err ? reject(err) : resolve(data)));
+  });
+  return new Blob([zipped as BlobPart], { type: "application/zip" });
+}
 
 type Props = {
   onSubmitted: (job: ArtifactoryJob) => void;
@@ -84,13 +105,15 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
     try {
       const entries = await collectEntries(entry as FileSystemDirectoryEntry);
       const totalBytes = entries.reduce((sum, e) => sum + e.file.size, 0);
-      log("artifactory/upload", "scan done", {
+      const archive = await zipEntries(entries);
+      log("artifactory/upload", "scan+zip done", {
         folder: entry.name,
         files: entries.length,
         totalBytes,
+        zippedBytes: archive.size,
         ms: Number((performance.now() - startedAt).toFixed(0)),
       });
-      setScannedFolder({ name: entry.name, entries, totalBytes });
+      setScannedFolder({ name: entry.name, archive, fileCount: entries.length, totalBytes });
     } catch (err) {
       logError("artifactory/upload", "folder scan failed", entry.name, err);
       onError("Failed to read folder contents.");
@@ -107,11 +130,18 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
     const startedAt = performance.now();
     log("artifactory/upload", "uploading", {
       folder: scannedFolder.name,
-      files: scannedFolder.entries.length,
+      files: scannedFolder.fileCount,
       totalBytes: scannedFolder.totalBytes,
+      zippedBytes: scannedFolder.archive.size,
     });
     try {
-      const result = await submitFolderUpload(scannedFolder.name, scannedFolder.entries, setUploadPercent);
+      const result = await submitFolderUpload(
+        scannedFolder.name,
+        scannedFolder.archive,
+        scannedFolder.fileCount,
+        scannedFolder.totalBytes,
+        setUploadPercent
+      );
       log("artifactory/upload", "accepted", result.job.id, `${(performance.now() - startedAt).toFixed(0)}ms`);
       onSubmitted(result.job);
       setScannedFolder(null);
@@ -134,7 +164,7 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
         >
           <FolderOpen size={36} aria-hidden="true" />
           {scanning ? (
-            <span>Scanning folder...</span>
+            <span>Preparing folder...</span>
           ) : (
             <>
               <span>Drop a folder here</span>
@@ -150,7 +180,7 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
           <div className="folder-preview-info">
             <strong>{scannedFolder.name}</strong>
             <small>
-              {scannedFolder.entries.length.toLocaleString()} files &middot;{" "}
+              {scannedFolder.fileCount.toLocaleString()} files &middot;{" "}
               {formatBytes(scannedFolder.totalBytes)}
             </small>
           </div>

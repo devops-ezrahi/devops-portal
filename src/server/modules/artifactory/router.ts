@@ -12,7 +12,9 @@ const urlCopySchema = z.object({
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 100 * 1024 * 1024 }, // 100 MB per file
+  // 500 MB: matches the whitening module's archive limit — a zipped node_modules
+  // can be sizeable even compressed. Still covers the legacy per-file `files` field.
+  limits: { fileSize: 500 * 1024 * 1024 },
   // Without this busboy basenames every part, so a folder upload arrives flat and
   // only the last package.json survives. `safeRelativePath` sanitises the paths.
   preservePath: true,
@@ -33,7 +35,7 @@ export function createArtifactoryRouter(api: ArtifactoryApi): express.Router {
 
   router.post(
     "/api/artifactory/jobs/folder-upload",
-    upload.array("files"),
+    upload.fields([{ name: "files" }, { name: "archive", maxCount: 1 }]),
     async (req, res, next) => {
       try {
         const folderName = String(req.body.folderName ?? "").trim();
@@ -42,14 +44,17 @@ export function createArtifactoryRouter(api: ArtifactoryApi): express.Router {
           return;
         }
 
-        const multerFiles = (req.files as Express.Multer.File[]) ?? [];
+        const fieldFiles = (req.files as Record<string, Express.Multer.File[]> | undefined) ?? {};
+        const multerFiles = fieldFiles.files ?? [];
         const files = multerFiles.map((f) => ({
           originalname: f.originalname,
           mimetype: f.mimetype,
           buffer: f.buffer,
         }));
+        const archive = fieldFiles.archive?.[0]?.buffer;
 
-        const fileCount = files.length || Number(req.body.fileCount ?? 0);
+        const fileCount =
+          files.length || Number(req.body.fileCount ?? 0);
         const totalBytes =
           files.reduce((sum, f) => sum + f.buffer.length, 0) ||
           Number(req.body.totalBytes ?? 0);
@@ -59,6 +64,7 @@ export function createArtifactoryRouter(api: ArtifactoryApi): express.Router {
           fileCount,
           totalBytes,
           files: files.length > 0 ? files : undefined,
+          archive,
         };
 
         const job = await api.submitFolderUpload(input, req.user!);

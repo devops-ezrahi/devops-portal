@@ -4,13 +4,20 @@ import { basename, join } from "path";
 import { promisify } from "util";
 import { config } from "../../config";
 import type { PackageType, PackageUploadResult } from "../../types";
-import { exists, nativeUrl, upload, webUrl } from "./artifactoryRest";
+import { exists, listExisting, nativeUrl, upload, webUrl } from "./artifactoryRest";
 
 const execFileAsync = promisify(execFile);
 
-/** HEAD is cheap; uploads are not. */
-const EXISTS_CONCURRENCY = 16;
-const UPLOAD_CONCURRENCY = 4;
+/**
+ * HEAD is cheap (no body transfer, metadata lookup only) — the ceiling is
+ * Artifactory's own request handling, not this pod. PUT streams real bytes and
+ * costs Artifactory real write-path work, so kept more conservative: past a
+ * point more concurrency just fragments the same egress bandwidth.
+ *
+ * ponytail: informed guesses, not measured optima — same as TEMP_WRITE_CONCURRENCY.
+ */
+const EXISTS_CONCURRENCY = 32;
+const UPLOAD_CONCURRENCY = 8;
 
 export type DiscoveredPackage = {
   dir: string;
@@ -158,24 +165,44 @@ export async function uploadFiles(
   onLog(`Checking ${unique.length} package(s) against Artifactory ...`);
 
   const todo: { item: UploadItem; result: PackageUploadResult }[] = [];
-  await pool(
-    unique.map((item, index) => ({ item, index })),
-    EXISTS_CONCURRENCY,
-    async ({ item, index }) => {
-      if (signal?.aborted) return;
+  const markExisting = (result: PackageUploadResult) => {
+    result.status = "exists";
+    delete result.error;
+    result.url = webUrl(result.path);
+    result.nativeUrl = nativeUrl(result.path);
+  };
+
+  // npm packages all publish under one repo (see targetPath above), so one
+  // bulk listing replaces what would otherwise be one HEAD per package — the
+  // biggest win on a repeat upload of the same tree, where almost everything
+  // already exists. Non-npm items can span different repos, so they always
+  // keep the per-item HEAD check below; npm items fall back to it too if the
+  // listing itself is not usable.
+  const indexed = unique.map((item, index) => ({ item, index }));
+  const npmEntries = indexed.filter(({ item }) => item.type === "npm");
+  const existingNpm = npmEntries.length > 0 ? await listExisting(config.artifactory.npmRepo) : null;
+
+  if (existingNpm) {
+    for (const { item, index } of npmEntries) {
+      if (signal?.aborted) break;
       const result = results[index];
-      const present = await exists(result.path);
-      if (present === true) {
-        result.status = "exists";
-        delete result.error;
-        result.url = webUrl(result.path);
-        result.nativeUrl = nativeUrl(result.path);
-      } else {
-        // `null` means we could not tell — upload rather than silently skip.
-        todo.push({ item, result });
-      }
+      if (existingNpm.has(result.path)) markExisting(result);
+      else todo.push({ item, result });
     }
-  );
+  }
+
+  const toCheck = existingNpm ? indexed.filter(({ item }) => item.type !== "npm") : indexed;
+  await pool(toCheck, EXISTS_CONCURRENCY, async ({ item, index }) => {
+    if (signal?.aborted) return;
+    const result = results[index];
+    const present = await exists(result.path);
+    if (present === true) {
+      markExisting(result);
+    } else {
+      // `null` means we could not tell — upload rather than silently skip.
+      todo.push({ item, result });
+    }
+  });
 
   const skipped = unique.length - todo.length;
   if (skipped > 0) onLog(`${skipped} package(s) already in the repo — skipping.`);

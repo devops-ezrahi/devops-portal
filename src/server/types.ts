@@ -181,6 +181,8 @@ export type FolderUploadInput = {
   fileCount: number;
   totalBytes: number;
   files?: UploadedFile[];
+  /** A zipped folder drop — unzipped server-side instead of writing `files` one by one. */
+  archive?: Buffer;
 };
 
 /** Which scripted run the Test button replays — one per package type, plus two failure modes. */
