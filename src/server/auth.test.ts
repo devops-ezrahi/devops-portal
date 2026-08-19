@@ -1,9 +1,81 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { displayNameFor, rememberUser, userFromSsoHeaders } from "./auth";
+import { decodeJwtPayload, displayNameFor, rememberUser, userFromSsoHeaders } from "./auth";
 
 function reqWithHeaders(headers: Record<string, string>) {
   return { headers } as unknown as Parameters<typeof userFromSsoHeaders>[0];
 }
+
+function jwt(payload: Record<string, unknown>) {
+  const b64url = (obj: Record<string, unknown>) =>
+    Buffer.from(JSON.stringify(obj)).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return `${b64url({ alg: "none", typ: "JWT" })}.${b64url(payload)}.sig`;
+}
+
+describe("decodeJwtPayload", () => {
+  it("extracts claims from a well-formed token without verifying the signature", () => {
+    expect(decodeJwtPayload(jwt({ name: "דבי גולד", sub: "abc" }))).toEqual({ name: "דבי גולד", sub: "abc" });
+  });
+
+  it("handles base64url characters (-/_) that plain base64 would mishandle", () => {
+    // This payload's standard base64 is "eyJub3RlIjoiPj4+Pz8/Ly8vKysrIn0="
+    // (contains both '+' and '/') — jwt() url-safe-encodes it to '-'/'_',
+    // and decodeJwtPayload must translate those back before decoding.
+    const payload = { note: ">>>???///+++" };
+    expect(decodeJwtPayload(jwt(payload))).toEqual(payload);
+  });
+
+  it("returns {} for a malformed token instead of throwing", () => {
+    expect(decodeJwtPayload("not-a-jwt")).toEqual({});
+    expect(decodeJwtPayload("")).toEqual({});
+    expect(decodeJwtPayload("a.b")).toEqual({});
+  });
+
+  it("returns {} when the payload segment isn't valid JSON", () => {
+    expect(decodeJwtPayload("header.bm90LWpzb24.sig")).toEqual({});
+  });
+});
+
+describe("userFromSsoHeaders access-token name claim", () => {
+  it("prefers the JWT's name claim over header-based fallbacks", () => {
+    const user = userFromSsoHeaders(
+      reqWithHeaders({
+        "x-forwarded-user": "sub-123",
+        "x-forwarded-access-token": jwt({ name: "דבי גולד" }),
+        "x-forwarded-preferred-username": "dvora",
+      }),
+    );
+    expect(user?.displayName).toBe("דבי גולד");
+  });
+
+  it("falls back to header-based resolution when no access token is forwarded", () => {
+    const user = userFromSsoHeaders(
+      reqWithHeaders({ "x-forwarded-user": "sub-123", "x-forwarded-preferred-username": "dvora" }),
+    );
+    expect(user?.displayName).toBe("dvora");
+  });
+
+  it("falls back to header-based resolution when the token has no name claim", () => {
+    const user = userFromSsoHeaders(
+      reqWithHeaders({
+        "x-forwarded-user": "sub-123",
+        "x-forwarded-access-token": jwt({ sub: "sub-123" }),
+        "x-forwarded-preferred-username": "dvora",
+      }),
+    );
+    expect(user?.displayName).toBe("dvora");
+  });
+
+  it("falls back to header-based resolution when the token is malformed", () => {
+    const user = userFromSsoHeaders(
+      reqWithHeaders({
+        "x-forwarded-user": "sub-123",
+        "x-forwarded-access-token": "garbage",
+        "x-forwarded-preferred-username": "dvora",
+      }),
+    );
+    expect(user?.displayName).toBe("dvora");
+  });
+});
 
 describe("userFromSsoHeaders groups parsing", () => {
   it("splits plain comma-separated groups", () => {

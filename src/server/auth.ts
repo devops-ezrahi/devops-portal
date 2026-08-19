@@ -29,6 +29,25 @@ export function decodeHeaderText(value: string): string {
   return decoded.includes("�") ? value : decoded;
 }
 
+/**
+ * Decode a JWT payload without verifying it — oauth2-proxy already verified
+ * the signature before ever setting X-Forwarded-Access-Token, so reading a
+ * claim back out of it sits on the same trust boundary the header-based path
+ * already relied on. Payloads are base64url, so they never touch Node's
+ * latin1 header parsing — this sidesteps the mojibake problem entirely
+ * instead of reconstructing bytes after the fact.
+ */
+export function decodeJwtPayload(token: string): Record<string, unknown> {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return {};
+    const payload = Buffer.from(parts[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    return JSON.parse(payload);
+  } catch {
+    return {};
+  }
+}
+
 // oauth2-proxy comma-joins multiple groups into one X-Forwarded-Groups
 // header value, which collides with LDAP/AD-style group DNs
 // (CN=foo,OU=bar,DC=baz) that use commas as their own separator — naively
@@ -61,12 +80,26 @@ export function userFromSsoHeaders(req: Request): PortalUser | null {
     readHeader(req.headers["x-forwarded-email"]) ??
     readHeader(req.headers["x-user-email"]) ??
     `${id}@example.com`;
-  // SSO_NAME_HEADER first, so a deployment can point at whichever header its
+  // oauth2-proxy forwards the access token via X-Forwarded-Access-Token (when
+  // configured with pass_access_token) — it already verified the token's
+  // signature, so reading the `name` claim straight out of the payload is
+  // trustworthy and, unlike every header path below, never passes through
+  // Node's latin1 header decoding that mojibakes non-ASCII names. Tried
+  // first for that reason; the header-based attempts remain as fallbacks for
+  // proxies that don't forward the token.
+  const accessToken = readHeader(req.headers["x-forwarded-access-token"]);
+  const nameFromToken = accessToken ? decodeJwtPayload(accessToken).name : undefined;
+  // ?? only skips null/undefined, not "" — an IdP that sends an empty `name`
+  // claim would otherwise win the chain and blank the display name instead
+  // of falling through, so that case is filtered out explicitly here.
+  const trimmedNameFromToken = typeof nameFromToken === "string" && nameFromToken.trim() ? nameFromToken : undefined;
+  // SSO_NAME_HEADER next, so a deployment can point at whichever header its
   // proxy carries the IdP's `name` claim in — oauth2-proxy's own passthrough
   // header name differs by configuration, and the claim is a person's full
   // name rather than the username the two fallbacks below hold.
   const displayName = decodeHeaderText(
-    (config.ssoNameHeader ? readHeader(req.headers[config.ssoNameHeader]) : undefined) ??
+    trimmedNameFromToken ??
+      (config.ssoNameHeader ? readHeader(req.headers[config.ssoNameHeader]) : undefined) ??
       readHeader(req.headers["x-forwarded-preferred-username"]) ??
       readHeader(req.headers["x-user-name"]) ??
       id

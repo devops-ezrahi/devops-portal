@@ -481,7 +481,11 @@ textarea {
 
 .user-box span {
   font-size: 13px;
-  font-weight: 800;
+  /* Was 800: same failure mode already fixed at line ~692 for form-input
+     labels — a weight whose Segoe UI face lacks Hebrew glyphs falls past the
+     whole :root stack to the browser's serif fallback. 700 stays bold and
+     stays inside the weights the Hebrew fallback fonts actually ship. */
+  font-weight: 700;
 }
 
 .user-box small {

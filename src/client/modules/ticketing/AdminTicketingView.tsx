@@ -48,11 +48,16 @@ function TicketRow({
         {/* Id leads so an over-long owner name loses its tail, not the
             reference someone needs to quote. */}
         <small className="ticket-row-origin" title={`${ticket.id} — assigned to ${assigneeLabel}`}>
-          {ticket.id} · <span className={ticket.assigneeId ? "row-assignee" : "row-assignee unassigned"}>{assigneeLabel}</span>
+          {ticket.id} ·{" "}
+          <span dir="auto" className={ticket.assigneeId ? "row-assignee" : "row-assignee unassigned"}>
+            {assigneeLabel}
+          </span>
         </small>
         {/* Right-hand slot is "who raised this" portal-wide — same as the
             submitter on artifactory/whitening job rows. */}
-        <small className="ticket-row-requester" title={`Opened by ${requesterLabel}`}>{requesterLabel}</small>
+        <small className="ticket-row-requester" dir="auto" title={`Opened by ${requesterLabel}`}>
+          {requesterLabel}
+        </small>
       </div>
     </button>
   );
