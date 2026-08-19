@@ -50,6 +50,26 @@ function providerOf(model: string): string {
 }
 
 /**
+ * Embeds GIT_TOKEN into the clone URL, same auth form the Whitening module's
+ * BitbucketApi.authenticatedCloneUrl uses — registered ai-* projects live on
+ * the same Bitbucket instance. Left alone when GIT_URL/GIT_TOKEN aren't set,
+ * so a public repoUrl still clones. Only applied once, at clone time: `git
+ * fetch origin` on later questions reuses the credentialed origin already
+ * stored in the clone's own .git/config.
+ */
+export function authenticatedRepoUrl(repoUrl: string): string {
+  if (!config.git.enabled) return repoUrl;
+  const u = new URL(repoUrl);
+  if (config.git.username) {
+    u.username = config.git.username;
+    u.password = config.git.token;
+  } else {
+    u.username = config.git.token;
+  }
+  return u.toString();
+}
+
+/**
  * Written once per process; opencode reads it via OPENCODE_CONFIG.
  *
  * OPENCODE_BASE_URL rides along in the same file because opencode exposes no
@@ -278,7 +298,13 @@ export class RealAiApi implements AiApi {
       if (!(await pathExists(cloneDir))) {
         this.appendLog(jobId, `Cloning ${project} ...`);
         await mkdir(dirname(cloneDir), { recursive: true });
-        await this.runCli(jobId, "git", ["clone", "--depth", "1", repoUrl, cloneDir], undefined, signal);
+        await this.runCli(
+          jobId,
+          "git",
+          ["clone", "--depth", "1", authenticatedRepoUrl(repoUrl), cloneDir],
+          undefined,
+          signal
+        );
       } else {
         // Every question re-pulls — a plain `git pull` can choke on a shallow
         // (--depth 1) history, so fetch + hard-reset instead.
