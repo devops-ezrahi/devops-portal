@@ -8,14 +8,21 @@ function requireEnv(name: string): string | undefined {
 
 export type AiProject = { description: string; repoUrl: string };
 
-// Registry lives as SKILL.md-shaped files, not an env var — but only this
-// app's own code ever reads them (opencode's own skill-discovery is never
-// invoked for the AI flow itself), so the directory is entirely our
-// choice, not constrained to opencode's global skills path. AI_SKILLS_DIR
-// makes it mountable wherever a given environment wants — a different
-// ConfigMap path per cluster/deployment, no code change needed. Defaults to
-// ~/.claude/skills so local dev keeps working with no env var set. Only
-// `ai-*`-prefixed entries count, everywhere, so a shared directory
+// Registry lives as real SKILL.md files, not an env var — and opencode's own
+// skill-discovery reads the same files: RealAiApi.ts tells it "use the
+// ai-<project> skill", opencode loads the SKILL.md body (the actual "how to
+// work with this repo" instructions) via its native `skill` tool. This code
+// only extracts `description` + `Repo:` for the picker UI and the clone step
+// (opencode has no bash access, so it can never clone itself).
+//
+// That native discovery is fixed to a few paths opencode always scans:
+// ~/.claude/skills, ~/.config/opencode/skills, ~/.agents/skills (global) plus
+// .opencode/skills, .claude/skills, .agents/skills walking up from cwd
+// (project). AI_SKILLS_DIR defaults to ~/.claude/skills — one of those paths
+// — so local dev and the default prod mount both get native invocation for
+// free. If a deployment ever points AI_SKILLS_DIR somewhere else, keep it one
+// of opencode's own scan paths or the `skill` tool simply won't find it.
+// Only `ai-*`-prefixed entries count, everywhere, so a shared directory
 // doesn't pick up unrelated skills (usage-bar, whitening-packer, ...) as repos.
 const aiSkillsDir = requireEnv("AI_SKILLS_DIR") ?? join(homedir(), ".claude", "skills");
 

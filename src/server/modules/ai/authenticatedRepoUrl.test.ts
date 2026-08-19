@@ -33,4 +33,11 @@ describe("authenticatedRepoUrl", () => {
       "https://svc:pat-123@bitbucket.example.com/scm/dem/dp.git"
     );
   });
+
+  it("leaves an SSH-form URL alone even when GIT_TOKEN is set", async () => {
+    const { authenticatedRepoUrl } = await loadWithGit({ token: "pat-123", enabled: true });
+    expect(authenticatedRepoUrl("git@github.com:devops-ezrahi/homelab.git")).toBe(
+      "git@github.com:devops-ezrahi/homelab.git"
+    );
+  });
 });

@@ -53,13 +53,22 @@ function providerOf(model: string): string {
  * Embeds GIT_TOKEN into the clone URL, same auth form the Whitening module's
  * BitbucketApi.authenticatedCloneUrl uses — registered ai-* projects live on
  * the same Bitbucket instance. Left alone when GIT_URL/GIT_TOKEN aren't set,
- * so a public repoUrl still clones. Only applied once, at clone time: `git
+ * or when repoUrl isn't an http(s) URL `new URL` can rewrite (an SSH form
+ * like `git@host:org/repo.git`, e.g. the ai-homelab skill's GitHub repo,
+ * authenticates via the machine's own SSH key instead) — so a public or
+ * SSH-auth'd repoUrl still clones. Only applied once, at clone time: `git
  * fetch origin` on later questions reuses the credentialed origin already
  * stored in the clone's own .git/config.
  */
 export function authenticatedRepoUrl(repoUrl: string): string {
   if (!config.git.enabled) return repoUrl;
-  const u = new URL(repoUrl);
+  let u: URL;
+  try {
+    u = new URL(repoUrl);
+  } catch {
+    return repoUrl;
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return repoUrl;
   if (config.git.username) {
     u.username = config.git.username;
     u.password = config.git.token;
@@ -313,11 +322,19 @@ export class RealAiApi implements AiApi {
         await this.runCli(jobId, "git", ["reset", "--hard", "origin/HEAD"], cloneDir, signal);
       }
 
+      // Only on the first question of a conversation: the skill tool's output
+      // (the SKILL.md body — how this project wants to be worked with) lands
+      // in the opencode session transcript, so a continuing --session already
+      // has it and re-loading would just waste a turn.
+      const prompt = conversation.opencodeSessionId
+        ? question
+        : `Use the ai-${project} skill, then answer: ${question}`;
+
       this.appendLog(jobId, "Asking opencode ...");
       const { answer, thinking, sessionId } = await this.askOpencode(
         jobId,
         cloneDir,
-        question,
+        prompt,
         conversation.opencodeSessionId,
         signal
       );
