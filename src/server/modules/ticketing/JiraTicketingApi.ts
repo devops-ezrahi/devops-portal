@@ -91,6 +91,20 @@ function quoteJql(value: string) {
   return `"${value.replace(/["\\]/g, "\\$&")}"`;
 }
 
+// Every portal user shares the one Jira service account configured as
+// JIRA_TOKEN, so Jira's own `reporter` is that account on every ticket and
+// cannot tell one portal user from another (and `reporter = <portal id>`
+// just 400s, since portal users have no Jira account). The portal user's id
+// rides along as a label instead: written on create, read back in
+// mapSummary, and what "my tickets" filters on.
+const REPORTER_LABEL = "portal-reporter:";
+
+// Jira labels cannot contain whitespace, same reason the field labels are
+// squashed in createTicket.
+function reporterLabelFor(userId: string) {
+  return `${REPORTER_LABEL}${userId.replace(/\s+/g, "_")}`;
+}
+
 export class JiraTicketingApi implements TicketingApi {
   private readonly baseUrl: string;
   private readonly token: string;
@@ -207,17 +221,21 @@ export class JiraTicketingApi implements TicketingApi {
     const rawStatus = fields.status?.name ?? "";
     const created = fields.created ?? "";
     const updated = fields.updated ?? created;
+    const labels = fields.labels ?? [];
+    const reporterLabel = labels.find((label) => label.startsWith(REPORTER_LABEL));
     const teamGroups = [
       ...(fields.components?.map((component) => component.name ?? "").filter(Boolean) ?? []),
-      ...(fields.labels ?? [])
+      ...labels.filter((label) => label !== reporterLabel)
     ];
 
     return {
       id: issue.key ?? issue.id ?? "",
       title: fields.summary ?? "",
       requestType: fields.issuetype?.name ?? "",
-      requesterId: this.userId(fields.reporter),
-      requesterName: this.userName(fields.reporter),
+      requesterId: reporterLabel ? reporterLabel.slice(REPORTER_LABEL.length) : this.userId(fields.reporter),
+      // Blank on the label path on purpose: the router resolves ids to
+      // display names, and Jira's name here is the service account's.
+      requesterName: reporterLabel ? "" : this.userName(fields.reporter),
       teamGroups,
       rawStatus,
       stage: mapInternalStatus(rawStatus),
@@ -271,6 +289,7 @@ export class JiraTicketingApi implements TicketingApi {
     const labels = [
       this.ticketLabel,
       requestType.ownerTeam,
+      reporterLabelFor(requester.id),
       ...requester.groups,
       ...Object.entries(fields)
         .filter(([key]) => key !== "title" && key !== "description")
@@ -300,7 +319,7 @@ export class JiraTicketingApi implements TicketingApi {
   async listTickets(user: PortalUser, filters: TicketFilters): Promise<TicketSummary[]> {
     const clauses: string[] = [`project = ${quoteJql(this.projectKey)}`, ...this.scopeClauses()];
     if (filters.scope === "mine") {
-      clauses.push(`reporter = ${quoteJql(user.id)}`);
+      clauses.push(`labels = ${quoteJql(reporterLabelFor(user.id))}`);
     }
     if (filters.status) {
       clauses.push(`status = ${quoteJql(filters.status)}`);
