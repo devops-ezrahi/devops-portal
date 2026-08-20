@@ -86,9 +86,7 @@ describe("JiraTicketingApi.listTickets", () => {
     const searchCall = fetchMock.mock.calls.find(([url]) => url.includes("/search"));
     const jql = JSON.parse(searchCall![1]!.body as string).jql as string;
     expect(jql).toContain(`project = "DEVOPS"`);
-    // Not `reporter = "jdoe"`: every ticket is reported by the shared
-    // service account, so ownership lives in a label.
-    expect(jql).toContain(`labels = "portal-reporter:jdoe"`);
+    expect(jql).toContain(`reporter = "jdoe"`);
   });
 });
 
@@ -106,8 +104,7 @@ describe("JIRA_TICKET_LABEL scoping", () => {
   it("adds no clause when unset, leaving the whole project in scope", async () => {
     const jql = await jqlOf(() => makeApi("").listTickets(user, { scope: "mine" }));
 
-    // The reporter label clause is always there; the scope one must not be.
-    expect(jql).not.toContain(`labels = "portal"`);
+    expect(jql).not.toContain("labels");
   });
 
   it("tags created tickets with the label, or the portal loses sight of them", async () => {
