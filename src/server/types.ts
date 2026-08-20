@@ -16,6 +16,12 @@ export type PortalUser = {
   email: string;
   displayName: string;
   groups: string[];
+  /**
+   * The IdP's username claim, when the proxy passes one. Distinct from `id`:
+   * Keycloak's subject is a UUID, while backends the portal talks to (Jira,
+   * Bitbucket) know the person by this handle. See `usernameFor`.
+   */
+  username?: string;
 };
 
 export type TicketComment = {

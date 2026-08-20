@@ -1,3 +1,4 @@
+import { usernameFor } from "../../auth";
 import { describeError, log } from "../../log";
 import { getRequestType, validateRequestFields } from "./catalog";
 import { parsePriority } from "./priority";
@@ -191,6 +192,16 @@ export class JiraTicketingApi implements TicketingApi {
     return result.values?.[0]?.id ?? null;
   }
 
+  /**
+   * Jira identifies people by username; the portal identifies them by the id
+   * its SSO proxy sends, which under Keycloak is a `sub` UUID. Everything
+   * this class puts into a JQL clause or compares against a value Jira
+   * returned goes through here first.
+   */
+  private jiraUser(user: PortalUser): PortalUser {
+    return { ...user, id: usernameFor(user.id) };
+  }
+
   private userId(user?: JiraUser | null): string {
     return user?.name ?? user?.key ?? user?.accountId ?? user?.emailAddress ?? "";
   }
@@ -306,9 +317,10 @@ export class JiraTicketingApi implements TicketingApi {
 
   async listTickets(user: PortalUser, filters: TicketFilters): Promise<TicketSummary[]> {
     const clauses: string[] = [`project = ${quoteJql(this.projectKey)}`, ...this.scopeClauses()];
+    const jiraUser = this.jiraUser(user);
     const mineClause =
       filters.scope === "mine"
-        ? `reporter = ${this.unknownReporters.has(user.id) ? "currentUser()" : quoteJql(user.id)}`
+        ? `reporter = ${this.unknownReporters.has(jiraUser.id) ? "currentUser()" : quoteJql(jiraUser.id)}`
         : "";
     if (mineClause) {
       clauses.push(mineClause);
@@ -330,16 +342,16 @@ export class JiraTicketingApi implements TicketingApi {
       // ponytail: retried on any search failure rather than parsing Jira's
       // error text for the unknown-user case; a real outage just fails
       // again below, and only a *successful* retry marks the id bad.
-      if (!mineClause || this.unknownReporters.has(user.id)) {
+      if (!mineClause || this.unknownReporters.has(jiraUser.id)) {
         throw error;
       }
       issues = await this.search(jql.replace(mineClause, "reporter = currentUser()"));
-      this.unknownReporters.add(user.id);
-      log.warn("jira", `reporter "${user.id}" is not a Jira user, listing as the JIRA_TOKEN account instead`);
+      this.unknownReporters.add(jiraUser.id);
+      log.warn("jira", `reporter "${jiraUser.id}" is not a Jira user, listing as the JIRA_TOKEN account instead`);
     }
     const summaries = issues.map((issue) => this.mapSummary(issue));
     if (filters.scope === "team") {
-      return summaries.filter((summary) => canViewTicket(user, summary));
+      return summaries.filter((summary) => canViewTicket(jiraUser, summary));
     }
     return summaries;
   }
@@ -347,7 +359,7 @@ export class JiraTicketingApi implements TicketingApi {
   async getTicket(ticketId: string, user: PortalUser): Promise<TicketDetail | null> {
     const issue = await this.request<JiraIssue>(`/issue/${encodeURIComponent(ticketId)}`);
     const detail = this.mapDetail(issue);
-    if (!canViewTicket(user, detail)) {
+    if (!canViewTicket(this.jiraUser(user), detail)) {
       return null;
     }
     return detail;
@@ -407,7 +419,7 @@ export class JiraTicketingApi implements TicketingApi {
     }
     if (update.assigneeId !== undefined) {
       fields.assignee = update.assigneeId
-        ? { name: update.assigneeId, displayName: update.assigneeName ?? update.assigneeId }
+        ? { name: usernameFor(update.assigneeId), displayName: update.assigneeName ?? update.assigneeId }
         : null;
     }
     if (update.teamGroups !== undefined) {
