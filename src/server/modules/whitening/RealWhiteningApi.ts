@@ -279,7 +279,7 @@ export class RealWhiteningApi implements WhiteningApi {
       }
 
       await this.pushSourceAndOpenPr(jobId, job, packConfig, extractDir);
-      await this.uploadDependencies(jobId, job, extractDir, workDir);
+      await this.uploadDependencies(jobId, extractDir, workDir);
       await this.uploadImages(jobId, job, extractDir);
 
       this.setStep(jobId, "Finish");
@@ -383,7 +383,7 @@ export class RealWhiteningApi implements WhiteningApi {
     this.appendLog(jobId, `PR opened: ${url}`);
   }
 
-  private async uploadDependencies(jobId: string, job: WhiteningJob, extractDir: string, workDir: string) {
+  private async uploadDependencies(jobId: string, extractDir: string, workDir: string) {
     this.setStep(jobId, "Dependencies");
     const depsDir = join(extractDir, "node_modules");
     if (!(await pathExists(depsDir)) || (await readdir(depsDir)).length === 0) {

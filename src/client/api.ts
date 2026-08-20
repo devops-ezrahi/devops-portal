@@ -1,10 +1,7 @@
 import { error as logError } from "./log";
 import type { PortalUser } from "../server/types";
 
-export type PortalConfig = {
-  ssoRequired: boolean;
-  ssoUrl: string;
-  artifactoryEnabled: boolean;
+type PortalConfig = {
   aiEnabled: boolean;
 };
 

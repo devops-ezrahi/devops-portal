@@ -53,16 +53,14 @@ export type TicketSummary = {
 
 export type TicketDetail = TicketSummary & {
   description: string;
-  metadata: Record<string, string>;
   comments: TicketComment[];
 };
 
 export type RequestFieldDefinition = {
   name: string;
+  /** Used in the validation error the API returns for a missing field. */
   label: string;
-  type: "text" | "textarea" | "select";
   required: boolean;
-  options?: string[];
 };
 
 export type RequestTypeDefinition = {

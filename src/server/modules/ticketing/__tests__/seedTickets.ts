@@ -19,11 +19,6 @@ export function seedTickets(): TicketDetail[] {
       updatedAt: "2026-06-07T10:15:00.000Z",
       lastActivityAt: "2026-06-07T10:15:00.000Z",
       description: "Production deployments need a manual approval gate before promotion.",
-      metadata: {
-        application: "payments-api",
-        repository: "https://git.example.com/payments/api",
-        environment: "Production"
-      },
       comments: [
         {
           id: "c-1001-1",
@@ -50,11 +45,6 @@ export function seedTickets(): TicketDetail[] {
       updatedAt: "2026-06-06T14:20:00.000Z",
       lastActivityAt: "2026-06-06T14:20:00.000Z",
       description: "Inventory service needs more CPU and memory quota for load tests.",
-      metadata: {
-        cluster: "ocp4-prod",
-        namespace: "inventory-prod",
-        accessLevel: "Admin"
-      },
       comments: [
         {
           id: "c-1002-1",
@@ -82,10 +72,6 @@ export function seedTickets(): TicketDetail[] {
       updatedAt: "2026-06-03T16:05:00.000Z",
       lastActivityAt: "2026-06-03T16:05:00.000Z",
       description: "Nightly deployment failed during image promotion.",
-      metadata: {
-        severity: "Medium",
-        system: "reporting-worker"
-      },
       comments: []
     }
   ];

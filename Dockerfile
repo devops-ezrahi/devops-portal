@@ -48,7 +48,7 @@ RUN npm install -g opencode-ai
 # ~/.claude/skills. ENV HOME is set explicitly rather than relying on useradd's
 # default, so that path is fixed.
 # The read-only permission policy is NOT a file here any more — it's inlined in
-# RealResearchApi.ts and passed via OPENCODE_CONFIG, so a missing/overwritten
+# RealAiApi.ts and passed via OPENCODE_CONFIG, so a missing/overwritten
 # config file can't silently re-grant write access.
 RUN groupadd --system appgroup && useradd --system --gid appgroup --create-home appuser
 ENV HOME=/home/appuser

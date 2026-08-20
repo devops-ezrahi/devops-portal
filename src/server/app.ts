@@ -91,13 +91,10 @@ export function createApp(
   app.use(express.json());
   app.use(requestLogger);
 
-  // Public config — no secrets, no auth required
+  // Public config — no secrets, no auth required. The 401 body carries ssoUrl,
+  // so this is only what a signed-out page still needs to know.
   app.get("/api/config", (_req, res) => {
-    res.json({
-      ssoUrl: config.ssoUrl,
-      artifactoryEnabled: config.artifactory.enabled,
-      aiEnabled: config.ai.enabled,
-    });
+    res.json({ aiEnabled: config.ai.enabled });
   });
 
   app.use("/api", requireSession);

@@ -3,6 +3,10 @@ import { useEffect, useState, type RefObject } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
+// rehype-highlight only tags the code with .hljs-* classes — without a theme
+// they are unstyled, which is what shipped. styles.css already assumes this
+// one (it neutralises the background it injects).
+import "highlight.js/styles/atom-one-dark.css";
 import type { ChatMessage } from "../../../../server/types";
 
 /** After this long, the bare dots stop being reassuring — say what's happening. */

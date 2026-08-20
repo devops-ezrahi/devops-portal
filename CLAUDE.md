@@ -50,7 +50,7 @@ Each feature is a self-contained module in two mirrored folders. **Conform new m
 
 - `router.ts` exports `create<Name>Router(...)` and is mounted in `src/server/app.ts`.
 - The data layer lives **inside the module folder** — never add data files at `src/server/*.ts`.
-- **Inject the data API into the router only when more than one implementation exists.** Ticketing (`JiraTicketingApi` / `InMemoryTicketingApi`), Artifactory (`RealArtifactoryApi`), Whitening (`RealWhiteningApi`) and Research (`RealResearchApi`) take an injected API instance — this keeps them swappable and unit-testable.
+- **Inject the data API into the router only when more than one implementation exists.** Ticketing (`JiraTicketingApi` / `InMemoryTicketingApi`), Artifactory (`RealArtifactoryApi`), Whitening (`RealWhiteningApi`) and AI (`RealAiApi`) take an injected API instance — this keeps them swappable and unit-testable.
 - `app.ts` selects the implementation by config, e.g. `config.jira.enabled ? new JiraTicketingApi(config.jira) : new InMemoryTicketingApi()`.
 
 **Client** — `src/client/modules/<name>/`:
@@ -68,7 +68,7 @@ Shipped code must use real data sources only — no seed/demo data baked into mo
 Two **intentional** exceptions remain, both for local dev/demo and both gated on
 the same signal (`SSO_REQUIRED` is not `true` — no proxy in front):
 
-- `src/client/api.ts` `demoUsers` + role switcher, and the dev fallback user in `auth.ts` — let the app run locally without an SSO proxy in front.
+- The dev role switcher in `src/client/App.tsx` (`POST /api/dev/role`) and the dev fallback user in `auth.ts` — let the app run locally without an SSO proxy in front.
 - `modules/artifactory/devSimulation.ts` + `modules/whitening/devSimulation.ts` — scripted runs behind the **Test** button each module shows in dev. Nothing is seeded: the job lists start empty, and a run only exists once you press it. Both routers mount `POST /api/<module>/jobs/simulate` only when `SSO_REQUIRED` is not `true`, and the client only renders the button for the `dev` user. The scripts drive the real job map, log, progress and abort controller, so Stop works on them too. `src/server/devSimulate.test.ts` pins that the routes 404 once SSO is required.
 
 ## Config & environment

@@ -239,7 +239,6 @@ export class JiraTicketingApi implements TicketingApi {
     return {
       ...this.mapSummary(issue),
       description: fields.description ?? "",
-      metadata: {},
       comments: (fields.comment?.comments ?? []).map((comment) => this.mapComment(comment))
     };
   }

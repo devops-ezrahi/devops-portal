@@ -45,6 +45,3 @@ export const customerStages: CustomerStage[] = [
   "Closed",
   "Cancelled"
 ];
-
-/** Terminal stages — hidden from the active list, and where work stops. */
-export const doneStages: CustomerStage[] = ["Closed", "Cancelled"];
