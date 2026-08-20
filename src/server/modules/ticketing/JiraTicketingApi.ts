@@ -99,6 +99,13 @@ export class JiraTicketingApi implements TicketingApi {
   private readonly maintenanceIssueType: string;
   private readonly storyPointsField: string;
   private readonly ticketLabel: string;
+  /**
+   * Portal ids Jira rejected as a `reporter` value. Portal identities come
+   * from SSO and don't necessarily exist in Jira; once one is known bad,
+   * "my tickets" queries as the JIRA_TOKEN account straight away instead of
+   * failing and retrying on every poll.
+   */
+  private readonly unknownReporters = new Set<string>();
 
   constructor(config: JiraTicketingConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, "");
@@ -299,8 +306,12 @@ export class JiraTicketingApi implements TicketingApi {
 
   async listTickets(user: PortalUser, filters: TicketFilters): Promise<TicketSummary[]> {
     const clauses: string[] = [`project = ${quoteJql(this.projectKey)}`, ...this.scopeClauses()];
-    if (filters.scope === "mine") {
-      clauses.push(`reporter = ${quoteJql(user.id)}`);
+    const mineClause =
+      filters.scope === "mine"
+        ? `reporter = ${this.unknownReporters.has(user.id) ? "currentUser()" : quoteJql(user.id)}`
+        : "";
+    if (mineClause) {
+      clauses.push(mineClause);
     }
     if (filters.status) {
       clauses.push(`status = ${quoteJql(filters.status)}`);
@@ -309,7 +320,23 @@ export class JiraTicketingApi implements TicketingApi {
       clauses.push(`(summary ~ ${quoteJql(filters.query)} OR description ~ ${quoteJql(filters.query)})`);
     }
     const jql = `${clauses.join(" AND ")} ORDER BY updated DESC`;
-    const issues = await this.search(jql);
+    let issues: JiraIssue[];
+    try {
+      issues = await this.search(jql);
+    } catch (error) {
+      // Jira rejects the whole query when `reporter` names a user it doesn't
+      // have, so fall back to the account JIRA_TOKEN belongs to -- which is
+      // who Jira recorded as the reporter of everything the portal filed.
+      // ponytail: retried on any search failure rather than parsing Jira's
+      // error text for the unknown-user case; a real outage just fails
+      // again below, and only a *successful* retry marks the id bad.
+      if (!mineClause || this.unknownReporters.has(user.id)) {
+        throw error;
+      }
+      issues = await this.search(jql.replace(mineClause, "reporter = currentUser()"));
+      this.unknownReporters.add(user.id);
+      log.warn("jira", `reporter "${user.id}" is not a Jira user, listing as the JIRA_TOKEN account instead`);
+    }
     const summaries = issues.map((issue) => this.mapSummary(issue));
     if (filters.scope === "team") {
       return summaries.filter((summary) => canViewTicket(user, summary));
