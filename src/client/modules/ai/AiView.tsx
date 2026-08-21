@@ -1,4 +1,4 @@
-import { Plus, Send, Sparkles, Square } from "lucide-react";
+import { Archive, Plus, Send, Sparkles, Square } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getPortalConfig } from "../../api";
 import { log, warn, error as logError } from "../../log";
@@ -228,6 +228,24 @@ export function AiView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) 
     <>
       <header className="topbar">
         <h1>AI</h1>
+        {activeConversation && !activeConversation.archivedAt && (
+          // ponytail: client-side only, reverts on the next refetch (job
+          // completion, reload). Keeping it means POST /archive plus a
+          // manual-archive flag the sweep's un-archive branch respects.
+          <button
+            className="ghost-button"
+            style={{ marginLeft: "auto" }}
+            onClick={() =>
+              setConversations((prev) =>
+                prev.map((c) =>
+                  c.id === activeConversationId ? { ...c, archivedAt: new Date().toISOString() } : c
+                )
+              )
+            }
+          >
+            <Archive size={18} aria-hidden="true" /> Archive
+          </button>
+        )}
         <button className="primary" onClick={() => setShowPicker(true)}>
           <Plus size={18} aria-hidden="true" /> New chat
         </button>
