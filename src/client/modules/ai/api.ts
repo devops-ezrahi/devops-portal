@@ -28,6 +28,14 @@ export async function createConversation(project: string | null): Promise<AiConv
   return body.conversation;
 }
 
+export async function archiveConversation(conversationId: string): Promise<AiConversation> {
+  const body = await requestJson<{ conversation: AiConversation }>(
+    `/api/ai/conversations/${conversationId}/archive`,
+    { method: "POST" }
+  );
+  return body.conversation;
+}
+
 export async function fetchConversationJobs(conversationId: string): Promise<AiJob[]> {
   const body = await requestJson<{ jobs: AiJob[] }>(`/api/ai/conversations/${conversationId}/jobs`);
   return body.jobs;

@@ -2,9 +2,10 @@ import type { AiConversation } from "../../../../server/types";
 
 /**
  * Same two-panel shape ticketing uses for open vs done tickets: the live list in
- * a `ticket-list-panel`, the rest folded into a `details.done-panel`. Archiving
- * is automatic (the server's idle sweep sets `archivedAt`) — reopening one and
- * asking again clears the flag, so there is nothing to click here.
+ * a `ticket-list-panel`, the rest folded into a `details.done-panel`. A chat
+ * lands here either by hand (the Archive button in the topbar) or on its own
+ * (the server's idle sweep) — asking in it again clears the flag either way,
+ * so the control stays on the open chat rather than on every row.
  */
 export function ConversationList({
   conversations,

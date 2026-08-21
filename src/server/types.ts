@@ -268,9 +268,11 @@ export type AiConversation = {
   /** Set after the first turn completes; reused via --session on every later turn. */
   opencodeSessionId?: string;
   /**
-   * Stamped by the idle sweep once a chat goes quiet, and cleared the moment it
-   * is used again — the client folds archived chats into a collapsed section
-   * rather than hiding them. Never set by a user action; there is no button.
+   * Stamped by the idle sweep once a chat goes quiet, or by the Archive button,
+   * and cleared by `submitQuestion` the moment the chat is used again — the
+   * client folds archived chats into a collapsed section rather than hiding
+   * them. Archiving never moves `updatedAt`, so an archived chat still ages
+   * into deletion from when it was last used.
    */
   archivedAt?: string;
   submittedBy: string;
@@ -302,6 +304,8 @@ export interface AiApi {
   /** `project: null` starts an "I'm not sure" conversation — classified from the first question. */
   startConversation(project: string | null, submitter: PortalUser): Promise<AiConversation>;
   listConversations(user: PortalUser, allUsers?: boolean): Promise<AiConversation[]>;
+  /** `null` when there is no such chat; asking in it again un-archives it. */
+  archiveConversation(conversationId: string, user: PortalUser, allUsers?: boolean): Promise<AiConversation | null>;
   submitQuestion(conversationId: string, question: string, submitter: PortalUser): Promise<AiJob>;
   listJobs(conversationId: string, user: PortalUser, allUsers?: boolean): Promise<AiJob[]>;
   getJob(jobId: string): Promise<AiJob | null>;

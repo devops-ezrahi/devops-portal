@@ -83,18 +83,14 @@ describe("sweepConversations", () => {
     expect(jobs.size).toBe(1);
   });
 
-  it("un-archives a chat the moment a job starts on it, before the answer lands", () => {
-    const { conversations } = sweep(
-      [chat("CONV-0001", 0, { archivedAt: "2026-08-19T00:00:00.000Z" })],
-      [job("RES-0001", "CONV-0001", "in-progress")]
-    );
-    expect(conversations.get("CONV-0001")?.archivedAt).toBeUndefined();
-  });
-
-  it("un-archives a chat that has been used again", () => {
-    const revived = chat("CONV-0001", 0, { archivedAt: "2026-08-19T00:00:00.000Z" });
-    const { conversations } = sweep([revived], []);
-    expect(conversations.get("CONV-0001")?.archivedAt).toBeUndefined();
+  // Un-archiving is submitQuestion's job, not this sweep's — which is the only
+  // reason a chat archived by hand from the UI survives at all: it was just
+  // used, so every clock here says it is nowhere near idle.
+  it("leaves a freshly archived chat alone instead of un-archiving it", () => {
+    const archivedAt = "2026-08-19T00:00:00.000Z";
+    const { counts, conversations } = sweep([chat("CONV-0001", 0, { archivedAt })], []);
+    expect(counts).toEqual({ archived: 0, deleted: 0 });
+    expect(conversations.get("CONV-0001")?.archivedAt).toBe(archivedAt);
   });
 
   it("archives once, not once per sweep", () => {

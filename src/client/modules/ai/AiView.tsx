@@ -5,6 +5,7 @@ import { log, warn, error as logError } from "../../log";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ChatMessage, AiCategory, AiConversation, AiJob } from "../../../server/types";
 import {
+  archiveConversation,
   cancelJob,
   createConversation,
   fetchCategories,
@@ -133,6 +134,18 @@ export function AiView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) 
       .catch((err) => logError("ai", "failed to load conversation jobs", err));
   }
 
+  async function archiveActiveConversation() {
+    if (!activeConversationId) return;
+    try {
+      const conversation = await archiveConversation(activeConversationId);
+      log("ai", "conversation archived", { id: conversation.id });
+      setConversations((prev) => prev.map((c) => (c.id === conversation.id ? conversation : c)));
+    } catch (err) {
+      logError("ai", "archive failed", err);
+      onError(err instanceof Error ? err.message : "Failed to archive chat");
+    }
+  }
+
   async function pickCategory(project: string | null) {
     try {
       const conversation = await createConversation(project);
@@ -168,6 +181,12 @@ export function AiView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) 
       const job = await submitQuestion(activeConversationId, question);
       log("ai", "job submitted", { id: job.id, conversationId: activeConversationId });
       setJobs((prev) => [...prev, job]);
+      // The server just un-archived this chat; mirror it now rather than at
+      // job completion, so an archived chat you asked in doesn't sit under
+      // "Archived" for the whole run you are watching.
+      setConversations((prev) =>
+        prev.map((c) => (c.id === activeConversationId && c.archivedAt ? { ...c, archivedAt: undefined } : c))
+      );
     } catch (err) {
       logError("ai", "submit failed", err);
       onError(err instanceof Error ? err.message : "Failed to submit question");
@@ -229,19 +248,10 @@ export function AiView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) 
       <header className="topbar">
         <h1>AI</h1>
         {activeConversation && !activeConversation.archivedAt && (
-          // ponytail: client-side only, reverts on the next refetch (job
-          // completion, reload). Keeping it means POST /archive plus a
-          // manual-archive flag the sweep's un-archive branch respects.
           <button
             className="ghost-button"
             style={{ marginLeft: "auto" }}
-            onClick={() =>
-              setConversations((prev) =>
-                prev.map((c) =>
-                  c.id === activeConversationId ? { ...c, archivedAt: new Date().toISOString() } : c
-                )
-              )
-            }
+            onClick={() => void archiveActiveConversation()}
           >
             <Archive size={18} aria-hidden="true" /> Archive
           </button>

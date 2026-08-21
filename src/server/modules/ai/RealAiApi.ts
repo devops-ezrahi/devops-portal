@@ -242,9 +242,31 @@ export class RealAiApi implements AiApi {
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
+  async archiveConversation(
+    conversationId: string,
+    user: PortalUser,
+    allUsers = false
+  ): Promise<AiConversation | null> {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return null;
+    if (!allUsers && conversation.submittedBy !== user.id) {
+      throw new Error("Forbidden: not your chat");
+    }
+    // Same as the sweep, and for the same reason: not via patchConversation.
+    // `updatedAt` is the delete clock, so archiving by hand must not push the
+    // chat's eventual deletion out by however long it had already been idle.
+    if (!conversation.archivedAt) conversation.archivedAt = nowIso();
+    log.info("ai", "chat archived", { id: conversationId, by: user.id });
+    return conversation;
+  }
+
   async submitQuestion(conversationId: string, question: string, submitter: PortalUser): Promise<AiJob> {
     const conversation = this.conversations.get(conversationId);
     if (!conversation) throw new Error("Conversation not found");
+    // The only un-archive there is — for the sweep's stamp and the button's
+    // alike. Done before the job exists, so the chat leaves the Archived list
+    // the moment the question is asked rather than when the answer lands.
+    delete conversation.archivedAt;
     // Unconditional, even when there is nothing to change: patchConversation
     // restamps `updatedAt`, and that is the only clock the idle sweep reads.
     // Stamping it just on the first question would archive a chat in active use.

@@ -7,8 +7,11 @@ import type { AiConversation, AiJob } from "../../types";
  * every job state change, so it is the only clock this needs.
  *
  * Archiving is reversible and costs nothing: reopening a chat and asking again
- * restamps `updatedAt`, which clears the flag here and re-pulls the repo clone
- * in `run()`. Deleting is not — it drops the conversation and every job with it,
+ * clears the flag in `submitQuestion` and re-pulls the repo clone in `run()`.
+ * Un-archiving lives there, not here, so that a chat archived by hand from the
+ * UI stays archived — this sweep would otherwise clear the flag off it on the
+ * very next read, since a just-used chat is not idle.
+ * Deleting is not reversible — it drops the conversation and every job with it,
  * which is the point: `AiJob.thinking` plus `log[]` is the fattest payload the
  * server holds, and nothing else ever removes it.
  *
@@ -37,27 +40,19 @@ export function sweepConversations(
   for (const [id, conversation] of conversations) {
     const idleMs = now - Date.parse(conversation.updatedAt);
     if (Number.isNaN(idleMs)) continue;
-    // Only the two destructive branches are gated on this. Skipping a busy chat
-    // outright would also skip the un-archive below, so asking a question in an
-    // archived chat would leave it under "Archived" until the answer landed —
-    // precisely while the user is watching it.
-    const idle = !busy.has(id);
+    if (busy.has(id)) continue;
 
-    if (idle && idleMs >= deleteAfterMs) {
+    if (idleMs >= deleteAfterMs) {
       conversations.delete(id);
       for (const [jobId, job] of jobs) {
         if (job.conversationId === id) jobs.delete(jobId);
       }
       deleted++;
-    } else if (idle && idleMs >= archiveAfterMs) {
+    } else if (idleMs >= archiveAfterMs && !conversation.archivedAt) {
       // Deliberately not via patchConversation: restamping `updatedAt` here
       // would reset the clock and no chat would ever age past archive.
-      if (!conversation.archivedAt) {
-        conversation.archivedAt = new Date(now).toISOString();
-        archived++;
-      }
-    } else if (conversation.archivedAt) {
-      delete conversation.archivedAt;
+      conversation.archivedAt = new Date(now).toISOString();
+      archived++;
     }
   }
 
