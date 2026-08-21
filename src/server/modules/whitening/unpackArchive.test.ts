@@ -1,4 +1,5 @@
 import { execFile } from "child_process";
+import { mkdtempSync } from "fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -8,6 +9,9 @@ import type { PortalUser } from "../../types";
 
 vi.mock("../../config", () => ({
   config: {
+    // Fresh per run: the job store persists, so a shared dir would carry ids
+    // and history over from the last `npm test`.
+    dataDir: mkdtempSync(join(tmpdir(), "whitening-test-")),
     artifactory: { url: "", repo: "", npmRepo: "", token: "", dockerRepo: "" },
     git: { url: "https://bitbucket.example.com", token: "git-token", username: "" },
     // redactSecrets reads all three token/key sources, so all three must exist.

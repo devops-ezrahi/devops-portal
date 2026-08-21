@@ -6,6 +6,7 @@ import { join } from "path";
 import { setTimeout as sleep } from "timers/promises";
 import { promisify } from "util";
 import { config } from "../../config";
+import { JobStore } from "../../jobStore";
 import { describeError, log, userMessage } from "../../log";
 import { redactSecrets } from "../../redact";
 import { createTmpDir, removeTmpDir } from "../../tmp";
@@ -62,16 +63,16 @@ export function parsePackConfig(text: string): PackConfig {
 }
 
 export class RealWhiteningApi implements WhiteningApi {
-  private jobs = new Map<string, WhiteningJob>();
-  private counter = 0;
+  private readonly jobs: JobStore<WhiteningJob>;
   private bitbucket = new BitbucketApi(config.git);
   /** Phase each log line gets tagged with, so the UI can collapse by step. */
   private steps = new Map<string, string>();
   /** One per running job, so `cancelJob` can stop the work already in flight. */
   private controllers = new Map<string, AbortController>();
 
-  private newId() {
-    return `WHT-${String(++this.counter).padStart(4, "0")}`;
+  /** `dataDir` is a parameter purely so tests can point it at a mkdtemp. */
+  constructor(dataDir: string = config.dataDir) {
+    this.jobs = new JobStore<WhiteningJob>(join(dataDir, "whitening"), "WHT");
   }
 
   private patch(jobId: string, updates: Partial<WhiteningJob>) {
@@ -162,7 +163,7 @@ export class RealWhiteningApi implements WhiteningApi {
 
     const { department, team, project, version } = packConfig;
     const job: WhiteningJob = {
-      id: this.newId(),
+      id: this.jobs.nextId(),
       status: "pending",
       submittedBy: submitter.id,
       submittedByName: submitter.displayName,
@@ -175,7 +176,7 @@ export class RealWhiteningApi implements WhiteningApi {
       version,
       log: [],
     };
-    this.jobs.set(job.id, job);
+    this.jobs.add(job);
     log.info("whitening", `${job.id} submitted`, {
       by: submitter.id,
       archive: archiveName,
@@ -191,7 +192,7 @@ export class RealWhiteningApi implements WhiteningApi {
 
   async simulate(submitter: PortalUser, scenario: WhiteningScenario = "success"): Promise<WhiteningJob> {
     const job: WhiteningJob = {
-      id: this.newId(),
+      id: this.jobs.nextId(),
       status: "pending",
       submittedBy: submitter.id,
       submittedByName: submitter.displayName,
@@ -200,7 +201,7 @@ export class RealWhiteningApi implements WhiteningApi {
       log: [],
       ...simulatedWhiteningJob(),
     };
-    this.jobs.set(job.id, job);
+    this.jobs.add(job);
     void this.runSimulation(job.id, scenario);
     return job;
   }
@@ -219,21 +220,26 @@ export class RealWhiteningApi implements WhiteningApi {
     } finally {
       this.controllers.delete(jobId);
       this.steps.delete(jobId);
+      await this.jobs.settle(jobId);
     }
   }
 
   async listJobs(user: PortalUser, allUsers = false): Promise<WhiteningJob[]> {
-    return [...this.jobs.values()]
+    // Logs are stripped here — the drawer fetches the full job by id.
+    return this.jobs
+      .all()
       .filter((j) => allUsers || j.submittedBy === user.id)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   async getJob(jobId: string): Promise<WhiteningJob | null> {
-    return this.jobs.get(jobId) ?? null;
+    return this.jobs.read(jobId);
   }
 
   async cancelJob(jobId: string, user: PortalUser, allUsers = false): Promise<WhiteningJob | null> {
-    const job = this.jobs.get(jobId);
+    // Live first, disk second: cancelling a job that just finished returns it
+    // rather than 404ing, which is what it did while everything was in memory.
+    const job = this.jobs.get(jobId) ?? (await this.jobs.read(jobId));
     if (!job) return null;
     if (!allUsers && job.submittedBy !== user.id) {
       throw new Error("Forbidden: not your job");
@@ -297,6 +303,9 @@ export class RealWhiteningApi implements WhiteningApi {
       await removeTmpDir(workDir, (line) => this.appendLog(jobId, line));
       this.steps.delete(jobId);
       this.controllers.delete(jobId);
+      // Terminal by now on every path, and after the last appendLog above —
+      // this is where the job and its log leave memory for the volume.
+      await this.jobs.settle(jobId);
     }
   }
 

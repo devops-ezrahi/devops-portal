@@ -95,7 +95,8 @@ Key variables (see `.env.example`):
 | `AI_SKILLS_DIR`                                               | `~/.claude/skills` | Where the AI module's project registry lives — one `ai-<name>/SKILL.md` per repo (frontmatter `description` + a `Repo:` line, plus a free-text body describing how to work with that repo). This app's own code reads `description`/`Repo:` for the picker UI and the clone step (opencode has no bash access, so it can't clone itself) — but opencode's own native skill-discovery reads the *same* files: each question is prefixed "Use the ai-\<project\> skill", and opencode loads the SKILL.md body itself via its `skill` tool. That discovery is fixed to a few paths opencode always scans (`~/.claude/skills`, `~/.config/opencode/skills`, `~/.agents/skills`, plus project-level equivalents) — keep `AI_SKILLS_DIR` pointed at one of those (the default already is) or the portal's picker still works but opencode's `skill` tool won't find the project when asked to use it. The module activates once at least one `ai-*` entry is found there. The server logs the resolved path and the project count at startup, because an empty registry is otherwise indistinguishable from a wrong path. |
 | `OPENCODE_API_KEY`                                            | —               | `OPENCODE_MODEL` (default `anthropic/claude-sonnet-5`) picks the provider — the env var opencode reads for credentials is derived from it (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) and set from `OPENCODE_API_KEY`. Leave `OPENCODE_API_KEY` empty for opencode's own free `opencode/*-free` models — they reject a non-empty placeholder as an invalid key. |
 | `OPENCODE_BASE_URL`                                           | —               | Points the provider at a gateway/proxy instead of its public endpoint. opencode exposes no env var for this, so the server writes it into the opencode config it already generates for the read-only policy, as `provider.<id>.options.baseURL` — `<id>` is the provider half of `OPENCODE_MODEL`, so set the two together. |
-| `AI_ARCHIVE_AFTER_HOURS` / `AI_DELETE_AFTER_HOURS`            | `4` / `48`      | Idle chat cleanup for the AI module. A chat untouched for the first is folded into the client's collapsed **Archived** list; untouched for the second, it and all its jobs are dropped from the server's memory for good. `updatedAt` is the clock — every question restamps it, so asking in an archived chat un-archives it and the repo clone is re-pulled as usual. The sweep runs on read (inside `listConversations`), not on a timer, and logs a line whenever it actually removes something. The topbar's **Archive** button (`POST /api/ai/conversations/:id/archive`) does the same stamp early, by hand; there is deliberately no manual *delete*. Un-archiving belongs to `submitQuestion`, not to the sweep — the sweep only ever archives or deletes, because a chat archived by hand was just used and any "clear the flag when not idle" rule would undo the click on the next read. Archiving never moves `updatedAt`, so an archived chat still dies `AI_DELETE_AFTER_HOURS` after its last *use*, not after the click. Set both to `0` to watch it work without waiting. |
+| `DATA_DIR`                                                    | OS temp dir     | Where job history, the AI repo clones and opencode's session store are kept. In the cluster this is the PVC mount (`/data`); the tmpdir default is purely so local dev runs with an empty `.env`. Everything under it is derived (`<DATA_DIR>/{artifactory,whitening,ai}`, `<DATA_DIR>/clones`), so there is no second path var. See **Job persistence** below. |
+| `AI_ARCHIVE_AFTER_HOURS`                                      | `4`             | Idle hours before a chat folds into the client's collapsed **Archived** list. `updatedAt` is the clock — every question restamps it, so asking in an archived chat un-archives it and the repo clone is re-pulled as usual. The sweep runs on read (inside `listConversations`), not on a timer. The topbar's **Archive** button (`POST /api/ai/conversations/:id/archive`) does the same stamp early, by hand. Un-archiving belongs to `submitQuestion`, not to the sweep — a chat archived by hand was just used, so any "clear the flag when not idle" rule would undo the click on the next read. Archiving never moves `updatedAt`, because that is what the client sorts by. Set to `0` to watch it work without waiting. **Nothing is ever deleted** — chats and jobs live under `DATA_DIR`, so there is no memory to reclaim by dropping them. |
 
 `whitening.json` at the repo root is read by the whitening packer, not by the app, and now
 holds only `images: false`. **Department, team and repository come from the CI job that
@@ -106,6 +107,40 @@ Whitening module reads (never the filename).
 Groups are pipe-separated (not comma) so LDAP-style DNs containing commas work. Set `ALLOWED_GROUPS`/`ADMIN_GROUP` to plain group names (e.g. `devops-admins`), even when the IdP's groups claim sends full DNs (`CN=devops-admins,OU=...,DC=...`) — `auth.ts`'s `parseGroups` detects `CN=` and extracts just the CN for matching, since oauth2-proxy comma-joins multiple groups into one `X-Forwarded-Groups` header value and a naive split can't tell a group boundary from a comma inside a DN.
 
 Adding a new env var: add to `.env.example`, expose it in `src/server/config.ts`, consume via the config object.
+
+## Job persistence
+
+All three job-running modules (artifactory, whitening, ai) keep their history on
+disk under `DATA_DIR`, one JSON file per job, via the shared `src/server/jobStore.ts`.
+**Memory holds only what is in flight**, plus a summary of every job with `log`
+stripped — which is what the list endpoints serve.
+
+- The split works because `patch`, `appendLog` and `aborted` are only ever called
+  on a *running* job (every `cancelJob` returns early on a finished one), so
+  `JobStore.get` stays synchronous over the live map and no mutation path had to
+  change shape.
+- **Two writes per job, never one per log line**: `add()` at creation and
+  `settle()` in each `run()`'s `finally`, after the last `appendLog`. Writing on
+  every log line would rewrite a growing file per subprocess stdout line.
+- Writes are serialised through one queue per store and go via temp-file +
+  rename, so a crash mid-write cannot leave a torn file that kills the next boot.
+- At boot the store reads every job file back. Anything still `pending` or
+  `in-progress` on disk died with the last process, so it is rewritten as
+  `failed — Interrupted by a server restart`; ids resume past the highest on disk
+  rather than restarting at `0001`.
+- `GET /api/<module>/jobs` returns log-free jobs; the drawer fetches the full one
+  from `GET /api/<module>/jobs/:id`. That is why both Views hold the open job in
+  its own state instead of reading it out of the list array.
+- **Nothing is ever deleted.** Artifactory's old `MAX_JOBS` cap and the AI
+  module's 48h delete are both gone. A chat is ~40 KB and opencode's own session
+  is ~5-10 KB, so the volume holds tens of thousands. If it ever fills, delete
+  files on it.
+
+opencode's session store must live on the same volume: the portal keeps only
+`conversation.opencodeSessionId`, and the transcript that id points at is
+opencode's SQLite DB under `~/.local/share/opencode`. Persist conversations
+without it and every restored chat's next follow-up question hits opencode with
+a dangling `--session`. The chart mounts it as a `subPath` off the same PVC.
 
 ## Logging
 

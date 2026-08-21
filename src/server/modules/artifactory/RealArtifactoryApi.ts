@@ -10,6 +10,7 @@ import type { ReadableStream as WebReadableStream } from "stream/web";
 import { setTimeout as sleep } from "timers/promises";
 import { promisify } from "util";
 import { config } from "../../config";
+import { JobStore } from "../../jobStore";
 import { log, userMessage } from "../../log";
 import { redactSecrets } from "../../redact";
 import { createTmpDir, removeTmpDir } from "../../tmp";
@@ -29,16 +30,6 @@ import type {
 } from "../../types";
 
 const execFileAsync = promisify(execFile);
-
-/**
- * Jobs live in memory for the life of the process, and a node_modules upload
- * carries a result row per package plus a log line per upload — so the oldest
- * finished ones are dropped rather than kept forever.
- *
- * ponytail: a flat cap, not an age policy. Persist jobs if history ever has to
- * survive a restart.
- */
-const MAX_JOBS = 200;
 
 function nowIso() {
   return new Date().toISOString();
@@ -78,25 +69,13 @@ async function listFilesRecursive(root: string): Promise<string[]> {
 }
 
 export class RealArtifactoryApi implements ArtifactoryApi {
-  private jobs = new Map<string, ArtifactoryJob>();
-  private counter = 0;
+  private readonly jobs: JobStore<ArtifactoryJob>;
   /** One per running job, so `cancelJob` can stop the work already in flight. */
   private controllers = new Map<string, AbortController>();
 
-  private newId() {
-    return `ART-${String(++this.counter).padStart(4, "0")}`;
-  }
-
-  /** Record a new job, evicting the oldest finished ones once over the cap. */
-  private remember(job: ArtifactoryJob) {
-    this.jobs.set(job.id, job);
-    // Map iterates in insertion order, so this walks oldest first. Running jobs
-    // are skipped — their controllers are live and the user is watching them.
-    for (const [id, old] of this.jobs) {
-      if (this.jobs.size <= MAX_JOBS) break;
-      if (old.status === "pending" || old.status === "in-progress") continue;
-      this.jobs.delete(id);
-    }
+  /** `dataDir` is a parameter purely so tests can point it at a mkdtemp. */
+  constructor(dataDir: string = config.dataDir) {
+    this.jobs = new JobStore<ArtifactoryJob>(join(dataDir, "artifactory"), "ART");
   }
 
   private patch(jobId: string, updates: Partial<ArtifactoryJob>) {
@@ -133,7 +112,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
 
   async submitUrlCopy(input: UrlCopyInput, submitter: PortalUser): Promise<ArtifactoryJob> {
     const job: ArtifactoryJob = {
-      id: this.newId(),
+      id: this.jobs.nextId(),
       kind: "url-copy",
       status: "pending",
       submittedBy: submitter.id,
@@ -143,11 +122,11 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       sourceUrl: input.sourceUrl,
       log: [],
     };
-    this.remember(job);
+    this.jobs.add(job);
     log.info("artifactory", `${job.id} url-copy submitted`, {
       by: submitter.id,
       source: input.sourceUrl,
-      jobs: this.jobs.size,
+      jobs: this.jobs.all().length,
     });
     void this.runUrlCopy(job.id, input);
     return job;
@@ -155,7 +134,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
 
   async submitFolderUpload(input: FolderUploadInput, submitter: PortalUser): Promise<ArtifactoryJob> {
     const job: ArtifactoryJob = {
-      id: this.newId(),
+      id: this.jobs.nextId(),
       kind: "folder-upload",
       status: "pending",
       submittedBy: submitter.id,
@@ -168,14 +147,14 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       totalBytes: input.totalBytes,
       log: [],
     };
-    this.remember(job);
+    this.jobs.add(job);
     log.info("artifactory", `${job.id} folder-upload submitted`, {
       by: submitter.id,
       folder: input.folderName,
       files: input.fileCount,
       bytes: input.totalBytes,
       archive: input.archivePath,
-      jobs: this.jobs.size,
+      jobs: this.jobs.all().length,
     });
     void this.runFolderUpload(job.id, input);
     return job;
@@ -183,7 +162,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
 
   async simulate(submitter: PortalUser, scenario: ArtifactoryScenario = "npm"): Promise<ArtifactoryJob> {
     const job: ArtifactoryJob = {
-      id: this.newId(),
+      id: this.jobs.nextId(),
       kind: "folder-upload",
       status: "pending",
       submittedBy: submitter.id,
@@ -193,7 +172,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       log: [],
       ...simulatedArtifactoryJob(scenario),
     };
-    this.remember(job);
+    this.jobs.add(job);
     void this.runSimulation(job.id, scenario);
     return job;
   }
@@ -210,21 +189,26 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       // Only sleep() rejects here, and only because the job was cancelled.
     } finally {
       this.controllers.delete(jobId);
+      await this.jobs.settle(jobId);
     }
   }
 
   async listJobs(user: PortalUser, allUsers = false): Promise<ArtifactoryJob[]> {
-    return [...this.jobs.values()]
+    // Logs are stripped here — the drawer fetches the full job by id.
+    return this.jobs
+      .all()
       .filter((j) => allUsers || j.submittedBy === user.id)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   async getJob(jobId: string): Promise<ArtifactoryJob | null> {
-    return this.jobs.get(jobId) ?? null;
+    return this.jobs.read(jobId);
   }
 
   async cancelJob(jobId: string, user: PortalUser, allUsers = false): Promise<ArtifactoryJob | null> {
-    const job = this.jobs.get(jobId);
+    // Live first, disk second: cancelling a job that just finished returns it
+    // rather than 404ing, which is what it did while everything was in memory.
+    const job = this.jobs.get(jobId) ?? (await this.jobs.read(jobId));
     if (!job) return null;
     if (!allUsers && job.submittedBy !== user.id) {
       throw new Error("Forbidden: not your job");
@@ -345,6 +329,9 @@ export class RealArtifactoryApi implements ArtifactoryApi {
     } finally {
       await removeTmpDir(tmpDir, (line) => this.appendLog(jobId, line));
       this.controllers.delete(jobId);
+      // Terminal by now on every path, and after the last appendLog above —
+      // this is where the job and its log leave memory for the volume.
+      await this.jobs.settle(jobId);
     }
   }
 
@@ -460,6 +447,9 @@ export class RealArtifactoryApi implements ArtifactoryApi {
     } finally {
       await removeTmpDir(tmpDir, (line) => this.appendLog(jobId, line));
       this.controllers.delete(jobId);
+      // Terminal by now on every path, and after the last appendLog above —
+      // this is where the job and its log leave memory for the volume.
+      await this.jobs.settle(jobId);
     }
   }
 

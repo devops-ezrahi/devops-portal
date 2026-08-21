@@ -50,7 +50,11 @@ RUN npm install -g opencode-ai
 # The read-only permission policy is NOT a file here any more — it's inlined in
 # RealAiApi.ts and passed via OPENCODE_CONFIG, so a missing/overwritten
 # config file can't silently re-grant write access.
-RUN groupadd --system appgroup && useradd --system --gid appgroup --create-home appuser
+# The uid/gid are pinned rather than distro-assigned because the chart mounts a
+# PVC and sets `fsGroup` to match — an unpinned gid there is a silent
+# permission-denied on the volume.
+RUN groupadd --system --gid 10001 appgroup \
+    && useradd --system --uid 10001 --gid appgroup --create-home appuser
 ENV HOME=/home/appuser
 RUN chown -R appuser:appgroup /home/appuser
 

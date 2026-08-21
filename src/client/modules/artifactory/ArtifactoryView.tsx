@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ArtifactoryJob, ArtifactoryScenario } from "../../../server/types";
 import { log, error as logError } from "../../log";
-import { cancelJob, listJobs, simulateJob } from "./api";
+import { cancelJob, getJob, listJobs, simulateJob } from "./api";
 import { JobDetail } from "./components/JobDetail";
 import { JobList } from "./components/JobList";
 import { FolderUploadForm } from "./components/FolderUploadForm";
@@ -25,6 +25,9 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
   const [activeTab, setActiveTab] = useState<Tab>("url-copy");
   const [jobs, setJobs] = useState<ArtifactoryJob[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  // The list is log-free (server strips it — a finished job's log lives on the
+  // volume, not in the server's heap), so the drawer fetches the whole job.
+  const [openJob, setOpenJob] = useState<ArtifactoryJob | null>(null);
   // Admins get everything from the server; the toggle narrows it back client-side,
   // same as the ticketing queue.
   const [showAll, setShowAll] = useState(true);
@@ -61,6 +64,23 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
     return () => clearInterval(id);
   }, [anyRunning]);
 
+  // Same cadence as the list, but one job instead of all of them — which is
+  // also why the list poll is now cheap: it no longer ships every log to every
+  // open tab on every tick.
+  useEffect(() => {
+    if (!selectedJobId) {
+      setOpenJob(null);
+      return;
+    }
+    const fetchOpen = () =>
+      getJob(selectedJobId)
+        .then((result) => setOpenJob(result.job))
+        .catch((err: Error) => logError("artifactory", "getJob failed", err));
+    fetchOpen();
+    const id = setInterval(fetchOpen, anyRunning ? 2000 : 15000);
+    return () => clearInterval(id);
+  }, [selectedJobId, anyRunning]);
+
   function handleSubmitted(job: ArtifactoryJob) {
     log("artifactory", "job submitted", job);
     setJobs((prev) => [job, ...prev.filter((j) => j.id !== job.id)]);
@@ -80,7 +100,10 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
     [jobs, showAll, isAdmin, user.id]
   );
 
-  const selectedJob = jobs.find((j) => j.id === selectedJobId) ?? null;
+  // Fall back to the list row until the full job lands, so selecting a job
+  // paints immediately and only the log arrives a tick later.
+  const selectedJob =
+    (openJob?.id === selectedJobId ? openJob : null) ?? jobs.find((j) => j.id === selectedJobId) ?? null;
 
   return (
     <>

@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from "fs";
-import { homedir } from "os";
+import { homedir, tmpdir } from "os";
 import { join } from "path";
 
 function requireEnv(name: string): string | undefined {
@@ -57,6 +57,11 @@ function scanAiSkills(): Record<string, AiProject> {
   return projects;
 }
 
+// Where job history, the AI repo clones and opencode's session store live. In k8s
+// this is the PVC mount; the tmpdir default is purely so local dev works with an
+// empty .env. Everything under it is derived, so there is no second path var.
+const dataDir = requireEnv("DATA_DIR") ?? join(tmpdir(), "portal-data");
+
 const artifactoryUrl = requireEnv("ARTIFACTORY_URL");
 const artifactoryRepo = requireEnv("ARTIFACTORY_REPO");
 const artifactoryToken = requireEnv("ARTIFACTORY_TOKEN");
@@ -92,6 +97,7 @@ export const config = {
   // ticket lists poll every 2-8s per open tab) and the per-call detail of every
   // outbound Artifactory/Jira/Bitbucket request.
   logLevel: (requireEnv("LOG_LEVEL") ?? "info").trim().toLowerCase(),
+  dataDir,
   ssoRequired: process.env.SSO_REQUIRED === "true",
   ssoUrl: requireEnv("SSO_URL") ?? "",
   // Header carrying the IdP's `name` claim. Lowercased because Node lowercases
@@ -167,12 +173,10 @@ export const config = {
     // opencode has no env var for this — it is provider.<id>.options.baseURL in
     // its config file, which we already generate (see RealAiApi's policy).
     baseUrl: requireEnv("OPENCODE_BASE_URL") ?? "",
-    // Chats are throwaway Q&A against a repo, not tickets. Idle past the first
-    // threshold and a chat folds into the client's "Archived" section; past the
-    // second it and its jobs are dropped from memory entirely, which is the only
-    // thing that reclaims the tool traces and logs a job carries.
+    // Idle past this and a chat folds into the client's "Archived" section.
+    // Archiving is all there is now: jobs live on the PVC, so nothing has to be
+    // dropped to reclaim the tool traces and logs a chat carries.
     archiveAfterMs: hours(requireEnv("AI_ARCHIVE_AFTER_HOURS"), 4),
-    deleteAfterMs: hours(requireEnv("AI_DELETE_AFTER_HOURS"), 48),
     enabled: Object.keys(aiProjects).length > 0,
   },
 };

@@ -1,3 +1,6 @@
+import { mkdtempSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import request from "supertest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -8,7 +11,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 async function appWithSso(ssoRequired: boolean) {
   vi.resetModules();
   const actual = await vi.importActual<typeof import("./config")>("./config");
-  vi.doMock("./config", () => ({ config: { ...actual.config, ssoRequired } }));
+  // Its own volume per app: these cases assert an empty portal and ART-0001,
+  // both of which the persistent job store would otherwise carry over.
+  const dataDir = mkdtempSync(join(tmpdir(), "portal-sim-test-"));
+  vi.doMock("./config", () => ({ config: { ...actual.config, ssoRequired, dataDir } }));
 
   const { createApp } = await import("./app");
   return createApp();

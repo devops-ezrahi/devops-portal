@@ -1,6 +1,12 @@
+import { mkdtempSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { RealArtifactoryApi } from "./RealArtifactoryApi";
 import type { PortalUser } from "../../types";
+
+/** Own volume per api, so runs do not inherit each other's job history. */
+const freshApi = () => new RealArtifactoryApi(mkdtempSync(join(tmpdir(), "artifactory-cancel-test-")));
 
 const owner: PortalUser = { id: "u-alex", email: "alex@example.com", displayName: "Alex Morgan", groups: [] };
 const other: PortalUser = { id: "u-rin", email: "rin@example.com", displayName: "Rin Alvarez", groups: [] };
@@ -9,7 +15,7 @@ const tick = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe("cancelJob", () => {
   it("stops a running job and keeps it aborted", async () => {
-    const api = new RealArtifactoryApi();
+    const api = freshApi();
     const job = await api.simulate(owner);
 
     await tick(1200); // past the first couple of beats — the job is moving
@@ -26,7 +32,7 @@ describe("cancelJob", () => {
   });
 
   it("refuses someone else's job unless the caller is an admin", async () => {
-    const api = new RealArtifactoryApi();
+    const api = freshApi();
     const job = await api.simulate(owner);
 
     await expect(api.cancelJob(job.id, other)).rejects.toThrow("Forbidden");
@@ -37,7 +43,7 @@ describe("cancelJob", () => {
   });
 
   it("leaves a finished job alone and reports an unknown one", async () => {
-    const api = new RealArtifactoryApi();
+    const api = freshApi();
     expect(await api.cancelJob("ART-9999", owner)).toBeNull();
 
     const job = await api.simulate(owner);

@@ -1,4 +1,5 @@
 import { zipSync } from "fflate";
+import { mkdtempSync } from "fs";
 import { mkdtemp, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -7,6 +8,9 @@ import type { PortalUser } from "../../types";
 
 vi.mock("../../config", () => ({
   config: {
+    // Fresh per run: the job store persists, so a shared dir would carry ids
+    // and history over from the last `npm test`.
+    dataDir: mkdtempSync(join(tmpdir(), "artifactory-test-")),
     // A realistic token, not "t" — redactSecrets would blank every letter t in the log.
     artifactory: {
       url: "https://art.example.com",
