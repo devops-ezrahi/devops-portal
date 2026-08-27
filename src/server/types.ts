@@ -320,3 +320,30 @@ export interface AiApi {
   /** `null` when there is no such job; already-finished jobs are left alone. */
   cancelJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<AiJob | null>;
 }
+
+/**
+ * One call to a shared-library step. `step` names the `vars/*.groovy` file
+ * (`genStage`, `sonarStage`, ...); `args` is the Groovy `Map args` that step
+ * takes, held opaque here — the catalog that gives each key a type lives on the
+ * client (`client/modules/jenkinsfile/catalog.ts`), because only the builder UI
+ * and the Groovy generator need to interpret it.
+ */
+export type JenkinsfileStage = {
+  id: string;
+  step: string;
+  args: Record<string, unknown>;
+};
+
+export type JenkinsfilePipeline = {
+  id: string;
+  name: string;
+  /** What goes inside `@Library('...') _` — the library name, optionally `@branch`. */
+  library: string;
+  /** Emitted as a `populateEnvVars([...])` preamble before the first stage. */
+  envVars: Record<string, string>;
+  stages: JenkinsfileStage[];
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+};

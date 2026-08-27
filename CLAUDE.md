@@ -31,6 +31,7 @@ src/
       artifactory/    # router.ts + RealArtifactoryApi.ts + devSimulation.ts
       whitening/      # router.ts + RealWhiteningApi.ts + devSimulation.ts
       ai/             # router.ts + RealAiApi.ts (clones a registered repo, asks opencode CLI)
+      jenkinsfile/    # router.ts + PipelineStore.ts (saved pipeline documents, no jobs)
   client/
     App.tsx           # thin shell: loads /api/me, renders nav, mounts active module View
     api.ts            # cross-cutting fetch helpers only (request, getMe, getPortalConfig, demo users)
@@ -50,7 +51,7 @@ Each feature is a self-contained module in two mirrored folders. **Conform new m
 
 - `router.ts` exports `create<Name>Router(...)` and is mounted in `src/server/app.ts`.
 - The data layer lives **inside the module folder** — never add data files at `src/server/*.ts`.
-- **Inject the data API into the router only when more than one implementation exists.** Ticketing (`JiraTicketingApi` / `InMemoryTicketingApi`), Artifactory (`RealArtifactoryApi`), Whitening (`RealWhiteningApi`) and AI (`RealAiApi`) take an injected API instance — this keeps them swappable and unit-testable.
+- **Inject the data API into the router only when more than one implementation exists.** Ticketing (`JiraTicketingApi` / `InMemoryTicketingApi`), Artifactory (`RealArtifactoryApi`), Whitening (`RealWhiteningApi`) and AI (`RealAiApi`) take an injected API instance — this keeps them swappable and unit-testable. Jenkinsfile is the counter-example: one implementation, nothing to select on, so `createJenkinsfileRouter()` constructs its own `PipelineStore` (with a `dataDir` parameter for tests) and `app.ts` passes nothing.
 - `app.ts` selects the implementation by config, e.g. `config.jira.enabled ? new JiraTicketingApi(config.jira) : new InMemoryTicketingApi()`.
 
 **Client** — `src/client/modules/<name>/`:
@@ -142,6 +143,47 @@ opencode's session store must live on the same volume: the portal keeps only
 opencode's SQLite DB under `~/.local/share/opencode`. Persist conversations
 without it and every restored chat's next follow-up question hits opencode with
 a dangling `--session`. The chart mounts it as a `subPath` off the same PVC.
+
+## Jenkinsfile builder
+
+The Jenkinsfile module is a visual builder for the internal
+`jenkins-k8s-shared-library` Groovy library: stages are drag-reorderable cards,
+each stage exposes every argument its library step accepts, and the generated
+Groovy is previewed live and copied or downloaded. It runs no jobs and talks to
+no external system — the only server-side state is saved pipeline documents.
+
+- **The library's surface is transcribed by hand** into
+  `client/modules/jenkinsfile/catalog.ts`, one `StepSpec` per `vars/*.groovy`
+  file, with `COMMON_ARGS` spread into all of them exactly as the library does
+  `sonarArgsSpec + genStage.genStageArgsSpec`. **When the library gains or
+  renames an argument, update that file** — nothing reads the library repo at
+  runtime. That is deliberate: no clone step, no Groovy parser, and no way for a
+  network failure to leave the builder empty.
+- `pipeline.ts` re-implements the checks `Args/ArgsValidator` makes (title
+  required, exactly one of `image`/`node`, required keys on
+  `secrets`/`additionalRepos`/`customPVC`), so a mistake shows up while you type
+  rather than three minutes into a build. `groovy.ts` is the generator and is
+  pure — both are covered by unit tests, which is where the output format is
+  pinned.
+- The output is **scripted, not declarative**: every step in the library opens
+  its own `stage()` through `podLauncher`/`nodeExecutor`, so they are called one
+  after another at the top level, never inside a `pipeline {}` block.
+- `populateEnvVars` is edited as a pipeline-level preamble rather than a
+  draggable card. Per-stage `envVars` covers the in-stage case, and is what the
+  library itself recommends for parallel builds since `populateEnvVars` writes
+  to the global env.
+- **Drag and drop is native HTML5**, no library — three handlers over an array
+  in `StageRail.tsx`. The ▲/▼ buttons beside each card are not decoration: they
+  are the keyboard path, and they are what makes reordering testable in jsdom.
+- Maps are edited as ordered key/value **pairs**, not as objects — an object
+  cannot hold the half-typed state of renaming a key. They become objects again
+  at the edges (`recordOf` on the way to the server; the generator reads either
+  shape).
+- Pipelines live one JSON file per pipeline under `<DATA_DIR>/jenkinsfile`,
+  ids `JF-0001`, via `PipelineStore` — the AI module's conversation store in
+  miniature, not `JobStore` (which is `status`/`log`-shaped and splits in-flight
+  from settled). **These are user documents, so `DELETE` really deletes.** The
+  "nothing is ever deleted" rule above is about run history.
 
 ## Logging
 
