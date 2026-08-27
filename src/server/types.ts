@@ -159,6 +159,8 @@ export type ArtifactoryJob = {
   /** Human name for the job — `arg@4.1.5`, or `node_modules (142 packages)`. */
   name?: string;
   sourceUrl?: string;
+  /** url-copy only. Persisted, so a finished job still says deps were asked for. */
+  includeDependencies?: boolean;
   folderName?: string;
   fileCount?: number;
   totalBytes?: number;
@@ -172,6 +174,12 @@ export type ArtifactoryJob = {
 
 export type UrlCopyInput = {
   sourceUrl: string;
+  /**
+   * Resolve the npm package's runtime dependency tree and upload all of it, not
+   * just the one tarball. Ignored for anything that is not an npm package — see
+   * RealArtifactoryApi.resolveDependencies, which never fails the job over it.
+   */
+  includeDependencies?: boolean;
 };
 
 export type FolderUploadInput = {

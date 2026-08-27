@@ -10,6 +10,7 @@ import type { ArtifactoryApi, ArtifactoryScenario } from "../../types";
 
 const urlCopySchema = z.object({
   sourceUrl: z.string().url(),
+  includeDependencies: z.boolean().optional(),
 });
 
 /**

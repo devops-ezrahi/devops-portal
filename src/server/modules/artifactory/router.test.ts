@@ -5,12 +5,14 @@ import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 import { removeTmpDir } from "../../tmp";
 import { createArtifactoryRouter } from "./router";
-import type { ArtifactoryApi, FolderUploadInput } from "../../types";
+import type { ArtifactoryApi, FolderUploadInput, UrlCopyInput } from "../../types";
 
 vi.mock("../../auth", () => ({ isAdmin: () => false }));
 
 function appWith(api: ArtifactoryApi) {
   const app = express();
+  // Mirrors app.ts, which mounts the JSON parser ahead of every module router.
+  app.use(express.json());
   app.use((req, _res, next) => {
     req.user = { id: "dev" } as never;
     next();
@@ -58,5 +60,50 @@ describe("folder-upload route", () => {
       .expect(400);
 
     expect(submitFolderUpload).not.toHaveBeenCalled();
+  });
+});
+
+describe("url-copy route", () => {
+  function urlCopyApp() {
+    const submitUrlCopy = vi.fn(async (_input: UrlCopyInput) => ({ id: "ART-0001" }));
+    return {
+      submitUrlCopy,
+      app: appWith({ submitUrlCopy } as unknown as ArtifactoryApi),
+    };
+  }
+
+  it("carries includeDependencies through to the job", async () => {
+    const { submitUrlCopy, app } = urlCopyApp();
+
+    await request(app)
+      .post("/api/artifactory/jobs/url-copy")
+      .send({ sourceUrl: "https://registry.npmjs.org/arg/-/arg-4.1.5.tgz", includeDependencies: true })
+      .expect(201);
+
+    expect(submitUrlCopy.mock.calls[0][0].includeDependencies).toBe(true);
+  });
+
+  it("leaves it undefined when the box was not ticked", async () => {
+    const { submitUrlCopy, app } = urlCopyApp();
+
+    await request(app)
+      .post("/api/artifactory/jobs/url-copy")
+      .send({ sourceUrl: "https://registry.npmjs.org/arg/-/arg-4.1.5.tgz" })
+      .expect(201);
+
+    expect(submitUrlCopy.mock.calls[0][0].includeDependencies).toBeUndefined();
+  });
+
+  it("rejects a non-boolean rather than coercing it", async () => {
+    const { submitUrlCopy, app } = urlCopyApp();
+
+    await request(app)
+      .post("/api/artifactory/jobs/url-copy")
+      .send({ sourceUrl: "https://registry.npmjs.org/arg/-/arg-4.1.5.tgz", includeDependencies: "yes" })
+      .expect((res) => {
+        if (res.status < 400) throw new Error(`expected a 4xx/5xx, got ${res.status}`);
+      });
+
+    expect(submitUrlCopy).not.toHaveBeenCalled();
   });
 });

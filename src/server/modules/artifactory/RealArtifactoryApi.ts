@@ -16,6 +16,12 @@ import { redactSecrets } from "../../redact";
 import { createTmpDir, removeTmpDir } from "../../tmp";
 import { webUrl } from "./artifactoryRest";
 import { artifactorySimulation, simulatedArtifactoryJob } from "./devSimulation";
+import {
+  MAX_DEPENDENCY_PACKAGES,
+  npmRegistryFromUrl,
+  resolveNpmDependencies,
+  sourceTokenFor,
+} from "./npmDependencies";
 import { discoverPackages, jobName, npmUploadItems, targetPath, uploadFiles } from "./npmPackages";
 import { classify, urlArtifactPath } from "./packageTypes";
 import type { UploadItem } from "./npmPackages";
@@ -120,12 +126,14 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       createdAt: nowIso(),
       updatedAt: nowIso(),
       sourceUrl: input.sourceUrl,
+      includeDependencies: input.includeDependencies || undefined,
       log: [],
     };
     this.jobs.add(job);
     log.info("artifactory", `${job.id} url-copy submitted`, {
       by: submitter.id,
       source: input.sourceUrl,
+      deps: !!input.includeDependencies,
       jobs: this.jobs.all().length,
     });
     void this.runUrlCopy(job.id, input);
@@ -279,9 +287,9 @@ export class RealArtifactoryApi implements ArtifactoryApi {
         ? null
         : classify(urlArtifactPath(input.sourceUrl), (line) => this.appendLog(jobId, line));
 
-      let item: UploadItem;
+      let items: UploadItem[];
       if (identity) {
-        item = {
+        const root: UploadItem = {
           path: targetPath(identity.name, identity.version),
           name: identity.name,
           version: identity.version,
@@ -289,27 +297,45 @@ export class RealArtifactoryApi implements ArtifactoryApi {
           resolve: async () => tmpFile,
         };
         this.patch(jobId, { name: `${identity.name}@${identity.version}` });
+        const deps = input.includeDependencies
+          ? await this.resolveDependencies(jobId, input.sourceUrl, identity, tmpDir, signal)
+          : [];
+        // Root last on purpose: uploadFiles dedupes by path keeping the *last*
+        // entry, and the root's repacked copy out of node_modules has to lose to
+        // the original tarball we downloaded — those bytes are byte-identical to
+        // what the source registry serves, so their integrity hash still matches.
+        items = [...deps, root];
       } else if (classified) {
-        item = { ...classified, resolve: async () => tmpFile };
+        items = [{ ...classified, resolve: async () => tmpFile }];
         this.appendLog(jobId, `Detected a ${classified.type} artifact.`);
         this.patch(jobId, { name: `${classified.name}@${classified.version}` });
       } else {
-        item = {
-          path: `${config.artifactory.repo}/${filename}`,
-          name: filename,
-          version: "",
-          type: "npm",
-          resolve: async () => tmpFile,
-        };
+        items = [
+          {
+            path: `${config.artifactory.repo}/${filename}`,
+            name: filename,
+            version: "",
+            type: "npm",
+            resolve: async () => tmpFile,
+          },
+        ];
         this.appendLog(jobId, "Unrecognised artifact — uploading under its own filename.");
         this.patch(jobId, { name: filename });
+      }
+
+      if (input.includeDependencies && !identity) {
+        this.appendLog(
+          jobId,
+          "Include dependencies: only npm packages have a resolvable dependency tree — " +
+            "copying the single artifact."
+        );
       }
 
       // Same uploadFiles/finish path as a folder upload, so a URL copy fills in
       // `packages` and `progress` too — which is what makes the package table
       // (and its direct link) and the progress bar render for it at all.
       const results = await uploadFiles(
-        [item],
+        items,
         (line) => this.appendLog(jobId, line),
         (done, total) => this.patch(jobId, { progress: { done, total } }),
         signal
@@ -332,6 +358,85 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       // Terminal by now on every path, and after the last appendLog above —
       // this is where the job and its log leave memory for the volume.
       await this.jobs.settle(jobId);
+    }
+  }
+
+  /**
+   * The npm dependency tree of a URL-copied artifact, as upload items, or `[]`.
+   *
+   * Never throws for a resolution problem. A URL copy that cannot resolve
+   * dependencies still does the single-artifact copy it would have done with the
+   * box unticked, and says in the log why it did not do more — the user asked to
+   * copy a package, and half-answering that with a failed job helps nobody. The
+   * one thing that does propagate is a Stop, which has to stay a Stop rather than
+   * quietly falling through to an upload the user just cancelled.
+   */
+  private async resolveDependencies(
+    jobId: string,
+    sourceUrl: string,
+    identity: { name: string; version: string },
+    tmpDir: string,
+    signal: AbortSignal
+  ): Promise<UploadItem[]> {
+    const registry = npmRegistryFromUrl(sourceUrl);
+    if (!registry) {
+      this.appendLog(
+        jobId,
+        `No npm registry could be derived from the URL (no /-/ in its path) — ` +
+          `copying the single artifact.`
+      );
+      return [];
+    }
+    this.appendLog(jobId, `Source npm registry: ${registry}`);
+
+    try {
+      const packages = await resolveNpmDependencies({
+        name: identity.name,
+        version: identity.version,
+        registry,
+        token: sourceTokenFor(
+          registry,
+          config.artifactory.url,
+          config.artifactory.token,
+          config.artifactory.npmSourceToken
+        ),
+        root: join(tmpDir, "deps"),
+        cacheDir: join(tmpDir, "npm-cache"),
+        onLog: (line) => this.appendLog(jobId, line),
+        signal,
+      });
+
+      if (packages.length > MAX_DEPENDENCY_PACKAGES) {
+        // Not a partial upload: a half-populated tree is a broken offline install
+        // that gives no signal it is broken.
+        this.appendLog(
+          jobId,
+          `Dependency tree has ${packages.length} package(s), over the ` +
+            `${MAX_DEPENDENCY_PACKAGES} cap — copying the single artifact. ` +
+            `Use the folder upload tab for a tree this size.`
+        );
+        return [];
+      }
+
+      // The root is uploaded from the tarball we downloaded, not from its
+      // repacked copy in node_modules — see the ordering note in runUrlCopy.
+      const rootPath = targetPath(identity.name, identity.version);
+      const items = npmUploadItems(packages, join(tmpDir, "stage")).filter(
+        (item) => item.path !== rootPath
+      );
+      this.appendLog(jobId, `Dependency tree: ${items.length} package(s).`);
+      this.patch(jobId, {
+        name: `${identity.name}@${identity.version} (+${items.length} deps)`,
+      });
+      return items;
+    } catch (err) {
+      // A cancel surfaces as an AbortError out of the spawn; swallowing it would
+      // upload the artifact after the user had already pressed Stop.
+      if (this.aborted(jobId) || signal.aborted) throw err;
+      const message = userMessage(err);
+      this.appendLog(jobId, `Could not resolve dependencies (${message}) — copying the single artifact.`);
+      log.warn("artifactory", `${jobId} dependency resolution failed`, { error: message });
+      return [];
     }
   }
 

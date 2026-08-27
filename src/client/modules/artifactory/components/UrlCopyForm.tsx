@@ -11,6 +11,7 @@ type Props = {
 
 export function UrlCopyForm({ onSubmitted, onError }: Props) {
   const [sourceUrl, setSourceUrl] = useState("");
+  const [includeDependencies, setIncludeDependencies] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -18,10 +19,11 @@ export function UrlCopyForm({ onSubmitted, onError }: Props) {
     setSubmitting(true);
     log("artifactory/url-copy", "submitting", sourceUrl);
     try {
-      const result = await submitUrlCopy({ sourceUrl });
+      const result = await submitUrlCopy({ sourceUrl, includeDependencies });
       log("artifactory/url-copy", "accepted", result.job.id, result.job.status);
       onSubmitted(result.job);
       setSourceUrl("");
+      setIncludeDependencies(false);
     } catch (err) {
       logError("artifactory/url-copy", "submit failed", sourceUrl, err);
       onError(err instanceof Error ? err.message : "Failed to submit");
@@ -45,6 +47,23 @@ export function UrlCopyForm({ onSubmitted, onError }: Props) {
         <span className="field-hint">
           URL of the artifact in the source repository. The package type is detected from the file —
           .tgz, .jar, .rpm, .whl and .conda each go to their own repo.
+        </span>
+      </div>
+
+      <div className="form-field checkbox-field">
+        <label htmlFor="include-deps">
+          <input
+            id="include-deps"
+            type="checkbox"
+            checked={includeDependencies}
+            onChange={(e) => setIncludeDependencies(e.target.checked)}
+          />
+          Include dependencies
+        </label>
+        <span className="field-hint">
+          npm packages only. Resolves the package's full runtime dependency tree — optional
+          dependencies for Linux and Windows included — and copies every package in it. Anything
+          that isn't an npm package, or a tree that won't resolve, still copies the single artifact.
         </span>
       </div>
 

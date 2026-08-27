@@ -101,6 +101,13 @@ export function JobDetail({ job, onStop }: Props) {
           </div>
         )}
 
+        {job.kind === "url-copy" && job.includeDependencies && (
+          <div>
+            <dt>Dependencies</dt>
+            <dd>Included</dd>
+          </div>
+        )}
+
         {job.kind === "folder-upload" && job.folderName && (
           <div>
             <dt>Folder</dt>
