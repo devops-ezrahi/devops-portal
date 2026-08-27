@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { stageToGroovy, toGroovy } from "./groovy";
 import { newPipeline } from "./pipeline";
-import type { JenkinsfileStage } from "../../../server/types";
+import type { JenkinsfileParam, JenkinsfileStage } from "../../../server/types";
 
 function stage(step: string, args: Record<string, unknown>): JenkinsfileStage {
   return { id: "s-1", step, args };
@@ -30,8 +30,41 @@ describe("stageToGroovy", () => {
     expect(code).not.toContain("envVars");
   });
 
+  it("writes a skip condition raw, so it stays a Groovy expression", () => {
+    const code = stageToGroovy(stage("genStage", { title: "T", image: "i", skipStage: "params.skipImage" }));
+    expect(code).toContain("skipStage: params.skipImage");
+    // A record written before the field became an expression still holds a boolean.
+    expect(stageToGroovy(stage("genStage", { title: "T", image: "i", skipStage: true }))).toContain("skipStage: true");
+    // …and `false` there meant "not set", so it drops out rather than pinning the stage on.
+    expect(stageToGroovy(stage("genStage", { title: "T", image: "i", skipStage: false }))).not.toContain("skipStage");
+  });
+
+  it("writes commands as a shell list or as a closure, whichever the stage holds", () => {
+    const shell = stageToGroovy(stage("genStage", { title: "T", image: "i", commands: ["npm ci", "npm test"] }));
+    expect(shell).toContain("commands: ['npm ci', 'npm test']");
+
+    const closure = stageToGroovy(
+      stage("genStage", {
+        title: "T",
+        image: "i",
+        commands: { closure: "\nsh 'npm ci'\njunit '**/*.xml'\n" },
+      })
+    );
+    expect(closure).toContain(
+      ["    commands: {", "        sh 'npm ci'", "        junit '**/*.xml'", "    }"].join("\n")
+    );
+    // Nothing is quoted or escaped — it is Groovy, not a value.
+    expect(closure).not.toContain("\\'");
+  });
+
+  it("drops an empty closure the same way it drops an empty list", () => {
+    expect(stageToGroovy(stage("genStage", { title: "T", image: "i", commands: { closure: "  \n " } }))).not.toContain(
+      "commands"
+    );
+  });
+
   it("keeps a false boolean — the library treats it as set", () => {
-    expect(stageToGroovy(stage("genStage", { title: "T", image: "i", skipStage: false }))).toContain("skipStage: false");
+    expect(stageToGroovy(stage("genStage", { title: "T", image: "i", unshallow: false }))).toContain("unshallow: false");
   });
 
   it("renders integers bare", () => {
@@ -106,33 +139,88 @@ describe("stageToGroovy", () => {
 });
 
 describe("toGroovy", () => {
-  it("writes the library line and nothing else for an empty pipeline", () => {
-    expect(toGroovy(newPipeline())).toBe("@Library('jenkins-k8s-shared-library') _\n");
+  it("writes nothing at all for an empty pipeline — the import is optional", () => {
+    expect(toGroovy(newPipeline())).toBe("");
   });
 
-  it("honours a pinned library version", () => {
+  it("writes the import only once one has been asked for, branch and all", () => {
+    expect(toGroovy({ ...newPipeline(), library: "jenkins-k8s-shared-library" })).toBe(
+      "@Library('jenkins-k8s-shared-library') _\n"
+    );
     expect(toGroovy({ ...newPipeline(), library: "jenkins-k8s-shared-library@dev-v2" })).toContain(
       "@Library('jenkins-k8s-shared-library@dev-v2') _"
     );
   });
 
-  it("emits populateEnvVars ahead of the stages, and skips it when there are none", () => {
-    const stages = [stage("semVerStage", {})];
-    expect(toGroovy({ ...newPipeline(), stages })).toBe(
-      "@Library('jenkins-k8s-shared-library') _\n\nsemVerStage()\n"
+  it("takes the quotes and commas off a list pasted out of an existing Jenkinsfile", () => {
+    const pasted = ['"npm install",', "'npm run dev',", '  "npm test"  '];
+    expect(stageToGroovy(stage("genStage", { title: "T", image: "i", commands: pasted }))).toContain(
+      "commands: ['npm install', 'npm run dev', 'npm test']"
     );
-    expect(toGroovy({ ...newPipeline(), envVars: [["SERVICE", "checkout"]], stages })).toBe(
+  });
+
+  it("leaves a line whose quotes are part of the command alone", () => {
+    const commands = ['echo "hello"', '"$A" = "$B"', "\"unbalanced"];
+    const code = stageToGroovy(stage("genStage", { title: "T", image: "i", commands }));
+    expect(code).toContain(`'echo "hello"'`);
+    expect(code).toContain(`'"$A" = "$B"'`);
+    expect(code).toContain(`'"unbalanced'`);
+  });
+
+  it("calls populateEnvVars with its map bare, not under an envVars key", () => {
+    const stages = [stage("semVerStage", {})];
+    expect(toGroovy({ ...newPipeline(), stages })).toBe("semVerStage()\n");
+    expect(
+      toGroovy({
+        ...newPipeline(),
+        library: "jenkins-k8s-shared-library",
+        stages: [{ id: "e", step: "populateEnvVars", args: { envVars: [["SERVICE", "checkout"]] } }, ...stages],
+      })
+    ).toBe(
       [
         "@Library('jenkins-k8s-shared-library') _",
         "",
-        "populateEnvVars([",
-        "    SERVICE: 'checkout'",
-        "])",
+        "populateEnvVars([SERVICE: 'checkout'])",
         "",
         "semVerStage()",
         "",
       ].join("\n")
     );
+  });
+
+  it("declares parameters in a properties block before the stages", () => {
+    const code = toGroovy({
+      ...newPipeline(),
+      params: [{ name: "skipImage", type: "boolean", defaultValue: "false", description: "Skip the image build" }],
+      stages: [stage("semVerStage", {})],
+    });
+    expect(code).toContain(
+      [
+        "properties([",
+        "    parameters([",
+        "        booleanParam(name: 'skipImage', defaultValue: false, description: 'Skip the image build')",
+        "    ])",
+        "])",
+      ].join("\n")
+    );
+    expect(code.indexOf("properties([")).toBeLessThan(code.indexOf("semVerStage"));
+  });
+
+  it("drops a parameter with no name, and the whole block when none are named", () => {
+    const params = [{ name: "  ", type: "boolean" as const, defaultValue: "true", description: "" }];
+    expect(toGroovy({ ...newPipeline(), params })).not.toContain("properties([");
+  });
+
+  it("writes each parameter type with the function Jenkins names it by", () => {
+    const lines = (params: JenkinsfileParam[]) => toGroovy({ ...newPipeline(), params });
+
+    expect(lines([{ name: "tag", type: "string", defaultValue: "latest", description: "Image tag" }])).toContain(
+      "string(name: 'tag', defaultValue: 'latest', description: 'Image tag')"
+    );
+    // A choice takes its options, not a default — Jenkins uses the first.
+    expect(
+      lines([{ name: "env", type: "choice", defaultValue: "", description: "Target", choices: ["dev", " ", "prod"] }])
+    ).toContain("choice(name: 'env', choices: ['dev', 'prod'], description: 'Target')");
   });
 
   it("keeps stage order", () => {

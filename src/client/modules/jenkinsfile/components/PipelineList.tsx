@@ -7,10 +7,10 @@ type Props = {
   onSelect: (id: string) => void;
 };
 
-/** Same row shape as every other module's list panel. */
+/** Same row shape and size as every other module's list panel. */
 export function PipelineList({ pipelines, selectedId, isAdmin, onSelect }: Props) {
   if (pipelines.length === 0) {
-    return <div className="empty-state">No saved pipelines yet. Build one and press Save.</div>;
+    return <div className="empty-state">No pipelines yet. Add a stage and this fills in — saving is automatic.</div>;
   }
 
   return (

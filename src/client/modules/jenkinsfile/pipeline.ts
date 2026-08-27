@@ -1,5 +1,6 @@
 import { stepSpec, type ArgKind, type ArgSpec } from "./catalog";
-import type { JenkinsfilePipeline, JenkinsfileStage } from "../../../server/types";
+import { newParam } from "./params";
+import type { JenkinsfileParam, JenkinsfilePipeline, JenkinsfileStage } from "../../../server/types";
 
 export const DEFAULT_LIBRARY = "jenkins-k8s-shared-library";
 
@@ -18,6 +19,28 @@ export function pairsOf(value: unknown): MapPairs {
   return [];
 }
 
+/**
+ * A `commands` argument is either a list of shell lines or a Groovy closure —
+ * the library's `executeCommands` branches on exactly that. The closure form is
+ * boxed rather than stored as a bare string so the two are never confused: an
+ * array is shell, `{ closure }` is Groovy.
+ */
+export type CommandsValue = string[] | { closure: string };
+
+/** The closure body if this value is one, else null. */
+export function closureOf(value: unknown): string | null {
+  if (value && typeof value === "object" && !Array.isArray(value) && "closure" in value) {
+    return String((value as { closure: unknown }).closure ?? "");
+  }
+  return null;
+}
+
+/** The non-blank lines of a list-shaped value. */
+export function linesOf(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((v) => String(v ?? "").trim()).filter(Boolean);
+}
+
 export function recordOf(pairs: MapPairs): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of pairs) if (k.trim()) out[k.trim()] = v;
@@ -26,20 +49,54 @@ export function recordOf(pairs: MapPairs): Record<string, string> {
 
 /**
  * The pipeline as the builder holds it. Identical to the stored record except
- * that `envVars` is pairs while it is being edited.
+ * that the legacy pipeline-level `envVars` map is gone — it lives in a
+ * `populateEnvVars` stage now, like every other top-level call.
  */
-export type DraftPipeline = Omit<JenkinsfilePipeline, "envVars"> & { envVars: MapPairs };
+export type DraftPipeline = Omit<JenkinsfilePipeline, "envVars" | "params"> & { params: JenkinsfileParam[] };
 
-export function toDraft(pipeline: JenkinsfilePipeline): DraftPipeline {
-  return { ...pipeline, envVars: Object.entries(pipeline.envVars ?? {}) };
+/**
+ * Every parameter was a `booleanParam` before the other types existed, and its
+ * default was a real boolean. Normalise both on the way in, so the editor only
+ * ever deals with one shape.
+ */
+function toParam(stored: JenkinsfileParam): JenkinsfileParam {
+  return {
+    ...newParam(),
+    ...stored,
+    type: stored.type ?? "boolean",
+    defaultValue: String(stored.defaultValue ?? ""),
+  };
 }
 
-/** What the save endpoints take — the record's own id, owner and timestamps are the server's. */
+export function toDraft(pipeline: JenkinsfilePipeline): DraftPipeline {
+  const { envVars, ...rest } = pipeline;
+  const legacy = Object.entries(envVars ?? {});
+  return {
+    ...rest,
+    params: (pipeline.params ?? []).map(toParam),
+    // A record written before populateEnvVars became a card carries its map at
+    // the top level. Migrate it into the leading stage on open; the save below
+    // then writes `{}` back and the record is in the new shape for good.
+    stages: legacy.length
+      ? // Folded like the rest of a saved pipeline: it is not new work, it is the
+        // same map it always had, now shown where it belongs.
+        [{ ...createStage("populateEnvVars"), args: { envVars: legacy }, collapsed: true }, ...pipeline.stages]
+      : pipeline.stages,
+  };
+}
+
+/**
+ * What the save endpoints take. The record's own id, owner and timestamps are
+ * the server's — and so is `name`, which it mints from the author rather than
+ * taking from a field the builder no longer has.
+ */
 export function toInput(draft: DraftPipeline) {
   return {
-    name: draft.name.trim(),
     library: draft.library.trim(),
-    envVars: recordOf(draft.envVars),
+    // Always empty: the map moved into a stage, and PUT merges over the stored
+    // record, so sending nothing would leave a migrated pipeline's old copy behind.
+    envVars: {},
+    params: draft.params.filter((p) => p.name.trim()).map((p) => ({ ...p, name: p.name.trim() })),
     stages: draft.stages,
   };
 }
@@ -50,7 +107,7 @@ function stageId(): string {
 }
 
 export function createStage(step: string): JenkinsfileStage {
-  return { id: stageId(), step, args: {} };
+  return { id: stageId(), step, args: {}, collapsed: false };
 }
 
 /** A pipeline that has never been saved. `id: ""` is what marks it unsaved. */
@@ -58,8 +115,9 @@ export function newPipeline(): DraftPipeline {
   return {
     id: "",
     name: "",
-    library: DEFAULT_LIBRARY,
-    envVars: [],
+    // Empty: the @Library line is opt-in, added by the dotted button.
+    library: "",
+    params: [],
     stages: [],
     createdBy: "",
     createdByName: "",
@@ -89,7 +147,9 @@ export function emptyValue(kind: ArgKind): unknown {
     case "boolean":
       return true; // you only add a flag in order to turn it on
     case "integer":
+    case "expression":
       return "";
+    case "commands":
     case "stringList":
       return [];
     case "stringMap":
@@ -113,8 +173,16 @@ export function isEmptyArg(kind: ArgKind, value: unknown): boolean {
       return typeof value !== "boolean";
     case "integer":
       return value === "" || value === null || value === undefined || Number.isNaN(Number(value));
+    case "expression":
+      // Records written before the skip condition became an expression hold a
+      // real boolean here; `false` is still "not set" for those.
+      return typeof value === "boolean" ? !value : String(value ?? "").trim() === "";
+    case "commands": {
+      const closure = closureOf(value);
+      return closure === null ? linesOf(value).length === 0 : closure.trim() === "";
+    }
     case "stringList":
-      return !Array.isArray(value) || value.every((v) => String(v ?? "").trim() === "");
+      return linesOf(value).length === 0;
     case "stringMap":
       return pairsOf(value).every(([k, v]) => !k.trim() || !String(v ?? "").trim());
     case "objectList":
@@ -141,6 +209,9 @@ export type PipelineErrors = {
   pipeline: string[];
 };
 
+/** The shape of "nothing wrong", for the stretch before the first save attempt. */
+export const NO_ERRORS: PipelineErrors = Object.freeze({ stages: {}, pipeline: [] });
+
 /**
  * The same checks `Args/ArgsValidator.validateStageArgs` makes in the library,
  * run here so a mistake shows up while you type instead of three minutes into a
@@ -150,10 +221,19 @@ export type PipelineErrors = {
 export function validatePipeline(pipeline: DraftPipeline): PipelineErrors {
   const errors: PipelineErrors = { stages: {}, pipeline: [] };
 
-  if (!pipeline.library.trim()) errors.pipeline.push("The @Library name cannot be empty.");
   if (pipeline.stages.length === 0) errors.pipeline.push("A pipeline needs at least one stage.");
-  for (const [key, value] of pipeline.envVars) {
-    if (key.trim() && !String(value ?? "").trim()) errors.pipeline.push(`Environment variable ${key} has no value.`);
+
+  // Jenkins takes the parameter name as a Groovy identifier — `params.my-flag`
+  // does not parse — and a duplicate silently wins over the one before it.
+  const seen = new Set<string>();
+  for (const param of pipeline.params) {
+    const name = param.name.trim();
+    if (!name) continue;
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+      errors.pipeline.push(`Parameter ${name} is not a valid Groovy identifier.`);
+    }
+    if (seen.has(name)) errors.pipeline.push(`Parameter ${name} is declared twice.`);
+    seen.add(name);
   }
 
   for (const stage of pipeline.stages) {
@@ -165,13 +245,9 @@ export function validatePipeline(pipeline: DraftPipeline): PipelineErrors {
     }
     const find = (name: string) => spec.args.find((a) => a.name === name);
 
-    if (!isSet(find("title"), stage.args) && !spec.defaults?.title) {
-      found.push("title is required.");
-    }
-
-    // genStageWindows overwrites node with "windows" before validating, so the
-    // image/node choice is already made for it.
-    if (stage.step !== "genStageWindows") {
+    // Only steps that actually offer the choice are held to it: genStageWindows
+    // forces node = 'windows' itself, and populateEnvVars runs on neither.
+    if (find("image") || find("node")) {
       const hasImage = isSet(find("image"), stage.args) || Boolean(spec.defaults?.image);
       const hasNode = isSet(find("node"), stage.args);
       if (hasImage && hasNode) {
@@ -183,6 +259,12 @@ export function validatePipeline(pipeline: DraftPipeline): PipelineErrors {
       } else if (!hasImage && !hasNode) {
         found.push("Set exactly one of image or node.");
       }
+    }
+
+    // Covers `title` too: it carries `required` on exactly the two steps that do
+    // not name one themselves, which is the same rule the library applies.
+    for (const arg of spec.args) {
+      if (arg.required && !isSet(arg, stage.args)) found.push(`${arg.name} is required.`);
     }
 
     // The library's secretsValidator / additionalReposValidator / customPVCValidator

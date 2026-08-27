@@ -1,6 +1,7 @@
 import express from "express";
 import { z } from "zod";
 import { isAdmin } from "../../auth";
+import { config } from "../../config";
 import { log } from "../../log";
 import { PipelineStore } from "./PipelineStore";
 import type { JenkinsfilePipeline } from "../../types";
@@ -12,15 +13,31 @@ import type { JenkinsfilePipeline } from "../../types";
  * library grows a key.
  */
 const pipelineBody = z.object({
-  name: z.string().trim().min(1).max(120),
-  library: z.string().trim().min(1).max(200),
+  // Empty is legal: the @Library line is optional, and the builder only ever
+  // sends the configured name (optionally `@branch`) or nothing at all.
+  library: z.string().trim().max(200),
   envVars: z.record(z.string(), z.string()),
+  params: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1).max(80),
+        type: z.enum(["boolean", "string", "choice"]).default("boolean"),
+        // Records written when every parameter was a booleanParam hold a real
+        // boolean here; one shape on the way in beats a migration on the way out.
+        defaultValue: z.union([z.string(), z.boolean()]).transform(String).default(""),
+        description: z.string().max(300),
+        choices: z.array(z.string()).max(50).optional(),
+      })
+    )
+    .max(50)
+    .default([]),
   stages: z
     .array(
       z.object({
         id: z.string().min(1),
         step: z.string().min(1),
         args: z.record(z.string(), z.unknown()),
+        collapsed: z.boolean().optional(),
       })
     )
     .max(100),
@@ -34,9 +51,35 @@ export function createJenkinsfileRouter(store: PipelineStore = new PipelineStore
     return pipeline.createdBy === req.user!.id || isAdmin(req.user!);
   }
 
+  /**
+   * There is no name field in the builder — a pipeline is named after whoever
+   * made it plus their own running count, so the list reads "Alex Morgan #3".
+   * The count is per author and derived from what they already own, so two
+   * people never collide and deleting #2 lets the next one reuse the number.
+   */
+  function mintName(req: express.Request): string {
+    const owner = req.user!;
+    const taken = new Set(
+      store
+        .all()
+        .filter((p) => p.createdBy === owner.id)
+        .map((p) => p.name)
+    );
+    const label = owner.displayName?.trim() || owner.id;
+    for (let n = 1; ; n++) {
+      const candidate = `${label} #${n}`;
+      if (!taken.has(candidate)) return candidate;
+    }
+  }
+
   router.get("/api/jenkinsfile/pipelines", (req, res) => {
     const all = store.all();
-    res.json({ pipelines: isAdmin(req.user!) ? all : all.filter((p) => p.createdBy === req.user!.id) });
+    res.json({
+      pipelines: isAdmin(req.user!) ? all : all.filter((p) => p.createdBy === req.user!.id),
+      // Rides along on the list the view already fetches, rather than a second
+      // endpoint or a field on the public /api/config.
+      sharedLibrary: config.jenkinsfile.sharedLibrary,
+    });
   });
 
   router.post("/api/jenkinsfile/pipelines", async (req, res, next) => {
@@ -45,6 +88,7 @@ export function createJenkinsfileRouter(store: PipelineStore = new PipelineStore
       const now = new Date().toISOString();
       const pipeline = await store.put({
         ...body,
+        name: mintName(req),
         id: store.nextId(),
         createdBy: req.user!.id,
         createdByName: req.user!.displayName,

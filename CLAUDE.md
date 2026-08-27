@@ -152,6 +152,12 @@ each stage exposes every argument its library step accepts, and the generated
 Groovy is previewed live and copied or downloaded. It runs no jobs and talks to
 no external system — the only server-side state is saved pipeline documents.
 
+- **The `@Library` import is optional and half fixed.** The library *name* is a
+  deployment fact (`JENKINS_SHARED_LIBRARY`, served alongside the pipeline list
+  rather than on the public `/api/config`), so the builder only asks for a branch
+  to pin — typing the name into every pipeline only creates the chance to typo
+  it. Off is the resting state: a dotted button in the shape of the box it opens
+  into. An empty `library` emits no import line at all.
 - **The library's surface is transcribed by hand** into
   `client/modules/jenkinsfile/catalog.ts`, one `StepSpec` per `vars/*.groovy`
   file, with `COMMON_ARGS` spread into all of them exactly as the library does
@@ -168,30 +174,142 @@ no external system — the only server-side state is saved pipeline documents.
 - The output is **scripted, not declarative**: every step in the library opens
   its own `stage()` through `podLauncher`/`nodeExecutor`, so they are called one
   after another at the top level, never inside a `pipeline {}` block.
-- `populateEnvVars` is edited as a pipeline-level preamble rather than a
-  draggable card. Per-stage `envVars` covers the in-stage case, and is what the
-  library itself recommends for parallel builds since `populateEnvVars` writes
-  to the global env.
-- **Every argument a step takes is on screen, always.** `StageEditor.tsx` renders
-  the whole catalog for the selected step in catalog order: the ones in use as
-  fields, the rest as one-line rows you click to add, so adding one expands it in
-  place rather than reshuffling the list. The three the library validates for
-  (`title`, and exactly one of `image`/`node`) are pinned open above the rest and
-  cannot be removed — `image`/`node` as a two-way segmented control, since they
-  are one choice and not two fields. A step's own default is the field's
-  placeholder, so leaving it blank visibly means "use `sonar`".
+- **The list you reorder is the list you edit.** `StageList.tsx` is one column of
+  `StageCard.tsx`s: the header is the card collapsed (grip, position, title,
+  description, ▲/▼, ×) and expanding it drops the whole argument editor in
+  underneath. There is no rail-and-panel split to keep in sync, so the order on
+  screen is the order in the file. **Whether a card is minimized is saved with
+  the pipeline** (`JenkinsfileStage.collapsed`), so one opens the way it was
+  left; the header carries an explicit Minimize/Edit button beside the chevron,
+  because folding a card away needs a visible way back.
+- **`populateEnvVars` is a card like any other**, not a pipeline-level preamble —
+  it is a top-level call in the generated Groovy exactly as the stages are, so
+  where it sits in the list is where it lands in the file. It is the one
+  `callStyle: "bare"` step in the catalog (`populateEnvVars([SERVICE: 'x'])`, not
+  `populateEnvVars(envVars: [...])`), it takes no title or runtime, and the
+  palette hides it once one exists (`SINGLETON_STEPS`). Records written before
+  this carry the map at the top level instead; `toDraft` migrates one into a
+  leading card on open and `toInput` writes `envVars: {}` back, so the migration
+  runs once. Per-stage `envVars` still covers the in-stage case, and is what the
+  library recommends for parallel builds since `populateEnvVars` writes to the
+  global env.
+- **Pipeline parameters** are emitted as a `properties([parameters([...])])`
+  block ahead of the stages. All five Jenkins types are offered — boolean,
+  string, text, choice, password — described in `params.ts`, which carries the
+  emitted function name as data because `booleanParam` is the one that is not
+  named after its type. Every type stores its default as a **string** (`"true"` /
+  `"false"` for a boolean) so switching a parameter's type keeps what was already
+  typed; `choice` has no default field at all, since Jenkins takes the first
+  choice. Records written when every parameter was a `booleanParam` with a real
+  boolean default are normalised by `toDraft`.
+- Parameters exist mainly to make a stage's skip condition a build-time choice:
+  declare `skipImage`, then set a stage's `skipStage` to `params.skipImage`.
+  `skipStage` is therefore an `expression` argument — a raw Groovy string emitted
+  **unquoted** — not a checkbox. The library's `genStage` does a bare
+  `if (args.skipStage)` and its validator coerces with `turnToBoolean`, so any
+  truthy expression is legal there. Records written when it was a boolean still
+  work: `true` renders as `true`, and `false` means "not set" and drops out.
+- **`commands` is one argument with two shapes**, because the library's
+  `executeCommands` branches on exactly that: an `ArrayList` it joins with `&&`
+  and hands to `sh`/`bat`, or a `Closure` it calls. The `commands` kind renders a
+  Shell/Closure switch over one textarea, and the value is boxed so the two are
+  never confused — an array is shell, `{ closure }` is Groovy written through
+  verbatim. `postCommands` takes the same choice. Flipping the switch keeps the
+  text: the same lines usually want to become `sh '…'` calls. On the two gen
+  stages `commands` is `required`, so it is pinned open beside title and image
+  rather than sitting in the collapsed common group — a gen stage with no
+  commands is not a stage. `common(exclude, require)` in the catalog is what
+  marks it, per step, because `semVerStage` and `sonarStage` run their own work
+  and take none.
+- **Problems are held back until you press outside the thing they are about.**
+  They are computed from the first keystroke, but a field you are still in the
+  middle of is not a mistake yet, so `touched` gates them per stage (plus one
+  scope for the parameters). `useLeaveScopes` is one document `pointerdown`
+  listener rather than a handler per card — the press that reveals a stage's
+  problems usually lands on a *different* stage or on the page background,
+  neither of which the card can see. Elements opt in with `data-touch-scope`;
+  each card also has its own `onBlur`, but only for a *non-null* `relatedTarget`
+  — a null one means a press on something unfocusable, which may well be inside
+  that same card, and moving between a stage's own fields must not turn it red.
+  Opening or starting a pipeline resets the gate.
+- **Every argument a step takes is on screen, always**, in catalog order: the
+  ones in use as fields, the rest as one-line rows you click to add, so adding
+  one expands it in place rather than reshuffling the list. The three the library
+  validates for (`title`, and exactly one of `image`/`node`) are pinned open
+  above the rest and cannot be removed — `image`/`node` as a two-way segmented
+  control, since they are one choice and not two fields. **What is pinned is a
+  per-step question**, because every wrapper in the library assigns its own
+  (`args.title = args.title ?: 'Sonar Scanning'`) before validating: only the two
+  gen stages leave `title`, the runtime and `commands` open, and `common(exclude,
+  require)` marks them. `pinsRuntime(spec)` is the same rule for the image/node
+  control — a step with a default image has nothing to choose. Everywhere else
+  they are ordinary optional arguments in the add list, and validation follows
+  the same `required` flag rather than a second hardcoded rule. A step's own
+  default is the field's placeholder, so leaving it blank visibly means "use
+  `sonar`". The step's-own/from-genStage split into two groups only applies to
+  steps that actually wrap `genStage`.
+- **A list of maps is a list of boxes.** `secrets`, `additionalRepos` and
+  `customPVC` render one bordered entry per element, each field labelled, with a
+  one-line hint and the longer story behind a `?` — three bare inputs reading
+  `secret/team/service`, `token`, `SERVICE_TOKEN` say nothing about which is
+  which. `ObjectField` carries `hint` and `description` for that. The `?` is a
+  button, not a `title=` tooltip: a tooltip cannot be opened by touch and
+  vanishes while you read it.
+- **Removing the last entry removes the argument.** Both `MapRows` and
+  `ObjectRows` render one placeholder row when the value is empty, so without
+  this the `×` on a single row appeared to do nothing — `onChange([])` just
+  re-rendered the same blank row.
+- **`unstash` picks, it does not type.** It offers the stash names declared by
+  *earlier* stages (`stashesBefore` in `StageList`) — the library stashes after
+  a stage's commands run, so a stage cannot unstash its own. A name held over
+  from a since-deleted stage stays on the list, marked, so it can be unticked
+  rather than silently vanishing.
+- **Textareas grow a row per line and are not user-resizable** — a dragged height
+  only fights the auto-size on the next keystroke. The value of a list field is
+  the raw split of the text, blank lines included: filtering them on the way in
+  is what used to make Enter look broken, because the empty line you just made
+  was dropped before it could render. The generator drops blanks instead.
+- **A list pasted out of an existing Jenkinsfile is unwrapped.** `"npm install",`
+  on its own line becomes `'npm install'`, not `'"npm install",'`. `unwrap` in
+  `groovy.ts` only strips a quote pair that wraps the whole line with none of
+  that quote inside it, so `echo "hi"` and `"$A" = "$B"` survive untouched.
 - **Drag and drop is native HTML5**, no library — three handlers over an array
-  in `StageRail.tsx`. The ▲/▼ buttons beside each card are not decoration: they
-  are the keyboard path, and they are what makes reordering testable in jsdom.
+  in `StageList.tsx`, and it is the only way to reorder. A card is draggable only
+  while collapsed: a text input inside an expanded card cannot be selected with
+  the mouse if its ancestor is grabbing the drag.
+- **Adding a stage is the last thing in the list**, and its palette is a popover
+  rather than a panel in the flow — one that reflowed the page on open would move
+  the button out from under the cursor that just pressed it. It is centred with
+  auto margins, not `translateX(-50%)`: the shared `row-in` animation animates
+  `transform` and would win.
 - Maps are edited as ordered key/value **pairs**, not as objects — an object
   cannot hold the half-typed state of renaming a key. They become objects again
   at the edges (`recordOf` on the way to the server; the generator reads either
-  shape).
+  shape). A map whose keys the library fixes (`resources`) is the exception: it
+  renders as one labelled box per allowed key, so the key cannot be misspelled
+  into a `resourcesValidator` failure.
 - Pipelines live one JSON file per pipeline under `<DATA_DIR>/jenkinsfile`,
   ids `JF-0001`, via `PipelineStore` — the AI module's conversation store in
   miniature, not `JobStore` (which is `status`/`log`-shaped and splits in-flight
   from settled). **These are user documents, so `DELETE` really deletes.** The
   "nothing is ever deleted" rule above is about run history.
+- **There is no name field and no Save button.** The server names a pipeline
+  `<author> #<n>` on create (`mintName` in `router.ts`), where `n` is the lowest
+  free number among that author's own pipelines — so two people never collide,
+  and deleting #2 lets the next one reuse it. `name` is not in the request body
+  at all, which is also why an admin editing someone else's pipeline cannot
+  rename it out from under them.
+- **Saving is automatic**, debounced ~800ms after the last change, with the state
+  shown in the topbar. Two refs make it safe: `persisted` holds the JSON of what
+  the server last returned, so an edit that lands back in the same shape is not
+  written again and the response cannot loop; `queue` chains the writes, so the
+  create that mints the id finishes before the first PUT needs it. A draft nobody
+  has touched is never written — opening the module must not litter the list with
+  empty pipelines. The response is merged field-by-field (`id`, `name`,
+  `updatedAt`) rather than wholesale, so typing during a slow request is not
+  stamped on.
+- The saved list uses the portal's standard `.ticket-row` shape, same as every
+  other module. Editing a pipeline is opening it; there is nothing else to do to it.
 
 ## Logging
 

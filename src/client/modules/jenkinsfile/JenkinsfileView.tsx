@@ -1,52 +1,93 @@
-import { FilePlus2, Save, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Check, FilePlus2, Trash2, TriangleAlert } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
-import type { JenkinsfilePipeline, JenkinsfileStage } from "../../../server/types";
+import type { JenkinsfileParam, JenkinsfilePipeline, JenkinsfileStage } from "../../../server/types";
 import { log, error as logError } from "../../log";
 import { createPipeline, deletePipeline, listPipelines, updatePipeline } from "./api";
-import type { ArgSpec } from "./catalog";
 import { toGroovy } from "./groovy";
 import {
   createStage,
+  DEFAULT_LIBRARY,
   newPipeline,
-  stageLabel,
   toDraft,
   toInput,
   validatePipeline,
   type DraftPipeline,
-  type MapPairs,
 } from "./pipeline";
-import { ArgField } from "./components/ArgField";
 import { JenkinsfilePreview } from "./components/JenkinsfilePreview";
+import { LibraryField } from "./components/LibraryField";
+import { ParamsEditor } from "./components/ParamsEditor";
 import { PipelineList } from "./components/PipelineList";
-import { StageEditor } from "./components/StageEditor";
-import { StageRail } from "./components/StageRail";
+import { StageList } from "./components/StageList";
+
+/** The `touched` key standing for the pipeline itself rather than one stage. */
+const PIPELINE_SCOPE = "pipeline";
+
+/** How long to sit on a change before writing it. One keystroke is not an edit. */
+const AUTOSAVE_MS = 800;
+
+type SaveState = "idle" | "saving" | "saved" | "error";
 
 /**
- * `populateEnvVars` is a top-level call, not a stage, so it is edited here as
- * part of the pipeline rather than as a draggable card. Per-stage `envVars`
- * covers the narrower case (and is what the library recommends for parallel
- * builds, since populateEnvVars writes to the global env).
+ * Problems show for a part of the page once you have pressed outside it — a
+ * field you have not filled in yet is not a mistake while you are still in it.
+ *
+ * One document listener rather than a handler per card: the press that reveals a
+ * stage's problems usually lands on some other stage, or on the page background,
+ * neither of which the card itself can see. Elements opt in by carrying
+ * `data-touch-scope`; everything whose scope is not the one pressed has been
+ * left. Tabbing out is handled separately, by each card's own `onBlur` — a
+ * keyboard user may never press anything.
  */
-const ENV_VARS_ARG: ArgSpec = {
-  name: "envVars",
-  label: "Environment variables",
-  kind: "stringMap",
-  hint: "Emitted as a populateEnvVars([...]) preamble. SERVICE and TEAM_NAME are the ones the library reads.",
-};
+function useLeaveScopes(onLeave: (scope: string) => void, scopes: string[]) {
+  const latest = useRef({ onLeave, scopes });
+  latest.current = { onLeave, scopes };
+
+  useEffect(() => {
+    function onDown(e: PointerEvent) {
+      const inside = (e.target as Element | null)?.closest?.("[data-touch-scope]");
+      const pressed = inside?.getAttribute("data-touch-scope");
+      for (const scope of latest.current.scopes) {
+        if (scope !== pressed) latest.current.onLeave(scope);
+      }
+    }
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, []);
+}
 
 export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) {
   const [pipelines, setPipelines] = useState<JenkinsfilePipeline[]>([]);
   const [draft, setDraft] = useState<DraftPipeline>(newPipeline);
-  const [selectedStageId, setSelectedStageId] = useState<string | null>(null);
+  /**
+   * Which parts have been left once. Problems are computed from the first
+   * keystroke but only shown for a stage you have finished with — an empty field
+   * you are still in the middle of is not a mistake yet. Keyed by stage id, plus
+   * PIPELINE_SCOPE for the parameters.
+   */
+  const [touched, setTouched] = useState<Set<string>>(new Set());
   const [showAll, setShowAll] = useState(true);
-  const [saving, setSaving] = useState(false);
+  /** The configured library name, which the server sends alongside the list. */
+  const [sharedLibrary, setSharedLibrary] = useState(DEFAULT_LIBRARY);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  /** The id the next write should PUT to. A ref, because the write queue reads it after an await. */
+  const idRef = useRef("");
+  /**
+   * The JSON of what is already on the server, so an edit that lands back in the
+   * same shape is not written again. Set from the *response*, not the request,
+   * so a normalisation the server makes does not read as a pending change and
+   * loop.
+   */
+  const persisted = useRef("");
+  /** One write at a time: a create must finish and hand back an id before the next PUT. */
+  const queue = useRef<Promise<void>>(Promise.resolve());
 
   function fetchPipelines() {
     listPipelines()
       .then((result) => {
         log("jenkinsfile", `pipelines loaded: ${result.pipelines.length}`);
         setPipelines(result.pipelines);
+        if (result.sharedLibrary) setSharedLibrary(result.sharedLibrary);
       })
       .catch((err: Error) => {
         logError("jenkinsfile", "listPipelines failed", err);
@@ -65,9 +106,14 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
     () => (isAdmin && !showAll ? pipelines.filter((p) => p.createdBy === user.id) : pipelines),
     [pipelines, showAll, isAdmin, user.id]
   );
-  const errors = useMemo(() => validatePipeline(draft), [draft]);
   const code = useMemo(() => toGroovy(draft), [draft]);
-  const selectedStage = draft.stages.find((s) => s.id === selectedStageId) ?? null;
+  const errors = useMemo(() => {
+    const all = validatePipeline(draft);
+    return {
+      pipeline: touched.has(PIPELINE_SCOPE) ? all.pipeline : [],
+      stages: Object.fromEntries(Object.entries(all.stages).filter(([id]) => touched.has(id))),
+    };
+  }, [draft, touched]);
 
   function patchDraft(updates: Partial<DraftPipeline>) {
     setDraft((prev) => ({ ...prev, ...updates }));
@@ -75,21 +121,52 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
 
   function handleOpen(pipeline: JenkinsfilePipeline) {
     log("jenkinsfile", "opening pipeline", pipeline.id);
-    setDraft(toDraft(pipeline));
-    setSelectedStageId(pipeline.stages[0]?.id ?? null);
+    // Which cards are folded was saved with it, so it opens the way it was left.
+    const opened = toDraft(pipeline);
+    setDraft(opened);
+    // It came from the server, so it is already written — otherwise merely
+    // opening one would write it straight back.
+    idRef.current = pipeline.id;
+    persisted.current = JSON.stringify(toInput(opened));
+    setTouched(new Set());
+    setSaveState("idle");
   }
 
   function handleNew() {
     log("jenkinsfile", "new pipeline");
     setDraft(newPipeline());
-    setSelectedStageId(null);
+    idRef.current = "";
+    persisted.current = "";
+    setTouched(new Set());
+    setSaveState("idle");
   }
+
+  function touch(scope: string) {
+    setTouched((prev) => (prev.has(scope) ? prev : new Set(prev).add(scope)));
+  }
+
+  useLeaveScopes(touch, [PIPELINE_SCOPE, ...draft.stages.map((s) => s.id)]);
 
   function handleAddStage(step: string) {
     const stage = createStage(step);
     log("jenkinsfile", "adding stage", step, stage.id);
-    setDraft((prev) => ({ ...prev, stages: [...prev.stages, stage] }));
-    setSelectedStageId(stage.id);
+    // populateEnvVars is a preamble wherever it is put, so it goes to the front —
+    // anything reading $SERVICE has to run after it.
+    setDraft((prev) => ({
+      ...prev,
+      stages: step === "populateEnvVars" ? [stage, ...prev.stages] : [...prev.stages, stage],
+    }));
+  }
+
+  function toggleStage(id: string) {
+    setDraft((prev) => ({
+      ...prev,
+      stages: prev.stages.map((s) => (s.id === id ? { ...s, collapsed: !s.collapsed } : s)),
+    }));
+  }
+
+  function collapseAll(collapsed: boolean) {
+    setDraft((prev) => ({ ...prev, stages: prev.stages.map((s) => ({ ...s, collapsed })) }));
   }
 
   function handleStageChange(stage: JenkinsfileStage) {
@@ -99,22 +176,52 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
   function handleRemoveStage(id: string) {
     log("jenkinsfile", "removing stage", id);
     setDraft((prev) => ({ ...prev, stages: prev.stages.filter((s) => s.id !== id) }));
-    setSelectedStageId((prev) => (prev === id ? null : prev));
+    setTouched((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
   }
 
-  async function handleSave() {
-    setSaving(true);
+  /**
+   * Autosave. There is no Save button — a pipeline is a document, and the list
+   * is where you come back to it — so every change is written after a pause.
+   * A draft nobody has touched is not written at all: opening the module must
+   * not litter the list with empty pipelines.
+   */
+  useEffect(() => {
+    const input = toInput(draft);
+    const json = JSON.stringify(input);
+    if (json === persisted.current) return;
+    if (!draft.id && input.stages.length === 0 && input.params.length === 0) return;
+
+    const timer = setTimeout(() => {
+      queue.current = queue.current.then(() => write(input, json));
+    }, AUTOSAVE_MS);
+    return () => clearTimeout(timer);
+  }, [draft]);
+
+  async function write(input: ReturnType<typeof toInput>, json: string) {
+    if (json === persisted.current) return;
+    setSaveState("saving");
     try {
-      const input = toInput(draft);
-      const { pipeline } = draft.id ? await updatePipeline(draft.id, input) : await createPipeline(input);
-      log("jenkinsfile", draft.id ? "updated" : "created", pipeline.id);
-      setDraft(toDraft(pipeline));
+      // `id` is read at write time rather than captured: the create that ran
+      // just before this one in the queue is what put it there.
+      const id = idRef.current;
+      const { pipeline } = id ? await updatePipeline(id, input) : await createPipeline(input);
+      idRef.current = pipeline.id;
+      persisted.current = JSON.stringify(toInput(toDraft(pipeline)));
+      log("jenkinsfile", id ? "autosaved" : "created", pipeline.id);
+      // Only the server's own fields are taken back. Merging the whole record
+      // would stamp on whatever was typed while the request was in flight.
+      setDraft((prev) => ({ ...prev, id: pipeline.id, name: pipeline.name, updatedAt: pipeline.updatedAt }));
       setPipelines((prev) => [pipeline, ...prev.filter((p) => p.id !== pipeline.id)]);
+      setSaveState("saved");
     } catch (err) {
-      logError("jenkinsfile", "save failed", err);
+      logError("jenkinsfile", "autosave failed", err);
       onError(err instanceof Error ? err.message : "Failed to save");
-    } finally {
-      setSaving(false);
+      setSaveState("error");
     }
   }
 
@@ -145,15 +252,19 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
           <button type="button" className="ghost-button" onClick={handleNew}>
             <FilePlus2 size={17} aria-hidden="true" /> New
           </button>
-          <button
-            type="button"
-            className="primary"
-            disabled={saving || !draft.name.trim()}
-            title={draft.name.trim() ? undefined : "Give the pipeline a name first"}
-            onClick={() => void handleSave()}
-          >
-            <Save size={17} aria-hidden="true" /> {saving ? "Saving…" : draft.id ? "Save" : "Save as new"}
-          </button>
+          <span className={`jf-save-state ${saveState}`} role="status">
+            {saveState === "saving" && "Saving…"}
+            {saveState === "saved" && (
+              <>
+                <Check size={15} aria-hidden="true" /> Saved
+              </>
+            )}
+            {saveState === "error" && (
+              <>
+                <TriangleAlert size={15} aria-hidden="true" /> Not saved
+              </>
+            )}
+          </span>
         </div>
       </header>
 
@@ -184,69 +295,36 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
 
         <div className="content-column">
           <section className="detail-panel" aria-label="Pipeline settings">
-            <div className="jf-settings">
-              <div className="form-field">
-                <label htmlFor="jf-name">Pipeline name</label>
-                <input
-                  id="jf-name"
-                  type="text"
-                  value={draft.name}
-                  placeholder="my-service pipeline"
-                  onChange={(e) => patchDraft({ name: e.target.value })}
-                />
-                <span className="field-hint">Only used to find it in the list — it is not written into the file.</span>
-              </div>
-              <div className="form-field">
-                <label htmlFor="jf-library">Shared library</label>
-                <input
-                  id="jf-library"
-                  type="text"
-                  value={draft.library}
-                  onChange={(e) => patchDraft({ library: e.target.value })}
-                />
-                <span className="field-hint">
-                  Goes inside <code>@Library('…') _</code>. Add <code>@branch</code> to pin a version.
-                </span>
-              </div>
-            </div>
-            <ArgField
-              spec={ENV_VARS_ARG}
-              value={draft.envVars}
-              idPrefix="jf-pipeline"
-              onChange={(value) => patchDraft({ envVars: value as MapPairs })}
+            <LibraryField
+              value={draft.library}
+              name={sharedLibrary}
+              onChange={(library) => patchDraft({ library })}
             />
           </section>
 
+          <section
+            className="detail-panel"
+            aria-label="Pipeline parameters"
+            data-touch-scope={PIPELINE_SCOPE}
+            onBlur={(e) => {
+              if (!e.relatedTarget || !e.currentTarget.contains(e.relatedTarget)) touch(PIPELINE_SCOPE);
+            }}
+          >
+            <ParamsEditor params={draft.params} onChange={(params) => patchDraft({ params })} />
+          </section>
+
           <section className="detail-panel jf-builder" aria-label="Stages">
-            <div className="jf-build-grid">
-              <StageRail
-                stages={draft.stages}
-                selectedId={selectedStageId}
-                errors={errors.stages}
-                onSelect={setSelectedStageId}
-                onReorder={(stages) => patchDraft({ stages })}
-                onAdd={handleAddStage}
-                onRemove={handleRemoveStage}
-              />
-              {selectedStage ? (
-                <StageEditor
-                  key={selectedStage.id}
-                  stage={selectedStage}
-                  errors={errors.stages[selectedStage.id] ?? []}
-                  onChange={handleStageChange}
-                  onRemove={() => handleRemoveStage(selectedStage.id)}
-                />
-              ) : (
-                <div className="jf-editor jf-editor-blank">
-                  <h2>{draft.stages.length ? "No stage selected" : "Start with a stage"}</h2>
-                  <p className="jf-empty">
-                    {draft.stages.length
-                      ? `Pick one on the left to edit every argument it takes — ${stageLabel(draft.stages[0])} is first.`
-                      : "Pick a step on the left. Each one opens here with its required arguments filled in and the rest one click away."}
-                  </p>
-                </div>
-              )}
-            </div>
+            <StageList
+              stages={draft.stages}
+              errors={errors.stages}
+              onToggle={toggleStage}
+              onCollapseAll={collapseAll}
+              onReorder={(stages) => patchDraft({ stages })}
+              onChange={handleStageChange}
+              onLeave={touch}
+              onAdd={handleAddStage}
+              onRemove={handleRemoveStage}
+            />
           </section>
 
           <section className="detail-panel" aria-label="Generated Jenkinsfile">

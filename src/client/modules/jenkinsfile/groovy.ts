@@ -1,6 +1,7 @@
 import { stepSpec, type ArgKind, type ArgSpec } from "./catalog";
-import { isEmptyArg, pairsOf, type DraftPipeline } from "./pipeline";
-import type { JenkinsfileStage } from "../../../server/types";
+import { closureOf, isEmptyArg, linesOf, pairsOf, type DraftPipeline } from "./pipeline";
+import { PARAM_TYPES } from "./params";
+import type { JenkinsfileParam, JenkinsfileStage } from "../../../server/types";
 
 const INDENT = "    ";
 
@@ -18,6 +19,25 @@ function quote(raw: string): string {
 }
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * A list pasted out of an existing Jenkinsfile arrives already quoted and
+ * comma-separated — `"npm install",` on its own line. Taking that literally
+ * would emit `'"npm install",'` and run a command that does not exist, so the
+ * wrapper comes off and the generator puts its own quoting back.
+ *
+ * Only a line that is quoted end to end with nothing of that quote inside it
+ * counts, so `echo "hi"` and `"$A" = "$B"` are left exactly as typed.
+ */
+function unwrap(line: string): string {
+  let text = line.trim().replace(/,$/, "").trim();
+  const quote = text[0];
+  if ((quote === '"' || quote === "'") && text.length >= 2 && text.endsWith(quote)) {
+    const inner = text.slice(1, -1);
+    if (!inner.includes(quote)) text = inner;
+  }
+  return text.trim();
+}
 
 function key(name: string): string {
   return IDENTIFIER.test(name) ? name : quote(name);
@@ -43,15 +63,31 @@ function mapEntries(value: unknown): string[] {
 
 function renderValue(kind: ArgKind, value: unknown, indent: string): string {
   switch (kind) {
+    case "expression":
+      // Emitted raw — the point of the field is to write `params.skipImage`, not
+      // the string "params.skipImage". Older records hold a real boolean here.
+      return typeof value === "boolean" ? String(value) : String(value).trim();
     case "boolean":
       return value ? "true" : "false";
     case "integer":
       return String(Number(value));
+    case "commands": {
+      // The library's executeCommands takes either: an ArrayList it joins with
+      // `&&` and hands to sh, or a Closure it simply calls. A closure is written
+      // through verbatim — it is Groovy the user typed, not a value to quote.
+      const closure = closureOf(value);
+      if (closure !== null) {
+        // Blank lines inside the body are the author's; blank lines around it
+        // are just where the cursor stopped.
+        const body = closure.split("\n").map((line) => line.trimEnd());
+        while (body.length && !body[0].trim()) body.shift();
+        while (body.length && !body[body.length - 1].trim()) body.pop();
+        return `{\n${body.map((line) => (line.trim() ? `${indent}${INDENT}${line}` : "")).join("\n")}\n${indent}}`;
+      }
+      return bracket(linesOf(value).map(unwrap).filter(Boolean).map(quote), indent);
+    }
     case "stringList":
-      return bracket(
-        (value as string[]).map((v) => String(v ?? "").trim()).filter(Boolean).map(quote),
-        indent
-      );
+      return bracket(linesOf(value).map(unwrap).filter(Boolean).map(quote), indent);
     case "stringMap":
       return bracket(mapEntries(value), indent);
     case "objectList":
@@ -79,6 +115,12 @@ export function stageToGroovy(stage: JenkinsfileStage): string {
   const args = setArgs(stage);
   if (args.length === 0) return `${stage.step}()`;
 
+  // `bare` steps take their one argument as the whole call, with no key in
+  // front of it: populateEnvVars([SERVICE: 'x']).
+  if (stepSpec(stage.step)?.callStyle === "bare") {
+    return `${stage.step}(${renderValue(args[0].spec.kind, args[0].value, "")})`;
+  }
+
   const inlineParts = args.map(({ spec, value }) => `${spec.name}: ${renderValue(spec.kind, value, INDENT)}`);
   const inline = `${stage.step}(${inlineParts.join(", ")})`;
   if (args.length === 1 && !inline.includes("\n") && inline.length <= 100) return inline;
@@ -88,20 +130,42 @@ export function stageToGroovy(stage: JenkinsfileStage): string {
 }
 
 /**
+ * One entry of the `parameters([...])` block. A `choice` takes its options
+ * instead of a default — Jenkins uses the first one — so it is the one shape
+ * that differs.
+ */
+export function paramToGroovy(param: JenkinsfileParam): string {
+  const spec = PARAM_TYPES.find((t) => t.type === param.type) ?? PARAM_TYPES[0];
+  const name = `name: ${quote(param.name.trim())}`;
+  const description = `description: ${quote(param.description.trim())}`;
+
+  if (param.type === "choice") {
+    const choices = (param.choices ?? []).map((c) => c.trim()).filter(Boolean);
+    return `${spec.fn}(${name}, choices: ${bracket(choices.map(quote), `${INDENT}${INDENT}`)}, ${description})`;
+  }
+
+  const value = param.type === "boolean" ? String(param.defaultValue === "true") : quote(param.defaultValue);
+  return `${spec.fn}(${name}, defaultValue: ${value}, ${description})`;
+}
+
+/**
  * The whole Jenkinsfile. Scripted, not declarative: every step in the library
  * opens its own `stage()` (through podLauncher / nodeExecutor), so they are
  * called one after another at the top level rather than inside a `pipeline {}`
  * block.
  */
 export function toGroovy(pipeline: DraftPipeline): string {
-  const blocks: string[] = [`@Library('${pipeline.library.trim() || "jenkins-k8s-shared-library"}') _`];
+  // The import is optional: a pipeline that calls no library step needs no line.
+  const blocks: string[] = [];
+  if (pipeline.library.trim()) blocks.push(`@Library('${pipeline.library.trim()}') _`);
 
-  const envVars = mapEntries(pipeline.envVars);
-  if (envVars.length) {
-    blocks.push(`populateEnvVars([\n${envVars.map((e) => `${INDENT}${e}`).join(",\n")}\n])`);
+  const params = pipeline.params.filter((p) => p.name.trim());
+  if (params.length) {
+    const declared = params.map((p) => `${INDENT}${INDENT}${paramToGroovy(p)}`);
+    blocks.push(`properties([\n${INDENT}parameters([\n${declared.join(",\n")}\n${INDENT}])\n])`);
   }
 
   for (const stage of pipeline.stages) blocks.push(stageToGroovy(stage));
 
-  return `${blocks.join("\n\n")}\n`;
+  return blocks.length ? `${blocks.join("\n\n")}\n` : "";
 }

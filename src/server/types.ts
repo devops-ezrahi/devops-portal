@@ -332,15 +332,42 @@ export type JenkinsfileStage = {
   id: string;
   step: string;
   args: Record<string, unknown>;
+  /** Whether the builder shows this card folded to its header. Saved with the pipeline. */
+  collapsed?: boolean;
+};
+
+/** The parameter types Jenkins' `parameters([...])` block accepts. */
+export type JenkinsfileParamType = "boolean" | "string" | "choice";
+
+/** One entry of the pipeline's `properties([parameters([...])])` block. */
+export type JenkinsfileParam = {
+  name: string;
+  type: JenkinsfileParamType;
+  /**
+   * Always a string, whatever the type — `"true"` / `"false"` for a boolean.
+   * One shape means the editor can switch a parameter's type without dropping
+   * what was already typed into it.
+   */
+  defaultValue: string;
+  description: string;
+  /** `choice` only: the options, in the order Jenkins offers them. */
+  choices?: string[];
 };
 
 export type JenkinsfilePipeline = {
   id: string;
+  /** Assigned by the server as `<author> #<n>` — there is no name field to fill in. */
   name: string;
   /** What goes inside `@Library('...') _` — the library name, optionally `@branch`. */
   library: string;
-  /** Emitted as a `populateEnvVars([...])` preamble before the first stage. */
+  /**
+   * Legacy: the pipeline-level `populateEnvVars` map, from before it became a
+   * stage card of its own. Records written since then carry `{}` here and a
+   * `populateEnvVars` stage instead; `toDraft` migrates the old shape on open.
+   */
   envVars: Record<string, string>;
+  /** Build parameters, referenced from skip conditions and commands as `params.<name>`. */
+  params?: JenkinsfileParam[];
   stages: JenkinsfileStage[];
   createdBy: string;
   createdByName: string;

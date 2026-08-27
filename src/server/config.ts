@@ -147,6 +147,12 @@ export const config = {
     username: requireEnv("GIT_USERNAME") ?? "",
     enabled: !!(gitUrl && gitToken),
   },
+  jenkinsfile: {
+    // The one library every generated Jenkinsfile imports. The builder only
+    // asks for a branch to pin — the name is a deployment fact, not a per-user
+    // choice, so it is set here rather than typed into every pipeline.
+    sharedLibrary: (requireEnv("JENKINS_SHARED_LIBRARY") ?? "jenkins-k8s-shared-library").trim(),
+  },
   jira: {
     baseUrl: jiraUrl ?? "",
     token: jiraToken ?? "",

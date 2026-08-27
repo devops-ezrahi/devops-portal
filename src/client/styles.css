@@ -2374,6 +2374,7 @@ code {
 .jf-arg input,
 .jf-arg select,
 .jf-arg textarea {
+  resize: none;
   width: 100%;
   border: 1px solid #2a3940;
   border-radius: 6px;
@@ -2409,25 +2410,243 @@ code {
   margin-bottom: 12px;
 }
 
-.jf-build-grid {
+/* ---- Pipeline parameters ---- */
+
+.jf-params {
   display: grid;
-  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
-  gap: 18px;
-  align-items: start;
+  gap: 10px;
 }
 
-/* ---- Stage rail ---- */
+/* Parameters are laid out exactly like stage arguments — .jf-arg does the box,
+   this only adds the three-across row for name / type / description. */
+.jf-param-list {
+  padding: 0;
+}
 
-.jf-rail-head {
+.jf-param-grid {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(110px, auto) minmax(160px, 2fr);
+  gap: 8px 10px;
+}
+
+.jf-param .form-field label,
+.jf-param-grid label {
+  color: #8d9ba2;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.jf-params .jf-checkbox {
+  white-space: nowrap;
+  font-size: 12px;
+  color: #8d9ba2;
+}
+
+/* ---- The optional @Library import ---- */
+
+/* Off is a dotted slot in the shape of the box it opens into, so switching it on
+   reads as filling something in rather than growing a new section. */
+.jf-dotted {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px dashed #2a3940;
+  border-radius: 8px;
+  background: transparent;
+  color: #8d9ba2;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
 }
 
-.jf-rail-head h3 {
+.jf-dotted:hover {
+  border-color: #20c7bd;
+  background: #101a1e;
+  color: #cfd8dc;
+}
+
+.jf-dotted svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #20c7bd;
+}
+
+.jf-dotted span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.jf-dotted strong {
+  color: #f2f6f7;
+  font-size: 13px;
+}
+
+.jf-dotted small {
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.jf-library-icon {
+  color: #20c7bd;
+  flex-shrink: 0;
+}
+
+/* ---- Pickable list values (unstash) ---- */
+
+.jf-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+.jf-picker .jf-checkbox {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+}
+
+/* ---- One entry of an object list ---- */
+
+.jf-entry {
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #223038;
+  border-radius: 8px;
+  background: #0d1417;
+}
+
+.jf-entry-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #1c262b;
+}
+
+.jf-entry-title {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #8d9ba2;
+}
+
+.jf-entry-head .icon-button {
+  margin-left: auto;
+}
+
+.jf-entry-field {
+  display: grid;
+  gap: 4px;
+}
+
+.jf-entry-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jf-entry-label label {
+  color: #f2f6f7;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.jf-entry-field .field-hint {
   margin: 0;
+}
+
+/* ---- The ? beside an entry field ---- */
+
+.jf-help {
+  position: relative;
+  display: inline-flex;
+}
+
+.jf-help-toggle {
+  display: inline-flex;
+  padding: 1px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #6f8088;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+
+.jf-help-toggle:hover,
+.jf-help-toggle[aria-expanded="true"] {
+  color: #20c7bd;
+}
+
+.jf-help-body {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: -8px;
+  z-index: 15;
+  width: max-content;
+  max-width: min(340px, 70vw);
+  padding: 8px 10px;
+  border: 1px solid #2a3940;
+  border-radius: 7px;
+  background: #0c1215;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+  color: #cfd8dc;
+  font-size: 11.5px;
+  font-weight: 400;
+  line-height: 1.55;
+  white-space: normal;
+}
+
+/* ---- Autosave state ---- */
+
+.jf-save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 74px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #6f8088;
+  transition: color 200ms ease;
+}
+
+.jf-save-state.saved { color: #6fded4 }
+.jf-save-state.error { color: #ff8d95 }
+
+/* The Shell/Closure switch sits above the box it controls. */
+.jf-commands-kind {
+  justify-self: start;
+}
+
+/* ---- Stage list ---- */
+
+/* The one heading row every list section shares: title, count, then actions
+   pushed to the right. */
+.jf-list-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.jf-list-head h2 {
+  margin: 0;
+}
+
+.jf-list-head .jf-group-count {
+  margin-left: 0;
+}
+
+.jf-list-head .jf-head-action {
+  margin-left: auto;
+}
+
+.jf-stage-list {
+  display: grid;
+  gap: 12px;
 }
 
 .jf-rail-empty {
@@ -2437,50 +2656,71 @@ code {
   line-height: 1.5;
 }
 
-.jf-add-heading {
-  margin: 16px 0 8px;
-}
-
-.jf-stages {
+.jf-cards {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 
-.jf-stage {
+/* A stage is one card: the header is the collapsed form, and expanding it drops
+   the whole argument editor in underneath. */
+.jf-card {
   position: relative;
+  border: 1px solid #202b31;
+  border-radius: 10px;
+  background: #0f1518;
+  transition: border-color 150ms ease, background 150ms ease;
+  animation: row-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.jf-card.open {
+  border-color: #24343b;
+  background: #0d1417;
+}
+
+.jf-card.has-error {
+  border-color: #5d272d;
+}
+
+.jf-card-head {
   display: grid;
   grid-template-columns: auto auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
-  padding: 9px 8px 9px 4px;
-  border: 1px solid #202b31;
-  border-radius: 8px;
-  background: #0f1518;
-  cursor: pointer;
-  transition: background 150ms ease, border-color 150ms ease, transform 120ms ease;
-  animation: row-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  padding: 9px 8px 9px 6px;
 }
 
-.jf-stage:hover {
+.jf-card:not(.open) .jf-card-head:hover {
   background: #141d21;
-  transform: translateY(-1px);
+  border-radius: 9px;
 }
 
-.jf-stage.selected {
-  border-color: #20c7bd;
-  background: #14211f;
+.jf-card-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-.jf-stage.selected .jf-stage-index {
-  background: #20c7bd;
-  color: #06110f;
+.jf-card-body {
+  display: grid;
+  gap: 12px;
+  padding: 0 12px 12px;
+  border-top: 1px solid #1c262b;
+  padding-top: 12px;
+  margin-top: 2px;
 }
 
-.jf-stage.has-error {
-  border-color: #5d272d;
+.jf-essentials {
+  padding: 0;
 }
 
 .jf-stage-warn {
@@ -2489,12 +2729,12 @@ code {
 
 /* The dragged card stays in place and dims; the gap it will land in is drawn
    by the insert line below, so nothing reflows mid-drag. */
-.jf-stage.dragging {
+.jf-card.dragging {
   opacity: 0.4;
 }
 
-.jf-stage.drop-before::before,
-.jf-stage.drop-after::after {
+.jf-card.drop-before::before,
+.jf-card.drop-after::after {
   content: "";
   position: absolute;
   left: 0;
@@ -2504,15 +2744,21 @@ code {
   background: #20c7bd;
 }
 
-.jf-stage.drop-before::before { top: -4px }
-.jf-stage.drop-after::after   { bottom: -4px }
+.jf-card.drop-before::before { top: -5px }
+.jf-card.drop-after::after   { bottom: -5px }
 
 .jf-grip {
   color: #6f8088;
   cursor: grab;
 }
 
-.jf-stage:active .jf-grip {
+/* Only a collapsed card is draggable — an expanded one has inputs to select. */
+.jf-card.open .jf-grip {
+  color: #35454c;
+  cursor: default;
+}
+
+.jf-card:not(.open):active .jf-grip {
   cursor: grabbing;
 }
 
@@ -2542,18 +2788,30 @@ code {
 }
 
 .jf-stage-text strong {
-  font-size: 13px;
+  font-size: 13.5px;
 }
 
 .jf-stage-text small {
   color: #6f8088;
-  font-size: 11px;
-  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 11.5px;
+  white-space: normal;
+  line-height: 1.45;
+}
+
+.jf-card.open .jf-stage-text small {
+  white-space: normal;
 }
 
 .jf-stage-actions {
   display: flex;
+  align-items: center;
   gap: 2px;
+}
+
+.jf-card-edit {
+  padding: 4px 9px;
+  font-size: 11.5px;
+  margin-right: 4px;
 }
 
 .jf-stage-actions .icon-button:disabled {
@@ -2562,9 +2820,46 @@ code {
 
 /* ---- Step palette ---- */
 
+/* The adder is the last thing in the list, and its palette floats over the page
+   rather than pushing it: a panel that reflowed on open would move the button
+   out from under the cursor that just pressed it. */
+.jf-adder {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* The params section has no popover to anchor, only the button. */
+.jf-adder-right {
+  margin-top: 4px;
+}
+
 .jf-palette {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  /* Centred with auto margins, not translateX(-50%): the fade-in below animates
+     `transform`, and would win. */
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  z-index: 20;
   display: grid;
-  gap: 5px;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 6px;
+  width: min(720px, 100%);
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 10px;
+  border: 1px solid #2a3940;
+  border-radius: 10px;
+  background: #0c1215;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+  animation: pop-in 140ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes pop-in {
+  from { opacity: 0 }
+  to   { opacity: 1 }
 }
 
 .jf-add-stage {
@@ -2625,42 +2920,7 @@ code {
   margin: 0;
 }
 
-.jf-editor {
-  display: grid;
-  gap: 14px;
-  align-content: start;
-  min-width: 0;
-}
-
-.jf-editor-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid #202b31;
-  padding-bottom: 10px;
-}
-
-.jf-editor-head h2 {
-  margin-bottom: 4px;
-}
-
-.jf-editor-head .ghost-button {
-  white-space: nowrap;
-}
-
-.jf-editor-title {
-  min-width: 0;
-}
-
-.jf-step-name {
-  color: #8d9ba2;
-  font-size: 12px;
-  margin: 0;
-  line-height: 1.5;
-}
-
-.jf-step-name code,
+.jf-stage-text small code,
 .jf-note code,
 .field-hint code {
   font-family: ui-monospace, SFMono-Regular, monospace;
@@ -2714,11 +2974,6 @@ code {
   color: #f4f7f8;
 }
 
-.jf-group-head-static {
-  cursor: default;
-  padding-left: 12px;
-}
-
 .jf-group-title {
   font-size: 12px;
   font-weight: 800;
@@ -2746,6 +3001,10 @@ code {
 
 .jf-arg-list {
   display: grid;
+  /* minmax(0, …) rather than the default `auto`: a grid track sizes to its
+     widest item's max-content, and one long nowrap hint would otherwise stretch
+     the track past the card and spill the whole list out of its box. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   padding: 12px;
 }
@@ -2848,6 +3107,30 @@ code {
   color: #67767d;
 }
 
+/* A map the library fixes the keys of — labelled boxes, not named rows. */
+.jf-fixed-keys {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px 12px;
+}
+
+.jf-fixed-key {
+  display: grid;
+  gap: 4px;
+}
+
+.jf-fixed-key span {
+  color: #8d9ba2;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+/* A skip condition is Groovy, not prose. */
+.jf-expression {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12.5px;
+}
+
 /* ---- image / node choice ---- */
 
 .jf-runtime {
@@ -2913,10 +3196,13 @@ code {
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 12px;
   line-height: 1.6;
-  resize: vertical;
+  /* Not user-resizable: the box already grows a row per line, and a dragged
+     height only fights that on the next keystroke. */
+  resize: none;
 }
 
 .jf-rows {
+  min-width: 0;
   display: grid;
   gap: 6px;
 }
@@ -3014,30 +3300,12 @@ code {
 .jf-code::-webkit-scrollbar-thumb { background: #203238; border-radius: 999px }
 .jf-code::-webkit-scrollbar-thumb:hover { background: #2a3940 }
 
-@media (max-width: 900px) {
-  .jf-build-grid {
-    grid-template-columns: minmax(0, 1fr);
+@media (max-width: 720px) {
+  .jf-param-row {
+    grid-template-columns: minmax(0, 1fr) auto;
   }
-}
 
-.jf-editor-blank {
-  align-content: center;
-  justify-items: start;
-  gap: 6px;
-  min-height: 180px;
-  padding: 20px;
-  border: 1px dashed #263238;
-  border-radius: 10px;
-}
-
-.jf-editor-blank h2 {
-  margin: 0;
-  font-size: 15px;
-}
-
-/* The palette's toggle is a rail heading, not a boxed group head. */
-.jf-add-heading {
-  margin: 16px 0 8px;
-  border: 1px solid #1c262b;
-  border-radius: 8px;
+  .jf-list-head {
+    flex-wrap: wrap;
+  }
 }

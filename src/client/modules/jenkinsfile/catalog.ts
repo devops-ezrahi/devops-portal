@@ -15,10 +15,18 @@
 
 export type ArgKind =
   | "string"
+  /** A raw Groovy expression, emitted unquoted — `params.skipImage`, `true`, `env.X == 'y'`. */
+  | "expression"
   | "boolean"
   | "integer"
   /** A Groovy List of Strings, edited as a textarea — one entry per line. */
   | "stringList"
+  /**
+   * The library's `commands` shape: either a List of shell lines (joined with
+   * `&&` and run through `sh`/`bat`) or a Groovy Closure it calls instead.
+   * Edited as a textarea with a Shell/Closure switch above it.
+   */
+  | "commands"
   /** A Groovy Map of String → String, edited as key/value rows. */
   | "stringMap"
   /** A Groovy List of Maps with a fixed set of keys, edited as repeated groups. */
@@ -28,17 +36,39 @@ export type ObjectField = {
   name: string;
   required?: boolean;
   placeholder?: string;
+  /** One line saying what it is, shown under the name. */
+  hint: string;
+  /** The longer version, behind the `?` beside the name. */
+  description?: string;
 };
 
 export type ArgSpec = {
   name: string;
   kind: ArgKind;
   hint: string;
+  /**
+   * The step is nothing without it, so it is pinned open rather than sitting in
+   * the click-to-add list. Set per step by `common(exclude, require)`, because
+   * whether an argument is required depends on the step: every wrapper fills in
+   * its own `title` and `image`, and only the two gen stages do not.
+   */
+  required?: boolean;
   /** Overrides `name` as the field's caption. Only the pipeline-level fields use it. */
   label?: string;
   placeholder?: string;
-  /** stringMap only: the library rejects any other key (see `resourcesValidator`). */
+  /**
+   * stringList only: offer what another stage has already stashed instead of a
+   * free-text box, so `unstash` cannot name a stash that does not exist.
+   */
+  pickFrom?: "stashNames";
+  /**
+   * stringMap only: the library rejects any other key (see `resourcesValidator`).
+   * A map that declares them is edited as one labelled input per key rather than
+   * as free key/value rows — there is nothing to name, only values to fill in.
+   */
   allowedKeys?: string[];
+  /** Captions for `allowedKeys`, since the library's own key names are not all readable. */
+  keyLabels?: Record<string, string>;
   /** objectList only. */
   fields?: ObjectField[];
 };
@@ -50,6 +80,12 @@ export type StepSpec = {
   description: string;
   /** What the step fills in when the arg is left off — shown as input placeholders. */
   defaults?: Record<string, string>;
+  /**
+   * `named` (the default) calls the step with `name: value` pairs, which is what
+   * every `genStage` wrapper takes. `bare` passes the step's single argument as
+   * the whole call — `populateEnvVars([SERVICE: 'x'])`, not `populateEnvVars(envVars: [...])`.
+   */
+  callStyle?: "named" | "bare";
   args: ArgSpec[];
 };
 
@@ -70,11 +106,30 @@ const COMMON_ARGS: ArgSpec[] = [
     hint: "Run on a labelled Jenkins node instead of a k8s pod. Exactly one of image or node.",
     placeholder: "windows",
   },
-  { name: "skipStage", kind: "boolean", hint: "Mark the stage skipped in Jenkins without running it." },
-  { name: "commands", kind: "stringList", hint: "Shell commands, one per line. Joined with && inside the container." },
+  {
+    name: "skipStage",
+    kind: "expression",
+    hint:
+      "Groovy expression — truthy marks the stage skipped instead of running it. Point it at a " +
+      "pipeline parameter to make that a choice at build time. Empty means always run.",
+    placeholder: "params.skipImage",
+  },
+  {
+    name: "commands",
+    kind: "commands",
+    hint:
+      "Shell: one command per line, joined with && and run inside the container. " +
+      "Closure: Groovy the library calls as-is, for when you need a Jenkins step (junit, withCredentials) " +
+      "rather than a shell line.",
+  },
   { name: "envVars", kind: "stringMap", hint: "Environment for this stage only (withEnv) — not the whole pipeline." },
   { name: "stash", kind: "stringMap", hint: "Stash name → include pattern. Stashed after the commands run." },
-  { name: "unstash", kind: "stringList", hint: "Stash names to restore before the commands run, one per line." },
+  {
+    name: "unstash",
+    kind: "stringList",
+    pickFrom: "stashNames",
+    hint: "Stashes to restore before the commands run. Only what an earlier stage stashed can be picked.",
+  },
   { name: "unshallow", kind: "boolean", hint: "Fetch the full git history instead of the shallow clone." },
   {
     name: "junitTestResults",
@@ -87,9 +142,31 @@ const COMMON_ARGS: ArgSpec[] = [
     kind: "objectList",
     hint: "Vault secrets (engine v2) exposed to the stage as environment variables.",
     fields: [
-      { name: "path", required: true, placeholder: "secret/team/service" },
-      { name: "key", required: true, placeholder: "token" },
-      { name: "variableName", required: true, placeholder: "SERVICE_TOKEN" },
+      {
+        name: "path",
+        required: true,
+        placeholder: "secret/team/service",
+        hint: "Where the secret lives in Vault.",
+        description:
+          "The KV v2 mount and path, without the /data/ segment Vault's own API uses — the library adds it. " +
+          "Everything under this path is read as one secret.",
+      },
+      {
+        name: "key",
+        required: true,
+        placeholder: "token",
+        hint: "Which field of that secret to read.",
+        description: "One key of the map stored at the path. Reading two keys means two entries here.",
+      },
+      {
+        name: "variableName",
+        required: true,
+        placeholder: "SERVICE_TOKEN",
+        hint: "The environment variable it becomes.",
+        description:
+          "The name the value is exposed under inside the stage. Jenkins masks it in the build log, " +
+          "so echoing it prints ****.",
+      },
     ],
   },
   {
@@ -97,10 +174,36 @@ const COMMON_ARGS: ArgSpec[] = [
     kind: "objectList",
     hint: "Extra repos cloned into sub-directories before the commands run.",
     fields: [
-      { name: "dir", required: true, placeholder: "tools" },
-      { name: "repoURL", required: true, placeholder: "https://bitbucket/scm/team/tools.git" },
-      { name: "branch", required: true, placeholder: "master" },
-      { name: "files", placeholder: "(sparse checkout, optional)" },
+      {
+        name: "dir",
+        required: true,
+        placeholder: "tools",
+        hint: "Sub-directory of the workspace to clone into.",
+        description: "Created if it does not exist. Relative to the workspace root, never absolute.",
+      },
+      {
+        name: "repoURL",
+        required: true,
+        placeholder: "https://bitbucket/scm/team/tools.git",
+        hint: "HTTPS clone URL.",
+        description:
+          "Cloned with the same SSH credential as the main repo, so it has to be somewhere that " +
+          "credential can reach.",
+      },
+      {
+        name: "branch",
+        required: true,
+        placeholder: "master",
+        hint: "Branch, tag or commit to check out.",
+        description: "No default — the library will not guess one.",
+      },
+      {
+        name: "files",
+        placeholder: "(optional)",
+        hint: "Sparse checkout: fetch only these paths.",
+        description:
+          "Leave empty for the whole repo. Useful when a big tools repo is cloned for one script.",
+      },
     ],
   },
   { name: "requestStorage", kind: "integer", hint: "Gi of dynamic nfs-premium workspace storage to request." },
@@ -111,6 +214,12 @@ const COMMON_ARGS: ArgSpec[] = [
     // Verbatim from the library's resourcesValidator — including the lowercase
     // `m` in requestmemory, which is what it actually accepts.
     allowedKeys: ["requestCpu", "requestmemory", "limitCpu", "limitMemory"],
+    keyLabels: {
+      requestCpu: "Request CPU",
+      requestmemory: "Request memory",
+      limitCpu: "Limit CPU",
+      limitMemory: "Limit memory",
+    },
   },
   { name: "runAsUser", kind: "string", hint: "UID inside the container. Default 1000.", placeholder: "1000" },
   {
@@ -118,38 +227,88 @@ const COMMON_ARGS: ArgSpec[] = [
     kind: "objectList",
     hint: "Existing PersistentVolumeClaims to mount into the pod.",
     fields: [
-      { name: "claimName", required: true, placeholder: "team-cache" },
-      { name: "mountPath", required: true, placeholder: "/cache" },
-      { name: "readOnly", required: true, placeholder: "false" },
+      {
+        name: "claimName",
+        required: true,
+        placeholder: "team-cache",
+        hint: "Name of the PVC, which must already exist.",
+        description: "In the namespace the build pod runs in. The library mounts it; it never creates it.",
+      },
+      {
+        name: "mountPath",
+        required: true,
+        placeholder: "/cache",
+        hint: "Absolute path to mount it at inside the container.",
+        description: "Anything already at that path in the image is hidden while the volume is mounted.",
+      },
+      {
+        name: "readOnly",
+        required: true,
+        placeholder: "false",
+        hint: "true to mount it read-only.",
+        description:
+          "Required by the library's validator, so it has to be filled in either way. " +
+          "Read-only is the safe choice for a shared cache several builds mount at once.",
+      },
     ],
   },
 ];
 
 const POST_COMMANDS: ArgSpec = {
   name: "postCommands",
-  kind: "stringList",
-  hint: "Shell commands run after the step's own work, one per line.",
+  kind: "commands",
+  hint: "Run after the step's own work. Same Shell-or-Closure choice as commands.",
 };
 
 /** Windows stages run through nodeExecutor, so the pod-only args do not exist. */
 const POD_ONLY = ["image", "node", "requestStorage", "resources", "runAsUser", "customPVC"];
 
-function common(exclude: string[] = []): ArgSpec[] {
-  return COMMON_ARGS.filter((a) => !exclude.includes(a.name));
+/**
+ * `require` marks an argument the step is pointless without. It is per step
+ * rather than on `COMMON_ARGS` itself: `commands` is what a gen stage *is*,
+ * while `semVerStage` and `sonarStage` run their own work and take none.
+ */
+function common(exclude: string[] = [], require: string[] = []): ArgSpec[] {
+  return COMMON_ARGS.filter((a) => !exclude.includes(a.name)).map((a) =>
+    require.includes(a.name) ? { ...a, required: true } : a
+  );
 }
 
 export const STEPS: StepSpec[] = [
   {
+    // Not a stage in the library's sense — it opens no `stage()` and takes no
+    // title. It is a card here anyway because it is a top-level call like the
+    // rest, so where it sits in the list is where it lands in the file, and the
+    // one thing that matters about it is that it runs before whoever reads $SERVICE.
+    step: "populateEnvVars",
+    label: "Populate env vars",
+    description:
+      "Sets environment variables for the whole pipeline. SERVICE and TEAM_NAME are what the build " +
+      "and upload steps read; put it first.",
+    callStyle: "bare",
+    args: [
+      {
+        name: "envVars",
+        kind: "stringMap",
+        label: "Environment variables",
+        required: true,
+        hint:
+          "SERVICE = project name, TEAM_NAME = Artifactory team. Optional: BRANCH_TYPE " +
+          "(development/prerelease/release), FULL_VERSION.",
+      },
+    ],
+  },
+  {
     step: "genStage",
-    label: "Generic stage",
+    label: "Gen stage",
     description: "Runs shell commands in a container or on a node. Everything else is a wrapper around this.",
-    args: common(),
+    args: common([], ["title", "commands"]),
   },
   {
     step: "genStageWindows",
-    label: "Generic stage (Windows)",
-    description: "Same as a generic stage, on the Windows node. The step forces node = 'windows'.",
-    args: common(POD_ONLY),
+    label: "Gen stage (Windows)",
+    description: "Same as a gen stage, on the Windows node. The step forces node = 'windows'.",
+    args: common(POD_ONLY, ["title", "commands"]),
   },
   {
     step: "buildAndUploadImageStage",
@@ -292,6 +451,8 @@ export function argSpec(step: string, arg: string): ArgSpec | undefined {
 /** What each kind is called in the UI's type badges — Groovy's word, not TypeScript's. */
 export const KIND_LABEL: Record<ArgKind, string> = {
   string: "text",
+  expression: "groovy",
+  commands: "commands",
   boolean: "flag",
   integer: "number",
   stringList: "list",
@@ -300,7 +461,20 @@ export const KIND_LABEL: Record<ArgKind, string> = {
 };
 
 /**
- * The arguments `ArgsValidator` insists on: a title, and exactly one runtime.
- * They are always on screen in the editor rather than behind the add list.
+ * `image` and `node` are one choice rendered as one control, so they are laid
+ * out together and never appear in the add list. Whether that control is pinned
+ * open is a per-step question — see `pinsRuntime`.
  */
-export const ESSENTIAL_ARG_NAMES = ["title", "image", "node"];
+export const RUNTIME_ARG_NAMES = ["image", "node"];
+
+/**
+ * Whether the step makes you choose a runtime. Every wrapper assigns its own
+ * image before validating (`args.image = args.image ?: 'sonar'`), so there is
+ * nothing to choose; only a gen stage leaves it open.
+ */
+export function pinsRuntime(spec: StepSpec): boolean {
+  return spec.args.some((a) => a.name === "image") && !spec.defaults?.image;
+}
+
+/** Steps that make no sense more than once in a pipeline — the palette hides them once used. */
+export const SINGLETON_STEPS = ["populateEnvVars"];

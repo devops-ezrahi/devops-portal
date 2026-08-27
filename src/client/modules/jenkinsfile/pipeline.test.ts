@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { STEPS, stepSpec } from "./catalog";
-import { createStage, hasErrors, isEmptyArg, moveStage, newPipeline, toInput, validatePipeline } from "./pipeline";
-import type { JenkinsfileStage } from "../../../server/types";
+import {
+  closureOf,
+  createStage,
+  hasErrors,
+  isEmptyArg,
+  moveStage,
+  newPipeline,
+  toDraft,
+  toInput,
+  validatePipeline,
+  type DraftPipeline,
+} from "./pipeline";
+import type { JenkinsfileParam, JenkinsfilePipeline, JenkinsfileStage } from "../../../server/types";
 
 const stages: JenkinsfileStage[] = ["a", "b", "c"].map((id) => ({ id, step: "semVerStage", args: {} }));
 const ids = (list: JenkinsfileStage[]) => list.map((s) => s.id).join("");
@@ -36,6 +47,27 @@ describe("isEmptyArg", () => {
     expect(isEmptyArg("boolean", false)).toBe(false);
     expect(isEmptyArg("boolean", true)).toBe(false);
   });
+
+  it("reads a commands argument as unset whether it is an empty list or an empty closure", () => {
+    expect(isEmptyArg("commands", [])).toBe(true);
+    expect(isEmptyArg("commands", ["", " "])).toBe(true);
+    expect(isEmptyArg("commands", { closure: "  \n" })).toBe(true);
+    expect(isEmptyArg("commands", ["npm ci"])).toBe(false);
+    expect(isEmptyArg("commands", { closure: "sh 'x'" })).toBe(false);
+  });
+
+  it("tells a closure from a shell list", () => {
+    expect(closureOf(["npm ci"])).toBeNull();
+    expect(closureOf(undefined)).toBeNull();
+    expect(closureOf({ closure: "sh 'x'" })).toBe("sh 'x'");
+  });
+
+  it("reads a legacy boolean skip condition as set only when it is true", () => {
+    expect(isEmptyArg("expression", "")).toBe(true);
+    expect(isEmptyArg("expression", "params.skipImage")).toBe(false);
+    expect(isEmptyArg("expression", true)).toBe(false);
+    expect(isEmptyArg("expression", false)).toBe(true);
+  });
 });
 
 describe("validatePipeline", () => {
@@ -55,14 +87,30 @@ describe("validatePipeline", () => {
   });
 
   it("insists on exactly one of image and node", () => {
-    const neither = validatePipeline(withStage({ id: "s", step: "genStage", args: { title: "T" } }));
-    expect(neither.stages.s).toContain("Set exactly one of image or node.");
+    // A gen stage also needs commands, so every case here carries them.
+    const gen = (args: Record<string, unknown>) =>
+      validatePipeline(withStage({ id: "s", step: "genStage", args: { commands: ["npm ci"], ...args } }));
 
-    const both = validatePipeline(withStage({ id: "s", step: "genStage", args: { title: "T", image: "i", node: "n" } }));
-    expect(both.stages.s).toContain("Set image or node, not both.");
+    expect(gen({ title: "T" }).stages.s).toContain("Set exactly one of image or node.");
+    expect(gen({ title: "T", image: "i", node: "n" }).stages.s).toContain("Set image or node, not both.");
+    expect(gen({ title: "T", node: "windows" }).stages.s).toBeUndefined();
+  });
 
-    const one = validatePipeline(withStage({ id: "s", step: "genStage", args: { title: "T", node: "windows" } }));
-    expect(one.stages.s).toBeUndefined();
+  it("requires a title only where the step does not name one itself", () => {
+    const gen = validatePipeline(withStage({ id: "s", step: "genStage", args: { image: "i", commands: ["x"] } }));
+    expect(gen.stages.s).toContain("title is required.");
+
+    // Every wrapper assigns `args.title = args.title ?: '…'` before validating.
+    const sonar = validatePipeline(withStage({ id: "s", step: "sonarStage", args: {} }));
+    expect(sonar.stages.s ?? []).not.toContain("title is required.");
+  });
+
+  it("requires commands on a gen stage — that is what the stage is", () => {
+    const errors = validatePipeline(withStage({ id: "s", step: "genStage", args: { title: "T", image: "i" } }));
+    expect(errors.stages.s).toContain("commands is required.");
+
+    // A step that runs its own work takes none.
+    expect(hasErrors(validatePipeline(withStage({ id: "s", step: "semVerStage", args: {} })))).toBe(false);
   });
 
   it("catches a node set on a step that already brings its own image", () => {
@@ -71,12 +119,37 @@ describe("validatePipeline", () => {
   });
 
   it("leaves genStageWindows alone — the step forces node itself", () => {
-    expect(hasErrors(validatePipeline(withStage({ id: "s", step: "genStageWindows", args: { title: "T" } })))).toBe(false);
+    const stage = { id: "s", step: "genStageWindows", args: { title: "T", commands: ["dir"] } };
+    expect(hasErrors(validatePipeline(withStage(stage)))).toBe(false);
+  });
+
+  it("holds populateEnvVars to neither a title nor a runtime — it is a call, not a stage", () => {
+    const stage = { id: "s", step: "populateEnvVars", args: { envVars: [["SERVICE", "x"]] } };
+    expect(hasErrors(validatePipeline(withStage(stage)))).toBe(false);
+    // …but an empty one writes nothing, so it is not finished either.
+    expect(validatePipeline(withStage({ id: "s", step: "populateEnvVars", args: {} })).stages.s).toContain(
+      "envVars is required."
+    );
+  });
+
+  it("rejects a parameter name Groovy cannot address, and a duplicate", () => {
+    const params: JenkinsfileParam[] = [
+      { name: "skip-image", type: "boolean", defaultValue: "false", description: "" },
+      { name: "skipSonar", type: "string", defaultValue: "", description: "" },
+      { name: "skipSonar", type: "boolean", defaultValue: "true", description: "" },
+    ];
+    const errors = validatePipeline({ ...newPipeline(), params, stages }).pipeline;
+    expect(errors).toContain("Parameter skip-image is not a valid Groovy identifier.");
+    expect(errors).toContain("Parameter skipSonar is declared twice.");
   });
 
   it("requires every key of an object-list entry that has been started", () => {
     const errors = validatePipeline(
-      withStage({ id: "s", step: "genStage", args: { title: "T", image: "i", secrets: [{ path: "secret/x" }] } })
+      withStage({
+        id: "s",
+        step: "genStage",
+        args: { title: "T", image: "i", commands: ["x"], secrets: [{ path: "secret/x" }] },
+      })
     );
     expect(errors.stages.s).toEqual(expect.arrayContaining(["secrets #1 needs key.", "secrets #1 needs variableName."]));
   });
@@ -84,7 +157,7 @@ describe("validatePipeline", () => {
 
 describe("catalog", () => {
   it("gives every step the common genStage arguments", () => {
-    for (const step of STEPS) {
+    for (const step of STEPS.filter((s) => s.callStyle !== "bare")) {
       const names = step.args.map((a) => a.name);
       expect(names).toContain("title");
       expect(names).toContain("commands");
@@ -99,10 +172,53 @@ describe("catalog", () => {
   });
 });
 
-describe("toInput", () => {
-  it("turns the edited pairs back into the object the server stores", () => {
-    const draft = { ...newPipeline(), name: " build ", envVars: [["SERVICE", "checkout"], ["", "ignored"]] as [string, string][] };
-    expect(toInput(draft)).toMatchObject({ name: "build", envVars: { SERVICE: "checkout" } });
+describe("toDraft / toInput", () => {
+  const stored: JenkinsfilePipeline = {
+    id: "JF-0001",
+    name: "build",
+    library: "jenkins-k8s-shared-library",
+    envVars: { SERVICE: "checkout" },
+    stages: [{ id: "a", step: "semVerStage", args: {} }],
+    createdBy: "u",
+    createdByName: "U",
+    createdAt: "",
+    updatedAt: "",
+  };
+
+  it("migrates a legacy pipeline-level envVars map into a leading stage", () => {
+    const draft = toDraft(stored);
+    expect(draft.stages.map((s) => s.step)).toEqual(["populateEnvVars", "semVerStage"]);
+    expect(draft.stages[0].args.envVars).toEqual([["SERVICE", "checkout"]]);
+    expect("envVars" in draft).toBe(false);
+  });
+
+  it("writes the legacy map back empty, so the migration only ever runs once", () => {
+    expect(toInput(toDraft(stored))).toMatchObject({ envVars: {} });
+  });
+
+  it("trims parameter names and drops the unnamed ones", () => {
+    const draft: DraftPipeline = {
+      ...newPipeline(),
+      params: [
+        { name: " skipImage ", type: "boolean", defaultValue: "true", description: "x" },
+        { name: "  ", type: "boolean", defaultValue: "false", description: "" },
+      ],
+    };
+    expect(toInput(draft).params).toEqual([
+      { name: "skipImage", type: "boolean", defaultValue: "true", description: "x" },
+    ]);
+  });
+
+  it("sends no name — the server mints one from the author", () => {
+    expect("name" in toInput(newPipeline())).toBe(false);
+  });
+
+  it("normalises a parameter stored before the other types existed", () => {
+    // Deliberately the pre-`type` shape, which is what is actually on disk.
+    const legacy = { ...stored, params: [{ name: "skipImage", defaultValue: true, description: "x" }] };
+    expect(toDraft(legacy as unknown as JenkinsfilePipeline).params).toEqual([
+      { name: "skipImage", type: "boolean", defaultValue: "true", description: "x" },
+    ]);
   });
 });
 

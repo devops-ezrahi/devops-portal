@@ -1,11 +1,18 @@
 import { request } from "../../api";
 import type { JenkinsfilePipeline } from "../../../server/types";
 
-/** What the server accepts — the record's own id, owner and timestamps are its business. */
-export type PipelineInput = Pick<JenkinsfilePipeline, "name" | "library" | "envVars" | "stages">;
+/**
+ * What the server accepts. Its own id, owner, timestamps — and `name`, which it
+ * mints from the author — are its business, not the builder's.
+ */
+export type PipelineInput = Pick<JenkinsfilePipeline, "library" | "envVars" | "stages"> & {
+  params: NonNullable<JenkinsfilePipeline["params"]>;
+};
 
 export function listPipelines() {
-  return request<{ pipelines: JenkinsfilePipeline[] }>("/api/jenkinsfile/pipelines");
+  // `sharedLibrary` rides along rather than needing its own endpoint — it is one
+  // configured string the builder needs before it can render the import field.
+  return request<{ pipelines: JenkinsfilePipeline[]; sharedLibrary: string }>("/api/jenkinsfile/pipelines");
 }
 
 export function createPipeline(input: PipelineInput) {
