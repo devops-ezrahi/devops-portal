@@ -61,7 +61,7 @@ const COMMON_ARGS: ArgSpec[] = [
     kind: "string",
     hint:
       "Container image for the pod agent. A bare name resolves against the Artifactory image path; " +
-      "`[name]` reuses a container from the inherited pod template instead of adding one.",
+      "[name] reuses a container from the inherited pod template instead of adding one.",
     placeholder: "python311",
   },
   {
@@ -288,3 +288,19 @@ export function stepSpec(step: string): StepSpec | undefined {
 export function argSpec(step: string, arg: string): ArgSpec | undefined {
   return stepSpec(step)?.args.find((a) => a.name === arg);
 }
+
+/** What each kind is called in the UI's type badges — Groovy's word, not TypeScript's. */
+export const KIND_LABEL: Record<ArgKind, string> = {
+  string: "text",
+  boolean: "flag",
+  integer: "number",
+  stringList: "list",
+  stringMap: "map",
+  objectList: "entries",
+};
+
+/**
+ * The arguments `ArgsValidator` insists on: a title, and exactly one runtime.
+ * They are always on screen in the editor rather than behind the add list.
+ */
+export const ESSENTIAL_ARG_NAMES = ["title", "image", "node"];

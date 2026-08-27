@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, GripVertical, Plus, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, ChevronUp, GripVertical, Plus, X } from "lucide-react";
 import { useState } from "react";
 import { STEPS } from "../catalog";
 import { moveStage, stageLabel } from "../pipeline";
@@ -28,6 +28,9 @@ type Props = {
 export function StageRail({ stages, selectedId, errors, onSelect, onReorder, onAdd, onRemove }: Props) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+  // Open by default: on an empty pipeline it is the only thing to do, and on a
+  // full one adding another stage is still the common next move.
+  const [paletteOpen, setPaletteOpen] = useState(true);
 
   function move(from: number, to: number) {
     onReorder(moveStage(stages, from, to));
@@ -42,9 +45,19 @@ export function StageRail({ stages, selectedId, errors, onSelect, onReorder, onA
 
   return (
     <div className="jf-rail">
-      <h3>Stages</h3>
+      <div className="jf-rail-head">
+        <h3>Stages</h3>
+        <span className="jf-group-count">
+          {stages.length} step{stages.length === 1 ? "" : "s"}
+        </span>
+      </div>
 
-      {stages.length === 0 && <p className="jf-empty">No stages yet — add one below.</p>}
+      {stages.length === 0 && (
+        <p className="jf-empty jf-rail-empty">
+          Nothing here yet. Pick a step below — they run top to bottom, and you can drag the cards to
+          reorder them.
+        </p>
+      )}
 
       <ol className="jf-stages" onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
         {stages.map((stage, i) => {
@@ -101,6 +114,13 @@ export function StageRail({ stages, selectedId, errors, onSelect, onReorder, onA
                   <strong>{stageLabel(stage)}</strong>
                   <small>{stage.step}</small>
                 </span>
+                {errors[stage.id] && (
+                  <AlertTriangle
+                    className="jf-stage-warn"
+                    size={14}
+                    aria-label={`${stageLabel(stage)} has ${errors[stage.id].length} problem(s)`}
+                  />
+                )}
                 <span className="jf-stage-actions">
                   <button
                     type="button"
@@ -144,17 +164,34 @@ export function StageRail({ stages, selectedId, errors, onSelect, onReorder, onA
         })}
       </ol>
 
-      <h3 className="jf-add-heading">Add a stage</h3>
-      <div className="jf-palette">
+      <button
+        type="button"
+        className="jf-group-head jf-add-heading"
+        aria-expanded={paletteOpen}
+        onClick={() => setPaletteOpen((v) => !v)}
+      >
+        <ChevronRight className={`jf-group-chevron${paletteOpen ? " open" : ""}`} size={14} aria-hidden="true" />
+        <span className="jf-group-title">Add a stage</span>
+        <span className="jf-group-count">{STEPS.length} steps</span>
+      </button>
+
+      <div className="jf-palette" hidden={!paletteOpen}>
         {STEPS.map((step) => (
           <button
             key={step.step}
             type="button"
-            className="ghost-button jf-add-stage"
+            className="jf-add-stage"
+            // The visible text is two lines (label + `vars/` file name); the
+            // label alone is the useful accessible name.
+            aria-label={`Add ${step.label}`}
             title={step.description}
             onClick={() => onAdd(step.step)}
           >
-            <Plus size={14} aria-hidden="true" /> {step.label}
+            <Plus size={14} aria-hidden="true" />
+            <span className="jf-add-stage-text">
+              <strong>{step.label}</strong>
+              <small>{step.step}</small>
+            </span>
           </button>
         ))}
       </div>

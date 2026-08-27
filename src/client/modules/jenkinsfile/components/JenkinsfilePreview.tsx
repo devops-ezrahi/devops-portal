@@ -17,6 +17,7 @@ type Props = {
 export function JenkinsfilePreview({ code, problems }: Props) {
   const [copied, setCopied] = useState(false);
   const html = useMemo(() => hljs.highlight(code, { language: "groovy" }).value, [code]);
+  const lines = code.trim() ? code.trim().split("\n").length : 0;
 
   useEffect(() => {
     if (!copied) return;
@@ -49,7 +50,10 @@ export function JenkinsfilePreview({ code, problems }: Props) {
   return (
     <div className="jf-preview">
       <div className="jf-preview-head">
-        <h2>Jenkinsfile</h2>
+        <div className="jf-preview-title">
+          <h2>Jenkinsfile</h2>
+          <span className="jf-group-count">{lines} line{lines === 1 ? "" : "s"}</span>
+        </div>
         <div className="jf-preview-actions">
           <button type="button" className="ghost-button" onClick={handleCopy}>
             {copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}

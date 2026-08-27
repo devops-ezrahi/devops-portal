@@ -35,9 +35,13 @@ function renderView() {
   return { ...view, code };
 }
 
-/** Adds an argument to the open stage editor and types a value into it. */
+/**
+ * Types a value into one of the open stage's arguments, adding it first when it
+ * is one of the optional ones — the required three are always on screen.
+ */
 function setArg(name: string, value: string) {
-  fireEvent.change(screen.getByLabelText("Add argument"), { target: { value: name } });
+  const add = screen.queryByRole("button", { name: `Add ${name}` });
+  if (add) fireEvent.click(add);
   fireEvent.change(screen.getByLabelText(name), { target: { value } });
 }
 
@@ -45,12 +49,12 @@ describe("JenkinsfileView", () => {
   it("builds, reorders and previews a pipeline", async () => {
     const { code } = renderView();
 
-    fireEvent.click(screen.getByRole("button", { name: "Generic stage" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Generic stage" }));
     setArg("title", "Build");
     setArg("image", "node20");
     setArg("commands", "npm ci\nnpm run build");
 
-    fireEvent.click(screen.getByRole("button", { name: "Sonar scan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Sonar scan" }));
 
     expect(code()).toContain("genStage(");
     expect(code()).toContain("commands: ['npm ci', 'npm run build']");
@@ -63,12 +67,14 @@ describe("JenkinsfileView", () => {
 
   it("surfaces the library's own validation before the build does", async () => {
     renderView();
-    fireEvent.click(screen.getByRole("button", { name: "Generic stage" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Generic stage" }));
 
     expect(screen.getByText("title is required.")).toBeInTheDocument();
     expect(screen.getByText("Set exactly one of image or node.")).toBeInTheDocument();
 
     setArg("title", "Build");
+    // image and node are one choice, not two fields — the segmented control swaps them.
+    fireEvent.click(screen.getByRole("button", { name: "Jenkins node" }));
     setArg("node", "windows");
     expect(screen.queryByText("Set exactly one of image or node.")).not.toBeInTheDocument();
   });
@@ -89,7 +95,7 @@ describe("JenkinsfileView", () => {
     expect(screen.getByRole("button", { name: /Save as new/ })).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText("Pipeline name"), { target: { value: "my pipeline" } });
-    fireEvent.click(screen.getByRole("button", { name: "Sonar scan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Sonar scan" }));
     fireEvent.click(screen.getByRole("button", { name: /Save as new/ }));
 
     await waitFor(() => expect(createPipeline).toHaveBeenCalled());

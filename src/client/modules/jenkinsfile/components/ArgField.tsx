@@ -1,5 +1,5 @@
 import { Plus, X } from "lucide-react";
-import type { ArgSpec } from "../catalog";
+import { KIND_LABEL, type ArgSpec } from "../catalog";
 import { pairsOf, type MapPairs } from "../pipeline";
 
 type Props = {
@@ -8,8 +8,10 @@ type Props = {
   /** What the step fills in when this argument is left off — shown as the placeholder. */
   stepDefault?: string;
   idPrefix: string;
+  /** The library rejects the stage without it, so it is shown open and cannot be removed. */
+  required?: boolean;
   onChange: (value: unknown) => void;
-  /** Omitted for the pipeline-level fields, which cannot be removed. */
+  /** Omitted for the pipeline-level fields and the required ones, which cannot be removed. */
   onRemove?: () => void;
 };
 
@@ -18,9 +20,11 @@ type Props = {
  * exactly what `groovy.ts` renders and what the server stores, so nothing is
  * translated on the way out.
  */
-export function ArgField({ spec, value, stepDefault, idPrefix, onChange, onRemove }: Props) {
+export function ArgField({ spec, value, stepDefault, idPrefix, required, onChange, onRemove }: Props) {
   const id = `${idPrefix}-${spec.name}`;
-  const placeholder = spec.placeholder ?? stepDefault;
+  // The step's own default beats the catalog's generic example: sonarStage
+  // really does fall back to `sonar`, and showing `python311` there would be a lie.
+  const placeholder = stepDefault ?? spec.placeholder;
   // Maps and object lists are several inputs, each with its own aria-label, so
   // there is nothing for a `for=` to point at — the caption is a plain label.
   const composite = spec.kind === "stringMap" || spec.kind === "objectList";
@@ -29,6 +33,8 @@ export function ArgField({ spec, value, stepDefault, idPrefix, onChange, onRemov
     <div className={`form-field jf-arg${spec.kind === "boolean" ? " jf-arg-inline" : ""}`}>
       <div className="jf-arg-head">
         <label htmlFor={composite ? undefined : id}>{spec.label ?? spec.name}</label>
+        <span className="jf-kind">{KIND_LABEL[spec.kind]}</span>
+        {required && <span className="jf-required">required</span>}
         {onRemove && (
           <button
             type="button"

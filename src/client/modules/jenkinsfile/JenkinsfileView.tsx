@@ -237,11 +237,14 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
                   onRemove={() => handleRemoveStage(selectedStage.id)}
                 />
               ) : (
-                <p className="jf-empty jf-editor">
-                  {draft.stages.length
-                    ? `Pick a stage on the left to edit it — ${stageLabel(draft.stages[0])} first.`
-                    : "Add a stage on the left, then drag the cards to reorder the pipeline."}
-                </p>
+                <div className="jf-editor jf-editor-blank">
+                  <h2>{draft.stages.length ? "No stage selected" : "Start with a stage"}</h2>
+                  <p className="jf-empty">
+                    {draft.stages.length
+                      ? `Pick one on the left to edit every argument it takes — ${stageLabel(draft.stages[0])} is first.`
+                      : "Pick a step on the left. Each one opens here with its required arguments filled in and the rest one click away."}
+                  </p>
+                </div>
               )}
             </div>
           </section>

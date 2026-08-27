@@ -2377,7 +2377,7 @@ code {
   width: 100%;
   border: 1px solid #2a3940;
   border-radius: 6px;
-  min-height: 38px;
+  min-height: 36px;
   padding: 8px 10px;
   background: #0d1316;
   color: #f4f7f8;
@@ -2385,9 +2385,18 @@ code {
   color-scheme: dark;
 }
 
+.jf-settings input:focus,
+.jf-arg input:focus,
+.jf-arg select:focus,
+.jf-arg textarea:focus {
+  outline: none;
+  border-color: #20c7bd;
+  box-shadow: 0 0 0 2px rgba(32, 199, 189, 0.15);
+}
+
 .jf-settings label,
 .jf-arg > .jf-arg-head label,
-.jf-add-arg > label {
+.jf-arg-label {
   color: #f2f6f7;
   font-weight: 800;
   font-size: 13px;
@@ -2402,17 +2411,34 @@ code {
 
 .jf-build-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
-  gap: 16px;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  gap: 18px;
   align-items: start;
 }
 
-.jf-rail h3 {
+/* ---- Stage rail ---- */
+
+.jf-rail-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
   margin-bottom: 8px;
 }
 
+.jf-rail-head h3 {
+  margin: 0;
+}
+
+.jf-rail-empty {
+  border: 1px dashed #263238;
+  border-radius: 8px;
+  padding: 12px;
+  line-height: 1.5;
+}
+
 .jf-add-heading {
-  margin-top: 14px;
+  margin: 16px 0 8px;
 }
 
 .jf-stages {
@@ -2426,12 +2452,12 @@ code {
 .jf-stage {
   position: relative;
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
-  padding: 8px 8px 8px 4px;
+  padding: 9px 8px 9px 4px;
   border: 1px solid #202b31;
-  border-radius: 6px;
+  border-radius: 8px;
   background: #0f1518;
   cursor: pointer;
   transition: background 150ms ease, border-color 150ms ease, transform 120ms ease;
@@ -2448,8 +2474,17 @@ code {
   background: #14211f;
 }
 
+.jf-stage.selected .jf-stage-index {
+  background: #20c7bd;
+  color: #06110f;
+}
+
 .jf-stage.has-error {
   border-color: #5d272d;
+}
+
+.jf-stage-warn {
+  color: #ff8d95;
 }
 
 /* The dragged card stays in place and dims; the gap it will land in is drawn
@@ -2465,6 +2500,7 @@ code {
   left: 0;
   right: 0;
   height: 2px;
+  border-radius: 2px;
   background: #20c7bd;
 }
 
@@ -2489,6 +2525,7 @@ code {
   font-size: 11px;
   font-weight: 800;
   padding: 2px 0;
+  transition: background 150ms ease, color 150ms ease;
 }
 
 .jf-stage-text {
@@ -2523,17 +2560,57 @@ code {
   opacity: 0.3;
 }
 
+/* ---- Step palette ---- */
+
 .jf-palette {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  display: grid;
+  gap: 5px;
 }
 
 .jf-add-stage {
-  font-size: 12px;
-  padding: 6px 9px;
-  min-height: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid #202b31;
+  border-radius: 8px;
+  background: #0f1518;
+  color: #cfd8dc;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
 }
+
+.jf-add-stage:hover {
+  background: #14211f;
+  border-color: #20c7bd;
+  color: #f4f7f8;
+}
+
+.jf-add-stage svg {
+  color: #20c7bd;
+  flex-shrink: 0;
+}
+
+.jf-add-stage-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.jf-add-stage-text strong {
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.jf-add-stage-text small {
+  color: #6f8088;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+/* ---- Stage editor ---- */
 
 .jf-empty {
   color: #8d9ba2;
@@ -2541,9 +2618,16 @@ code {
   margin: 0;
 }
 
+.jf-note {
+  color: #8d9ba2;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+}
+
 .jf-editor {
   display: grid;
-  gap: 12px;
+  gap: 14px;
   align-content: start;
   min-width: 0;
 }
@@ -2565,13 +2649,19 @@ code {
   white-space: nowrap;
 }
 
+.jf-editor-title {
+  min-width: 0;
+}
+
 .jf-step-name {
   color: #8d9ba2;
   font-size: 12px;
   margin: 0;
+  line-height: 1.5;
 }
 
 .jf-step-name code,
+.jf-note code,
 .field-hint code {
   font-family: ui-monospace, SFMono-Regular, monospace;
   color: #9fe4dc;
@@ -2585,7 +2675,7 @@ code {
   gap: 6px;
   background: #2a1517;
   border: 1px solid #5d272d;
-  border-radius: 6px;
+  border-radius: 8px;
   color: #ffc6ca;
   font-size: 12px;
 }
@@ -2596,12 +2686,212 @@ code {
   gap: 6px;
 }
 
+/* ---- Argument groups ---- */
+
+.jf-group {
+  border: 1px solid #1c262b;
+  border-radius: 10px;
+  background: #0e1417;
+  overflow: hidden;
+}
+
+.jf-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-bottom: 1px solid #1c262b;
+  background: #111a1e;
+  color: #cfd8dc;
+  cursor: pointer;
+  text-align: left;
+}
+
+.jf-group-head:hover {
+  background: #162126;
+  color: #f4f7f8;
+}
+
+.jf-group-head-static {
+  cursor: default;
+  padding-left: 12px;
+}
+
+.jf-group-title {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.jf-group-count {
+  margin-left: auto;
+  color: #6f8088;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.jf-group-chevron {
+  color: #6f8088;
+  flex-shrink: 0;
+  transition: transform 150ms ease;
+}
+
+.jf-group-chevron.open {
+  transform: rotate(90deg);
+}
+
+.jf-arg-list {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+/* ---- One argument ---- */
+
+.jf-arg {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid #223038;
+  border-left: 2px solid #20c7bd;
+  border-radius: 8px;
+  background: #101a1e;
+  animation: row-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.jf-arg .field-hint {
+  margin: 0;
+}
+
 .jf-arg-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
 }
+
+.jf-arg-head .icon-button {
+  margin-left: auto;
+}
+
+.jf-kind {
+  border-radius: 999px;
+  padding: 1px 7px;
+  background: #1a252a;
+  color: #8d9ba2;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.jf-required {
+  border-radius: 999px;
+  padding: 1px 7px;
+  background: rgba(32, 199, 189, 0.12);
+  color: #6fded4;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* The unset half of the list: one clickable line per argument the step accepts,
+   so everything the library takes is visible without sixteen empty inputs. */
+.jf-arg-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: #8d9ba2;
+  cursor: pointer;
+  text-align: left;
+  transition: background 130ms ease, border-color 130ms ease, color 130ms ease;
+}
+
+.jf-arg-add:hover {
+  background: #131e22;
+  border-color: #223038;
+  color: #cfd8dc;
+}
+
+.jf-arg-add svg {
+  color: #46595f;
+  flex-shrink: 0;
+}
+
+.jf-arg-add:hover svg {
+  color: #20c7bd;
+}
+
+.jf-arg-add-name {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: #cfd8dc;
+  white-space: nowrap;
+}
+
+.jf-arg-add-hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: #67767d;
+}
+
+/* ---- image / node choice ---- */
+
+.jf-runtime {
+  display: grid;
+  gap: 8px;
+}
+
+.jf-runtime-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.jf-segmented {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid #223038;
+  border-radius: 999px;
+  background: #0d1316;
+}
+
+.jf-segmented button {
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 12px;
+  background: transparent;
+  color: #8d9ba2;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.jf-segmented button:hover {
+  color: #f4f7f8;
+}
+
+.jf-segmented button.active {
+  background: #20c7bd;
+  color: #06110f;
+}
+
+/* ---- Composite values ---- */
 
 .jf-checkbox {
   display: flex;
@@ -2642,7 +2932,7 @@ code {
   display: grid;
   gap: 6px;
   border: 1px solid #202b31;
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 8px 10px 10px;
   margin: 0;
 }
@@ -2666,6 +2956,8 @@ code {
   min-height: 0;
 }
 
+/* ---- Preview ---- */
+
 .jf-preview {
   display: grid;
   gap: 10px;
@@ -2677,10 +2969,17 @@ code {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .jf-preview-head h2 {
   margin-bottom: 0;
+}
+
+.jf-preview-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
 }
 
 .jf-preview-actions {
@@ -2692,7 +2991,7 @@ code {
   margin: 0;
   padding: 12px;
   border: 1px solid #203238;
-  border-radius: 6px;
+  border-radius: 8px;
   background: #0d1316;
   /* A twenty-stage pipeline must not push the page height without bound; long
      command lines scroll sideways inside the block rather than widening .main. */
@@ -2719,4 +3018,26 @@ code {
   .jf-build-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+.jf-editor-blank {
+  align-content: center;
+  justify-items: start;
+  gap: 6px;
+  min-height: 180px;
+  padding: 20px;
+  border: 1px dashed #263238;
+  border-radius: 10px;
+}
+
+.jf-editor-blank h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+/* The palette's toggle is a rail heading, not a boxed group head. */
+.jf-add-heading {
+  margin: 16px 0 8px;
+  border: 1px solid #1c262b;
+  border-radius: 8px;
 }

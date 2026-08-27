@@ -172,6 +172,14 @@ no external system — the only server-side state is saved pipeline documents.
   draggable card. Per-stage `envVars` covers the in-stage case, and is what the
   library itself recommends for parallel builds since `populateEnvVars` writes
   to the global env.
+- **Every argument a step takes is on screen, always.** `StageEditor.tsx` renders
+  the whole catalog for the selected step in catalog order: the ones in use as
+  fields, the rest as one-line rows you click to add, so adding one expands it in
+  place rather than reshuffling the list. The three the library validates for
+  (`title`, and exactly one of `image`/`node`) are pinned open above the rest and
+  cannot be removed — `image`/`node` as a two-way segmented control, since they
+  are one choice and not two fields. A step's own default is the field's
+  placeholder, so leaving it blank visibly means "use `sonar`".
 - **Drag and drop is native HTML5**, no library — three handlers over an array
   in `StageRail.tsx`. The ▲/▼ buttons beside each card are not decoration: they
   are the keyboard path, and they are what makes reordering testable in jsdom.
