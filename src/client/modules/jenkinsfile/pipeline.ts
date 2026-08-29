@@ -86,12 +86,13 @@ export function toDraft(pipeline: JenkinsfilePipeline): DraftPipeline {
 }
 
 /**
- * What the save endpoints take. The record's own id, owner and timestamps are
- * the server's — and so is `name`, which it mints from the author rather than
- * taking from a field the builder no longer has.
+ * What the save endpoints take. The record's own id, owner and timestamps stay
+ * the server's. `name` is sent because the topbar can change it — blank means
+ * "keep it", and on create the server mints one from the author.
  */
 export function toInput(draft: DraftPipeline) {
   return {
+    name: draft.name.trim(),
     library: draft.library.trim(),
     // Always empty: the map moved into a stage, and PUT merges over the stored
     // record, so sending nothing would leave a migrated pipeline's old copy behind.
@@ -107,7 +108,9 @@ function stageId(): string {
 }
 
 export function createStage(step: string): JenkinsfileStage {
-  return { id: stageId(), step, args: {}, collapsed: false };
+  // Collapsed: adding a stage is a decision about the list, not an invitation to
+  // fill it in — a card that unfolds pushes everything under it down the page.
+  return { id: stageId(), step, args: {}, collapsed: true };
 }
 
 /** A pipeline that has never been saved. `id: ""` is what marks it unsaved. */

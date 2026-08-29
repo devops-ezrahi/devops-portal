@@ -26,6 +26,8 @@ const updatePipeline = vi.fn((id: string, input: unknown) =>
 
 vi.mock("./api", () => ({
   listPipelines: () => Promise.resolve({ pipelines: [saved] }),
+  getImages: () =>
+    Promise.resolve({ images: [{ name: "python311", info: "JDK=17" }, { name: "ubi8", info: "OS=ubi8" }] }),
   createPipeline,
   updatePipeline,
   deletePipeline: vi.fn(),
@@ -57,10 +59,29 @@ function setArg(name: string, value: string) {
   fireEvent.change(screen.getByLabelText(name), { target: { value } });
 }
 
-/** The palette is a popover under the Add stage button at the foot of the list. */
+/**
+ * Fills a list argument, one box per entry — Enter is what opens the next one.
+ */
+function setList(name: string, entries: string[]) {
+  const add = screen.queryByRole("button", { name: `Add ${name}` });
+  if (add) fireEvent.click(add);
+  entries.forEach((entry, i) => {
+    const box = i === 0 ? screen.getByLabelText(name) : screen.getByLabelText(`${name} ${i + 1}`);
+    fireEvent.change(box, { target: { value: entry } });
+    if (i < entries.length - 1) fireEvent.keyDown(box, { key: "Enter" });
+  });
+}
+
+/**
+ * The palette is a popover under the Add stage button at the foot of the list.
+ * Cards arrive minimized, so this opens the one it just added — every test
+ * below goes on to edit it.
+ */
 function addStage(label: string) {
   fireEvent.click(screen.getByRole("button", { name: "Add stage" }));
   fireEvent.click(screen.getByRole("button", { name: `Add ${label}` }));
+  const expand = screen.getAllByRole("button", { name: /^Expand / });
+  fireEvent.click(expand[expand.length - 1]);
 }
 
 /**
@@ -88,6 +109,8 @@ describe("JenkinsfileView", () => {
   beforeEach(() => {
     createPipeline.mockClear();
     updatePipeline.mockClear();
+    // The view reopens the last pipeline it was left on; each test starts fresh.
+    localStorage.clear();
     vi.useFakeTimers({ shouldAdvanceTime: true });
   });
   afterEach(() => vi.useRealTimers());
@@ -98,7 +121,7 @@ describe("JenkinsfileView", () => {
     addStage("Gen stage");
     setArg("title", "Build");
     setArg("image", "node20");
-    setArg("commands", "npm ci\nnpm run build");
+    setList("commands", ["npm ci", "npm run build"]);
 
     // Done with it: the card folds back to its header and the arguments go away.
     fireEvent.click(screen.getByRole("button", { name: "Collapse Build" }));
@@ -132,7 +155,7 @@ describe("JenkinsfileView", () => {
     // image and node are one choice, not two fields — the segmented control swaps them.
     fireEvent.click(screen.getByRole("button", { name: "node" }));
     setArg("node", "windows");
-    setArg("commands", "npm ci");
+    setList("commands", ["npm ci"]);
     expect(screen.queryByText("title is required.")).not.toBeInTheDocument();
     expect(screen.queryByText("Set exactly one of image or node.")).not.toBeInTheDocument();
   });
@@ -162,8 +185,9 @@ describe("JenkinsfileView", () => {
     const input = createPipeline.mock.calls[0][0] as Record<string, unknown>;
     // No @Library line was asked for, so none is sent.
     expect(input).toMatchObject({ library: "", stages: [{ step: "sonarStage" }] });
-    // The server names it, so the builder sends none.
-    expect("name" in input).toBe(false);
+    // Nothing was typed in the name field, so it goes up blank and the server
+    // mints one — the field is a rename, not a required step before saving.
+    expect(input.name).toBe("");
     expect(screen.getByRole("status")).toHaveTextContent("Saved");
 
     // A second change goes to the id the create handed back, not to a new record.
@@ -219,19 +243,35 @@ describe("JenkinsfileView", () => {
     expect(code()).not.toContain("commands: ['sh");
   });
 
-  it("lets Enter add a line to commands instead of swallowing it", () => {
+  it("gives each list entry its own box, added with Enter and removed with Backspace", () => {
     const { code } = renderView();
     addStage("Gen stage");
     setArg("title", "Build");
     setArg("image", "node20");
 
-    // A trailing newline is the state right after pressing Enter — it has to
-    // survive the round trip, or the cursor jumps back up a row.
-    fireEvent.change(screen.getByLabelText("commands"), { target: { value: "npm ci\n" } });
-    expect(screen.getByLabelText("commands")).toHaveValue("npm ci\n");
-
-    fireEvent.change(screen.getByLabelText("commands"), { target: { value: "npm ci\nnpm test" } });
+    setList("commands", ["npm ci", "npm test"]);
     expect(code()).toContain("commands: ['npm ci', 'npm test']");
+
+    // An empty box is not a mistake to be swept up under the cursor — it stays
+    // until Backspace takes it, and the generator is what drops it.
+    fireEvent.keyDown(screen.getByLabelText("commands 2"), { key: "Enter" });
+    expect(screen.getByLabelText("commands 3")).toHaveValue("");
+    expect(code()).toContain("commands: ['npm ci', 'npm test']");
+
+    fireEvent.keyDown(screen.getByLabelText("commands 3"), { key: "Backspace" });
+    expect(screen.queryByLabelText("commands 3")).toBeNull();
+  });
+
+  it("splits a multi-line paste across boxes instead of joining it into one", () => {
+    const { code } = renderView();
+    addStage("Gen stage");
+    setArg("title", "Build");
+    setArg("image", "node20");
+
+    fireEvent.paste(screen.getByLabelText("commands"), {
+      clipboardData: { getData: () => "mvn -B package\nmvn -B verify" },
+    });
+    expect(code()).toContain("commands: ['mvn -B package', 'mvn -B verify']");
   });
 
   it("drops an argument when the last entry of it is removed", () => {
@@ -246,6 +286,146 @@ describe("JenkinsfileView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove customPVC #1" }));
     expect(screen.queryByLabelText("customPVC #1 claimName")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add customPVC" })).toBeInTheDocument();
+  });
+
+  it("shows the open pipeline's name and renames it in the list too", async () => {
+    renderView();
+    await act(async () => {});
+
+    // Opening a saved pipeline puts its name in the bar.
+    fireEvent.click(screen.getByText("Alex Morgan #1"));
+    // Shown as text first — the heading, not a field.
+    expect(screen.getByRole("heading", { name: "Alex Morgan #1" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Rename this pipeline" }));
+    const title = screen.getByLabelText("Pipeline name");
+    expect(title).toHaveValue("Alex Morgan #1");
+    fireEvent.change(title, { target: { value: "Checkout release" } });
+    await settle();
+    await waitFor(() => expect(updatePipeline).toHaveBeenCalled());
+    expect((updatePipeline.mock.calls[0][1] as { name: string }).name).toBe("Checkout release");
+    // The side list is the same record, so it follows.
+    await waitFor(() => expect(screen.getByText("Checkout release")).toBeTruthy());
+  });
+
+  it("reopens the pipeline it was left on", async () => {
+    const first = renderView();
+    await act(async () => {});
+    fireEvent.click(screen.getByText("Alex Morgan #1"));
+    first.unmount();
+
+    // A refresh remounts the view; the last pipeline opened comes back with it.
+    renderView();
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Alex Morgan #1" })).toBeTruthy());
+  });
+
+  it("keeps typing in the name field over a slow save's response", async () => {
+    renderView();
+    await act(async () => {});
+    addStage("Gen stage");
+
+    fireEvent.click(screen.getByRole("button", { name: "Rename this pipeline" }));
+    fireEvent.change(screen.getByLabelText("Pipeline name"), { target: { value: "Mine" } });
+    await settle();
+    await waitFor(() => expect(createPipeline).toHaveBeenCalled());
+    // The response carries the stored name; what is in the field wins.
+    expect(screen.getByLabelText("Pipeline name")).toHaveValue("Mine");
+  });
+
+  it("asks whether to start empty or import, and imports a pasted Jenkinsfile", async () => {
+    const { code } = renderView();
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole("button", { name: /New/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Import an existing Jenkinsfile/ }));
+    fireEvent.change(screen.getByLabelText("Or paste it here"), {
+      target: {
+        value: `@Library('jenkins-k8s-shared-library@main') _
+
+genStage(title: 'Build', image: 'python311', commands: ['npm ci'])`,
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+
+    // The cards are the file: the stage is on screen and the preview matches.
+    expect(screen.getByDisplayValue("python311")).toBeTruthy();
+    expect(code()).toContain("@Library('jenkins-k8s-shared-library@main') _");
+    expect(code()).toContain("genStage(");
+    expect(code()).toContain("'npm ci'");
+  });
+
+  it("says what it could not read before importing, and imports the rest anyway", async () => {
+    const { code } = renderView();
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole("button", { name: /New/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Import an existing Jenkinsfile/ }));
+    fireEvent.change(screen.getByLabelText("Or paste it here"), {
+      target: { value: "genStage(title: 'Build', image: 'ubi8')\ndeployToMars(title: 'Launch')" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+    // Held back once — a stage that vanishes without a word is worse than one
+    // the user has to re-add by hand.
+    expect(screen.getByText(/Skipped deployToMars/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Import anyway" }));
+    expect(code()).toContain("genStage(");
+    expect(code()).not.toContain("deployToMars");
+  });
+
+  it("starts an empty pipeline when that is the choice", async () => {
+    const { code } = renderView();
+    await act(async () => {});
+    addStage("Gen stage");
+    expect(code()).toContain("genStage(");
+
+    fireEvent.click(screen.getByRole("button", { name: /New/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Start from scratch/ }));
+    expect(code()).toBe("");
+  });
+
+  it("drops a list of images, each with its labels beside it", async () => {
+    renderView();
+    // The list arrives from its own request, so let that resolve first.
+    await act(async () => {});
+    addStage("Gen stage");
+
+    expect(screen.queryByRole("listbox")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show images" }));
+
+    const options = screen.getAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual(["python311JDK=17", "ubi8OS=ubi8"]);
+    fireEvent.pointerDown(options[1]);
+    expect((screen.getByLabelText("image") as HTMLInputElement).value).toBe("ubi8");
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("filters the list as you type, and still takes an image that is not on it", async () => {
+    renderView();
+    await act(async () => {});
+    addStage("Gen stage");
+
+    const image = screen.getByLabelText("image");
+    fireEvent.change(image, { target: { value: "py" } });
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["python311JDK=17"]);
+
+    // Free text: an image nobody has published still goes through to the file.
+    fireEvent.change(image, { target: { value: "something-else" } });
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect((screen.getByLabelText("image") as HTMLInputElement).value).toBe("something-else");
+  });
+
+  it("picks off the list with the keyboard", async () => {
+    renderView();
+    await act(async () => {});
+    addStage("Gen stage");
+
+    const image = screen.getByLabelText("image");
+    fireEvent.keyDown(image, { key: "ArrowDown" });
+    fireEvent.keyDown(image, { key: "ArrowDown" });
+    fireEvent.keyDown(image, { key: "Enter" });
+    expect((image as HTMLInputElement).value).toBe("ubi8");
   });
 
   it("offers only what an earlier stage stashed to unstash", () => {

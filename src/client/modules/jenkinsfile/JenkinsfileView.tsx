@@ -1,9 +1,9 @@
-import { Check, FilePlus2, Trash2, TriangleAlert } from "lucide-react";
+import { Check, Pencil, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { JenkinsfileParam, JenkinsfilePipeline, JenkinsfileStage } from "../../../server/types";
 import { log, error as logError } from "../../log";
-import { createPipeline, deletePipeline, listPipelines, updatePipeline } from "./api";
+import { createPipeline, deletePipeline, getImages, listPipelines, updatePipeline, type PickableImage } from "./api";
 import { toGroovy } from "./groovy";
 import {
   createStage,
@@ -18,10 +18,15 @@ import { JenkinsfilePreview } from "./components/JenkinsfilePreview";
 import { LibraryField } from "./components/LibraryField";
 import { ParamsEditor } from "./components/ParamsEditor";
 import { PipelineList } from "./components/PipelineList";
+import { ImagesContext } from "./components/ArgField";
+import { NewPipelineDialog } from "./components/NewPipelineDialog";
 import { StageList } from "./components/StageList";
 
 /** The `touched` key standing for the pipeline itself rather than one stage. */
 const PIPELINE_SCOPE = "pipeline";
+
+/** The pipeline the Refresh button (and a page reload) reopens. */
+const LAST_OPENED_KEY = "jenkinsfile.lastOpened";
 
 /** How long to sit on a change before writing it. One keystroke is not an edit. */
 const AUTOSAVE_MS = 800;
@@ -69,6 +74,9 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
   const [showAll, setShowAll] = useState(true);
   /** The configured library name, which the server sends alongside the list. */
   const [sharedLibrary, setSharedLibrary] = useState(DEFAULT_LIBRARY);
+  const [images, setImages] = useState<PickableImage[]>([]);
+  const [newOpen, setNewOpen] = useState(false);
+  const [naming, setNaming] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   /** The id the next write should PUT to. A ref, because the write queue reads it after an await. */
   const idRef = useRef("");
@@ -88,6 +96,11 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
         log("jenkinsfile", `pipelines loaded: ${result.pipelines.length}`);
         setPipelines(result.pipelines);
         if (result.sharedLibrary) setSharedLibrary(result.sharedLibrary);
+        // Reopen whatever was last open, so Refresh lands back where you were.
+        // Only into an untouched draft: a load that resolves late must not take
+        // the editor away from a pipeline already opened by hand.
+        const last = result.pipelines.find((p) => p.id === localStorage.getItem(LAST_OPENED_KEY));
+        if (last && !idRef.current) handleOpen(last);
       })
       .catch((err: Error) => {
         logError("jenkinsfile", "listPipelines failed", err);
@@ -98,6 +111,12 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
   useEffect(() => {
     log("jenkinsfile", "view mounted / refreshed", { isAdmin, refreshKey });
     fetchPipelines();
+    // Its own request, not part of the list load: this one goes out to
+    // Artifactory, and a failure must cost nothing more than an image field
+    // with no suggestions in it — so it is not surfaced through onError.
+    getImages()
+      .then((result) => setImages(result.images))
+      .catch((err: Error) => logError("jenkinsfile", "getImages failed", err));
   }, [refreshKey]);
 
   // Admins get every pipeline from the server; the toggle narrows it back
@@ -121,6 +140,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
 
   function handleOpen(pipeline: JenkinsfilePipeline) {
     log("jenkinsfile", "opening pipeline", pipeline.id);
+    localStorage.setItem(LAST_OPENED_KEY, pipeline.id);
     // Which cards are folded was saved with it, so it opens the way it was left.
     const opened = toDraft(pipeline);
     setDraft(opened);
@@ -132,13 +152,27 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
     setSaveState("idle");
   }
 
-  function handleNew() {
-    log("jenkinsfile", "new pipeline");
-    setDraft(newPipeline());
+  /** Both ways of starting: `start` is the pipeline to open, empty or imported. */
+  function startPipeline(start: DraftPipeline) {
+    setDraft(start);
     idRef.current = "";
     persisted.current = "";
     setTouched(new Set());
     setSaveState("idle");
+    setNewOpen(false);
+    localStorage.removeItem(LAST_OPENED_KEY);
+  }
+
+  function handleNew() {
+    log("jenkinsfile", "new pipeline");
+    startPipeline(newPipeline());
+  }
+
+  function handleImport(imported: DraftPipeline, warnings: string[]) {
+    log("jenkinsfile", `imported: ${imported.stages.length} stage(s)`, { warnings: warnings.length });
+    // Autosave takes it from here — an import is a change like any other, so it
+    // lands in the list on the same debounce as typing does.
+    startPipeline(imported);
   }
 
   function touch(scope: string) {
@@ -211,11 +245,21 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
       const id = idRef.current;
       const { pipeline } = id ? await updatePipeline(id, input) : await createPipeline(input);
       idRef.current = pipeline.id;
+      // A pipeline created by autosave is now the one Refresh should reopen.
+      localStorage.setItem(LAST_OPENED_KEY, pipeline.id);
       persisted.current = JSON.stringify(toInput(toDraft(pipeline)));
       log("jenkinsfile", id ? "autosaved" : "created", pipeline.id);
       // Only the server's own fields are taken back. Merging the whole record
       // would stamp on whatever was typed while the request was in flight.
-      setDraft((prev) => ({ ...prev, id: pipeline.id, name: pipeline.name, updatedAt: pipeline.updatedAt }));
+      setDraft((prev) => ({
+        ...prev,
+        id: pipeline.id,
+        updatedAt: pipeline.updatedAt,
+        // The minted name is taken back only when there was nothing to keep:
+        // this field is typed in now, and a slow response must not overwrite
+        // whatever was typed while it was in flight.
+        name: prev.name.trim() ? prev.name : pipeline.name,
+      }));
       setPipelines((prev) => [pipeline, ...prev.filter((p) => p.id !== pipeline.id)]);
       setSaveState("saved");
     } catch (err) {
@@ -240,18 +284,10 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
   }
 
   return (
-    <>
+    <ImagesContext.Provider value={images}>
       <header className="topbar">
         <h1>Jenkinsfile</h1>
         <div className="jf-topbar-actions">
-          {draft.id && (
-            <button type="button" className="ghost-button" onClick={() => void handleDelete()}>
-              <Trash2 size={17} aria-hidden="true" /> Delete
-            </button>
-          )}
-          <button type="button" className="ghost-button" onClick={handleNew}>
-            <FilePlus2 size={17} aria-hidden="true" /> New
-          </button>
           <span className={`jf-save-state ${saveState}`} role="status">
             {saveState === "saving" && "Saving…"}
             {saveState === "saved" && (
@@ -265,6 +301,17 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
               </>
             )}
           </span>
+          {draft.id && (
+            <button type="button" className="ghost-button" onClick={() => void handleDelete()}>
+              <Trash2 size={18} aria-hidden="true" /> Delete
+            </button>
+          )}
+          {/* Same button as every other module's: primary, a Plus, and last in
+              the bar. The thing this module makes is a pipeline, so New here
+              means what New means everywhere else. */}
+          <button type="button" className="primary" onClick={() => setNewOpen(true)}>
+            <Plus size={18} aria-hidden="true" /> New
+          </button>
         </div>
       </header>
 
@@ -294,6 +341,42 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
         </div>
 
         <div className="content-column">
+          {/* The open pipeline's name heads the editor, level with the list
+              heading beside it — it names what the whole column is showing, so
+              it belongs above the column rather than tucked into the toolbar.
+              Text with a pencil, the same shape a ticket's title uses, because
+              a box sitting there permanently reads as a search field. A list of
+              "Dev User #7" says nothing about what any of them build; the
+              server still mints that name and this renames over it. */}
+          <div className="jf-title-row">
+            {naming ? (
+              <input
+                className="title-edit-input jf-title"
+                aria-label="Pipeline name"
+                value={draft.name}
+                placeholder="Untitled pipeline"
+                autoFocus
+                onChange={(e) => setDraft((prev) => ({ ...prev, name: e.target.value }))}
+                onBlur={() => setNaming(false)}
+                onKeyDown={(e) => {
+                  // Enter and Escape both just leave the field — every keystroke
+                  // is already in the draft, and autosave is what writes it.
+                  if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
+                }}
+              />
+            ) : (
+              <h2 className={`jf-title${draft.name.trim() ? "" : " jf-title-empty"}`}>{draft.name.trim() || "Untitled pipeline"}</h2>
+            )}
+            <button
+              type="button"
+              className="icon-button edit-toggle"
+              aria-label={naming ? "Done editing the name" : "Rename this pipeline"}
+              onClick={() => setNaming((v) => !v)}
+            >
+              {naming ? <Check size={16} aria-hidden="true" /> : <Pencil size={16} aria-hidden="true" />}
+            </button>
+          </div>
+
           <section className="detail-panel" aria-label="Pipeline settings">
             <LibraryField
               value={draft.library}
@@ -332,6 +415,9 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
           </section>
         </div>
       </div>
-    </>
+      {newOpen && (
+        <NewPipelineDialog onScratch={handleNew} onImport={handleImport} onClose={() => setNewOpen(false)} />
+      )}
+    </ImagesContext.Provider>
   );
 }

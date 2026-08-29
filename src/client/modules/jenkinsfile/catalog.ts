@@ -60,7 +60,7 @@ export type ArgSpec = {
    * stringList only: offer what another stage has already stashed instead of a
    * free-text box, so `unstash` cannot name a stash that does not exist.
    */
-  pickFrom?: "stashNames";
+  pickFrom?: "stashNames" | "images";
   /**
    * stringMap only: the library rejects any other key (see `resourcesValidator`).
    * A map that declares them is edited as one labelled input per key rather than
@@ -95,6 +95,9 @@ const COMMON_ARGS: ArgSpec[] = [
   {
     name: "image",
     kind: "string",
+    // The names come from Artifactory, but the field stays free text: a picker
+    // that cannot reach Artifactory must not stop anyone typing an image.
+    pickFrom: "images",
     hint:
       "Container image for the pod agent. A bare name resolves against the Artifactory image path; " +
       "[name] reuses a container from the inherited pod template instead of adding one.",
@@ -314,7 +317,7 @@ export const STEPS: StepSpec[] = [
     step: "buildAndUploadImageStage",
     label: "Build & upload image",
     description: "Builds the Dockerfile with buildkit and pushes it to Artifactory.",
-    defaults: { title: "Build and Upload Image - ${env.SERVICE}", image: "[buildkit-rootful]" },
+    defaults: { title: "Build and Upload Image", image: "[buildkit-rootful]" },
     args: [
       ...common(),
       { name: "dockerfile", kind: "string", hint: "Path to the Dockerfile.", placeholder: "Dockerfile" },
@@ -332,7 +335,7 @@ export const STEPS: StepSpec[] = [
     step: "buildAndUploadJarStage",
     label: "Build & upload jar",
     description: "Maven deploy of the project's jar to Artifactory.",
-    defaults: { title: "Build and Upload Jar - ${env.SERVICE}", image: "mvn353-jdk17" },
+    defaults: { title: "Build and Upload Jar", image: "mvn353-jdk17" },
     args: [
       ...common(),
       { name: "flags", kind: "stringList", hint: "Extra maven flags, one per line.", },
@@ -351,7 +354,7 @@ export const STEPS: StepSpec[] = [
     step: "buildAndUploadRpmStage",
     label: "Build & upload RPM",
     description: "rpmbuild from a spec file, then upload to Artifactory.",
-    defaults: { title: "Build and Upload RPM - ${env.SERVICE}", image: "rpmbuild" },
+    defaults: { title: "Build and Upload RPM", image: "rpmbuild" },
     args: [
       ...common(),
       { name: "specFile", kind: "string", hint: "Path to the .spec file.", placeholder: "service.spec" },
@@ -367,7 +370,7 @@ export const STEPS: StepSpec[] = [
     step: "buildAndUploadWhlStage",
     label: "Build & upload wheel",
     description: "Builds the Python wheel and uploads it to Artifactory.",
-    defaults: { title: "Build and Upload Whl - ${env.SERVICE}", image: "python311" },
+    defaults: { title: "Build and Upload Whl", image: "python311" },
     args: [...common(), { name: "repoName", kind: "string", hint: "Target Artifactory pypi repo." }, POST_COMMANDS],
   },
   {

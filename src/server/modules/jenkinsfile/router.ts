@@ -3,6 +3,7 @@ import { z } from "zod";
 import { isAdmin } from "../../auth";
 import { config } from "../../config";
 import { log } from "../../log";
+import { pickableImages } from "./images";
 import { PipelineStore } from "./PipelineStore";
 import type { JenkinsfilePipeline } from "../../types";
 
@@ -13,6 +14,9 @@ import type { JenkinsfilePipeline } from "../../types";
  * library grows a key.
  */
 const pipelineBody = z.object({
+  // Optional, and blank means "leave the name alone": the server still mints
+  // one on create, so a pipeline always has a name even if nothing is typed.
+  name: z.string().trim().max(80).optional(),
   // Empty is legal: the @Library line is optional, and the builder only ever
   // sends the configured name (optionally `@branch`) or nothing at all.
   library: z.string().trim().max(200),
@@ -52,10 +56,14 @@ export function createJenkinsfileRouter(store: PipelineStore = new PipelineStore
   }
 
   /**
-   * There is no name field in the builder — a pipeline is named after whoever
-   * made it plus their own running count, so the list reads "Alex Morgan #3".
-   * The count is per author and derived from what they already own, so two
-   * people never collide and deleting #2 lets the next one reuse the number.
+   * The name a pipeline starts with — whoever made it plus their own running
+   * count, so the list reads "Alex Morgan #3". The count is per author and
+   * derived from what they already own, so two people never collide and
+   * deleting #2 lets the next one reuse the number.
+   *
+   * It is only a starting point: the builder shows the name and can change it.
+   * Minting still matters because a pipeline is saved the moment it has a
+   * stage, long before anyone thinks to name it.
    */
   function mintName(req: express.Request): string {
     const owner = req.user!;
@@ -82,13 +90,22 @@ export function createJenkinsfileRouter(store: PipelineStore = new PipelineStore
     });
   });
 
+  /**
+   * Deliberately not ridden along on the pipelines list next to
+   * `sharedLibrary`: that is a static config string, this is a network call,
+   * and an Artifactory hiccup must not be able to take out the pipeline list.
+   */
+  router.get("/api/jenkinsfile/images", async (_req, res) => {
+    res.json({ images: await pickableImages() });
+  });
+
   router.post("/api/jenkinsfile/pipelines", async (req, res, next) => {
     try {
       const body = pipelineBody.parse(req.body);
       const now = new Date().toISOString();
       const pipeline = await store.put({
         ...body,
-        name: mintName(req),
+        name: body.name?.trim() || mintName(req),
         id: store.nextId(),
         createdBy: req.user!.id,
         createdByName: req.user!.displayName,
@@ -129,7 +146,13 @@ export function createJenkinsfileRouter(store: PipelineStore = new PipelineStore
       const body = pipelineBody.parse(req.body);
       // Ownership and creation time are the record's, not the request's — an
       // admin editing someone else's pipeline must not take it over.
-      const pipeline = await store.put({ ...existing, ...body, updatedAt: new Date().toISOString() });
+      // A blank name keeps the stored one rather than emptying the list row.
+      const pipeline = await store.put({
+        ...existing,
+        ...body,
+        name: body.name?.trim() || existing.name,
+        updatedAt: new Date().toISOString(),
+      });
       log.info("jenkinsfile", `updated ${pipeline.id}`, { name: pipeline.name, stages: pipeline.stages.length });
       res.json({ pipeline });
     } catch (err) {

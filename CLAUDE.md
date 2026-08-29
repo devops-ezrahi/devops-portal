@@ -70,6 +70,12 @@ Two **intentional** exceptions remain, both for local dev/demo and both gated on
 the same signal (`SSO_REQUIRED` is not `true` — no proxy in front):
 
 - The dev role switcher in `src/client/App.tsx` (`POST /api/dev/role`) and the dev fallback user in `auth.ts` — let the app run locally without an SSO proxy in front.
+- `modules/jenkinsfile/devSimulation.ts` — a scripted image list for the
+  builder's `image` picker. There is no Artifactory behind `npm run dev`, so
+  without it the field suggests nothing and the picker cannot be seen at all
+  offline. `pickableImages` reaches for it only when `SSO_REQUIRED` is not
+  `true` **and** no real `JENKINS_IMAGES_PATH`/Artifactory is configured — a
+  real lookup always wins, and a deployment never serves it.
 - `modules/artifactory/devSimulation.ts` + `modules/whitening/devSimulation.ts` — scripted runs behind the **Test** button each module shows in dev. Nothing is seeded: the job lists start empty, and a run only exists once you press it. Both routers mount `POST /api/<module>/jobs/simulate` only when `SSO_REQUIRED` is not `true`, and the client only renders the button for the `dev` user. The scripts drive the real job map, log, progress and abort controller, so Stop works on them too. `src/server/devSimulate.test.ts` pins that the routes 404 once SSO is required.
 
 ## Config & environment
@@ -92,6 +98,7 @@ Key variables (see `.env.example`):
 | `NPM_SOURCE_TOKEN`                                            | —               | Credential for the *source* npm registry when a URL copy is submitted with **Include dependencies** ticked. That path derives the registry from the pasted tarball URL (`<registry>/<name>/-/<file>.tgz`), writes it plus this token into a throwaway `.npmrc`, and runs a real `npm install` — once per target platform, since optional deps are platform-gated. Unset is normal: a public registry needs nothing, and a source registry on the same host as `ARTIFACTORY_URL` reuses `ARTIFACTORY_TOKEN` automatically. |
 | `GIT_URL` / `GIT_TOKEN`                                      | —               | Bitbucket Server base URL + HTTP access token; required for the Whitening module to open pull requests. The AI module reuses the same token to authenticate `git clone` for registered `ai-*` project repos (unset = clone stays unauthenticated, so public repos still work) |
 | `GIT_USERNAME`                                               | —               | Empty (default) puts the token alone in the clone URL; set it only if Bitbucket wants `username:token` basic auth           |
+| `JENKINS_IMAGES_PATH`                                        | —               | Artifactory storage path whose child folders name the agent images the Jenkinsfile builder's `image` field suggests (e.g. `docker-local/jenkins-agents`). One AQL search per hour per pod returns the names *and* each image's `SCREAMING_CASE` Docker labels (`JDK=17`), which are shown beside the name. Unset, or unreachable, = the field is plain free text exactly as before. |
 | `JIRA_URL` / `JIRA_TOKEN` / `JIRA_PROJECT_KEY`               | —               | All three required to activate `JiraTicketingApi` (Jira Data Center, Bearer PAT); otherwise `InMemoryTicketingApi` fallback |
 | `JIRA_STORY_POINTS_FIELD`                                    | —               | Custom-field id holding story points (e.g. `customfield_10016`) — instance-specific; unset = points stay portal-only and are not synced to Jira |
 | `AI_SKILLS_DIR`                                               | `~/.claude/skills` | Where the AI module's project registry lives — one `ai-<name>/SKILL.md` per repo (frontmatter `description` + a `Repo:` line, plus a free-text body describing how to work with that repo). This app's own code reads `description`/`Repo:` for the picker UI and the clone step (opencode has no bash access, so it can't clone itself) — but opencode's own native skill-discovery reads the *same* files: each question is prefixed "Use the ai-\<project\> skill", and opencode loads the SKILL.md body itself via its `skill` tool. That discovery is fixed to a few paths opencode always scans (`~/.claude/skills`, `~/.config/opencode/skills`, `~/.agents/skills`, plus project-level equivalents) — keep `AI_SKILLS_DIR` pointed at one of those (the default already is) or the portal's picker still works but opencode's `skill` tool won't find the project when asked to use it. The module activates once at least one `ai-*` entry is found there. The server logs the resolved path and the project count at startup, because an empty registry is otherwise indistinguishable from a wrong path. |
@@ -158,6 +165,24 @@ no external system — the only server-side state is saved pipeline documents.
   to pin — typing the name into every pipeline only creates the chance to typo
   it. Off is the resting state: a dotted button in the shape of the box it opens
   into. An empty `library` emits no import line at all.
+- **The `image` field suggests, it does not constrain.** `ImagePicker.tsx` is a
+  combobox — the image name on the left, its labels on the right — and anything
+  typed is still accepted, which is why it is not a `<select>`. It opens
+  downwards, or upwards when the field sits too near the bottom of the window,
+  which a stage low in a long list usually does. It replaced a native
+  `<datalist>`, which can neither lay a row out in two columns nor open upwards.
+  The names come from Artifactory (`JENKINS_IMAGES_PATH`).
+  Artifactory is the source rather than the dockerfiles repo that builds these
+  images, or the Confluence page that repo's CI publishes, because it is the
+  only one of the three that also lists an image pushed there by hand. One AQL
+  search (`api/search/aql`, not `api/storage?list`) gets the names and the
+  labels together, since the labels are properties on each manifest and a
+  listing carries no properties. Only `SCREAMING_CASE` labels are shown
+  (`JDK=17`) — Docker's own conventional labels are lowercase and dotted and
+  say nothing to someone picking an image. Cached an hour in `images.ts`; a
+  failed lookup is deliberately not cached. The list reaches `ArgField` through
+  `ImagesContext`, not a prop, because unlike `stashNames` it is one list for
+  the whole builder rather than one per stage.
 - **The library's surface is transcribed by hand** into
   `client/modules/jenkinsfile/catalog.ts`, one `StepSpec` per `vars/*.groovy`
   file, with `COMMON_ARGS` spread into all of them exactly as the library does
@@ -174,6 +199,19 @@ no external system — the only server-side state is saved pipeline documents.
 - The output is **scripted, not declarative**: every step in the library opens
   its own `stage()` through `podLauncher`/`nodeExecutor`, so they are called one
   after another at the top level, never inside a `pipeline {}` block.
+- **A pipeline starts empty or from an existing file.** The topbar's New button
+  asks which (`NewPipelineDialog.tsx`); importing takes a paste or a file.
+  `parse.ts` is the inverse of `groovy.ts` and nothing more — a string-aware
+  scanner over the shapes the library uses (`@Library`, `properties([parameters
+  ([…])])`, a flat run of top-level step calls with a named-argument map), not a
+  Groovy parser. Named arguments are grouped into one map exactly as Groovy
+  collects them, which is what lets one reader serve both a step call and a
+  `booleanParam(…)`. **Anything it cannot take is reported, never dropped
+  silently** — the dialog holds the import back once to show the list, since a
+  stage that vanishes without a word is worse than one re-added by hand. A
+  declarative `pipeline { … }` file is named as such rather than importing as
+  nothing. The round-trip is what the tests pin: parsing the generator's own
+  output must regenerate it byte for byte.
 - **The list you reorder is the list you edit.** `StageList.tsx` is one column of
   `StageCard.tsx`s: the header is the card collapsed (grip, position, title,
   description, ▲/▼, ×) and expanding it drops the whole argument editor in
@@ -264,11 +302,16 @@ no external system — the only server-side state is saved pipeline documents.
   a stage's commands run, so a stage cannot unstash its own. A name held over
   from a since-deleted stage stays on the list, marked, so it can be unticked
   rather than silently vanishing.
-- **Textareas grow a row per line and are not user-resizable** — a dragged height
-  only fights the auto-size on the next keystroke. The value of a list field is
-  the raw split of the text, blank lines included: filtering them on the way in
-  is what used to make Enter look broken, because the empty line you just made
-  was dropped before it could render. The generator drops blanks instead.
+- **A list is one box per entry**, the same shape `secrets` and `stash` use — a
+  textarea made every entry look like one paragraph whose line breaks happened
+  to matter. Enter opens the next box, Backspace in an empty one removes it, and
+  a multi-line paste splits across boxes rather than collapsing into one, which
+  is what pasting out of an existing Jenkinsfile does. The `commands` closure
+  form stays a textarea: that one is a block of Groovy, not a list. Blank entries
+  are kept in the value — removing them under the cursor is what used to make
+  Enter look broken — and dropped by the generator. Textareas that remain grow a
+  row per line and are not user-resizable; a dragged height only fights the
+  auto-size on the next keystroke.
 - **A list pasted out of an existing Jenkinsfile is unwrapped.** `"npm install",`
   on its own line becomes `'npm install'`, not `'"npm install",'`. `unwrap` in
   `groovy.ts` only strips a quote pair that wraps the whole line with none of
@@ -293,12 +336,23 @@ no external system — the only server-side state is saved pipeline documents.
   miniature, not `JobStore` (which is `status`/`log`-shaped and splits in-flight
   from settled). **These are user documents, so `DELETE` really deletes.** The
   "nothing is ever deleted" rule above is about run history.
-- **There is no name field and no Save button.** The server names a pipeline
-  `<author> #<n>` on create (`mintName` in `router.ts`), where `n` is the lowest
-  free number among that author's own pipelines — so two people never collide,
-  and deleting #2 lets the next one reuse it. `name` is not in the request body
-  at all, which is also why an admin editing someone else's pipeline cannot
-  rename it out from under them.
+- **The name is minted, then editable; there is no Save button.** The server
+  names a pipeline `<author> #<n>` on create (`mintName` in `router.ts`), where
+  `n` is the lowest free number among that author's own pipelines — so two
+  people never collide, and deleting #2 lets the next one reuse it. Minting
+  still matters because a pipeline is saved the moment it has a stage, long
+  before anyone thinks to name it. The name then heads the editor
+  column, level with "My Pipelines" across the gap — it names what that whole
+  column is showing, so it belongs above the column rather than in the toolbar.
+  It is **text with a pencil beside it**, the same shape a
+  ticket's title uses (`.detail-title-row` / `.title-edit-input` / `.edit-toggle`
+  are reused verbatim), because a box sitting there permanently reads as a
+  search field. Enter and Escape both just blur: every keystroke is already in
+  the draft and autosave is what writes it, so there is no commit to confirm or
+  cancel. A list of `Dev User #7` says nothing about what any of them build. **A blank name keeps the stored one**
+  rather than emptying the list row, and the create/update response's `name` is
+  taken back into the draft only when nothing has been typed — otherwise a slow
+  save would overwrite whatever was typed while it was in flight.
 - **Saving is automatic**, debounced ~800ms after the last change, with the state
   shown in the topbar. Two refs make it safe: `persisted` holds the JSON of what
   the server last returned, so an edit that lands back in the same shape is not
@@ -310,6 +364,30 @@ no external system — the only server-side state is saved pipeline documents.
   stamped on.
 - The saved list uses the portal's standard `.ticket-row` shape, same as every
   other module. Editing a pipeline is opening it; there is nothing else to do to it.
+
+## Shared UI conventions
+
+The five modules are meant to read as one product, so these are portal-wide, not
+per-module choices:
+
+- **The topbar is `<h1>` then actions, primary last.** "New" is
+  `className="primary"` with `<Plus size={18} />` in every module — Tickets,
+  Artifactory ("New Job"), Whitening, AI ("New chat") and Jenkinsfile. Secondary
+  actions (Delete, Archive) are `ghost-button` to its left.
+- **`.workspace-grid` is two columns** (`minmax(260px, 340px)` list +
+  `minmax(0, 1fr)` content). A view with only one thing to show must not use it
+  — a lone child lands in the narrow list column. Use `.workspace-single` with a
+  `.detail-panel`, as the AI module's unconfigured state does.
+- **`.empty-state` is a padded block.** `.module-empty` centres it in its panel
+  and sizes it by its content; `.chat-panel .empty-state` is the variant that
+  fills the window, and belongs only to the chat.
+- **An editable title is text with a pencil**, never a permanent input — a box
+  sitting in a heading row reads as a search field. Two placements, by
+  container: inside a card the pencil goes to the row's far edge as an
+  `.icon-button` (`.detail-title-row`, the ticket detail); on a bare column
+  heading it sits against the text and drops the 38px box until hover
+  (`.jf-title-row`), where a bordered button that size reads as stuck to the
+  name.
 
 ## Logging
 

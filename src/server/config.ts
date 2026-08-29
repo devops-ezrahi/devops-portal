@@ -152,6 +152,13 @@ export const config = {
     // asks for a branch to pin — the name is a deployment fact, not a per-user
     // choice, so it is set here rather than typed into every pipeline.
     sharedLibrary: (requireEnv("JENKINS_SHARED_LIBRARY") ?? "jenkins-k8s-shared-library").trim(),
+    // Artifactory storage path whose child folders are the agent image names,
+    // e.g. "docker-local/jenkins-agents". A Docker repo stores
+    // <repo>/<image>/<tag>/manifest.json, so pointing this at the repo lists
+    // image names and pointing it at one image lists that image's tags — set it
+    // to whichever level holds the names a stage's `image` argument takes.
+    // Unset = the builder's image field stays plain free text.
+    imagesPath: (requireEnv("JENKINS_IMAGES_PATH") ?? "").replace(/^\/+|\/+$/g, ""),
   },
   jira: {
     baseUrl: jiraUrl ?? "",

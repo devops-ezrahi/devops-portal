@@ -209,8 +209,9 @@ describe("toDraft / toInput", () => {
     ]);
   });
 
-  it("sends no name — the server mints one from the author", () => {
-    expect("name" in toInput(newPipeline())).toBe(false);
+  it("sends a blank name for an unnamed pipeline, so the server mints one", () => {
+    expect(toInput(newPipeline()).name).toBe("");
+    expect(toInput({ ...newPipeline(), name: "  Checkout release  " }).name).toBe("Checkout release");
   });
 
   it("normalises a parameter stored before the other types existed", () => {

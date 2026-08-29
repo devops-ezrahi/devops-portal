@@ -145,3 +145,88 @@ export async function upload(path: string, localFile: string, signal?: AbortSign
   }
   log.debug("artifactory", `PUT ${path} ${res.status}`, { ms, bytes: size });
 }
+
+/** One agent image: the name a stage's `image` argument takes, plus its labels. */
+export type ImageInfo = { name: string; labels: Record<string, string> };
+
+/**
+ * Every image under a repo-relative path, with the Docker labels Artifactory
+ * indexed off each manifest, in **one** request. AQL rather than
+ * `api/storage?list` because the labels are properties on the manifest and a
+ * listing does not carry properties — the alternative is one properties call
+ * per image on top of the listing.
+ *
+ * Only `SCREAMING_CASE` labels are kept: those are the ones that describe the
+ * image (`JDK=17`), while Docker's own conventional labels are lowercase and
+ * dotted (`org.opencontainers.image.*`) and say nothing a user picking an image
+ * needs. `null` means the call could not be trusted, never "no images".
+ */
+export async function listImages(repoPath: string): Promise<ImageInfo[] | null> {
+  const started = Date.now();
+  const [repo, ...rest] = repoPath.split("/").filter(Boolean);
+  if (!repo) return null;
+  const prefix = rest.join("/");
+  // AQL's `*` crosses `/`, so this matches a manifest at any depth under the
+  // configured path. Depth must stay open: the folder holding the names is the
+  // repo root in one layout and an image whose tags are the names in another,
+  // and the name is read back off the path either way.
+  const pathMatch = prefix ? `${prefix}/*` : "*";
+  const query =
+    `items.find({"repo":${JSON.stringify(repo)},"path":{"$match":${JSON.stringify(pathMatch)}},` +
+    `"name":"manifest.json"}).include("path","property.key","property.value")`;
+
+  let res: Response;
+  try {
+    res = await fetch(`${serviceUrl()}/api/search/aql`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "text/plain" },
+      body: query,
+    });
+  } catch (err) {
+    log.warn("artifactory", `image search under ${repoPath} could not be sent: ${describeError(err)}`);
+    return null;
+  }
+  if (!res.ok) {
+    const detail = (await res.text().catch(() => "")).trim().slice(0, 300);
+    log.warn("artifactory", `image search under ${repoPath} answered ${res.status} ${res.statusText}`, {
+      detail: detail || undefined,
+    });
+    return null;
+  }
+
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch (err) {
+    log.warn("artifactory", `image search under ${repoPath} returned non-JSON: ${describeError(err)}`);
+    return null;
+  }
+
+  const results = (body as { results?: unknown } | null)?.results;
+  if (!Array.isArray(results)) {
+    log.warn("artifactory", `image search under ${repoPath} had no "results" array`);
+    return null;
+  }
+
+  // An image has one manifest per tag, so the same name arrives several times;
+  // the labels are merged rather than the later row replacing the earlier one.
+  const byName = new Map<string, Record<string, string>>();
+  for (const row of results) {
+    const path = (row as { path?: unknown })?.path;
+    if (typeof path !== "string") continue;
+    const name = path.slice(prefix ? prefix.length + 1 : 0).split("/")[0];
+    if (!name) continue;
+    const labels = byName.get(name) ?? {};
+    for (const prop of ((row as { properties?: unknown }).properties as unknown[]) ?? []) {
+      const key = (prop as { key?: unknown })?.key;
+      const value = (prop as { value?: unknown })?.value;
+      if (typeof key !== "string" || typeof value !== "string") continue;
+      const label = key.startsWith("docker.label.") ? key.slice("docker.label.".length) : null;
+      if (label && /^[A-Z][A-Z0-9_]*$/.test(label)) labels[label] = value;
+    }
+    byName.set(name, labels);
+  }
+
+  log.info("artifactory", `found ${byName.size} image(s) under ${repoPath}`, { ms: Date.now() - started });
+  return [...byName].map(([name, labels]) => ({ name, labels })).sort((a, b) => a.name.localeCompare(b.name));
+}

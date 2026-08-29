@@ -5,7 +5,7 @@ import type { JenkinsfilePipeline } from "../../../server/types";
  * What the server accepts. Its own id, owner, timestamps — and `name`, which it
  * mints from the author — are its business, not the builder's.
  */
-export type PipelineInput = Pick<JenkinsfilePipeline, "library" | "envVars" | "stages"> & {
+export type PipelineInput = Pick<JenkinsfilePipeline, "name" | "library" | "envVars" | "stages"> & {
   params: NonNullable<JenkinsfilePipeline["params"]>;
 };
 
@@ -31,4 +31,12 @@ export function updatePipeline(id: string, input: PipelineInput) {
 
 export function deletePipeline(id: string) {
   return request<{ ok: true }>(`/api/jenkinsfile/pipelines/${id}`, { method: "DELETE" });
+}
+
+/** One suggestion in the `image` picker: the name, and its labels as one line. */
+export type PickableImage = { name: string; info: string };
+
+/** Image names for the `image` picker, with their SCREAMING_CASE labels. */
+export function getImages() {
+  return request<{ images: PickableImage[] }>("/api/jenkinsfile/images");
 }

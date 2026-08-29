@@ -221,20 +221,22 @@ export function AiView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) 
         <header className="topbar">
           <h1>AI</h1>
         </header>
-        <div className="workspace-grid">
-          <div className="content-column">
-            <section className="detail-panel chat-panel" aria-label="AI not configured">
-              <div className="empty-state">
-                <Sparkles size={40} className="empty-icon" aria-hidden="true" />
-                <strong>AI not configured</strong>
-                <p className="field-hint">
-                  Add a <code>ai-*</code> skill under <code>AI_SKILLS_DIR</code> and set{" "}
-                  <code>OPENCODE_API_KEY</code> (optionally <code>OPENCODE_MODEL</code>) — see{" "}
-                  <code>.env.example</code>.
-                </p>
-              </div>
-            </section>
-          </div>
+        {/* Neither a list nor a chat to show, so neither column of the
+            workspace grid applies: a lone child of that grid lands in the
+            narrow list column, and .chat-panel then stretches it to the full
+            height of the window. One panel, sized by its own content. */}
+        <div className="workspace-single">
+          <section className="detail-panel" aria-label="AI not configured">
+            <div className="empty-state module-empty">
+              <Sparkles size={40} className="empty-icon" aria-hidden="true" />
+              <strong>AI not configured</strong>
+              <p className="field-hint">
+                Add a <code>ai-*</code> skill under <code>AI_SKILLS_DIR</code> and set{" "}
+                <code>OPENCODE_API_KEY</code> (optionally <code>OPENCODE_MODEL</code>) — see{" "}
+                <code>.env.example</code>.
+              </p>
+            </div>
+          </section>
         </div>
       </>
     );

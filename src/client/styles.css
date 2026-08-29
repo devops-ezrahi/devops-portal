@@ -3022,6 +3022,15 @@ code {
   animation: row-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* `row-in` animates `transform` with fill-mode `both`, so every .jf-arg keeps a
+   transform and is its own stacking context — which traps the picker's z-index
+   inside its own card and lets the next argument paint over the open list.
+   Lifting the whole card is what gets the list out in front of its siblings. */
+.jf-arg:has(.jf-imagepicker-list) {
+  position: relative;
+  z-index: 30;
+}
+
 .jf-arg .field-hint {
   margin: 0;
 }
@@ -3214,6 +3223,11 @@ code {
   gap: 6px;
 }
 
+/* A list row is one box, not the key/value pair .jf-row lays out. */
+.jf-list-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .jf-object {
   display: grid;
   gap: 6px;
@@ -3308,4 +3322,294 @@ code {
   .jf-list-head {
     flex-wrap: wrap;
   }
+}
+
+/* The `image` argument's combobox — a text field that also drops the list of
+   images Artifactory knows about, name on the left and labels on the right. */
+.jf-imagepicker {
+  position: relative;
+}
+
+.jf-imagepicker input {
+  /* Room for the toggle, so a long image name never runs under it. */
+  padding-right: 32px;
+}
+
+.jf-imagepicker-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #7a8b90;
+  cursor: pointer;
+}
+
+.jf-imagepicker-toggle:hover {
+  color: #cfe3e8;
+}
+
+.jf-imagepicker-flip {
+  transform: rotate(180deg);
+}
+
+.jf-imagepicker-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid #2a3940;
+  border-radius: 8px;
+  background: #0c1215;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+  animation: pop-in 120ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Flipped when the field sits too near the bottom of the window to open down. */
+.jf-imagepicker-up {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+.jf-imagepicker-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.jf-imagepicker-active {
+  background: #16232a;
+}
+
+.jf-imagepicker-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  color: #e6f1f3;
+}
+
+.jf-imagepicker-info {
+  font-size: 12px;
+  color: #7a8b90;
+  text-align: right;
+  /* The labels give way first — the name is what is being picked. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* "New" asks first: start empty, or import an existing Jenkinsfile. */
+.jf-new-choices {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+}
+
+.jf-new-choice {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 14px 16px;
+  text-align: left;
+  border: 1px solid #223038;
+  border-radius: 8px;
+  background: #101a1e;
+  color: inherit;
+  cursor: pointer;
+}
+
+.jf-new-choice:hover {
+  border-color: #20c7bd;
+  background: #16232a;
+}
+
+.jf-new-choice svg {
+  grid-row: span 2;
+  color: #20c7bd;
+}
+
+.jf-new-choice-name {
+  font-weight: 600;
+  color: #e6f1f3;
+}
+
+.jf-new-choice-hint {
+  font-size: 12px;
+  color: #7a8b90;
+}
+
+.jf-new-import {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+}
+
+.jf-import-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.jf-import-text {
+  width: 100%;
+  min-height: 260px;
+  padding: 10px 12px;
+  border: 1px solid #2a3940;
+  border-radius: 6px;
+  background: #0c1215;
+  color: #e6f1f3;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  resize: vertical;
+}
+
+.jf-import-text:focus {
+  outline: none;
+  border-color: #20c7bd;
+  box-shadow: 0 0 0 2px rgb(32 199 189 / 15%);
+}
+
+.jf-import-warnings {
+  padding: 10px 12px;
+  border: 1px solid #4a3a1c;
+  border-radius: 6px;
+  background: #1c1710;
+  font-size: 13px;
+}
+
+.jf-import-warnings p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  color: #e0b457;
+}
+
+.jf-import-warnings ul {
+  margin: 0;
+  padding-left: 22px;
+  color: #b9c8cd;
+}
+
+.jf-import-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* Number arguments are typed, not stepped: the spinners sit where the text ends
+   and are a click target nobody wants next to a storage size. */
+.jf-arg input[type="number"] {
+  appearance: textfield;
+}
+
+.jf-arg input[type="number"]::-webkit-outer-spin-button,
+.jf-arg input[type="number"]::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+/* The open pipeline's name, heading its own column. Text with a pencil beside
+   it — the same shape as a ticket's title, and for the same reason: a box
+   sitting there permanently reads as a search field.
+
+   The row is `.ticket-list-header`'s height so the name sits level with "My
+   Pipelines" across the gap, which is what makes it read as this column's
+   heading rather than as something floating above the first card. */
+.jf-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  /* Top-aligned, not centred: the pencil is taller than the text, and centring
+     the pair drops the name below "My Pipelines" across the gap. */
+  align-items: flex-start;
+  min-height: 34px;
+}
+
+h2.jf-title {
+  flex: 0 1 auto;
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+input.jf-title {
+  flex: 1 1 auto;
+  max-width: 520px;
+}
+
+/* Sits with the name rather than at the column's edge, so it reads as a control
+   on the title. .icon-button's 38px bordered box is far too heavy for that at
+   this size — it looked stuck to the text — so here it is just the glyph until
+   the pointer is on it. */
+.jf-title-row .edit-toggle {
+  width: auto;
+  min-height: 0;
+  padding: 5px;
+  border-color: transparent;
+  background: none;
+  color: #6f8088;
+}
+
+.jf-title-row .edit-toggle:hover {
+  border-color: #2a3940;
+  background: #151d21;
+  color: #dbe4e7;
+}
+
+/* An unnamed draft shows a placeholder, not a name. */
+.jf-title-empty {
+  color: #55686e;
+  font-weight: 500;
+}
+
+/* One panel where the two-column workspace does not apply — a module with
+   nothing to list and nothing to show beside it. Without this a lone child of
+   .workspace-grid lands in the narrow list column. */
+.workspace-single {
+  width: 100%;
+}
+
+/* A module-level empty state: centred in its panel and sized by its content,
+   rather than the chat panel's fill-the-window variant. */
+.module-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 48px 32px;
+  text-align: center;
+}
+
+.module-empty strong {
+  color: #c8d3d7;
+}
+
+.module-empty p {
+  margin-bottom: 0;
+  max-width: 420px;
+}
+
+.module-empty .empty-icon {
+  opacity: 0.2;
 }

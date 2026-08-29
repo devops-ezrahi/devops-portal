@@ -1,7 +1,9 @@
 import { HelpCircle, Plus, X } from "lucide-react";
-import { useState } from "react";
+import { createContext, useContext, useLayoutEffect, useRef, useState } from "react";
 import { KIND_LABEL, type ArgSpec, type ObjectField } from "../catalog";
 import { closureOf, pairsOf, type MapPairs } from "../pipeline";
+import type { PickableImage } from "../api";
+import { ImagePicker } from "./ImagePicker";
 
 type Props = {
   spec: ArgSpec;
@@ -19,11 +21,20 @@ type Props = {
 };
 
 /**
+ * The images the `image` argument suggests. A context rather than a prop
+ * because — unlike `stashNames`, which is computed per stage — this is one list
+ * for the whole builder, and threading it would mean adding the same prop to
+ * every component between the view and here.
+ */
+export const ImagesContext = createContext<PickableImage[]>([]);
+
+/**
  * One argument of one stage, rendered by its kind. The value shapes here are
  * exactly what `groovy.ts` renders and what the server stores, so nothing is
  * translated on the way out.
  */
 export function ArgField({ spec, value, stepDefault, idPrefix, required, stashNames = [], onChange, onRemove }: Props) {
+  const images = useContext(ImagesContext);
   const id = `${idPrefix}-${spec.name}`;
   // The step's own default beats the catalog's generic example: sonarStage
   // really does fall back to `sonar`, and showing `python311` there would be a lie.
@@ -34,6 +45,7 @@ export function ArgField({ spec, value, stepDefault, idPrefix, required, stashNa
   // Old records hold `true`/`false` in what is now an expression field; show the
   // literal rather than an empty box that would silently drop it on the next edit.
   const expression = typeof value === "boolean" ? String(value) : String(value ?? "");
+  const suggesting = spec.pickFrom === "images" && images.length > 0;
 
   return (
     <div className={`form-field jf-arg${spec.kind === "boolean" ? " jf-arg-inline" : ""}`}>
@@ -56,9 +68,21 @@ export function ArgField({ spec, value, stepDefault, idPrefix, required, stashNa
         )}
       </div>
 
-      {spec.kind === "string" && (
-        <input id={id} type="text" value={String(value ?? "")} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
-      )}
+      {spec.kind === "string" &&
+        // The picker is the same text field with a list attached, so an
+        // unreachable Artifactory leaves an ordinary input rather than an
+        // empty dropdown.
+        (suggesting ? (
+          <ImagePicker
+            id={id}
+            value={String(value ?? "")}
+            placeholder={placeholder}
+            images={images}
+            onChange={onChange}
+          />
+        ) : (
+          <input id={id} type="text" value={String(value ?? "")} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
+        ))}
 
       {spec.kind === "expression" && (
         <input
@@ -96,7 +120,7 @@ export function ArgField({ spec, value, stepDefault, idPrefix, required, stashNa
         (spec.pickFrom === "stashNames" ? (
           <StashPicker spec={spec} chosen={(value as string[]) ?? []} available={stashNames} onChange={onChange} />
         ) : (
-          <Lines id={id} value={value} placeholder={placeholder} onChange={onChange} />
+          <Lines id={id} name={spec.name} value={value} placeholder={placeholder} onChange={onChange} />
         ))}
 
       {spec.kind === "stringMap" &&
@@ -121,35 +145,106 @@ export function ArgField({ spec, value, stepDefault, idPrefix, required, stashNa
 }
 
 /**
- * A textarea that grows with what is in it and cannot be dragged bigger — the
- * drag handle only ever fights the auto-size. The value is kept as the raw split
- * of the text, blank lines and all: filtering them here is what used to make
- * Enter appear to do nothing, because the empty line you just made was dropped
- * before it could be rendered back. Blanks are dropped by the generator instead.
+ * One box per entry, the same shape `MapRows` and `ObjectRows` use — a list is
+ * a list of things, and a textarea made every entry look like one paragraph
+ * whose line breaks happened to matter.
+ *
+ * Enter adds the next box and Backspace in an empty one removes it, so a list
+ * is still typed straight through without reaching for the mouse; a multi-line
+ * paste splits across boxes rather than collapsing into one, which is what
+ * pasting out of an existing Jenkinsfile does. Blank entries are kept in the
+ * value (removing them under the cursor is what used to make Enter look
+ * broken) and dropped by the generator.
  */
 function Lines({
   id,
+  name,
   value,
   placeholder,
   onChange,
   mono,
 }: {
   id: string;
+  /** The argument's name, for the rows after the first — which the label covers. */
+  name: string;
   value: unknown;
   placeholder?: string;
   onChange: (value: unknown) => void;
   mono?: boolean;
 }) {
-  const text = ((value as string[]) ?? []).join("\n");
+  const items = (value as string[]) ?? [];
+  const rows = items.length ? items : [""];
+  // Which box to put the cursor in after the next render — adding a row is
+  // useless if the typing does not carry on into it.
+  const [focus, setFocus] = useState<number | null>(null);
+  const boxes = useRef<(HTMLInputElement | null)[]>([]);
+
+  useLayoutEffect(() => {
+    if (focus === null) return;
+    boxes.current[Math.min(focus, rows.length - 1)]?.focus();
+    setFocus(null);
+  }, [focus, rows.length]);
+
+  function replace(next: string[], cursor?: number) {
+    onChange(next);
+    if (cursor !== undefined) setFocus(cursor);
+  }
+
+  function onKeyDown(e: React.KeyboardEvent, i: number) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      replace([...rows.slice(0, i + 1), "", ...rows.slice(i + 1)], i + 1);
+    } else if (e.key === "Backspace" && rows[i] === "" && rows.length > 1) {
+      e.preventDefault();
+      replace(rows.filter((_, n) => n !== i), Math.max(0, i - 1));
+    }
+  }
+
+  // The placeholder is written as the multi-line example it used to be shown
+  // as, so one line of it belongs in each of the first boxes.
+  const hints = (placeholder ?? "").split("\n");
+
   return (
-    <textarea
-      id={id}
-      className={`jf-lines${mono ? " jf-expression" : ""}`}
-      rows={Math.max(3, text.split("\n").length + 1)}
-      value={text}
-      placeholder={placeholder}
-      onChange={(e) => onChange(e.target.value.split("\n"))}
-    />
+    <div className="jf-rows">
+      {rows.map((line, i) => (
+        <div className="jf-row jf-list-row" key={i}>
+          <input
+            id={i === 0 ? id : undefined}
+            type="text"
+            className={mono ? "jf-expression" : undefined}
+            spellCheck={false}
+            ref={(el) => {
+              boxes.current[i] = el;
+            }}
+            aria-label={i === 0 ? undefined : `${name} ${i + 1}`}
+            placeholder={hints[i]}
+            value={line}
+            onChange={(e) => replace(rows.map((l, n) => (n === i ? e.target.value : l)))}
+            onKeyDown={(e) => onKeyDown(e, i)}
+            onPaste={(e) => {
+              const text = e.clipboardData.getData("text");
+              if (!text.includes("\n")) return;
+              // A list pasted out of a file arrives as many lines; dropping them
+              // into one box would silently join commands together.
+              e.preventDefault();
+              const pasted = text.split("\n");
+              replace([...rows.slice(0, i), ...pasted, ...rows.slice(i + 1)], i + pasted.length - 1);
+            }}
+          />
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={`Remove ${name} ${i + 1}`}
+            onClick={() => replace(rows.length > 1 ? rows.filter((_, n) => n !== i) : [""])}
+          >
+            <X size={15} aria-hidden="true" />
+          </button>
+        </div>
+      ))}
+      <button type="button" className="ghost-button jf-add-row" onClick={() => replace([...rows, ""], rows.length)}>
+        <Plus size={15} aria-hidden="true" /> Add entry
+      </button>
+    </div>
   );
 }
 
@@ -248,7 +343,7 @@ function Commands({
           onChange={(e) => onChange({ closure: e.target.value })}
         />
       ) : (
-        <Lines id={id} value={value} placeholder={"npm ci\nnpm run build"} onChange={onChange} />
+        <Lines id={id} name={spec.name} value={value} placeholder={"npm ci\nnpm run build"} onChange={onChange} />
       )}
     </>
   );

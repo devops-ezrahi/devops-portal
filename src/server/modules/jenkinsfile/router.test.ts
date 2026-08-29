@@ -93,6 +93,36 @@ describe("jenkinsfile pipelines", () => {
     expect(third.body.pipeline.name).toBe("Alex Morgan #1");
   });
 
+  it("takes a name on create, and renames on update", async () => {
+    const app = await appOn(mkdtempSync(join(tmpdir(), "jf-test-")));
+
+    const named = await request(app)
+      .post("/api/jenkinsfile/pipelines")
+      .set(alex)
+      .send({ ...body, name: "  Checkout release  " })
+      .expect(201);
+    expect(named.body.pipeline.name).toBe("Checkout release");
+
+    const renamed = await request(app)
+      .put("/api/jenkinsfile/pipelines/JF-0001")
+      .set(alex)
+      .send({ ...body, name: "Checkout nightly" })
+      .expect(200);
+    expect(renamed.body.pipeline.name).toBe("Checkout nightly");
+  });
+
+  it("keeps the stored name when the field is blank, rather than emptying the list row", async () => {
+    const app = await appOn(mkdtempSync(join(tmpdir(), "jf-test-")));
+    await request(app).post("/api/jenkinsfile/pipelines").set(alex).send(body).expect(201);
+
+    const kept = await request(app)
+      .put("/api/jenkinsfile/pipelines/JF-0001")
+      .set(alex)
+      .send({ ...body, name: "   " })
+      .expect(200);
+    expect(kept.body.pipeline.name).toBe("Alex Morgan #1");
+  });
+
   it("keeps a stage's minimized flag, so a pipeline opens the way it was left", async () => {
     const app = await appOn(mkdtempSync(join(tmpdir(), "jf-test-")));
     const created = await request(app).post("/api/jenkinsfile/pipelines").set(alex).send(body).expect(201);

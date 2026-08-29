@@ -178,7 +178,9 @@ function ParamValue({
           id={`${id}-value`}
           className="jf-lines"
           aria-label={`Parameter ${index + 1} choices`}
-          rows={Math.max(2, choices.length + 1)}
+          // At least as many rows as the placeholder has lines, or the last
+          // suggestion is cut off before anything has been typed.
+          rows={Math.max(3, choices.length + 1)}
           placeholder={"dev\nstaging\nprod"}
           value={choices.join("\n")}
           onChange={(e) => onSet({ choices: e.target.value.split("\n") })}
