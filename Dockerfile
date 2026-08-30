@@ -35,9 +35,31 @@ FROM node:20-slim AS production
 # is already here, but Debian's tar is GNU tar and cannot read zip at all —
 # only Windows dev appears to work without this, because tar.exe there is
 # bsdtar. Dropping unzip breaks .zip uploads in the cluster and nowhere else.
+#
+# maven + a headless JRE and python3-pip are the Artifactory module's dependency
+# resolvers for a URL copy with "Include dependencies" ticked. Running the real
+# client is the only honest way to do this: a pom needs parent chasing,
+# dependencyManagement, property interpolation, BOM imports, ranges, exclusions
+# and nearest-wins, and a wheel's Requires-Dist needs PEP 508 markers and version
+# backtracking. Hand-rolling either lands at ~85% correct, and the 15% is a repo
+# that installs fine until it doesn't.
+#
+# Both are optional at runtime — toolDependencies.ts probes for them and copies
+# the single artifact when they are absent — so this line can be reverted
+# without breaking the module.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git unzip \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates git unzip maven openjdk-17-jre-headless python3-pip \
     && rm -rf /var/lib/apt/lists/*
+
+# Pre-warm maven-dependency-plugin into a baked local repository. Without this
+# every URL copy fetches ~50 plugin files through the *source* repository's
+# mirror — slow in an open network, and a hard failure in a closed one whose
+# mirror does not proxy plugins. resolveMavenDependencies copies this per job
+# rather than using it in place, so two concurrent jobs never share a writable
+# local repo.
+RUN mvn -B -ntp -Dmaven.repo.local=/opt/m2 \
+      org.apache.maven.plugins:maven-dependency-plugin:3.6.1:help
 
 # AI module's engine. Installed globally, invoked as a child process
 # per question (see src/server/modules/ai/RealAiApi.ts).
@@ -56,7 +78,7 @@ RUN npm install -g opencode-ai
 RUN groupadd --system --gid 10001 appgroup \
     && useradd --system --uid 10001 --gid appgroup --create-home appuser
 ENV HOME=/home/appuser
-RUN chown -R appuser:appgroup /home/appuser
+RUN chown -R appuser:appgroup /home/appuser /opt/m2
 
 WORKDIR /app
 

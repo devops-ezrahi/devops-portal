@@ -1,17 +1,8 @@
-import { execFile, spawn } from "child_process";
 import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
-import { promisify } from "util";
 import { discoverPackages } from "./npmPackages";
 import type { DiscoveredPackage } from "./npmPackages";
-
-const execFileAsync = promisify(execFile);
-
-/**
- * npm is `npm.cmd` on Windows, and Node 20.12+ refuses to spawn a bare `.cmd`
- * without a shell (CVE-2024-27980). Prod is Linux, but dev here is not always.
- */
-const useShell = process.platform === "win32";
+import { runTool, toolVersion } from "./runTool";
 
 /**
  * Optional dependencies are platform-gated, so a single install resolves only
@@ -50,10 +41,6 @@ const INSTALL_TIMEOUT_MS = 15 * 60 * 1000;
  * progress (warnings, errors, the `added N packages` summary) is mirrored.
  */
 const NPM_PROGRESS_RE = /^npm (?:http|timing|sill|verb) /;
-
-/** Even non-routine npm output is capped: the log is persisted and re-polled. */
-const MAX_NPM_LOG_LINES = 300;
-const HEARTBEAT_MS = 15_000;
 
 /**
  * The npm registry a tarball URL was served from. npm's registry layout is
@@ -169,11 +156,9 @@ export function packageSpec(name: string, version: string): string | null {
 type Platform = (typeof DEP_PLATFORMS)[number];
 
 /**
- * One `npm install` pass, streaming its output into the job log as it arrives.
- *
- * spawn, not execFileAsync: an install runs for minutes and execFile buffers
- * until exit, so the job drawer would sit blank for the whole thing and only
- * fill in once it was already over. Same reason RealAiApi spawns opencode.
+ * One `npm install` pass. The streaming, the log cap, the heartbeat and the
+ * abort handling are all `runTool`'s; what is npm's own is the argv and the
+ * scrubbed environment.
  */
 function runNpmInstall(opts: {
   spec: string;
@@ -221,84 +206,16 @@ function runNpmInstall(opts: {
   // cannot redirect this install either.
   env.npm_config_userconfig = join(prefix, ".npmrc");
 
-  // The token lives only in .npmrc — this line is echoed into a persisted log.
-  onLog(`$ npm ${args.join(" ")}`);
-
-  const deadline = AbortSignal.timeout(INSTALL_TIMEOUT_MS);
-  const combined = AbortSignal.any([signal, deadline]);
-
-  return new Promise((resolve, reject) => {
-    const child = spawn("npm", args, {
-      cwd: prefix,
-      env,
-      signal: combined,
-      stdio: ["ignore", "pipe", "pipe"],
-      shell: useShell,
-    });
-
-    let mirrored = 0;
-    let suppressed = 0;
-    let requests = 0;
-    let tail = "";
-    const started = Date.now();
-
-    const handleLine = (line: string) => {
-      if (!line.trim()) return;
-      if (NPM_PROGRESS_RE.test(line)) {
-        requests++;
-        return;
-      }
-      if (mirrored < MAX_NPM_LOG_LINES) {
-        mirrored++;
-        onLog(line.trimEnd());
-      } else {
-        suppressed++;
-      }
-    };
-
-    // npm writes almost everything — including plain progress — to stderr.
-    const onChunk = (chunk: Buffer) => {
-      tail += chunk.toString();
-      const parts = tail.split("\n");
-      tail = parts.pop() ?? "";
-      for (const part of parts) handleLine(part);
-    };
-    child.stdout.on("data", onChunk);
-    child.stderr.on("data", onChunk);
-
-    // The only sign of life during a long resolve, now that the per-request
-    // lines are counted instead of mirrored.
-    const heartbeat = setInterval(() => {
-      const seconds = Math.round((Date.now() - started) / 1000);
-      onLog(`npm install still running (${seconds}s, ${requests} registry request(s))`);
-    }, HEARTBEAT_MS);
-
-    const settle = () => {
-      clearInterval(heartbeat);
-      if (tail.trim()) handleLine(tail);
-      if (suppressed > 0) onLog(`(${suppressed} further npm line(s) suppressed)`);
-    };
-
-    child.on("error", (err: NodeJS.ErrnoException) => {
-      settle();
-      if (err.code === "ENOENT") {
-        reject(new Error("npm not found — ensure it is on PATH"));
-        return;
-      }
-      // Our own deadline becomes a message; the user's Stop stays an AbortError
-      // so RealArtifactoryApi can tell the two apart and keep a Stop a Stop.
-      if (deadline.aborted && !signal.aborted) {
-        reject(new Error(`npm install exceeded ${INSTALL_TIMEOUT_MS / 60000} minutes`));
-        return;
-      }
-      reject(err);
-    });
-
-    child.on("close", (code) => {
-      settle();
-      if (code === 0) resolve();
-      else reject(new Error(`npm install exited with code ${code}`));
-    });
+  return runTool({
+    bin: "npm",
+    args,
+    cwd: prefix,
+    env,
+    quietRe: NPM_PROGRESS_RE,
+    quietNoun: "registry request",
+    timeoutMs: INSTALL_TIMEOUT_MS,
+    onLog,
+    signal,
   });
 }
 
@@ -329,8 +246,8 @@ export async function resolveNpmDependencies(opts: {
     throw new Error(`Refusing to install "${opts.name}@${opts.version}" — not a valid npm spec`);
   }
 
-  const { stdout } = await execFileAsync("npm", ["--version"], { shell: useShell });
-  const npmVersion = stdout.trim();
+  const npmVersion = await toolVersion("npm");
+  if (npmVersion === null) throw new Error("npm not found — ensure it is on PATH");
   const platforms: (Platform | null)[] = supportsPlatformFlags(npmVersion)
     ? [...DEP_PLATFORMS]
     : [null];

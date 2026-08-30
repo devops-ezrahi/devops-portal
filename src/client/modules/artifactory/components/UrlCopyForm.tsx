@@ -58,12 +58,12 @@ export function UrlCopyForm({ onSubmitted, onError }: Props) {
             checked={includeDependencies}
             onChange={(e) => setIncludeDependencies(e.target.checked)}
           />
-          Include dependencies
+          Include dependencies <span className="field-note">(takes longer)</span>
         </label>
         <span className="field-hint">
-          npm packages only. Resolves the package's full runtime dependency tree — optional
-          dependencies for Linux and Windows included — and copies every package in it. Anything
-          that isn't an npm package, or a tree that won't resolve, still copies the single artifact.
+          Resolves the full runtime tree for npm, Maven and PyPI and copies every artifact in it
+          (PyPI is wheels only). A tree that won&rsquo;t resolve still copies the single artifact and
+          says why in the job log. RPM does resolve dependencies.
         </span>
       </div>
 
