@@ -113,6 +113,10 @@ runs the packer** (`WHITENING_*` env vars in `.github/workflows/ci.yml`'s `pack`
 the packer writes them into the pack's `repository/config.json`, which is what the
 Whitening module reads (never the filename).
 
+The same filename means something else on the **other** side of the wire — see
+**Whitening: preserving target-repo files** below. This repo's own copy stays
+packer-only; the app never reads the one at this root.
+
 Groups are pipe-separated (not comma) so LDAP-style DNs containing commas work. Set `ALLOWED_GROUPS`/`ADMIN_GROUP` to plain group names (e.g. `devops-admins`), even when the IdP's groups claim sends full DNs (`CN=devops-admins,OU=...,DC=...`) — `auth.ts`'s `parseGroups` detects `CN=` and extracts just the CN for matching, since oauth2-proxy comma-joins multiple groups into one `X-Forwarded-Groups` header value and a naive split can't tell a group boundary from a comma inside a DN.
 
 Adding a new env var: add to `.env.example`, expose it in `src/server/config.ts`, consume via the config object.
@@ -150,6 +154,195 @@ opencode's session store must live on the same volume: the portal keeps only
 opencode's SQLite DB under `~/.local/share/opencode`. Persist conversations
 without it and every restored chat's next follow-up question hits opencode with
 a dangling `--session`. The chart mounts it as a `subPath` off the same PVC.
+
+## Artifactory: how a folder upload travels
+
+A dropped folder is zipped in the tab and **sent in 8 MB parts while it is still
+being zipped** — the two used to run one after the other, so the wait was the
+sum of them and the whole archive had to exist in the browser before a byte
+moved. `POST /api/artifactory/uploads` mints an `art-<uuid>` temp dir, each
+`PUT /api/artifactory/uploads/:id?offset=` appends one part, and
+`POST /api/artifactory/jobs/folder-upload` hands the finished file to the job
+exactly as the old single multipart POST did — the job pipeline never learned
+about any of this.
+
+- **The id is the directory name**, so nothing is held in memory between
+  requests and an abandoned upload is swept by the existing 24h `art-` sweep.
+  It is a UUID because holding it is what grants the right to append, and it is
+  matched against `UPLOAD_ID` *before* it is joined into a path.
+- **A part that is not next in line is refused**, not written: the offset the
+  client claims must equal the file's current size, or the part would splice
+  itself into the middle of the archive and surface minutes later as a corrupt
+  zip. That is also why only one part is ever in flight.
+- **The 500 MB cap is enforced by a stream in the pipeline** (`byteLimit`), not
+  a `data` listener on the request — destroying the request from a listener
+  still lets `pipeline` resolve, and the oversized part was then answered
+  "200 OK" and kept. The client checks the same number before sending, because
+  the server's only way to stop a part is to cut the connection, which reaches
+  the user as a dead socket rather than a sentence.
+- A single `fetch` with a `ReadableStream` body would say all this in one call
+  and is what this would be on a Chrome-only intranet: it needs HTTP/2, which
+  `npm run dev` does not serve, and Firefox does not implement it at all.
+
+## Artifactory: where each package type is stored
+
+Every type has one layout its own Artifactory indexer looks in, and putting a
+file anywhere else silently produces a repo nothing can install from.
+`packageTypes.ts` is the routing table; `storageMatrix.test.ts` pins the exact
+target path for every type through **both** entry points, which is the test to
+change if any of this moves.
+
+| Type | Target | Why that shape |
+| ---- | ------ | -------------- |
+| npm | `<npmRepo>/<name>/-/<basename>-<version>.tgz` | The registry layout. The scope stays in the *directory* and is dropped from the filename (`@babel/core/-/core-7.0.0.tgz`) — the same form the public registry and `jfrog-cli` use. (`npm publish` against Artifactory writes the scope twice, `@scope/name/-/@scope/name-1.0.0.tgz`; both resolve, so this is not worth matching.) |
+| maven | `<mavenRepo>/<group as dirs>/<artifactId>/<version>/<file>` | The layout **is** the address. Artifactory answers a pom deployed off its own coordinates with a **409**, since POM consistency checks are on by default. |
+| pypi | `<pypiRepo>/<file>`, flat | The indexer reads the wheel's or sdist's own metadata, so the path carries nothing. Flat also stays clear of `packages/**` and `simple/**`, which Artifactory reserves. |
+| rpm | `<rpmRepo>/<file>`, flat | YUM metadata depth defaults to 0, i.e. `repodata` at the repo root, which is what a flat layout indexes. |
+| conda | `<condaRepo>/<subdir>/<file>` | The channel subdir is part of the address; see the `ponytail:` note in `packageTypes.ts`. |
+
+**A groupId cannot be read off a path, so the pom is the authority.**
+`org/foo/bar/1.0/bar-1.0.jar` is a valid layout under any number of roots, and
+folding the wrong ones in produces `maven-local/pub/java/org/foo/...` — a path
+nothing resolves from, and a 409 for the pom. Both entry points now take the
+answer from the file rather than guessing at it:
+
+- **URL copy** fetches the sibling pom (`mavenPomUrl` — named from the layout,
+  `<artifactId>-<version>.pom`, so `bar-1.0-sources.jar` still asks for
+  `bar-1.0.pom`) and, if its coordinates disagree with the URL, **corrects the
+  jar's target too**: both files must land under the same group or neither
+  resolves. A 404 is normal and quiet — the copy still completes, from the
+  path-derived target as before. Checksum sidecars are not fetched; Artifactory
+  computes its own on PUT.
+- **Folder upload** learns the same correction once per drop
+  (`mavenTreePrefix`): the first pom whose coordinates line up with where it
+  sits says how many folders the tree is nested under, and that prefix comes off
+  every path. So `deps/.m2/repository/org/foo/...` uploads as `org/foo/...`,
+  and a drop with no pom in it behaves exactly as before.
+
+**A flat folder of jars is the common case, not the exotic one** — it is what
+`mvn dependency:copy-dependencies` writes — and no filename can give a groupId.
+`mavenCoordsFromJar` reads `META-INF/maven/<g>/<a>/pom.properties` out of the jar
+instead, which is the same trick the npm path already plays with
+`package/package.json` inside a `.tgz`. A jar without one falls through to
+"unrelated file" as before. The embedded `pom.xml` beside it is deliberately
+**not** uploaded: a pom whose `<parent>` is missing from the repo fails
+resolution outright, which is worse than the "Missing POM" warning a bare jar
+produces.
+
+**Dependency resolution runs the ecosystem's real client — it does not walk the
+graph itself.** npm, Maven and PyPI each resolve; RPM and conda do not.
+`npmDependencies.ts` shells out to `npm install`, `toolDependencies.ts` to `mvn
+dependency:copy-dependencies` and `pip download`, and each writes a directory in
+a layout `classify` already routes, so there is no target-path logic in the
+resolvers at all: run the tool, walk the output, `classify` each file. That is
+the whole reason this is cheap.
+
+Hand-rolling the walk was considered and rejected. A pom's `<dependencies>` is
+not the answer — it needs parent chasing, `<dependencyManagement>`,
+`${property}` interpolation, BOM `<scope>import</scope>`, ranges, exclusions and
+nearest-wins; a wheel's `Requires-Dist` needs PEP 508 markers and version
+backtracking against the index. Both land at roughly 85% correct, and a
+half-resolved tree is a broken offline install that gives no sign it is broken.
+
+- **The source repository is derived from the pasted URL**, never guessed and
+  never configured. `mavenRepoFromUrl` strips `mavenLayoutPath`'s output off the
+  end of the URL (the layout *is* the address, so this is exact, not a
+  heuristic); `pypiIndexFromUrl` puts the index beside the `packages/` segment,
+  which covers PyPI, Artifactory and Nexus. `null` from either is a log line and
+  a single-artifact copy, same as `npmRegistryFromUrl`. Credentials come from
+  `sourceTokenFor` — a source on the same host as `ARTIFACTORY_URL` reuses
+  `ARTIFACTORY_TOKEN`, anything else is anonymous. No new env vars.
+- **Maven needs the pom**, so resolution only runs when `fetchMavenPom` found
+  one, keyed on the pom's coordinates rather than the URL's.
+  `-DoutputDirectory` is deliberately separate from `-Dmaven.repo.local`: only
+  the former is uploaded, so the dependency plugin's own jars never get
+  published into the customer's repo. The plugin is pinned by full coordinates,
+  because the `dependency:` prefix resolves via a metadata lookup that takes
+  whatever is newest — a failure in a closed network. It is baked into
+  `/opt/m2` at image build and copied per job, so a job never fetches it through
+  the source mirror and two concurrent jobs never share a writable local repo.
+- **PyPI is wheels only** (`--only-binary=:all:`). `pip download` runs a
+  package's `setup.py` for any sdist it fetches, as the portal's own user — the
+  same door the npm path closes with `--ignore-scripts`. A tree containing an
+  sdist-only package therefore fails to resolve and copies the single artifact.
+  One pass, for this pod's platform tags; npm resolves twice because optional
+  deps are platform-gated, and wheels are tagged the same way if a Windows
+  consumer ever needs the mirror.
+- **RPM has no resolver, on purpose.** `dnf --resolve` resolves against *enabled
+  repos*, and in the pod that is only the source repo, so anything needing
+  system libs fails. Enable the base OS repos to fix that and one `.rpm` drags
+  every system package in behind it, because nothing is "already installed" in a
+  container. Both directions are wrong, so the URL form still names `dnf
+  download --resolve <pkg>` as a manual step feeding the Upload tab.
+- **`maven` and `python3-pip` are optional at runtime.** Each resolver probes
+  for its binary and returns `null` when it is absent, which the caller turns
+  into "not installed in this image — copying the single artifact". The
+  Dockerfile line is revertable, and a dev box with neither still runs the
+  module.
+- `runTool.ts` is the one streaming-spawn helper all three share — line
+  buffering, the 300-line log cap, the 15s heartbeat, and keeping a user's Stop
+  an `AbortError` while a timeout becomes a message. Three copies of that is
+  three places to swallow a Stop.
+
+**The Upload tab takes files, not just a folder.** A drop is read as a list of
+roots: one folder keeps its contents at the archive root (which is what the
+Maven layout check reads), while several roots each keep their own name, or two
+dropped trees overwrite each other. `Choose files` is the same path through a
+picker, since a browser file picker cannot select a directory.
+
+**A `node_modules` holds more package folders than it has packages** — this
+repo's own is 884 folders for 799 packages, because npm nests a second copy of
+the same version wherever hoisting cannot reach a dependent. Every copy packs to
+the same tarball at the same target path, so `uniquePackages` keeps one per
+`name@version` and the rest are dropped, out loud ("Ignoring N duplicate copies
+…") because the count is otherwise smaller than the number of folders the user
+knows they dropped. A nested copy of a *different* version is a different
+package and is kept.
+
+**That fold is separate from `discoverPackages`, which returns every
+directory**, because the directory list is also what decides which files on disk
+belong to a package at all. Deduplicating during the walk left the shadowed
+copies' files outside every package, and they were then reported as
+unrelated loose files — 114 of them for this repo, against a true 44.
+
+Zipping itself is `fflate`'s **synchronous** `ZipDeflate` at level 1, with
+already-compressed extensions (`.tgz`, `.whl`, `.rpm`, `.jar`, …) stored
+verbatim. `AsyncZipDeflate` spawns a Worker *per entry*, which for a folder of
+thousands of small files costs far more than the deflate it moves off-thread —
+3,000 files measured at 47.8s async against 0.41s sync.
+
+## Whitening: preserving target-repo files
+
+The PR the Whitening module opens is built by **emptying the cloned target repo
+and copying the pack's `repository/<repo>/` tree over it**
+(`RealWhiteningApi.ts`, `pushSourceAndOpenPr`). There is no per-file decision:
+anything the closed-network repo has and the pack does not shows up as a
+deletion, purely because `git add -A` sees it gone. That is wrong for files that
+legitimately live only on that side — its CI config, a local env file, internal
+docs.
+
+- **The target repo opts out with its own `whitening.json`**, at its root, listing
+  glob patterns under `preserve`. Not the pack's copy and not
+  `repository/config.json`: what survives is the receiving repo's call, so it
+  must not depend on what a given pack happened to ship.
+- **`preserve` means "don't delete", nothing more.** Only *deletions* are undone
+  (`--diff-filter=D`), so a preserved path the pack also ships is committed with
+  the packed content as normal. Freezing a path against modification too would
+  silently drop genuine updates.
+- **Git does the globbing**, via `:(glob)` pathspecs — `*` stops at a directory
+  boundary, `**` crosses one. No `minimatch`/`picomatch`: those exist here only
+  as dev-only transitives, so importing one breaks the prod image (prod deps
+  only), and Node 20 has no usable `path.matchesGlob`. The module already shells
+  out to git for everything else.
+- The list is read **before** the wipe destroys it, and the restore runs
+  **after** `git add -A` but **before** the "no changes vs. default branch"
+  check — otherwise a PR whose entire diff was those deletions still opens.
+- `whitening.json` itself is always preserved implicitly. Without that, the file
+  saying "don't delete these" deletes itself on the first PR and the next one
+  finds no list.
+- A malformed `whitening.json` **fails the job** rather than being ignored:
+  quietly protecting nothing deletes the very files it was written to save. A
+  pattern matching nothing is fine and silent.
 
 ## Jenkinsfile builder
 
@@ -240,6 +433,27 @@ no external system — the only server-side state is saved pipeline documents.
   typed; `choice` has no default field at all, since Jenkins takes the first
   choice. Records written when every parameter was a `booleanParam` with a real
   boolean default are normalised by `toDraft`.
+- **A parameter no stage reads is marked amber**, not red: the Jenkinsfile it
+  generates is valid, the parameter just has no effect — which is otherwise
+  silent until someone wonders why ticking the box changed nothing. It is held
+  back by the same `touched` gate as a stage's problems, and **each parameter is
+  its own scope** — the section as a whole was left long ago on an open
+  pipeline, so a section-wide gate marked a just-added parameter the moment its
+  name was typed. `paramScope` keys on the **name**, not the position: a
+  parameter carries no id, and an index is not one, since removing a parameter
+  and adding another puts the new one on an index that was already left. A name
+  still being typed is a scope nobody has left, which is the wanted answer, and
+  renaming an existing one quietens it until the next press outside, which is
+  also right. Opening or importing a pipeline touches every parameter, exactly
+  as it touches every stage. `useLeaveScopes` therefore collects **every** scope on
+  the pressed element's ancestor chain rather than just the nearest: scopes now
+  nest, and pressing into a parameter must not count as leaving the parameters
+  section that holds it.
+  `usedParamNames` scans `JSON.stringify(stages)` for `params.<name>` (and the
+  bracket form) rather than the generated Groovy — a reference can sit in any
+  argument shape, an expression, a command line, a closure body or a map value,
+  and the generated file also contains the declaration itself, which would match
+  every name.
 - Parameters exist mainly to make a stage's skip condition a build-time choice:
   declare `skipImage`, then set a stage's `skipStage` to `params.skipImage`.
   `skipStage` is therefore an `expression` argument — a raw Groovy string emitted
@@ -342,8 +556,11 @@ no external system — the only server-side state is saved pipeline documents.
   people never collide, and deleting #2 lets the next one reuse it. Minting
   still matters because a pipeline is saved the moment it has a stage, long
   before anyone thinks to name it. The name then heads the editor
-  column, level with "My Pipelines" across the gap — it names what that whole
-  column is showing, so it belongs above the column rather than in the toolbar.
+  panel — the editor column is **one** `.detail-panel`, like every other
+  module's content column, with the name as its first `.jf-section` and the
+  library/parameters/stages/preview separated by a rule inside the box rather
+  than by four outlines. It names what that panel is showing, so it sits inside
+  it rather than floating above the column or in the toolbar.
   It is **text with a pencil beside it**, the same shape a
   ticket's title uses (`.detail-title-row` / `.title-edit-input` / `.edit-toggle`
   are reused verbatim), because a box sitting there permanently reads as a
@@ -381,6 +598,18 @@ per-module choices:
 - **`.empty-state` is a padded block.** `.module-empty` centres it in its panel
   and sizes it by its content; `.chat-panel .empty-state` is the variant that
   fills the window, and belongs only to the chat.
+- **A modal must not be trapped inside `.module-slot`.** That wrapper fades each
+  module in, and a fill mode on that animation would keep it affecting opacity
+  for good — which makes the slot a permanent stacking context at `z-index:
+  auto`, painted below the sticky `.app-header`. Every modal inside a module
+  then sits under the header whatever `z-index` it asks for. So the slot's
+  animation carries no `forwards`/`both`, for the same reason it carries no
+  `transform` (which would make it the containing block for `position: fixed`
+  and shrink each backdrop to the panel).
+- **A modal has to fit a short window**, not just scroll inside one: `.modal`
+  caps at `calc(100vh - 44px)`, so any form inside it is sized for a 13" laptop
+  with the browser chrome out — roughly 520px of dialog, which is what
+  `.modal .request-form`'s smaller padding and 120px textarea are for.
 - **An editable title is text with a pencil**, never a permanent input — a box
   sitting in a heading row reads as a search field. Two placements, by
   container: inside a card the pencil goes to the row's far edge as an
@@ -542,7 +771,9 @@ CI does bump → build → pack.
 ## Deployment
 
 The app runs in a single container fronted by oauth2-proxy (bundled into the
-same image — see `scripts/entrypoint.sh`), deployed onto the `k3d-homelab`
+same image — see `scripts/entrypoint.sh`; the image also carries `git`, `unzip`,
+`maven` + a headless JRE and `python3-pip`, the last two for the Artifactory
+module's dependency resolvers), deployed onto the `k3d-homelab`
 cluster maintained in the sibling `../homelab` repo (see that repo's
 `CLAUDE.md` for cluster-wide setup). The `Dockerfile` is self-building from
 source — the builder stage runs `npm run build` itself, and `.dockerignore`
