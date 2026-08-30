@@ -62,6 +62,51 @@ export function parsePackConfig(text: string): PackConfig {
   return { project, version, department, team, repository };
 }
 
+// whitening.json at the root of the *target* repo — the closed-network side, not
+// the pack. `preserve` lists paths the PR must never delete; the packer's own
+// keys (`images`) live in the same file on the source side and are ignored here.
+export function parsePreserve(text: string): string[] {
+  let raw: { preserve?: unknown };
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw new Error("whitening.json in the repository is not valid JSON");
+  }
+  if (!Array.isArray(raw.preserve)) return [];
+  return raw.preserve.filter((p): p is string => typeof p === "string" && p.trim() !== "");
+}
+
+/**
+ * Read the target repo's preserve list. Missing file is the normal case; a
+ * malformed one throws, because silently ignoring a protect-list deletes the
+ * very files it was written to save.
+ */
+async function readPreserve(repoDir: string): Promise<string[]> {
+  let text: string;
+  try {
+    text = await readFile(join(repoDir, "whitening.json"), "utf8");
+  } catch {
+    return [];
+  }
+  // The file that says "don't delete these" must not delete itself, or the next
+  // PR finds no list at all.
+  return ["whitening.json", ...parsePreserve(text)];
+}
+
+/**
+ * Of the deletions currently staged, the ones a preserve pattern covers.
+ * Globbing is git's (`:(glob)` pathspecs handle `*`, `**`, `?`) rather than a
+ * dependency's — the module already shells out to git for everything.
+ */
+export async function preservedDeletions(repoDir: string, preserve: string[]): Promise<string[]> {
+  const { stdout } = await execFileAsync(
+    "git",
+    ["diff", "--cached", "--name-only", "--diff-filter=D", "--", ...preserve.map((p) => `:(glob)${p}`)],
+    { cwd: repoDir }
+  );
+  return stdout.split("\n").filter(Boolean);
+}
+
 export class RealWhiteningApi implements WhiteningApi {
   private readonly jobs: JobStore<WhiteningJob>;
   private bitbucket = new BitbucketApi(config.git);
@@ -337,6 +382,9 @@ export class RealWhiteningApi implements WhiteningApi {
     const branch = `whitening/${project}-${version}`;
     await this.runCli(jobId, "git", ["checkout", "-b", branch], repoDir);
 
+    // Before the wipe below destroys it — this is the target repo's own file.
+    const preserve = await readPreserve(repoDir);
+
     const entries = await readdir(repoDir);
     for (const entry of entries) {
       if (entry === ".git") continue;
@@ -346,6 +394,18 @@ export class RealWhiteningApi implements WhiteningApi {
 
     this.setStep(jobId, "Commit & push");
     await this.runCli(jobId, "git", ["add", "-A"], repoDir);
+
+    // Undo only the *deletions* the wipe staged for preserved paths: a file the
+    // pack also ships keeps the packed content. Must run before the "no changes"
+    // check below, or a PR whose whole diff was those deletions still opens.
+    if (preserve.length) {
+      const kept = await preservedDeletions(repoDir, preserve);
+      if (kept.length) {
+        await this.runCli(jobId, "git", ["restore", "--source=HEAD", "--staged", "--worktree", "--", ...kept], repoDir);
+        this.appendLog(jobId, `Kept ${kept.length} file(s) marked preserve in whitening.json.`);
+      }
+    }
+
     const { stdout: statusOutput } = await execFileAsync("git", ["diff", "--cached", "--name-only"], { cwd: repoDir });
     if (!statusOutput.trim()) {
       this.appendLog(jobId, "No changes vs. default branch — skipping PR.");
