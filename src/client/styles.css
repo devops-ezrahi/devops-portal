@@ -15,6 +15,12 @@
      replaces, so without this the scrollbar appears on select and the centred
      .main slides sideways — the page "jumps". */
   scrollbar-gutter: stable;
+
+  /* One decelerating curve for everything that enters or responds to a press:
+     most of the movement happens in the first third, so the UI reads as
+     immediate even though the tail is still running. `ease` starts slow and
+     is what makes a 150ms transition feel like 250ms. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 * {
@@ -50,7 +56,21 @@ textarea {
 
 button {
   cursor: pointer;
-  transition: background 150ms ease, color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 120ms ease, opacity 150ms ease;
+  transition:
+    background 120ms var(--ease-out),
+    color 120ms var(--ease-out),
+    border-color 120ms var(--ease-out),
+    box-shadow 120ms var(--ease-out),
+    transform 90ms var(--ease-out),
+    opacity 120ms var(--ease-out);
+}
+
+/* Every button presses in. A 1px nudge rather than a scale: scaling a button
+   re-rasterises the text inside it at a fractional size, so the label visibly
+   reflows for the length of the press. Rules that set their own :active
+   transform are (0,2,0) and still win over this. */
+button:active {
+  transform: translateY(1px);
 }
 
 button:disabled {
@@ -60,10 +80,10 @@ button:disabled {
 input,
 select,
 textarea {
-  transition: border-color 150ms ease, box-shadow 150ms ease;
+  transition: border-color 120ms var(--ease-out), box-shadow 120ms var(--ease-out);
 }
 
-@keyframes backdrop-in {
+@keyframes fade-in {
   from { opacity: 0 }
   to   { opacity: 1 }
 }
@@ -107,7 +127,7 @@ textarea {
   to   { opacity: 0; transform: scale(0.96) translateY(10px) }
 }
 
-@keyframes backdrop-out {
+@keyframes fade-out {
   from { opacity: 1 }
   to   { opacity: 0 }
 }
@@ -128,7 +148,7 @@ textarea {
   max-width: 380px;
   text-align: center;
   padding: 2rem;
-  animation: fade-up 220ms ease both;
+  animation: fade-up 180ms var(--ease-out) both;
 }
 
 .fullpage-screen-icon {
@@ -242,7 +262,7 @@ textarea {
   opacity: 0;
   transform: translateY(-3px);
   pointer-events: none;
-  transition: opacity 120ms ease, transform 120ms ease;
+  transition: opacity 120ms var(--ease-out), transform 120ms var(--ease-out);
 }
 
 .brand:hover .brand-version {
@@ -355,7 +375,7 @@ textarea {
 .nav-button:hover {
   text-decoration: none;
   cursor: pointer;
-  transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 120ms ease;
+  transition: background 140ms var(--ease-out), color 140ms var(--ease-out), box-shadow 140ms var(--ease-out), transform 120ms var(--ease-out);
 }
 
 .nav-button svg,
@@ -372,7 +392,7 @@ textarea {
 
 .nav-button:active,
 .ghost-button:active {
-  transform: scale(0.97);
+  transform: translateY(1px);
 }
 
 .nav-button.active {
@@ -397,7 +417,7 @@ textarea {
 }
 
 .primary:active {
-  transform: translateY(0);
+  transform: translateY(1px);
   box-shadow: none;
 }
 
@@ -432,7 +452,7 @@ textarea {
 }
 
 .icon-button:active {
-  transform: scale(0.92);
+  transform: translateY(1px) scale(0.96);
 }
 
 .role-toggle {
@@ -585,7 +605,7 @@ h3 {
   margin: 0;
   padding: 12px;
   list-style-position: inside;
-  transition: color 150ms ease;
+  transition: color 140ms var(--ease-out);
 }
 
 .done-panel summary:hover {
@@ -670,6 +690,13 @@ button:focus-visible {
   box-shadow: 0 0 0 5px rgb(32 199 189 / 10%);
 }
 
+/* A clicked checkbox keeps the ring until you click elsewhere, which reads as a
+   box drawn around it. Keyboard focus still gets one. */
+input[type="checkbox"]:focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none;
+}
+
 .ticket-list {
   display: grid;
 }
@@ -690,9 +717,9 @@ button:focus-visible {
   display: grid;
   gap: 6px;
   transition:
-    background 160ms ease,
-    box-shadow 160ms ease,
-    transform 160ms ease;
+    background 140ms var(--ease-out),
+    box-shadow 140ms var(--ease-out),
+    transform 140ms var(--ease-out);
   animation: row-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
@@ -712,6 +739,16 @@ button:focus-visible {
 .ticket-row:nth-child(6) { animation-delay: 125ms }
 .ticket-row:nth-child(7) { animation-delay: 138ms }
 .ticket-row:nth-child(8) { animation-delay: 148ms }
+/* The per-row delays decay towards ~180ms so a long list still finishes in
+   under a fifth of a second — a flat 35ms step would take a 40-job queue three
+   seconds to appear. Past the eighth row the steps are too small to name one
+   by one, so these are open-ended ranges: each matches "this row and every row
+   after it", and the later rule wins for the higher indices. */
+.ticket-row:nth-child(n+9)  { animation-delay: 156ms }
+.ticket-row:nth-child(n+11) { animation-delay: 164ms }
+.ticket-row:nth-child(n+14) { animation-delay: 171ms }
+.ticket-row:nth-child(n+18) { animation-delay: 177ms }
+.ticket-row:nth-child(n+23) { animation-delay: 182ms }
 
 .ticket-row:last-child {
   border-bottom: 0;
@@ -875,7 +912,7 @@ button:focus-visible {
   font-weight: 800;
   color: #dfe8eb;
   background: #253038;
-  transition: background 250ms ease, color 250ms ease;
+  transition: background 140ms var(--ease-out), color 140ms var(--ease-out);
 }
 
 .stage-submitted {
@@ -1082,7 +1119,7 @@ button:focus-visible {
 }
 
 .title-edit-input {
-  transition: border-color 150ms ease;
+  transition: border-color 140ms var(--ease-out);
 }
 
 .title-edit-input:focus {
@@ -1109,7 +1146,7 @@ button:focus-visible {
 }
 
 .description-edit-textarea {
-  transition: border-color 150ms ease;
+  transition: border-color 140ms var(--ease-out);
 }
 
 .description-edit-textarea:focus {
@@ -1151,12 +1188,20 @@ button:focus-visible {
 
 .metadata-list div {
   display: grid;
-  grid-template-columns: 160px 1fr;
+  /* minmax(0, …) rather than a bare 1fr: a grid track's automatic minimum is
+     min-content, so one unbreakable value — a job's source URL — widens the
+     track past the panel and gives the whole page a horizontal scrollbar. */
+  grid-template-columns: 160px minmax(0, 1fr);
   gap: 10px;
 }
 
 .metadata-list dd {
   margin: 0;
+  /* A URL has no spaces to wrap at, so it has to be allowed to break mid-token.
+     `anywhere` rather than `break-word` because it also drops the value's
+     min-content contribution to zero, which is what keeps a narrower column
+     from being widened by it in the first place. */
+  overflow-wrap: anywhere;
 }
 
 .comments,
@@ -1167,14 +1212,62 @@ button:focus-visible {
   gap: 10px;
 }
 
+/* The native number spinner is an unstyleable grey bitmap sitting in a dark
+   field. These are the same two arrows drawn in the portal's own colours. */
+.points-field {
+  position: relative;
+}
+
+.points-field input[type="number"] {
+  appearance: textfield;
+  padding-right: 34px;
+}
+
+.points-field input[type="number"]::-webkit-outer-spin-button,
+.points-field input[type="number"]::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.points-step {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  bottom: 4px;
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  gap: 2px;
+}
+
+.points-step button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: #151d21;
+  color: #8d9ba2;
+}
+
+.points-step button:hover:not(:disabled) {
+  background: #1a252a;
+  color: #20c7bd;
+}
+
+.points-step button:disabled {
+  opacity: 0.4;
+}
+
 .comment {
   border: 1px solid #202b31;
   border-left: 3px solid #20c7bd;
   background: #0f171a;
   padding: 10px 12px;
   border-radius: 6px;
-  animation: fade-up 200ms ease forwards;
-  transition: transform 150ms ease, border-left-color 150ms ease, box-shadow 150ms ease;
+  animation: fade-up 180ms var(--ease-out) forwards;
+  transition: transform 140ms var(--ease-out), border-left-color 140ms var(--ease-out), box-shadow 140ms var(--ease-out);
 }
 
 .comment:hover {
@@ -1208,11 +1301,15 @@ button:focus-visible {
   background: #0d181a;
   color: #9fe4dc;
   padding: 8px 10px;
-  animation: fade-up 200ms ease both;
+  animation: fade-up 180ms var(--ease-out) both;
 }
 
 .status-row span {
   min-width: 0;
+  /* A log line is often one long URL with nothing to wrap at — `min-width: 0`
+     only lets the flex item shrink, it does not let the text break, so without
+     this the line runs off the panel and the page grows a horizontal scrollbar. */
+  overflow-wrap: anywhere;
 }
 
 .status-row small {
@@ -1313,19 +1410,22 @@ button:focus-visible {
   font-weight: 800;
 }
 
+/* Roomier than the same form inline, but sized so the whole dialog still fits a
+   laptop viewport — a 600px-tall modal is taller than the window on a 13" screen
+   once the browser chrome is out, and it lands half under the header. */
 .modal .request-form {
-  gap: 18px;
-  padding: 22px;
+  gap: 14px;
+  padding: 18px;
 }
 
 .modal .request-form input,
 .modal .request-form textarea {
-  font-size: 17px;
-  padding: 12px 14px;
+  font-size: 15px;
+  padding: 10px 12px;
 }
 
 .modal .request-form textarea {
-  min-height: 180px;
+  min-height: 120px;
 }
 
 .request-form label span,
@@ -1353,11 +1453,11 @@ button:focus-visible {
   place-items: center;
   padding: 22px;
   background: rgb(0 0 0 / 68%);
-  animation: backdrop-in 200ms ease forwards;
+  animation: fade-in 180ms var(--ease-out) forwards;
 }
 
 .modal-backdrop.closing {
-  animation: backdrop-out 220ms ease forwards;
+  animation: fade-out 180ms cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
 .modal-backdrop.closing .modal {
@@ -1402,7 +1502,7 @@ button:focus-visible {
 }
 
 .empty-state {
-  animation: fade-up 220ms ease both;
+  animation: fade-up 180ms var(--ease-out) both;
 }
 
 .loading-state {
@@ -1428,7 +1528,7 @@ button:focus-visible {
   border-radius: 6px;
   color: #ffc6ca;
   margin-bottom: 14px;
-  animation: fade-up 200ms ease forwards;
+  animation: fade-up 180ms var(--ease-out) forwards;
 }
 
 @media (max-width: 1120px) {
@@ -1562,7 +1662,7 @@ button:focus-visible {
   gap: 7px;
   margin-bottom: -1px;
   cursor: pointer;
-  transition: color 120ms ease;
+  transition: color 120ms var(--ease-out), border-bottom-color 160ms var(--ease-out);
 }
 
 /* Pushed to the right end of the tab row (or a bare row, for Whitening). */
@@ -1611,7 +1711,7 @@ button:focus-visible {
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  transition: border-color 150ms ease, background 150ms ease;
+  transition: border-color 140ms var(--ease-out), background 140ms var(--ease-out);
   cursor: default;
   margin: 16px 0;
 }
@@ -1619,6 +1719,17 @@ button:focus-visible {
 .drop-zone small {
   font-size: 12px;
   color: #4e5f67;
+}
+
+/* The click-through half of the drop zone: a real <input type="file"> behind a
+   label, because a styled button cannot open a file picker on its own. */
+.file-picker {
+  margin-top: 4px;
+  cursor: pointer;
+}
+
+.file-picker input {
+  display: none;
 }
 
 .drop-zone--over {
@@ -1658,6 +1769,12 @@ button:focus-visible {
 .folder-preview-info small {
   font-size: 12px;
   color: #6f8088;
+}
+
+.upload-status {
+  font-size: 12px;
+  color: #6f8088;
+  text-align: center;
 }
 
 .job-log {
@@ -1718,6 +1835,16 @@ button:focus-visible {
   cursor: pointer;
 }
 
+/* An aside inside the label, not a second hint below it — "(takes longer)"
+   qualifies the choice being made, so it has to be readable at the moment the
+   box is ticked. Its own margin-less rule because `.art-form .field-hint`
+   carries a -4px top margin that misaligns it against the checkbox. */
+.checkbox-field label .field-note {
+  color: #6f8088;
+  font-weight: 400;
+  margin-left: -4px;
+}
+
 .art-form .checkbox-field input[type="checkbox"] {
   width: 15px;
   height: 15px;
@@ -1725,6 +1852,8 @@ button:focus-visible {
   padding: 0;
   margin: 0;
   flex: none;
+  border: none;
+  background: none;
   accent-color: #20c7bd;
   cursor: pointer;
 }
@@ -1908,7 +2037,7 @@ code {
   color: #c8d3d7;
   text-align: left;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease;
+  transition: background 120ms var(--ease-out), border-color 120ms var(--ease-out);
 }
 
 .chat-category-item:hover {
@@ -1969,7 +2098,7 @@ code {
   border-radius: 14px;
   line-height: 1.6;
   font-size: 14px;
-  animation: fade-up 160ms ease both;
+  animation: fade-up 160ms var(--ease-out) both;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -2070,7 +2199,7 @@ code {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 150ms ease, transform 120ms ease, box-shadow 150ms ease;
+  transition: background 140ms var(--ease-out), transform 120ms var(--ease-out), box-shadow 140ms var(--ease-out);
 }
 
 .chat-send-btn:hover:not(:disabled) {
@@ -2365,6 +2494,19 @@ code {
   margin-left: auto;
 }
 
+/* The editor column is one outlined .detail-panel, like every other module's
+   content column — its four parts are separated by a rule inside the box
+   rather than by four boxes. */
+.jf-editor {
+  display: grid;
+  gap: 16px;
+}
+
+.jf-editor > .jf-section + .jf-section {
+  border-top: 1px solid #202b31;
+  padding-top: 16px;
+}
+
 /* The builder's controls live in .detail-panel, not in .art-form / .request-form,
    so they need the same field treatment those two selectors give theirs. */
 .jf-settings input,
@@ -2423,6 +2565,18 @@ code {
   padding: 0;
 }
 
+/* A parameter nothing reads: amber down the same left border that is teal on
+   every other argument box, so it reads as "look at this" rather than as an
+   error. The Jenkinsfile it generates is valid — the parameter just has no
+   effect — so nothing here is red. */
+.jf-arg.jf-param-unused {
+  border-left-color: #e0b341;
+}
+
+.jf-param-unused .field-hint {
+  color: #e0b341;
+}
+
 .jf-param-grid {
   display: grid;
   grid-template-columns: minmax(130px, 1fr) minmax(110px, auto) minmax(160px, 2fr);
@@ -2458,7 +2612,7 @@ code {
   color: #8d9ba2;
   text-align: left;
   cursor: pointer;
-  transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
+  transition: border-color 140ms var(--ease-out), background 140ms var(--ease-out), color 140ms var(--ease-out);
 }
 
 .jf-dotted:hover {
@@ -2573,7 +2727,7 @@ code {
   background: transparent;
   color: #6f8088;
   cursor: pointer;
-  transition: color 140ms ease;
+  transition: color 140ms var(--ease-out);
 }
 
 .jf-help-toggle:hover,
@@ -2610,10 +2764,9 @@ code {
   font-size: 12px;
   font-weight: 700;
   color: #6f8088;
-  transition: color 200ms ease;
+  transition: color 140ms var(--ease-out);
 }
 
-.jf-save-state.saved { color: #6fded4 }
 .jf-save-state.error { color: #ff8d95 }
 
 /* The Shell/Closure switch sits above the box it controls. */
@@ -2671,7 +2824,7 @@ code {
   border: 1px solid #202b31;
   border-radius: 10px;
   background: #0f1518;
-  transition: border-color 150ms ease, background 150ms ease;
+  transition: border-color 140ms var(--ease-out), background 140ms var(--ease-out);
   animation: row-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
@@ -2771,7 +2924,7 @@ code {
   font-size: 11px;
   font-weight: 800;
   padding: 2px 0;
-  transition: background 150ms ease, color 150ms ease;
+  transition: background 140ms var(--ease-out), color 140ms var(--ease-out);
 }
 
 .jf-stage-text {
@@ -2829,19 +2982,13 @@ code {
   justify-content: flex-end;
 }
 
-/* The params section has no popover to anchor, only the button. */
-.jf-adder-right {
-  margin-top: 4px;
-}
-
 .jf-palette {
   position: absolute;
+  /* Directly above the button it belongs to, and right-aligned with it — the
+     button sits at the end of the row, so a centred popover reads as belonging
+     to the panel rather than to the press that opened it. */
   bottom: calc(100% + 8px);
-  /* Centred with auto margins, not translateX(-50%): the fade-in below animates
-     `transform`, and would win. */
-  left: 0;
   right: 0;
-  margin: 0 auto;
   z-index: 20;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
@@ -2874,7 +3021,7 @@ code {
   background: #0f1518;
   color: #cfd8dc;
   cursor: pointer;
-  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+  transition: background 140ms var(--ease-out), border-color 140ms var(--ease-out), color 140ms var(--ease-out);
 }
 
 .jf-add-stage:hover {
@@ -2911,6 +3058,13 @@ code {
   color: #8d9ba2;
   font-size: 13px;
   margin: 0;
+}
+
+.jf-credit {
+  color: #6f7d84;
+  font-size: 11px;
+  text-align: center;
+  margin: 24px 0 0;
 }
 
 .jf-note {
@@ -2992,7 +3146,7 @@ code {
 .jf-group-chevron {
   color: #6f8088;
   flex-shrink: 0;
-  transition: transform 150ms ease;
+  transition: transform 140ms var(--ease-out);
 }
 
 .jf-group-chevron.open {
@@ -3081,7 +3235,7 @@ code {
   color: #8d9ba2;
   cursor: pointer;
   text-align: left;
-  transition: background 130ms ease, border-color 130ms ease, color 130ms ease;
+  transition: background 130ms var(--ease-out), border-color 130ms var(--ease-out), color 130ms var(--ease-out);
 }
 
 .jf-arg-add:hover {
@@ -3171,7 +3325,7 @@ code {
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
-  transition: background 140ms ease, color 140ms ease;
+  transition: background 140ms var(--ease-out), color 140ms var(--ease-out);
 }
 
 .jf-segmented button:hover {
@@ -3307,6 +3461,14 @@ code {
 .jf-code code.hljs {
   background: transparent;
   padding: 0;
+}
+
+/* Groovy's grammar tags a named argument as .hljs-symbol inside a call and
+   .hljs-attr inside a list literal, which paints the same thing two colours in
+   one file. Both read as the argument's name here. */
+.jf-code .hljs-symbol,
+.jf-import-editor .hljs-symbol {
+  color: #d19a66;
 }
 
 .jf-code::-webkit-scrollbar { width: 6px; height: 6px }
@@ -3476,7 +3638,53 @@ code {
   color: #e6f1f3;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
-  resize: vertical;
+  line-height: 1.6;
+  resize: none;
+}
+
+/* The highlighted copy sits behind the textarea, absolutely so that only the
+   textarea sizes the box — a long file must scroll inside it as before, not
+   grow the dialog. Every metric that decides where a character lands is shared
+   through .jf-import-text, so the caret stays on the coloured text. */
+.jf-import-editor {
+  position: relative;
+}
+
+.jf-import-editor .jf-import-text {
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  tab-size: 4;
+  scrollbar-gutter: stable;
+}
+
+.jf-import-editor .jf-import-shadow {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  border-color: transparent;
+}
+
+.jf-import-shadow code.hljs {
+  background: transparent;
+  padding: 0;
+  font: inherit;
+}
+
+/* Positioned too, so the textarea paints above the absolute shadow behind it —
+   otherwise the shadow's own ground hides the caret and the placeholder. */
+.jf-import-editor textarea {
+  position: relative;
+  background: transparent;
+  color: transparent;
+  caret-color: #e6f1f3;
+}
+
+/* The transparent text would take the placeholder with it. */
+.jf-import-editor textarea::placeholder {
+  color: #55707a;
 }
 
 .jf-import-text:focus {
@@ -3505,6 +3713,12 @@ code {
   margin: 0;
   padding-left: 22px;
   color: #b9c8cd;
+}
+
+.jf-broken-icon {
+  color: #ff8f96;
+  vertical-align: -3px;
+  margin-right: 6px;
 }
 
 .jf-import-buttons {
@@ -3537,8 +3751,7 @@ code {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  /* Top-aligned, not centred: the pencil is taller than the text, and centring
-     the pair drops the name below "My Pipelines" across the gap. */
+  /* Top-aligned, not centred: the pencil is taller than the text. */
   align-items: flex-start;
   min-height: 34px;
 }
@@ -3612,4 +3825,51 @@ input.jf-title {
 
 .module-empty .empty-icon {
   opacity: 0.2;
+}
+
+/* Tab bodies and modules are all kept mounted and flipped with `hidden` (see
+   ArtifactoryView and App.tsx) rather than swapped, so a switch is a
+   display:none flip. That restarts any animation on the element for free —
+   no key, no remount, no state — which is the whole mechanism here. */
+.module-slot {
+  /* Opacity only — deliberately not `fade-up`: a transform that is merely
+     `translateY(0)` still isn't `none`, so the slot would become the containing
+     block for every `position: fixed` descendant and each module's modal
+     backdrop would shrink to the panel instead of covering the viewport.
+
+     And no fill mode, for the same reason `.tab-panel` below has none. An
+     animation that is still *filling* keeps affecting opacity for good, which
+     makes the slot a permanent stacking context at `z-index: auto` — painted
+     below the sticky `.app-header` (z-index 10) and taking every descendant
+     with it. A modal inside a module then sits under the header whatever
+     z-index it asks for. `fade-in` ends at opacity 1, which is the default, so
+     dropping the fill changes nothing on screen. */
+  animation: fade-in 160ms var(--ease-out);
+}
+
+/* The tab bodies can slide, because no fill mode is set: the transform is gone
+   again the moment the animation ends, so nothing here stays a containing
+   block for a `position: fixed` descendant the way `.module-slot` would. */
+.tab-panel {
+  animation: panel-in 220ms var(--ease-out);
+}
+
+@keyframes panel-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Motion is decoration here — every animation above only reveals something
+   that is already laid out, so switching them off costs nothing but the
+   flourish. Kept as one blanket rule rather than per-rule overrides: a new
+   animation added later is covered without anyone remembering to. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
 }
