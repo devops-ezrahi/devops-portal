@@ -15,6 +15,20 @@ function entry(path: string, text: string): FileEntry {
   return { file: new File([text], path.split("/").pop()!) as unknown as File, path };
 }
 
+/**
+ * The archive is never assembled in the tab — it goes out as parts as it is
+ * produced. Joining them back up is what the server does by appending them, so
+ * doing the same here is what makes the assertions below about a whole zip
+ * meaningful.
+ */
+async function zipToBlob(entries: FileEntry[], onProgress: (done: number) => void = () => {}) {
+  const parts: Blob[] = [];
+  await zipEntries(entries, onProgress, async (part) => {
+    parts.push(part);
+  });
+  return new Blob(parts);
+}
+
 // The zip is built one file at a time to keep a node_modules-sized folder out of
 // memory, which is easy to get subtly wrong (dropped entries, mangled paths,
 // truncated output). This unzips the result to prove it survived the streaming.
@@ -27,7 +41,7 @@ describe("zipEntries", () => {
     ];
 
     const seen: number[] = [];
-    const archive = await zipEntries(entries, (done) => seen.push(done));
+    const archive = await zipToBlob(entries, (done) => seen.push(done));
     const unzipped = unzipSync(new Uint8Array(await archive.arrayBuffer()));
 
     expect(Object.keys(unzipped).sort()).toEqual([
@@ -40,5 +54,24 @@ describe("zipEntries", () => {
     );
     expect(unzipped["notes.txt"].length).toBe(50_000);
     expect(seen).toEqual([1, 2, 3]);
+  });
+
+  // Deflating an already-compressed file gains ~0% and costs full CPU per byte,
+  // so those extensions are stored. A compressible payload proves which branch
+  // ran: stored keeps the run verbatim, deflate would collapse it.
+  it("stores already-compressed extensions instead of deflating", async () => {
+    const payload = "x".repeat(2000);
+    const archive = await zipToBlob([
+      entry("pkgs/arg-4.1.5.tgz", payload),
+      entry("pkgs/readme.txt", payload),
+    ]);
+    const raw = Buffer.from(await archive.arrayBuffer());
+
+    expect(raw.includes(Buffer.from(payload))).toBe(true);
+    expect(raw.lastIndexOf(Buffer.from(payload))).toBe(raw.indexOf(Buffer.from(payload)));
+    expect(Object.keys(unzipSync(new Uint8Array(raw))).sort()).toEqual([
+      "pkgs/arg-4.1.5.tgz",
+      "pkgs/readme.txt",
+    ]);
   });
 });

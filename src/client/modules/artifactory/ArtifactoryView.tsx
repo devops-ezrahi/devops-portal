@@ -210,10 +210,10 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
                   the active form mid-upload, throwing away its scanned folder
                   and progress bar — which read as "switching tabs stops the
                   run" even though nothing was ever cancelled. */}
-              <div hidden={activeTab !== "url-copy"}>
+              <div className="tab-panel" hidden={activeTab !== "url-copy"}>
                 <UrlCopyForm onSubmitted={handleSubmitted} onError={onError} />
               </div>
-              <div hidden={activeTab !== "folder-upload"}>
+              <div className="tab-panel" hidden={activeTab !== "folder-upload"}>
                 <FolderUploadForm onSubmitted={handleSubmitted} onError={onError} />
               </div>
             </section>

@@ -187,9 +187,9 @@ export type FolderUploadInput = {
   fileCount: number;
   totalBytes: number;
   /**
-   * The dropped folder, zipped by the client and streamed straight to disk by
-   * multer. The job owns the file and the directory holding it, and deletes
-   * both when it ends.
+   * The dropped folder, zipped by the client and appended to disk part by part
+   * as it was zipped. The job owns the file and the directory holding it, and
+   * deletes both when it ends.
    */
   archivePath: string;
 };
