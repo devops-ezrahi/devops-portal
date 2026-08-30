@@ -1,8 +1,8 @@
-import { Plus, X } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { log, error as logError } from "../../log";
 import { getRequestTypes, getTicket, listTickets } from "./api";
-import { CreateTicketView } from "./components/CreateTicketView";
+import { NewTicketModal } from "./components/NewTicketModal";
 import { TicketDetailView } from "./components/TicketDetailView";
 import { getTicketIdFromUrl, isDone, priorityClass, setTicketIdInUrl, stageClass } from "./utils";
 import type { RequestTypeDefinition, TicketDetail, TicketSummary } from "../../../server/types";
@@ -15,7 +15,6 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
   const [requestTypes, setRequestTypes] = useState<RequestTypeDefinition[]>([]);
   const [unreadIds, setUnreadIds] = useState<Set<string>>(() => new Set());
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [isModalClosing, setIsModalClosing] = useState(false);
   const selectedIdRef = useRef<string | undefined>(undefined);
   const lastActivityRef = useRef<Map<string, string>>(new Map());
 
@@ -122,15 +121,6 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
     await refreshTickets();
   }
 
-  function closeModal() {
-    log("ticketing", "closing new-ticket modal");
-    setIsModalClosing(true);
-    window.setTimeout(() => {
-      setIsCreateOpen(false);
-      setIsModalClosing(false);
-    }, 210);
-  }
-
   const activeTickets = useMemo(() => tickets.filter((t) => !isDone(t)), [tickets]);
   const doneTickets = useMemo(() => tickets.filter(isDone), [tickets]);
 
@@ -217,17 +207,11 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
       </div>
 
       {isCreateOpen && (
-        <div className={`modal-backdrop${isModalClosing ? " closing" : ""}`} role="presentation">
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="create-ticket-title">
-            <div className="modal-heading">
-              <h2 id="create-ticket-title">New ticket</h2>
-              <button className="icon-button" aria-label="Close new request" onClick={closeModal}>
-                <X size={18} aria-hidden="true" />
-              </button>
-            </div>
-            <CreateTicketView requestTypes={requestTypes} onCreated={handleCreated} />
-          </section>
-        </div>
+        <NewTicketModal
+          requestTypes={requestTypes}
+          onClose={() => setIsCreateOpen(false)}
+          onCreated={handleCreated}
+        />
       )}
     </>
   );

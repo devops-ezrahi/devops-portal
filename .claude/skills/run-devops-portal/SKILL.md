@@ -39,7 +39,7 @@ node .claude/skills/run-devops-portal/driver.mjs [base-url] [screenshot-dir]
 
 The driver:
 1. Walks every button in `nav.app-nav` — whatever modules are registered in
-   `src/client/App.tsx` (currently Tickets, Artifactory, Whitening, Research).
+   `src/client/App.tsx` (currently Tickets, Artifactory, Whitening, AI).
    It reads the labels off the page, so adding a module needs no driver change.
 2. Opens the "New" ticket modal, fills Name + Description, submits
 3. Switches to Admin role and captures the queue view

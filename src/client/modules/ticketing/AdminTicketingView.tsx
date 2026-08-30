@@ -1,16 +1,25 @@
+import { Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addAdminComment,
   getAdminTicket,
   getAssignees,
+  getRequestTypes,
   listAdminTickets,
   updateAdminTicket
 } from "./api";
 import { log, error as logError } from "../../log";
 import { AdminTicketDetail } from "./components/AdminTicketDetail";
+import { NewTicketModal } from "./components/NewTicketModal";
 import { SlaRemaining } from "./components/SlaRemaining";
 import { getTicketIdFromUrl, isDone, isOverdue, priorityClass, setTicketIdInUrl, stageClass, statusMessage } from "./utils";
-import type { AssigneeCandidate, PortalUser, TicketDetail, TicketSummary } from "../../../server/types";
+import type {
+  AssigneeCandidate,
+  PortalUser,
+  RequestTypeDefinition,
+  TicketDetail,
+  TicketSummary
+} from "../../../server/types";
 
 const POLL_INTERVAL_MS = 8000;
 
@@ -75,6 +84,8 @@ export function AdminTicketingView({
   const [assignees, setAssignees] = useState<AssigneeCandidate[]>([]);
   const [unreadIds, setUnreadIds] = useState<Set<string>>(() => new Set());
   const [showAll, setShowAll] = useState(false);
+  const [requestTypes, setRequestTypes] = useState<RequestTypeDefinition[]>([]);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
   const selectedIdRef = useRef<string | undefined>(undefined);
   const lastActivityRef = useRef<Map<string, string>>(new Map());
   const hasLoadedRef = useRef(false);
@@ -94,6 +105,12 @@ export function AdminTicketingView({
       })
       .catch((err: Error) => {
         logError("ticketing/admin", "getAssignees failed", err);
+        onError(err.message);
+      });
+    getRequestTypes()
+      .then((catalog) => setRequestTypes(catalog.requestTypes))
+      .catch((err: Error) => {
+        logError("ticketing/admin", "getRequestTypes failed", err);
         onError(err.message);
       });
     const deepLinkedId = getTicketIdFromUrl();
@@ -196,6 +213,15 @@ export function AdminTicketingView({
   const activeTickets = useMemo(() => filteredTickets.filter((t) => !isDone(t)), [filteredTickets]);
   const doneTickets = useMemo(() => filteredTickets.filter(isDone), [filteredTickets]);
 
+  // An admin raising a ticket goes through the same POST /api/tickets the
+  // requester uses, so it lands in the queue owned by them and unassigned.
+  async function handleCreated(ticket: TicketDetail) {
+    log("ticketing/admin", "ticket created", { id: ticket.id, title: ticket.title });
+    setIsCreateOpen(false);
+    await openAdminTicket(ticket.id);
+    await refreshAdminTickets();
+  }
+
   function handleOpenTicket(id: string) {
     openAdminTicket(id).catch((err: Error) => onError(err.message));
   }
@@ -204,6 +230,15 @@ export function AdminTicketingView({
     <>
       <header className="topbar">
         <h1>Tickets</h1>
+        <button
+          className="primary"
+          onClick={() => {
+            log("ticketing/admin", "opening new-ticket modal", { requestTypes: requestTypes.length });
+            setIsCreateOpen(true);
+          }}
+        >
+          <Plus size={18} aria-hidden="true" /> New
+        </button>
       </header>
 
       <div className="workspace-grid">
@@ -264,6 +299,14 @@ export function AdminTicketingView({
           )}
         </section>
       </div>
+
+      {isCreateOpen && (
+        <NewTicketModal
+          requestTypes={requestTypes}
+          onClose={() => setIsCreateOpen(false)}
+          onCreated={handleCreated}
+        />
+      )}
     </>
   );
 }

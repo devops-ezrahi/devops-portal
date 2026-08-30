@@ -1,4 +1,5 @@
-import { mkdtemp, readdir, rm, stat } from "fs/promises";
+import { randomUUID } from "crypto";
+import { mkdir, mkdtemp, readdir, rm, stat } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -10,6 +11,25 @@ const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 /** Create a private working directory for one job. Caller must `removeTmpDir` it. */
 export function createTmpDir(prefix: string): Promise<string> {
   return mkdtemp(join(tmpdir(), prefix));
+}
+
+/**
+ * Create a job dir under a name the *client* can hold onto. `createTmpDir` hands
+ * back a path only the current request knows, which is no use to an upload that
+ * arrives as a series of requests and has to find the same dir again each time.
+ * The name is therefore the id, and it is a UUID because holding it is what
+ * grants the right to append to that upload. The prefix keeps it in reach of
+ * `sweepOldTmpDirs`, which is the only cleanup an abandoned upload gets.
+ */
+export async function createNamedTmpDir(prefix: string): Promise<string> {
+  const name = `${prefix}${randomUUID()}`;
+  await mkdir(join(tmpdir(), name));
+  return name;
+}
+
+/** Resolve a name from `createNamedTmpDir` back to its path. Validate it first. */
+export function tmpDirByName(name: string): string {
+  return join(tmpdir(), name);
 }
 
 /**

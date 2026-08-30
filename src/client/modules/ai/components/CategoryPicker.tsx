@@ -21,7 +21,7 @@ export function CategoryPicker({
         </div>
         <div className="chat-category-list">
           {categories.length === 0 && (
-            <p style={{ margin: 0, fontSize: 13 }}>
+            <p className="field-hint">
               No repos registered — add a <code>ai-*</code> skill under{" "}
               <code>~/.claude/skills/</code>.
             </p>
@@ -35,7 +35,7 @@ export function CategoryPicker({
           {categories.length > 1 && (
             <button className="chat-category-item chat-category-unsure" onClick={() => onPick(null)}>
               <span className="chat-category-name">
-                <HelpCircle size={14} aria-hidden="true" style={{ marginRight: 6, verticalAlign: -2 }} />
+                <HelpCircle size={14} aria-hidden="true" />
                 I'm not sure
               </span>
               <span className="chat-category-description">

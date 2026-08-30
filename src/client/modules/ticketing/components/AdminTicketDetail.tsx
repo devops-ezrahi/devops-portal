@@ -1,4 +1,4 @@
-import { Check, MessageSquarePlus, Pencil } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, MessageSquarePlus, Pencil } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { log, error as logError } from "../../../log";
@@ -34,6 +34,7 @@ export function AdminTicketDetail({
   const [submitting, setSubmitting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
+  const pointsRef = useRef<HTMLInputElement>(null);
 
   function autoResizeDescription(el: HTMLTextAreaElement) {
     el.style.height = "auto";
@@ -59,6 +60,13 @@ export function AdminTicketDetail({
 
   const parsedPoints = storyPoints.trim() === "" ? undefined : Number(storyPoints);
   const hasPoints = parsedPoints !== undefined && Number.isFinite(parsedPoints) && parsedPoints >= 0;
+
+  function step(by: number) {
+    setStoryPoints(String(Math.max(0, (Number(storyPoints) || 0) + by)));
+    // Stepping leaves the field focused, so the same blur that saves a typed
+    // value saves a stepped one — one request per edit, not per click.
+    pointsRef.current?.focus();
+  }
 
   async function savePoints() {
     if (parsedPoints === ticket.storyPoints) return;
@@ -243,16 +251,29 @@ export function AdminTicketDetail({
       <div className="admin-edit-form">
         <label>
           <span>Story points</span>
-          <input
-            type="number"
-            min={0}
-            step="any"
-            value={storyPoints}
-            placeholder="—"
-            onChange={(e) => setStoryPoints(e.target.value)}
-            onBlur={() => savePoints().catch(() => undefined)}
-            disabled={submitting}
-          />
+          <div className="points-field">
+            <input
+              ref={pointsRef}
+              type="number"
+              min={0}
+              step="any"
+              value={storyPoints}
+              placeholder="—"
+              onChange={(e) => setStoryPoints(e.target.value)}
+              onBlur={() => savePoints().catch(() => undefined)}
+              disabled={submitting}
+            />
+            {/* The press must not blur the input: the blur would save the value
+                from before the step, and nothing would save the one after it. */}
+            <div className="points-step" onMouseDown={(e) => e.preventDefault()}>
+              <button type="button" aria-label="Increase story points" disabled={submitting} onClick={() => step(1)}>
+                <ChevronUp size={13} aria-hidden="true" />
+              </button>
+              <button type="button" aria-label="Decrease story points" disabled={submitting} onClick={() => step(-1)}>
+                <ChevronDown size={13} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
         </label>
         <label>
           <span>Stage</span>

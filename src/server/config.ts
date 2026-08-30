@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from "fs";
-import { homedir } from "os";
+import { homedir, tmpdir } from "os";
 import { join } from "path";
 
 function requireEnv(name: string): string | undefined {
@@ -57,6 +57,11 @@ function scanAiSkills(): Record<string, AiProject> {
   return projects;
 }
 
+// Where job history, the AI repo clones and opencode's session store live. In k8s
+// this is the PVC mount; the tmpdir default is purely so local dev works with an
+// empty .env. Everything under it is derived, so there is no second path var.
+const dataDir = requireEnv("DATA_DIR") ?? join(tmpdir(), "portal-data");
+
 const artifactoryUrl = requireEnv("ARTIFACTORY_URL");
 const artifactoryRepo = requireEnv("ARTIFACTORY_REPO");
 const artifactoryToken = requireEnv("ARTIFACTORY_TOKEN");
@@ -66,9 +71,16 @@ const artifactoryMavenRepo = requireEnv("ARTIFACTORY_MAVEN_REPO");
 const artifactoryRpmRepo = requireEnv("ARTIFACTORY_RPM_REPO");
 const artifactoryPypiRepo = requireEnv("ARTIFACTORY_PYPI_REPO");
 const artifactoryCondaRepo = requireEnv("ARTIFACTORY_CONDA_REPO");
+const npmSourceToken = requireEnv("NPM_SOURCE_TOKEN");
 
 const gitUrl = requireEnv("GIT_URL");
 const gitToken = requireEnv("GIT_TOKEN");
+
+/** Hours from env to ms, falling back on anything that isn't a number (0 is valid — it makes the sweep immediate, which is how you test it). */
+function hours(raw: string | undefined, fallback: number): number {
+  const n = Number(raw);
+  return (Number.isFinite(n) && n >= 0 ? n : fallback) * 3_600_000;
+}
 
 const aiProjects = scanAiSkills();
 const opencodeApiKey = requireEnv("OPENCODE_API_KEY");
@@ -82,6 +94,11 @@ const jiraStoryPointsField = requireEnv("JIRA_STORY_POINTS_FIELD");
 const jiraTicketLabel = requireEnv("JIRA_TICKET_LABEL");
 
 export const config = {
+  // debug|info|warn|error. `debug` adds the successful GET lines (job and
+  // ticket lists poll every 2-8s per open tab) and the per-call detail of every
+  // outbound Artifactory/Jira/Bitbucket request.
+  logLevel: (requireEnv("LOG_LEVEL") ?? "info").trim().toLowerCase(),
+  dataDir,
   ssoRequired: process.env.SSO_REQUIRED === "true",
   ssoUrl: requireEnv("SSO_URL") ?? "",
   // Header carrying the IdP's `name` claim. Lowercased because Node lowercases
@@ -115,6 +132,11 @@ export const config = {
     rpmRepo: artifactoryRpmRepo ?? "",
     pypiRepo: artifactoryPypiRepo ?? "",
     condaRepo: artifactoryCondaRepo ?? "",
+    // Credential for the *source* npm registry, used only by a URL copy with
+    // "Include dependencies" ticked and only when that registry is protected.
+    // Normally empty: a public registry needs nothing, and a source registry on
+    // the same host as ARTIFACTORY_URL reuses ARTIFACTORY_TOKEN automatically.
+    npmSourceToken: npmSourceToken ?? "",
     enabled: !!(artifactoryUrl && artifactoryRepo && artifactoryToken),
   },
   git: {
@@ -124,6 +146,19 @@ export const config = {
     // GIT_USERNAME only if your instance wants username+token basic auth.
     username: requireEnv("GIT_USERNAME") ?? "",
     enabled: !!(gitUrl && gitToken),
+  },
+  jenkinsfile: {
+    // The one library every generated Jenkinsfile imports. The builder only
+    // asks for a branch to pin — the name is a deployment fact, not a per-user
+    // choice, so it is set here rather than typed into every pipeline.
+    sharedLibrary: (requireEnv("JENKINS_SHARED_LIBRARY") ?? "jenkins-k8s-shared-library").trim(),
+    // Artifactory storage path whose child folders are the agent image names,
+    // e.g. "docker-local/jenkins-agents". A Docker repo stores
+    // <repo>/<image>/<tag>/manifest.json, so pointing this at the repo lists
+    // image names and pointing it at one image lists that image's tags — set it
+    // to whichever level holds the names a stage's `image` argument takes.
+    // Unset = the builder's image field stays plain free text.
+    imagesPath: (requireEnv("JENKINS_IMAGES_PATH") ?? "").replace(/^\/+|\/+$/g, ""),
   },
   jira: {
     baseUrl: jiraUrl ?? "",
@@ -157,6 +192,10 @@ export const config = {
     // opencode has no env var for this — it is provider.<id>.options.baseURL in
     // its config file, which we already generate (see RealAiApi's policy).
     baseUrl: requireEnv("OPENCODE_BASE_URL") ?? "",
+    // Idle past this and a chat folds into the client's "Archived" section.
+    // Archiving is all there is now: jobs live on the PVC, so nothing has to be
+    // dropped to reclaim the tool traces and logs a chat carries.
+    archiveAfterMs: hours(requireEnv("AI_ARCHIVE_AFTER_HOURS"), 4),
     enabled: Object.keys(aiProjects).length > 0,
   },
 };

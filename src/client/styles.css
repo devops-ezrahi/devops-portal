@@ -15,6 +15,12 @@
      replaces, so without this the scrollbar appears on select and the centred
      .main slides sideways — the page "jumps". */
   scrollbar-gutter: stable;
+
+  /* One decelerating curve for everything that enters or responds to a press:
+     most of the movement happens in the first third, so the UI reads as
+     immediate even though the tail is still running. `ease` starts slow and
+     is what makes a 150ms transition feel like 250ms. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 * {
@@ -50,7 +56,21 @@ textarea {
 
 button {
   cursor: pointer;
-  transition: background 150ms ease, color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 120ms ease, opacity 150ms ease;
+  transition:
+    background 120ms var(--ease-out),
+    color 120ms var(--ease-out),
+    border-color 120ms var(--ease-out),
+    box-shadow 120ms var(--ease-out),
+    transform 90ms var(--ease-out),
+    opacity 120ms var(--ease-out);
+}
+
+/* Every button presses in. A 1px nudge rather than a scale: scaling a button
+   re-rasterises the text inside it at a fractional size, so the label visibly
+   reflows for the length of the press. Rules that set their own :active
+   transform are (0,2,0) and still win over this. */
+button:active {
+  transform: translateY(1px);
 }
 
 button:disabled {
@@ -60,10 +80,10 @@ button:disabled {
 input,
 select,
 textarea {
-  transition: border-color 150ms ease, box-shadow 150ms ease;
+  transition: border-color 120ms var(--ease-out), box-shadow 120ms var(--ease-out);
 }
 
-@keyframes backdrop-in {
+@keyframes fade-in {
   from { opacity: 0 }
   to   { opacity: 1 }
 }
@@ -107,7 +127,7 @@ textarea {
   to   { opacity: 0; transform: scale(0.96) translateY(10px) }
 }
 
-@keyframes backdrop-out {
+@keyframes fade-out {
   from { opacity: 1 }
   to   { opacity: 0 }
 }
@@ -128,7 +148,7 @@ textarea {
   max-width: 380px;
   text-align: center;
   padding: 2rem;
-  animation: fade-up 220ms ease both;
+  animation: fade-up 180ms var(--ease-out) both;
 }
 
 .fullpage-screen-icon {
@@ -242,7 +262,7 @@ textarea {
   opacity: 0;
   transform: translateY(-3px);
   pointer-events: none;
-  transition: opacity 120ms ease, transform 120ms ease;
+  transition: opacity 120ms var(--ease-out), transform 120ms var(--ease-out);
 }
 
 .brand:hover .brand-version {
@@ -306,8 +326,7 @@ textarea {
 }
 
 .app-nav,
-.header-actions,
-.topbar-actions {
+.header-actions {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -356,7 +375,7 @@ textarea {
 .nav-button:hover {
   text-decoration: none;
   cursor: pointer;
-  transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 120ms ease;
+  transition: background 140ms var(--ease-out), color 140ms var(--ease-out), box-shadow 140ms var(--ease-out), transform 120ms var(--ease-out);
 }
 
 .nav-button svg,
@@ -373,7 +392,7 @@ textarea {
 
 .nav-button:active,
 .ghost-button:active {
-  transform: scale(0.97);
+  transform: translateY(1px);
 }
 
 .nav-button.active {
@@ -398,7 +417,7 @@ textarea {
 }
 
 .primary:active {
-  transform: translateY(0);
+  transform: translateY(1px);
   box-shadow: none;
 }
 
@@ -433,11 +452,7 @@ textarea {
 }
 
 .icon-button:active {
-  transform: scale(0.92);
-}
-
-.demo-switch {
-  min-width: 168px;
+  transform: translateY(1px) scale(0.96);
 }
 
 .role-toggle {
@@ -551,12 +566,6 @@ h3 {
   width: 100%;
 }
 
-.workspace-grid.has-selection {
-  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
-  align-content: start;
-  justify-content: center;
-}
-
 .ticket-column,
 .content-column {
   display: grid;
@@ -571,7 +580,6 @@ h3 {
 
 .ticket-list-panel,
 .detail-panel,
-.catalog,
 .request-form {
   background: #12191d;
   border: 1px solid #202b31;
@@ -597,7 +605,7 @@ h3 {
   margin: 0;
   padding: 12px;
   list-style-position: inside;
-  transition: color 150ms ease;
+  transition: color 140ms var(--ease-out);
 }
 
 .done-panel summary:hover {
@@ -612,19 +620,6 @@ h3 {
   opacity: 0.78;
 }
 
-.panel-heading {
-  padding: 12px 14px;
-  border-bottom: 1px solid #202b31;
-}
-
-.panel-heading h2 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 15px;
-  margin-bottom: 0;
-}
-
 .filters {
   padding: 12px;
   display: grid;
@@ -632,34 +627,6 @@ h3 {
   border-bottom: 1px solid #202b31;
   background: #10171a;
   border-radius: 6px 6px 0 0;
-}
-
-.segmented {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 3px;
-  padding: 3px;
-  border: 1px solid #2a3940;
-  border-radius: 7px;
-  background: #0c1215;
-}
-
-.segmented button {
-  min-height: 34px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: #96a5ac;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  font-weight: 800;
-}
-
-.segmented button.active {
-  background: #172226;
-  color: #ffffff;
 }
 
 .search {
@@ -723,9 +690,14 @@ button:focus-visible {
   box-shadow: 0 0 0 5px rgb(32 199 189 / 10%);
 }
 
-.ticket-list,
-.catalog,
-.recent {
+/* A clicked checkbox keeps the ring until you click elsewhere, which reads as a
+   box drawn around it. Keyboard focus still gets one. */
+input[type="checkbox"]:focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none;
+}
+
+.ticket-list {
   display: grid;
 }
 
@@ -733,9 +705,7 @@ button:focus-visible {
   grid-template-columns: 1fr;
 }
 
-.ticket-row,
-.recent-row,
-.catalog-item {
+.ticket-row {
   position: relative;
   width: 100%;
   border: 0;
@@ -747,21 +717,17 @@ button:focus-visible {
   display: grid;
   gap: 6px;
   transition:
-    background 160ms ease,
-    box-shadow 160ms ease,
-    transform 160ms ease;
+    background 140ms var(--ease-out),
+    box-shadow 140ms var(--ease-out),
+    transform 140ms var(--ease-out);
   animation: row-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-.ticket-row:hover,
-.recent-row:hover,
-.catalog-item:hover {
+.ticket-row:hover {
   transform: translateY(-1px);
 }
 
-.ticket-row:active,
-.recent-row:active,
-.catalog-item:active {
+.ticket-row:active {
   transform: translateY(0);
 }
 
@@ -773,9 +739,18 @@ button:focus-visible {
 .ticket-row:nth-child(6) { animation-delay: 125ms }
 .ticket-row:nth-child(7) { animation-delay: 138ms }
 .ticket-row:nth-child(8) { animation-delay: 148ms }
+/* The per-row delays decay towards ~180ms so a long list still finishes in
+   under a fifth of a second — a flat 35ms step would take a 40-job queue three
+   seconds to appear. Past the eighth row the steps are too small to name one
+   by one, so these are open-ended ranges: each matches "this row and every row
+   after it", and the later rule wins for the higher indices. */
+.ticket-row:nth-child(n+9)  { animation-delay: 156ms }
+.ticket-row:nth-child(n+11) { animation-delay: 164ms }
+.ticket-row:nth-child(n+14) { animation-delay: 171ms }
+.ticket-row:nth-child(n+18) { animation-delay: 177ms }
+.ticket-row:nth-child(n+23) { animation-delay: 182ms }
 
-.ticket-row:last-child,
-.catalog-item:last-child {
+.ticket-row:last-child {
   border-bottom: 0;
 }
 
@@ -852,14 +827,11 @@ button:focus-visible {
   font-weight: 700;
 }
 
-.ticket-row:hover,
-.recent-row:hover,
-.catalog-item:hover {
+.ticket-row:hover {
   background: #151f23;
 }
 
-.ticket-row.selected,
-.catalog-item.selected {
+.ticket-row.selected {
   background: #132a2c;
   box-shadow: inset 3px 0 0 #20c7bd;
   transform: none;
@@ -921,18 +893,13 @@ button:focus-visible {
   animation: dot-pulse 2.4s ease-in-out infinite;
 }
 
-.ticket-row strong,
-.recent-row strong,
-.catalog-item strong {
+.ticket-row strong {
   color: #ffffff;
 }
 
 .ticket-row span:not(.stage, .priority, .badge-row),
 .ticket-row small,
-.recent-row small,
-.catalog-item span,
-.detail-heading p,
-.form-note {
+.detail-heading p {
   color: #8d9ba2;
 }
 
@@ -945,7 +912,7 @@ button:focus-visible {
   font-weight: 800;
   color: #dfe8eb;
   background: #253038;
-  transition: background 250ms ease, color 250ms ease;
+  transition: background 140ms var(--ease-out), color 140ms var(--ease-out);
 }
 
 .stage-submitted {
@@ -1111,42 +1078,6 @@ button:focus-visible {
   padding: 7px 12px;
 }
 
-.team-label {
-  display: inline-block;
-  margin-top: 4px;
-  padding: 2px 7px;
-  border-radius: 4px;
-  background: #162229;
-  color: #84949b;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.team-tag {
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: #162229;
-  color: #84949b;
-  font-size: 11px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-.assignee-suggestions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 2px;
-}
-
-.assignee-suggestions .ghost-button {
-  font-size: 12px;
-  padding: 3px 8px;
-  min-height: unset;
-}
-
 .detail-title-row {
   display: flex;
   align-items: center;
@@ -1188,7 +1119,7 @@ button:focus-visible {
 }
 
 .title-edit-input {
-  transition: border-color 150ms ease;
+  transition: border-color 140ms var(--ease-out);
 }
 
 .title-edit-input:focus {
@@ -1215,7 +1146,7 @@ button:focus-visible {
 }
 
 .description-edit-textarea {
-  transition: border-color 150ms ease;
+  transition: border-color 140ms var(--ease-out);
 }
 
 .description-edit-textarea:focus {
@@ -1237,21 +1168,6 @@ button:focus-visible {
   padding-inline: 10px;
 }
 
-.metadata-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(120px, 1fr));
-  gap: 10px;
-  margin-bottom: 20px;
-}
-
-.metadata-grid div {
-  background: #0e1518;
-  border: 1px solid #202b31;
-  border-radius: 6px;
-  padding: 10px;
-}
-
-.metadata-grid span,
 .metadata-list dt {
   display: block;
   color: #84949b;
@@ -1260,7 +1176,6 @@ button:focus-visible {
   text-transform: uppercase;
 }
 
-.metadata-grid strong,
 .metadata-list dd {
   color: #edf3f5;
 }
@@ -1273,12 +1188,20 @@ button:focus-visible {
 
 .metadata-list div {
   display: grid;
-  grid-template-columns: 160px 1fr;
+  /* minmax(0, …) rather than a bare 1fr: a grid track's automatic minimum is
+     min-content, so one unbreakable value — a job's source URL — widens the
+     track past the panel and gives the whole page a horizontal scrollbar. */
+  grid-template-columns: 160px minmax(0, 1fr);
   gap: 10px;
 }
 
 .metadata-list dd {
   margin: 0;
+  /* A URL has no spaces to wrap at, so it has to be allowed to break mid-token.
+     `anywhere` rather than `break-word` because it also drops the value's
+     min-content contribution to zero, which is what keeps a narrower column
+     from being widened by it in the first place. */
+  overflow-wrap: anywhere;
 }
 
 .comments,
@@ -1289,14 +1212,62 @@ button:focus-visible {
   gap: 10px;
 }
 
+/* The native number spinner is an unstyleable grey bitmap sitting in a dark
+   field. These are the same two arrows drawn in the portal's own colours. */
+.points-field {
+  position: relative;
+}
+
+.points-field input[type="number"] {
+  appearance: textfield;
+  padding-right: 34px;
+}
+
+.points-field input[type="number"]::-webkit-outer-spin-button,
+.points-field input[type="number"]::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.points-step {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  bottom: 4px;
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  gap: 2px;
+}
+
+.points-step button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: #151d21;
+  color: #8d9ba2;
+}
+
+.points-step button:hover:not(:disabled) {
+  background: #1a252a;
+  color: #20c7bd;
+}
+
+.points-step button:disabled {
+  opacity: 0.4;
+}
+
 .comment {
   border: 1px solid #202b31;
   border-left: 3px solid #20c7bd;
   background: #0f171a;
   padding: 10px 12px;
   border-radius: 6px;
-  animation: fade-up 200ms ease forwards;
-  transition: transform 150ms ease, border-left-color 150ms ease, box-shadow 150ms ease;
+  animation: fade-up 180ms var(--ease-out) forwards;
+  transition: transform 140ms var(--ease-out), border-left-color 140ms var(--ease-out), box-shadow 140ms var(--ease-out);
 }
 
 .comment:hover {
@@ -1330,11 +1301,15 @@ button:focus-visible {
   background: #0d181a;
   color: #9fe4dc;
   padding: 8px 10px;
-  animation: fade-up 200ms ease both;
+  animation: fade-up 180ms var(--ease-out) both;
 }
 
 .status-row span {
   min-width: 0;
+  /* A log line is often one long URL with nothing to wrap at — `min-width: 0`
+     only lets the flex item shrink, it does not let the text break, so without
+     this the line runs off the panel and the page grows a horizontal scrollbar. */
+  overflow-wrap: anywhere;
 }
 
 .status-row small {
@@ -1427,14 +1402,6 @@ button:focus-visible {
   resize: vertical;
 }
 
-.catalog {
-  overflow: hidden;
-}
-
-.catalog-item strong {
-  font-size: 16px;
-}
-
 .request-form label,
 .admin-edit-form label {
   display: grid;
@@ -1443,19 +1410,22 @@ button:focus-visible {
   font-weight: 800;
 }
 
+/* Roomier than the same form inline, but sized so the whole dialog still fits a
+   laptop viewport — a 600px-tall modal is taller than the window on a 13" screen
+   once the browser chrome is out, and it lands half under the header. */
 .modal .request-form {
-  gap: 18px;
-  padding: 22px;
+  gap: 14px;
+  padding: 18px;
 }
 
 .modal .request-form input,
 .modal .request-form textarea {
-  font-size: 17px;
-  padding: 12px 14px;
+  font-size: 15px;
+  padding: 10px 12px;
 }
 
 .modal .request-form textarea {
-  min-height: 180px;
+  min-height: 120px;
 }
 
 .request-form label span,
@@ -1475,13 +1445,6 @@ button:focus-visible {
   width: max-content;
 }
 
-.form-note {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-bottom: 0;
-}
-
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -1490,11 +1453,11 @@ button:focus-visible {
   place-items: center;
   padding: 22px;
   background: rgb(0 0 0 / 68%);
-  animation: backdrop-in 200ms ease forwards;
+  animation: fade-in 180ms var(--ease-out) forwards;
 }
 
 .modal-backdrop.closing {
-  animation: backdrop-out 220ms ease forwards;
+  animation: fade-out 180ms cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
 .modal-backdrop.closing .modal {
@@ -1539,7 +1502,7 @@ button:focus-visible {
 }
 
 .empty-state {
-  animation: fade-up 220ms ease both;
+  animation: fade-up 180ms var(--ease-out) both;
 }
 
 .loading-state {
@@ -1565,7 +1528,7 @@ button:focus-visible {
   border-radius: 6px;
   color: #ffc6ca;
   margin-bottom: 14px;
-  animation: fade-up 200ms ease forwards;
+  animation: fade-up 180ms var(--ease-out) forwards;
 }
 
 @media (max-width: 1120px) {
@@ -1587,7 +1550,6 @@ button:focus-visible {
 
 @media (max-width: 980px) {
   .workspace-grid,
-  .workspace-grid.has-selection,
   .create-grid {
     grid-template-columns: 1fr;
     justify-content: stretch;
@@ -1625,10 +1587,6 @@ button:focus-visible {
     text-align: left;
   }
 
-  .demo-switch {
-    flex: 1 1 168px;
-  }
-
   .ghost-button {
     flex: 1 1 120px;
   }
@@ -1646,7 +1604,6 @@ button:focus-visible {
     width: 100%;
   }
 
-  .metadata-grid,
   .metadata-list div,
   .admin-edit-form,
   .detail-heading {
@@ -1670,10 +1627,6 @@ button:focus-visible {
 @media (max-width: 440px) {
   .nav-button {
     justify-content: flex-start;
-  }
-
-  .segmented {
-    grid-template-columns: 1fr;
   }
 
   .modal-backdrop {
@@ -1709,7 +1662,7 @@ button:focus-visible {
   gap: 7px;
   margin-bottom: -1px;
   cursor: pointer;
-  transition: color 120ms ease;
+  transition: color 120ms var(--ease-out), border-bottom-color 160ms var(--ease-out);
 }
 
 /* Pushed to the right end of the tab row (or a bare row, for Whitening). */
@@ -1758,7 +1711,7 @@ button:focus-visible {
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  transition: border-color 150ms ease, background 150ms ease;
+  transition: border-color 140ms var(--ease-out), background 140ms var(--ease-out);
   cursor: default;
   margin: 16px 0;
 }
@@ -1766,6 +1719,17 @@ button:focus-visible {
 .drop-zone small {
   font-size: 12px;
   color: #4e5f67;
+}
+
+/* The click-through half of the drop zone: a real <input type="file"> behind a
+   label, because a styled button cannot open a file picker on its own. */
+.file-picker {
+  margin-top: 4px;
+  cursor: pointer;
+}
+
+.file-picker input {
+  display: none;
 }
 
 .drop-zone--over {
@@ -1807,34 +1771,16 @@ button:focus-visible {
   color: #6f8088;
 }
 
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-weight: 700;
-  font-size: 13px;
-  color: #f2f6f7;
-  cursor: pointer;
-}
-
-.checkbox-label input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: #20c7bd;
-  cursor: pointer;
-  flex-shrink: 0;
+.upload-status {
+  font-size: 12px;
+  color: #6f8088;
+  text-align: center;
 }
 
 .job-log {
   display: flex;
   flex-direction: column;
   gap: 2px;
-}
-
-.url-cell {
-  word-break: break-all;
-  font-size: 12px;
-  color: #8d9ba2;
 }
 
 /* Form inside detail-panel — layout only, no duplicate border/background */
@@ -1856,7 +1802,7 @@ button:focus-visible {
   color: #f4f7f8;
 }
 
-.art-form label:not(.checkbox-label) {
+.art-form label {
   display: grid;
   gap: 6px;
   color: #f2f6f7;
@@ -1877,6 +1823,39 @@ button:focus-visible {
 .form-field {
   display: grid;
   gap: 6px;
+}
+
+/* The first checkbox in the client, so none of the form rules above fit it:
+   `.art-form label` is a grid (box would stack above its text) and
+   `.art-form input` is width:100% + min-height:40px (box would be stretched). */
+.checkbox-field label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+/* An aside inside the label, not a second hint below it — "(takes longer)"
+   qualifies the choice being made, so it has to be readable at the moment the
+   box is ticked. Its own margin-less rule because `.art-form .field-hint`
+   carries a -4px top margin that misaligns it against the checkbox. */
+.checkbox-field label .field-note {
+  color: #6f8088;
+  font-weight: 400;
+  margin-left: -4px;
+}
+
+.art-form .checkbox-field input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  flex: none;
+  border: none;
+  background: none;
+  accent-color: #20c7bd;
+  cursor: pointer;
 }
 
 .job-progress {
@@ -1987,7 +1966,7 @@ button:focus-visible {
 .job-log-body::-webkit-scrollbar-thumb { background: #203238; border-radius: 999px }
 .job-log-body::-webkit-scrollbar-thumb:hover { background: #2a3940 }
 
-/* ---- Chat / RAGFlow module ---- */
+/* ---- AI module ---- */
 
 code {
   background: #1a272c;
@@ -1998,130 +1977,46 @@ code {
   color: #9fe4dc;
 }
 
-.chat-module {
-  display: flex;
-  flex-direction: row;
-  height: calc(100vh - 108px);
-  background: #12191d;
-  border: 1px solid #202b31;
-  border-radius: 6px;
-  overflow: hidden;
-  animation: panel-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-/* ── Sidebar ───────────────────────────────────────────────────────── */
-
-.chat-sidebar {
-  width: 220px;
-  flex-shrink: 0;
+/* The one layout rule the AI page needs on top of the shared .detail-panel:
+   .workspace-grid is align-items:start, so the panel has no height of its own
+   and the message list would grow the page instead of scrolling under a pinned
+   input. Same trick as .art-panel — a module-specific class beside the shared
+   one, not a bespoke shell.
+   162px = the 108px the old .chat-module used (header + .main's padding) plus
+   the .topbar block above it (40px min-height + 14px margin). Tuned without the
+   dev banner, which is dev-only and just makes the page scroll a little. */
+.chat-panel {
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #202b31;
-  background: #0d1316;
-  overflow: hidden;
+  height: calc(100vh - 162px);
+  padding: 0;
 }
 
-.chat-sidebar-header {
-  padding: 10px 10px 8px;
-  border-bottom: 1px solid #202b31;
-  flex-shrink: 0;
-}
-
-.chat-new-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 7px 10px;
-  border-radius: 6px;
-  border: 1px solid #2a3940;
-  background: transparent;
-  color: #c8d3d7;
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.chat-new-btn:hover {
-  background: #151f24;
-  border-color: #3a5060;
-  color: #f4f7f8;
-}
-
-.chat-sidebar-list {
+/* Shared .empty-state is a padded block; inside the chat panel it has to fill
+   the space above the pinned input instead. Replaces the old .chat-empty and
+   .chat-not-configured, which were the same box twice. */
+.chat-panel .empty-state {
   flex: 1 1 auto;
-  overflow-y: auto;
-  padding: 6px 6px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  scrollbar-width: thin;
-  scrollbar-color: #1e2d34 transparent;
-}
-
-.chat-sidebar-list::-webkit-scrollbar { width: 4px }
-.chat-sidebar-list::-webkit-scrollbar-track { background: transparent }
-.chat-sidebar-list::-webkit-scrollbar-thumb { background: #1e2d34; border-radius: 999px }
-
-.chat-sidebar-empty {
-  font-size: 12px;
-  color: #4a6070;
-  text-align: center;
-  padding: 20px 8px;
-}
-
-.chat-sidebar-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  width: 100%;
-  padding: 7px 8px;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: #8d9ba2;
-  font-size: 12.5px;
-  text-align: left;
-  cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
-}
-
-.chat-sidebar-item:hover {
-  background: #151f24;
-  color: #c8d3d7;
-}
-
-.chat-sidebar-item.active {
-  background: #182229;
-  border-color: #2a3940;
-  color: #f4f7f8;
-}
-
-.chat-sidebar-title {
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chat-sidebar-delete {
-  flex-shrink: 0;
-  display: none;
   align-items: center;
   justify-content: center;
-  padding: 2px;
-  border-radius: 4px;
-  color: #4a6070;
-  cursor: pointer;
+  gap: 10px;
+  text-align: center;
+  padding: 32px;
 }
 
-.chat-sidebar-item:hover .chat-sidebar-delete,
-.chat-sidebar-item.active .chat-sidebar-delete {
-  display: flex;
+.chat-panel .empty-state strong {
+  color: #c8d3d7;
 }
 
-.chat-sidebar-delete:hover {
-  color: #e05c5c;
-  background: rgb(224 92 92 / 12%);
+.chat-panel .empty-state p {
+  margin-bottom: 0;
+  max-width: 400px;
+}
+
+.chat-panel .empty-icon {
+  opacity: 0.2;
 }
 
 .chat-category-list {
@@ -2142,7 +2037,7 @@ code {
   color: #c8d3d7;
   text-align: left;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease;
+  transition: background 120ms var(--ease-out), border-color 120ms var(--ease-out);
 }
 
 .chat-category-item:hover {
@@ -2151,6 +2046,9 @@ code {
 }
 
 .chat-category-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 700;
   font-size: 13.5px;
   color: #f4f7f8;
@@ -2175,26 +2073,6 @@ code {
 
 /* ── Main chat area ────────────────────────────────────────────────── */
 
-.chat-main {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.chat-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px;
-  border-bottom: 1px solid #202b31;
-  flex-shrink: 0;
-}
-
-.chat-topbar h2 {
-  margin-bottom: 0;
-}
-
 .chat-messages {
   flex: 1 1 auto;
   overflow-y: auto;
@@ -2214,29 +2092,13 @@ code {
 }
 .chat-messages::-webkit-scrollbar-thumb:hover { background: #2a3940 }
 
-.chat-empty {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  color: #6f8088;
-  text-align: center;
-  padding: 32px;
-}
-
-.chat-empty p {
-  margin-bottom: 0;
-}
-
 .chat-msg {
   max-width: 78%;
   padding: 10px 14px;
   border-radius: 14px;
   line-height: 1.6;
   font-size: 14px;
-  animation: fade-up 160ms ease both;
+  animation: fade-up 160ms var(--ease-out) both;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -2256,22 +2118,6 @@ code {
   border: 1px solid #202b31;
   border-bottom-left-radius: 4px;
   white-space: normal;
-}
-
-.chat-cursor {
-  display: inline-block;
-  width: 7px;
-  height: 13px;
-  background: #20c7bd;
-  border-radius: 2px;
-  margin-left: 2px;
-  vertical-align: text-bottom;
-  animation: blink 900ms step-end infinite;
-}
-
-@keyframes blink {
-  0%, 100% { opacity: 1 }
-  50%       { opacity: 0 }
 }
 
 .chat-typing {
@@ -2353,7 +2199,7 @@ code {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 150ms ease, transform 120ms ease, box-shadow 150ms ease;
+  transition: background 140ms var(--ease-out), transform 120ms var(--ease-out), box-shadow 140ms var(--ease-out);
 }
 
 .chat-send-btn:hover:not(:disabled) {
@@ -2370,22 +2216,6 @@ code {
 .chat-send-btn:disabled {
   background: #1e2e33;
   color: #3a5060;
-}
-
-.chat-not-configured {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  color: #8d9ba2;
-  text-align: center;
-  padding: 32px;
-}
-
-.chat-not-configured p {
-  margin-bottom: 0;
 }
 
 /* ── Markdown renderer ─────────────────────────────────────────────── */
@@ -2503,11 +2333,6 @@ code {
   gap: 7px;
 }
 
-.metadata-grid.wide {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-bottom: 0;
-}
-
 @media (max-width: 1120px) {
   .app-header {
     align-items: flex-start;
@@ -2527,9 +2352,7 @@ code {
 
 @media (max-width: 980px) {
   .workspace-grid,
-  .workspace-grid.has-selection,
-  .create-grid,
-  .metadata-grid.wide {
+  .create-grid {
     grid-template-columns: 1fr;
     justify-content: stretch;
     min-height: 0;
@@ -2566,10 +2389,6 @@ code {
     text-align: left;
   }
 
-  .demo-switch {
-    flex: 1 1 168px;
-  }
-
   .ghost-button {
     flex: 1 1 120px;
   }
@@ -2587,7 +2406,6 @@ code {
     width: 100%;
   }
 
-  .metadata-grid,
   .metadata-list div,
   .admin-edit-form,
   .detail-heading {
@@ -2611,10 +2429,6 @@ code {
 @media (max-width: 440px) {
   .nav-button {
     justify-content: flex-start;
-  }
-
-  .segmented {
-    grid-template-columns: 1fr;
   }
 
   .modal-backdrop {
@@ -2650,7 +2464,6 @@ code {
 .request-form input,
 .request-form textarea,
 .chat-msg,
-.chat-sidebar-title,
 .chat-input-row textarea,
 .chat-md p,
 .chat-md li,
@@ -2671,4 +2484,1392 @@ code {
   unicode-bidi: normal;
   direction: ltr;
   text-align: left;
+}
+
+/* ---- Jenkinsfile builder ---- */
+
+.jf-topbar-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* The editor column is one outlined .detail-panel, like every other module's
+   content column — its four parts are separated by a rule inside the box
+   rather than by four boxes. */
+.jf-editor {
+  display: grid;
+  gap: 16px;
+}
+
+.jf-editor > .jf-section + .jf-section {
+  border-top: 1px solid #202b31;
+  padding-top: 16px;
+}
+
+/* The builder's controls live in .detail-panel, not in .art-form / .request-form,
+   so they need the same field treatment those two selectors give theirs. */
+.jf-settings input,
+.jf-builder input,
+.jf-builder select,
+.jf-builder textarea,
+.jf-arg input,
+.jf-arg select,
+.jf-arg textarea {
+  resize: none;
+  width: 100%;
+  border: 1px solid #2a3940;
+  border-radius: 6px;
+  min-height: 36px;
+  padding: 8px 10px;
+  background: #0d1316;
+  color: #f4f7f8;
+  font-weight: 400;
+  color-scheme: dark;
+}
+
+.jf-settings input:focus,
+.jf-arg input:focus,
+.jf-arg select:focus,
+.jf-arg textarea:focus {
+  outline: none;
+  border-color: #20c7bd;
+  box-shadow: 0 0 0 2px rgba(32, 199, 189, 0.15);
+}
+
+.jf-settings label,
+.jf-arg > .jf-arg-head label,
+.jf-arg-label {
+  color: #f2f6f7;
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.jf-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+/* ---- Pipeline parameters ---- */
+
+.jf-params {
+  display: grid;
+  gap: 10px;
+}
+
+/* Parameters are laid out exactly like stage arguments — .jf-arg does the box,
+   this only adds the three-across row for name / type / description. */
+.jf-param-list {
+  padding: 0;
+}
+
+/* A parameter nothing reads: amber down the same left border that is teal on
+   every other argument box, so it reads as "look at this" rather than as an
+   error. The Jenkinsfile it generates is valid — the parameter just has no
+   effect — so nothing here is red. */
+.jf-arg.jf-param-unused {
+  border-left-color: #e0b341;
+}
+
+.jf-param-unused .field-hint {
+  color: #e0b341;
+}
+
+.jf-param-grid {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(110px, auto) minmax(160px, 2fr);
+  gap: 8px 10px;
+}
+
+.jf-param .form-field label,
+.jf-param-grid label {
+  color: #8d9ba2;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.jf-params .jf-checkbox {
+  white-space: nowrap;
+  font-size: 12px;
+  color: #8d9ba2;
+}
+
+/* ---- The optional @Library import ---- */
+
+/* Off is a dotted slot in the shape of the box it opens into, so switching it on
+   reads as filling something in rather than growing a new section. */
+.jf-dotted {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px dashed #2a3940;
+  border-radius: 8px;
+  background: transparent;
+  color: #8d9ba2;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms var(--ease-out), background 140ms var(--ease-out), color 140ms var(--ease-out);
+}
+
+.jf-dotted:hover {
+  border-color: #20c7bd;
+  background: #101a1e;
+  color: #cfd8dc;
+}
+
+.jf-dotted svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #20c7bd;
+}
+
+.jf-dotted span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.jf-dotted strong {
+  color: #f2f6f7;
+  font-size: 13px;
+}
+
+.jf-dotted small {
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.jf-library-icon {
+  color: #20c7bd;
+  flex-shrink: 0;
+}
+
+/* ---- Pickable list values (unstash) ---- */
+
+.jf-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+.jf-picker .jf-checkbox {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+}
+
+/* ---- One entry of an object list ---- */
+
+.jf-entry {
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #223038;
+  border-radius: 8px;
+  background: #0d1417;
+}
+
+.jf-entry-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #1c262b;
+}
+
+.jf-entry-title {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #8d9ba2;
+}
+
+.jf-entry-head .icon-button {
+  margin-left: auto;
+}
+
+.jf-entry-field {
+  display: grid;
+  gap: 4px;
+}
+
+.jf-entry-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jf-entry-label label {
+  color: #f2f6f7;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.jf-entry-field .field-hint {
+  margin: 0;
+}
+
+/* ---- The ? beside an entry field ---- */
+
+.jf-help {
+  position: relative;
+  display: inline-flex;
+}
+
+.jf-help-toggle {
+  display: inline-flex;
+  padding: 1px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #6f8088;
+  cursor: pointer;
+  transition: color 140ms var(--ease-out);
+}
+
+.jf-help-toggle:hover,
+.jf-help-toggle[aria-expanded="true"] {
+  color: #20c7bd;
+}
+
+.jf-help-body {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: -8px;
+  z-index: 15;
+  width: max-content;
+  max-width: min(340px, 70vw);
+  padding: 8px 10px;
+  border: 1px solid #2a3940;
+  border-radius: 7px;
+  background: #0c1215;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+  color: #cfd8dc;
+  font-size: 11.5px;
+  font-weight: 400;
+  line-height: 1.55;
+  white-space: normal;
+}
+
+/* ---- Autosave state ---- */
+
+.jf-save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 74px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #6f8088;
+  transition: color 140ms var(--ease-out);
+}
+
+.jf-save-state.error { color: #ff8d95 }
+
+/* The Shell/Closure switch sits above the box it controls. */
+.jf-commands-kind {
+  justify-self: start;
+}
+
+/* ---- Stage list ---- */
+
+/* The one heading row every list section shares: title, count, then actions
+   pushed to the right. */
+.jf-list-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.jf-list-head h2 {
+  margin: 0;
+}
+
+.jf-list-head .jf-group-count {
+  margin-left: 0;
+}
+
+.jf-list-head .jf-head-action {
+  margin-left: auto;
+}
+
+.jf-stage-list {
+  display: grid;
+  gap: 12px;
+}
+
+.jf-rail-empty {
+  border: 1px dashed #263238;
+  border-radius: 8px;
+  padding: 12px;
+  line-height: 1.5;
+}
+
+.jf-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+/* A stage is one card: the header is the collapsed form, and expanding it drops
+   the whole argument editor in underneath. */
+.jf-card {
+  position: relative;
+  border: 1px solid #202b31;
+  border-radius: 10px;
+  background: #0f1518;
+  transition: border-color 140ms var(--ease-out), background 140ms var(--ease-out);
+  animation: row-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.jf-card.open {
+  border-color: #24343b;
+  background: #0d1417;
+}
+
+.jf-card.has-error {
+  border-color: #5d272d;
+}
+
+.jf-card-head {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 8px 9px 6px;
+}
+
+.jf-card:not(.open) .jf-card-head:hover {
+  background: #141d21;
+  border-radius: 9px;
+}
+
+.jf-card-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.jf-card-body {
+  display: grid;
+  gap: 12px;
+  padding: 0 12px 12px;
+  border-top: 1px solid #1c262b;
+  padding-top: 12px;
+  margin-top: 2px;
+}
+
+.jf-essentials {
+  padding: 0;
+}
+
+.jf-stage-warn {
+  color: #ff8d95;
+}
+
+/* The dragged card stays in place and dims; the gap it will land in is drawn
+   by the insert line below, so nothing reflows mid-drag. */
+.jf-card.dragging {
+  opacity: 0.4;
+}
+
+.jf-card.drop-before::before,
+.jf-card.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: #20c7bd;
+}
+
+.jf-card.drop-before::before { top: -5px }
+.jf-card.drop-after::after   { bottom: -5px }
+
+.jf-grip {
+  color: #6f8088;
+  cursor: grab;
+}
+
+/* Only a collapsed card is draggable — an expanded one has inputs to select. */
+.jf-card.open .jf-grip {
+  color: #35454c;
+  cursor: default;
+}
+
+.jf-card:not(.open):active .jf-grip {
+  cursor: grabbing;
+}
+
+.jf-stage-index {
+  min-width: 20px;
+  text-align: center;
+  border-radius: 999px;
+  background: #1a252a;
+  color: #8d9ba2;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 0;
+  transition: background 140ms var(--ease-out), color 140ms var(--ease-out);
+}
+
+.jf-stage-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.jf-stage-text strong,
+.jf-stage-text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jf-stage-text strong {
+  font-size: 13.5px;
+}
+
+.jf-stage-text small {
+  color: #6f8088;
+  font-size: 11.5px;
+  white-space: normal;
+  line-height: 1.45;
+}
+
+.jf-card.open .jf-stage-text small {
+  white-space: normal;
+}
+
+.jf-stage-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.jf-card-edit {
+  padding: 4px 9px;
+  font-size: 11.5px;
+  margin-right: 4px;
+}
+
+.jf-stage-actions .icon-button:disabled {
+  opacity: 0.3;
+}
+
+/* ---- Step palette ---- */
+
+/* The adder is the last thing in the list, and its palette floats over the page
+   rather than pushing it: a panel that reflowed on open would move the button
+   out from under the cursor that just pressed it. */
+.jf-adder {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.jf-palette {
+  position: absolute;
+  /* Directly above the button it belongs to, and right-aligned with it — the
+     button sits at the end of the row, so a centred popover reads as belonging
+     to the panel rather than to the press that opened it. */
+  bottom: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 6px;
+  width: min(720px, 100%);
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 10px;
+  border: 1px solid #2a3940;
+  border-radius: 10px;
+  background: #0c1215;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+  animation: pop-in 140ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes pop-in {
+  from { opacity: 0 }
+  to   { opacity: 1 }
+}
+
+.jf-add-stage {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid #202b31;
+  border-radius: 8px;
+  background: #0f1518;
+  color: #cfd8dc;
+  cursor: pointer;
+  transition: background 140ms var(--ease-out), border-color 140ms var(--ease-out), color 140ms var(--ease-out);
+}
+
+.jf-add-stage:hover {
+  background: #14211f;
+  border-color: #20c7bd;
+  color: #f4f7f8;
+}
+
+.jf-add-stage svg {
+  color: #20c7bd;
+  flex-shrink: 0;
+}
+
+.jf-add-stage-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.jf-add-stage-text strong {
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.jf-add-stage-text small {
+  color: #6f8088;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+/* ---- Stage editor ---- */
+
+.jf-empty {
+  color: #8d9ba2;
+  font-size: 13px;
+  margin: 0;
+}
+
+.jf-credit {
+  color: #6f7d84;
+  font-size: 11px;
+  text-align: center;
+  margin: 24px 0 0;
+}
+
+.jf-note {
+  color: #8d9ba2;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.jf-stage-text small code,
+.jf-note code,
+.field-hint code {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  color: #9fe4dc;
+}
+
+.jf-errors {
+  list-style: none;
+  margin: 0;
+  padding: 10px 12px;
+  display: grid;
+  gap: 6px;
+  background: #2a1517;
+  border: 1px solid #5d272d;
+  border-radius: 8px;
+  color: #ffc6ca;
+  font-size: 12px;
+}
+
+.jf-errors li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---- Argument groups ---- */
+
+.jf-group {
+  border: 1px solid #1c262b;
+  border-radius: 10px;
+  background: #0e1417;
+  overflow: hidden;
+}
+
+.jf-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-bottom: 1px solid #1c262b;
+  background: #111a1e;
+  color: #cfd8dc;
+  cursor: pointer;
+  text-align: left;
+}
+
+.jf-group-head:hover {
+  background: #162126;
+  color: #f4f7f8;
+}
+
+.jf-group-title {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.jf-group-count {
+  margin-left: auto;
+  color: #6f8088;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.jf-group-chevron {
+  color: #6f8088;
+  flex-shrink: 0;
+  transition: transform 140ms var(--ease-out);
+}
+
+.jf-group-chevron.open {
+  transform: rotate(90deg);
+}
+
+.jf-arg-list {
+  display: grid;
+  /* minmax(0, …) rather than the default `auto`: a grid track sizes to its
+     widest item's max-content, and one long nowrap hint would otherwise stretch
+     the track past the card and spill the whole list out of its box. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+}
+
+/* ---- One argument ---- */
+
+.jf-arg {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid #223038;
+  border-left: 2px solid #20c7bd;
+  border-radius: 8px;
+  background: #101a1e;
+  animation: row-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* `row-in` animates `transform` with fill-mode `both`, so every .jf-arg keeps a
+   transform and is its own stacking context — which traps the picker's z-index
+   inside its own card and lets the next argument paint over the open list.
+   Lifting the whole card is what gets the list out in front of its siblings. */
+.jf-arg:has(.jf-imagepicker-list) {
+  position: relative;
+  z-index: 30;
+}
+
+.jf-arg .field-hint {
+  margin: 0;
+}
+
+.jf-arg-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jf-arg-head .icon-button {
+  margin-left: auto;
+}
+
+.jf-kind {
+  border-radius: 999px;
+  padding: 1px 7px;
+  background: #1a252a;
+  color: #8d9ba2;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.jf-required {
+  border-radius: 999px;
+  padding: 1px 7px;
+  background: rgba(32, 199, 189, 0.12);
+  color: #6fded4;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* The unset half of the list: one clickable line per argument the step accepts,
+   so everything the library takes is visible without sixteen empty inputs. */
+.jf-arg-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: #8d9ba2;
+  cursor: pointer;
+  text-align: left;
+  transition: background 130ms var(--ease-out), border-color 130ms var(--ease-out), color 130ms var(--ease-out);
+}
+
+.jf-arg-add:hover {
+  background: #131e22;
+  border-color: #223038;
+  color: #cfd8dc;
+}
+
+.jf-arg-add svg {
+  color: #46595f;
+  flex-shrink: 0;
+}
+
+.jf-arg-add:hover svg {
+  color: #20c7bd;
+}
+
+.jf-arg-add-name {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: #cfd8dc;
+  white-space: nowrap;
+}
+
+.jf-arg-add-hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: #67767d;
+}
+
+/* A map the library fixes the keys of — labelled boxes, not named rows. */
+.jf-fixed-keys {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px 12px;
+}
+
+.jf-fixed-key {
+  display: grid;
+  gap: 4px;
+}
+
+.jf-fixed-key span {
+  color: #8d9ba2;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+/* A skip condition is Groovy, not prose. */
+.jf-expression {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12.5px;
+}
+
+/* ---- image / node choice ---- */
+
+.jf-runtime {
+  display: grid;
+  gap: 8px;
+}
+
+.jf-runtime-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.jf-segmented {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid #223038;
+  border-radius: 999px;
+  background: #0d1316;
+}
+
+.jf-segmented button {
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 12px;
+  background: transparent;
+  color: #8d9ba2;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 140ms var(--ease-out), color 140ms var(--ease-out);
+}
+
+.jf-segmented button:hover {
+  color: #f4f7f8;
+}
+
+.jf-segmented button.active {
+  background: #20c7bd;
+  color: #06110f;
+}
+
+/* ---- Composite values ---- */
+
+.jf-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: #aeb9bf;
+  font-size: 13px;
+}
+
+.jf-arg .jf-checkbox input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  min-height: 0;
+  accent-color: #20c7bd;
+}
+
+.jf-lines {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  /* Not user-resizable: the box already grows a row per line, and a dragged
+     height only fights that on the next keystroke. */
+  resize: none;
+}
+
+.jf-rows {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.jf-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A list row is one box, not the key/value pair .jf-row lays out. */
+.jf-list-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.jf-object {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #202b31;
+  border-radius: 8px;
+  padding: 8px 10px 10px;
+  margin: 0;
+}
+
+.jf-object legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #8d9ba2;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0 4px;
+}
+
+.jf-add-row {
+  justify-self: start;
+  font-size: 12px;
+  padding: 5px 9px;
+  min-height: 0;
+}
+
+/* ---- Preview ---- */
+
+.jf-preview {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.jf-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.jf-preview-head h2 {
+  margin-bottom: 0;
+}
+
+.jf-preview-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.jf-preview-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.jf-code {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #203238;
+  border-radius: 8px;
+  background: #0d1316;
+  /* A twenty-stage pipeline must not push the page height without bound; long
+     command lines scroll sideways inside the block rather than widening .main. */
+  max-height: 520px;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  scrollbar-width: thin;
+  scrollbar-color: #2a3940 transparent;
+}
+
+.jf-code code.hljs {
+  background: transparent;
+  padding: 0;
+}
+
+/* Groovy's grammar tags a named argument as .hljs-symbol inside a call and
+   .hljs-attr inside a list literal, which paints the same thing two colours in
+   one file. Both read as the argument's name here. */
+.jf-code .hljs-symbol,
+.jf-import-editor .hljs-symbol {
+  color: #d19a66;
+}
+
+.jf-code::-webkit-scrollbar { width: 6px; height: 6px }
+.jf-code::-webkit-scrollbar-track { background: transparent }
+.jf-code::-webkit-scrollbar-thumb { background: #203238; border-radius: 999px }
+.jf-code::-webkit-scrollbar-thumb:hover { background: #2a3940 }
+
+@media (max-width: 720px) {
+  .jf-param-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .jf-list-head {
+    flex-wrap: wrap;
+  }
+}
+
+/* The `image` argument's combobox — a text field that also drops the list of
+   images Artifactory knows about, name on the left and labels on the right. */
+.jf-imagepicker {
+  position: relative;
+}
+
+.jf-imagepicker input {
+  /* Room for the toggle, so a long image name never runs under it. */
+  padding-right: 32px;
+}
+
+.jf-imagepicker-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #7a8b90;
+  cursor: pointer;
+}
+
+.jf-imagepicker-toggle:hover {
+  color: #cfe3e8;
+}
+
+.jf-imagepicker-flip {
+  transform: rotate(180deg);
+}
+
+.jf-imagepicker-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid #2a3940;
+  border-radius: 8px;
+  background: #0c1215;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+  animation: pop-in 120ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Flipped when the field sits too near the bottom of the window to open down. */
+.jf-imagepicker-up {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+.jf-imagepicker-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.jf-imagepicker-active {
+  background: #16232a;
+}
+
+.jf-imagepicker-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  color: #e6f1f3;
+}
+
+.jf-imagepicker-info {
+  font-size: 12px;
+  color: #7a8b90;
+  text-align: right;
+  /* The labels give way first — the name is what is being picked. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* "New" asks first: start empty, or import an existing Jenkinsfile. */
+.jf-new-choices {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+}
+
+.jf-new-choice {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 14px 16px;
+  text-align: left;
+  border: 1px solid #223038;
+  border-radius: 8px;
+  background: #101a1e;
+  color: inherit;
+  cursor: pointer;
+}
+
+.jf-new-choice:hover {
+  border-color: #20c7bd;
+  background: #16232a;
+}
+
+.jf-new-choice svg {
+  grid-row: span 2;
+  color: #20c7bd;
+}
+
+.jf-new-choice-name {
+  font-weight: 600;
+  color: #e6f1f3;
+}
+
+.jf-new-choice-hint {
+  font-size: 12px;
+  color: #7a8b90;
+}
+
+.jf-new-import {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+}
+
+.jf-import-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.jf-import-text {
+  width: 100%;
+  min-height: 260px;
+  padding: 10px 12px;
+  border: 1px solid #2a3940;
+  border-radius: 6px;
+  background: #0c1215;
+  color: #e6f1f3;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: none;
+}
+
+/* The highlighted copy sits behind the textarea, absolutely so that only the
+   textarea sizes the box — a long file must scroll inside it as before, not
+   grow the dialog. Every metric that decides where a character lands is shared
+   through .jf-import-text, so the caret stays on the coloured text. */
+.jf-import-editor {
+  position: relative;
+}
+
+.jf-import-editor .jf-import-text {
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  tab-size: 4;
+  scrollbar-gutter: stable;
+}
+
+.jf-import-editor .jf-import-shadow {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  border-color: transparent;
+}
+
+.jf-import-shadow code.hljs {
+  background: transparent;
+  padding: 0;
+  font: inherit;
+}
+
+/* Positioned too, so the textarea paints above the absolute shadow behind it —
+   otherwise the shadow's own ground hides the caret and the placeholder. */
+.jf-import-editor textarea {
+  position: relative;
+  background: transparent;
+  color: transparent;
+  caret-color: #e6f1f3;
+}
+
+/* The transparent text would take the placeholder with it. */
+.jf-import-editor textarea::placeholder {
+  color: #55707a;
+}
+
+.jf-import-text:focus {
+  outline: none;
+  border-color: #20c7bd;
+  box-shadow: 0 0 0 2px rgb(32 199 189 / 15%);
+}
+
+.jf-import-warnings {
+  padding: 10px 12px;
+  border: 1px solid #4a3a1c;
+  border-radius: 6px;
+  background: #1c1710;
+  font-size: 13px;
+}
+
+.jf-import-warnings p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  color: #e0b457;
+}
+
+.jf-import-warnings ul {
+  margin: 0;
+  padding-left: 22px;
+  color: #b9c8cd;
+}
+
+.jf-broken-icon {
+  color: #ff8f96;
+  vertical-align: -3px;
+  margin-right: 6px;
+}
+
+.jf-import-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* Number arguments are typed, not stepped: the spinners sit where the text ends
+   and are a click target nobody wants next to a storage size. */
+.jf-arg input[type="number"] {
+  appearance: textfield;
+}
+
+.jf-arg input[type="number"]::-webkit-outer-spin-button,
+.jf-arg input[type="number"]::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+/* The open pipeline's name, heading its own column. Text with a pencil beside
+   it — the same shape as a ticket's title, and for the same reason: a box
+   sitting there permanently reads as a search field.
+
+   The row is `.ticket-list-header`'s height so the name sits level with "My
+   Pipelines" across the gap, which is what makes it read as this column's
+   heading rather than as something floating above the first card. */
+.jf-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  /* Top-aligned, not centred: the pencil is taller than the text. */
+  align-items: flex-start;
+  min-height: 34px;
+}
+
+h2.jf-title {
+  flex: 0 1 auto;
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+input.jf-title {
+  flex: 1 1 auto;
+  max-width: 520px;
+}
+
+/* Sits with the name rather than at the column's edge, so it reads as a control
+   on the title. .icon-button's 38px bordered box is far too heavy for that at
+   this size — it looked stuck to the text — so here it is just the glyph until
+   the pointer is on it. */
+.jf-title-row .edit-toggle {
+  width: auto;
+  min-height: 0;
+  padding: 5px;
+  border-color: transparent;
+  background: none;
+  color: #6f8088;
+}
+
+.jf-title-row .edit-toggle:hover {
+  border-color: #2a3940;
+  background: #151d21;
+  color: #dbe4e7;
+}
+
+/* An unnamed draft shows a placeholder, not a name. */
+.jf-title-empty {
+  color: #55686e;
+  font-weight: 500;
+}
+
+/* One panel where the two-column workspace does not apply — a module with
+   nothing to list and nothing to show beside it. Without this a lone child of
+   .workspace-grid lands in the narrow list column. */
+.workspace-single {
+  width: 100%;
+}
+
+/* A module-level empty state: centred in its panel and sized by its content,
+   rather than the chat panel's fill-the-window variant. */
+.module-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 48px 32px;
+  text-align: center;
+}
+
+.module-empty strong {
+  color: #c8d3d7;
+}
+
+.module-empty p {
+  margin-bottom: 0;
+  max-width: 420px;
+}
+
+.module-empty .empty-icon {
+  opacity: 0.2;
+}
+
+/* Tab bodies and modules are all kept mounted and flipped with `hidden` (see
+   ArtifactoryView and App.tsx) rather than swapped, so a switch is a
+   display:none flip. That restarts any animation on the element for free —
+   no key, no remount, no state — which is the whole mechanism here. */
+.module-slot {
+  /* Opacity only — deliberately not `fade-up`: a transform that is merely
+     `translateY(0)` still isn't `none`, so the slot would become the containing
+     block for every `position: fixed` descendant and each module's modal
+     backdrop would shrink to the panel instead of covering the viewport.
+
+     And no fill mode, for the same reason `.tab-panel` below has none. An
+     animation that is still *filling* keeps affecting opacity for good, which
+     makes the slot a permanent stacking context at `z-index: auto` — painted
+     below the sticky `.app-header` (z-index 10) and taking every descendant
+     with it. A modal inside a module then sits under the header whatever
+     z-index it asks for. `fade-in` ends at opacity 1, which is the default, so
+     dropping the fill changes nothing on screen. */
+  animation: fade-in 160ms var(--ease-out);
+}
+
+/* The tab bodies can slide, because no fill mode is set: the transform is gone
+   again the moment the animation ends, so nothing here stays a containing
+   block for a `position: fixed` descendant the way `.module-slot` would. */
+.tab-panel {
+  animation: panel-in 220ms var(--ease-out);
+}
+
+@keyframes panel-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Motion is decoration here — every animation above only reveals something
+   that is already laid out, so switching them off costs nothing but the
+   flourish. Kept as one blanket rule rather than per-rule overrides: a new
+   animation added later is covered without anyone remembering to. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
 }

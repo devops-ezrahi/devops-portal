@@ -36,6 +36,19 @@ export function createAiRouter(api: AiApi): express.Router {
     }
   });
 
+  router.post("/api/ai/conversations/:id/archive", async (req, res, next) => {
+    try {
+      const conversation = await api.archiveConversation(req.params.id, req.user!, isAdmin(req.user!));
+      if (!conversation) {
+        res.status(404).json({ error: "Conversation not found" });
+        return;
+      }
+      res.json({ conversation });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.post("/api/ai/conversations/:id/jobs", async (req, res, next) => {
     try {
       const { question } = questionSchema.parse(req.body);

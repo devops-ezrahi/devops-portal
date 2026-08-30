@@ -1,10 +1,11 @@
-import { Send, Sparkles, Square } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Archive, Plus, Send, Sparkles, Square } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getPortalConfig } from "../../api";
 import { log, warn, error as logError } from "../../log";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ChatMessage, AiCategory, AiConversation, AiJob } from "../../../server/types";
 import {
+  archiveConversation,
   cancelJob,
   createConversation,
   fetchCategories,
@@ -14,7 +15,7 @@ import {
   submitQuestion,
 } from "./api";
 import { CategoryPicker } from "./components/CategoryPicker";
-import { ConversationSidebar } from "./components/ConversationSidebar";
+import { ConversationList } from "./components/ConversationList";
 import { MessageList } from "./components/MessageList";
 
 const POLL_MS = 2000;
@@ -37,13 +38,16 @@ function jobToMessages(job: AiJob): ChatMessage[] {
   ];
 }
 
-export function AiView({ refreshKey, onError }: ModuleViewProps) {
+export function AiView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) {
   const [aiEnabled, setAiEnabled] = useState<boolean | null>(null);
   const [categories, setCategories] = useState<AiCategory[]>([]);
   const [conversations, setConversations] = useState<AiConversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [jobs, setJobs] = useState<AiJob[]>([]);
   const [showPicker, setShowPicker] = useState(false);
+  // Admins get every user's chats from the server; the toggle narrows it back
+  // client-side, same as Artifactory and the ticketing queue.
+  const [showAll, setShowAll] = useState(true);
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -54,6 +58,11 @@ export function AiView({ refreshKey, onError }: ModuleViewProps) {
   // that ref and permanently killed the in-flight poll, so a finished answer
   // never landed until a manual refresh.
   const pendingJob = jobs.find((j) => isPending(j.status)) ?? null;
+
+  const visibleConversations = useMemo(
+    () => (isAdmin && !showAll ? conversations.filter((c) => c.submittedBy === user.id) : conversations),
+    [conversations, showAll, isAdmin, user.id]
+  );
 
   useEffect(() => {
     log("ai", "view mounted");
@@ -67,7 +76,10 @@ export function AiView({ refreshKey, onError }: ModuleViewProps) {
     fetchConversations()
       .then((list) => {
         setConversations(list);
-        if (list[0]) selectConversation(list[0].id);
+        // Skip archived ones — landing on a chat that went quiet days ago is
+        // not where anyone wants to start.
+        const first = list.find((c) => !c.archivedAt);
+        if (first) selectConversation(first.id);
       })
       .catch((err) => logError("ai", "failed to load conversations", err));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -122,6 +134,18 @@ export function AiView({ refreshKey, onError }: ModuleViewProps) {
       .catch((err) => logError("ai", "failed to load conversation jobs", err));
   }
 
+  async function archiveActiveConversation() {
+    if (!activeConversationId) return;
+    try {
+      const conversation = await archiveConversation(activeConversationId);
+      log("ai", "conversation archived", { id: conversation.id });
+      setConversations((prev) => prev.map((c) => (c.id === conversation.id ? conversation : c)));
+    } catch (err) {
+      logError("ai", "archive failed", err);
+      onError(err instanceof Error ? err.message : "Failed to archive chat");
+    }
+  }
+
   async function pickCategory(project: string | null) {
     try {
       const conversation = await createConversation(project);
@@ -157,6 +181,12 @@ export function AiView({ refreshKey, onError }: ModuleViewProps) {
       const job = await submitQuestion(activeConversationId, question);
       log("ai", "job submitted", { id: job.id, conversationId: activeConversationId });
       setJobs((prev) => [...prev, job]);
+      // The server just un-archived this chat; mirror it now rather than at
+      // job completion, so an archived chat you asked in doesn't sit under
+      // "Archived" for the whole run you are watching.
+      setConversations((prev) =>
+        prev.map((c) => (c.id === activeConversationId && c.archivedAt ? { ...c, archivedAt: undefined } : c))
+      );
     } catch (err) {
       logError("ai", "submit failed", err);
       onError(err instanceof Error ? err.message : "Failed to submit question");
@@ -187,17 +217,28 @@ export function AiView({ refreshKey, onError }: ModuleViewProps) {
 
   if (!aiEnabled) {
     return (
-      <div className="chat-module">
-        <div className="chat-not-configured">
-          <Sparkles size={40} style={{ opacity: 0.25 }} aria-hidden="true" />
-          <p style={{ margin: 0, fontWeight: 700, color: "#c8d3d7" }}>AI not configured</p>
-          <p style={{ margin: 0, fontSize: 13, maxWidth: 420 }}>
-            Add a <code>ai-*</code> skill under <code>AI_SKILLS_DIR</code> and set{" "}
-            <code>OPENCODE_API_KEY</code> (optionally <code>OPENCODE_MODEL</code>) — see{" "}
-            <code>.env.example</code>.
-          </p>
+      <>
+        <header className="topbar">
+          <h1>AI</h1>
+        </header>
+        {/* Neither a list nor a chat to show, so neither column of the
+            workspace grid applies: a lone child of that grid lands in the
+            narrow list column, and .chat-panel then stretches it to the full
+            height of the window. One panel, sized by its own content. */}
+        <div className="workspace-single">
+          <section className="detail-panel" aria-label="AI not configured">
+            <div className="empty-state module-empty">
+              <Sparkles size={40} className="empty-icon" aria-hidden="true" />
+              <strong>AI not configured</strong>
+              <p className="field-hint">
+                Add a <code>ai-*</code> skill under <code>AI_SKILLS_DIR</code> and set{" "}
+                <code>OPENCODE_API_KEY</code> (optionally <code>OPENCODE_MODEL</code>) — see{" "}
+                <code>.env.example</code>.
+              </p>
+            </div>
+          </section>
         </div>
-      </div>
+      </>
     );
   }
 
@@ -205,72 +246,99 @@ export function AiView({ refreshKey, onError }: ModuleViewProps) {
   const messages = jobs.flatMap(jobToMessages);
 
   return (
-    <div className="chat-module">
-      <ConversationSidebar
-        conversations={conversations}
-        activeId={activeConversationId}
-        onNewChat={() => setShowPicker(true)}
-        onSwitchTo={selectConversation}
-      />
+    <>
+      <header className="topbar">
+        <h1>AI</h1>
+        {activeConversation && !activeConversation.archivedAt && (
+          <button
+            className="ghost-button"
+            style={{ marginLeft: "auto" }}
+            onClick={() => void archiveActiveConversation()}
+          >
+            <Archive size={18} aria-hidden="true" /> Archive
+          </button>
+        )}
+        <button className="primary" onClick={() => setShowPicker(true)}>
+          <Plus size={18} aria-hidden="true" /> New chat
+        </button>
+      </header>
 
       {showPicker && (
         <CategoryPicker categories={categories} onPick={(p) => void pickCategory(p)} onClose={() => setShowPicker(false)} />
       )}
 
-      <div className="chat-main">
-        <div className="chat-topbar">
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Sparkles size={17} style={{ color: "#20c7bd" }} aria-hidden="true" />
-            <h2 style={{ margin: 0, fontSize: 15 }}>
-              {activeConversation ? activeConversation.title || activeConversation.project || "New chat" : "AI"}
-            </h2>
+      <div className="workspace-grid">
+        <div className="ticket-column">
+          <div className="ticket-list-header">
+            <h2>{isAdmin && showAll ? "All Chats" : "My Chats"}</h2>
+            {isAdmin && (
+              <button
+                className="ghost-button"
+                onClick={() => {
+                  log("ai", `filter → ${showAll ? "my chats" : "all chats"}`);
+                  setShowAll((v) => !v);
+                }}
+              >
+                {/* Labels the action, not the state — the heading says which list this is. */}
+                {showAll ? "My chats" : "All chats"}
+              </button>
+            )}
           </div>
+          <ConversationList
+            conversations={visibleConversations}
+            activeId={activeConversationId}
+            onSwitchTo={selectConversation}
+          />
         </div>
 
-        {!activeConversationId ? (
-          <div className="chat-empty">
-            <Sparkles size={40} style={{ opacity: 0.18 }} aria-hidden="true" />
-            <p style={{ margin: 0, fontWeight: 700, color: "#c8d3d7" }}>Start a new chat</p>
-            <p style={{ margin: 0, fontSize: 13, maxWidth: 360 }}>
-              Pick what it's about — the repo stays fixed for the rest of that chat.
-            </p>
-          </div>
-        ) : (
-          <MessageList messages={messages} isPending={!!pendingJob} bottomRef={bottomRef} />
-        )}
+        <div className="content-column">
+          <section className="detail-panel chat-panel" aria-label="Conversation">
+            {!activeConversationId ? (
+              <div className="empty-state">
+                <Sparkles size={40} className="empty-icon" aria-hidden="true" />
+                <strong>Start a new chat</strong>
+                <p className="field-hint">
+                  Pick what it's about — the repo stays fixed for the rest of that chat.
+                </p>
+              </div>
+            ) : (
+              <MessageList messages={messages} isPending={!!pendingJob} bottomRef={bottomRef} />
+            )}
 
-        <div className="chat-input-row">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => { setInput(e.target.value); adjustTextarea(); }}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              !activeConversation
-                ? "Start a new chat to ask a question"
-                : activeConversation.project
-                  ? `Ask about ${activeConversation.project}… (Enter to send, Shift+Enter for new line)`
-                  : "Ask your question — I'll figure out which repo fits"
-            }
-            rows={1}
-            disabled={!!pendingJob || !activeConversationId}
-          />
-          {pendingJob ? (
-            <button className="chat-send-btn" onClick={() => void stopActiveJob()} aria-label="Stop">
-              <Square size={17} aria-hidden="true" />
-            </button>
-          ) : (
-            <button
-              className="chat-send-btn"
-              onClick={() => void sendMessage()}
-              disabled={!input.trim() || !activeConversationId}
-              aria-label="Send message"
-            >
-              <Send size={17} aria-hidden="true" />
-            </button>
-          )}
+            <div className="chat-input-row">
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => { setInput(e.target.value); adjustTextarea(); }}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  !activeConversation
+                    ? "Start a new chat to ask a question"
+                    : activeConversation.project
+                      ? `Ask about ${activeConversation.project}… (Enter to send, Shift+Enter for new line)`
+                      : "Ask your question — I'll figure out which repo fits"
+                }
+                rows={1}
+                disabled={!!pendingJob || !activeConversationId}
+              />
+              {pendingJob ? (
+                <button className="chat-send-btn" onClick={() => void stopActiveJob()} aria-label="Stop">
+                  <Square size={17} aria-hidden="true" />
+                </button>
+              ) : (
+                <button
+                  className="chat-send-btn"
+                  onClick={() => void sendMessage()}
+                  disabled={!input.trim() || !activeConversationId}
+                  aria-label="Send message"
+                >
+                  <Send size={17} aria-hidden="true" />
+                </button>
+              )}
+            </div>
+          </section>
         </div>
       </div>
-    </div>
+    </>
   );
 }

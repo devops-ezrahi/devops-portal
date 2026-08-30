@@ -3,6 +3,10 @@ import { useEffect, useState, type RefObject } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
+// rehype-highlight only tags the code with .hljs-* classes — without a theme
+// they are unstyled, which is what shipped. styles.css already assumes this
+// one (it neutralises the background it injects).
+import "highlight.js/styles/atom-one-dark.css";
 import type { ChatMessage } from "../../../../server/types";
 
 /** After this long, the bare dots stop being reassuring — say what's happening. */
@@ -43,12 +47,10 @@ export function MessageList({
   return (
     <div className="chat-messages">
       {messages.length === 0 && (
-        <div className="chat-empty">
-          <Sparkles size={40} style={{ opacity: 0.18 }} aria-hidden="true" />
-          <p style={{ margin: 0, fontWeight: 700, color: "#c8d3d7" }}>Ask anything about this repo</p>
-          <p style={{ margin: 0, fontSize: 13, maxWidth: 360 }}>
-            It pulls the latest code and reads the real files to answer.
-          </p>
+        <div className="empty-state">
+          <Sparkles size={40} className="empty-icon" aria-hidden="true" />
+          <strong>Ask anything about this repo</strong>
+          <p className="field-hint">It pulls the latest code and reads the real files to answer.</p>
         </div>
       )}
 

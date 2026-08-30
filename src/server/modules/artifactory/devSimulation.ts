@@ -156,7 +156,6 @@ function packageTypeBeats(type: PackageType): SimulationBeat[] {
 /** Mirrors `RealArtifactoryApi.finish()` when one package out of several fails. */
 function partialFailureBeats(): SimulationBeat[] {
   const tree = `${BASE}/ui/repos/tree/General/npm-local`;
-  const native = `${BASE}/ui/native/npm-local`;
   const argPath = npmPath("npm-local", "arg", "4.1.5");
   const leftPadPath = npmPath("npm-local", "left-pad", "1.3.0");
   const items: PackageUploadResult[] = [

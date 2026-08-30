@@ -16,6 +16,12 @@ export type PortalUser = {
   email: string;
   displayName: string;
   groups: string[];
+  /**
+   * The IdP's username claim, when the proxy passes one. Distinct from `id`:
+   * Keycloak's subject is a UUID, while backends the portal talks to (Jira,
+   * Bitbucket) know the person by this handle. See `usernameFor`.
+   */
+  username?: string;
 };
 
 export type TicketComment = {
@@ -53,16 +59,14 @@ export type TicketSummary = {
 
 export type TicketDetail = TicketSummary & {
   description: string;
-  metadata: Record<string, string>;
   comments: TicketComment[];
 };
 
 export type RequestFieldDefinition = {
   name: string;
+  /** Used in the validation error the API returns for a missing field. */
   label: string;
-  type: "text" | "textarea" | "select";
   required: boolean;
-  options?: string[];
 };
 
 export type RequestTypeDefinition = {
@@ -155,6 +159,8 @@ export type ArtifactoryJob = {
   /** Human name for the job — `arg@4.1.5`, or `node_modules (142 packages)`. */
   name?: string;
   sourceUrl?: string;
+  /** url-copy only. Persisted, so a finished job still says deps were asked for. */
+  includeDependencies?: boolean;
   folderName?: string;
   fileCount?: number;
   totalBytes?: number;
@@ -168,19 +174,24 @@ export type ArtifactoryJob = {
 
 export type UrlCopyInput = {
   sourceUrl: string;
-};
-
-export type UploadedFile = {
-  originalname: string;
-  mimetype: string;
-  buffer: Buffer;
+  /**
+   * Resolve the npm package's runtime dependency tree and upload all of it, not
+   * just the one tarball. Ignored for anything that is not an npm package — see
+   * RealArtifactoryApi.resolveDependencies, which never fails the job over it.
+   */
+  includeDependencies?: boolean;
 };
 
 export type FolderUploadInput = {
   folderName: string;
   fileCount: number;
   totalBytes: number;
-  files?: UploadedFile[];
+  /**
+   * The dropped folder, zipped by the client and appended to disk part by part
+   * as it was zipped. The job owns the file and the directory holding it, and
+   * deletes both when it ends.
+   */
+  archivePath: string;
 };
 
 /** Which scripted run the Test button replays — one per package type, plus two failure modes. */
@@ -264,6 +275,14 @@ export type AiConversation = {
   project: string | null;
   /** Set after the first turn completes; reused via --session on every later turn. */
   opencodeSessionId?: string;
+  /**
+   * Stamped by the idle sweep once a chat goes quiet, or by the Archive button,
+   * and cleared by `submitQuestion` the moment the chat is used again — the
+   * client folds archived chats into a collapsed section rather than hiding
+   * them. Archiving never moves `updatedAt`, so an archived chat still ages
+   * into deletion from when it was last used.
+   */
+  archivedAt?: string;
   submittedBy: string;
   submittedByName: string;
   createdAt: string;
@@ -293,9 +312,65 @@ export interface AiApi {
   /** `project: null` starts an "I'm not sure" conversation — classified from the first question. */
   startConversation(project: string | null, submitter: PortalUser): Promise<AiConversation>;
   listConversations(user: PortalUser, allUsers?: boolean): Promise<AiConversation[]>;
+  /** `null` when there is no such chat; asking in it again un-archives it. */
+  archiveConversation(conversationId: string, user: PortalUser, allUsers?: boolean): Promise<AiConversation | null>;
   submitQuestion(conversationId: string, question: string, submitter: PortalUser): Promise<AiJob>;
   listJobs(conversationId: string, user: PortalUser, allUsers?: boolean): Promise<AiJob[]>;
   getJob(jobId: string): Promise<AiJob | null>;
   /** `null` when there is no such job; already-finished jobs are left alone. */
   cancelJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<AiJob | null>;
 }
+
+/**
+ * One call to a shared-library step. `step` names the `vars/*.groovy` file
+ * (`genStage`, `sonarStage`, ...); `args` is the Groovy `Map args` that step
+ * takes, held opaque here — the catalog that gives each key a type lives on the
+ * client (`client/modules/jenkinsfile/catalog.ts`), because only the builder UI
+ * and the Groovy generator need to interpret it.
+ */
+export type JenkinsfileStage = {
+  id: string;
+  step: string;
+  args: Record<string, unknown>;
+  /** Whether the builder shows this card folded to its header. Saved with the pipeline. */
+  collapsed?: boolean;
+};
+
+/** The parameter types Jenkins' `parameters([...])` block accepts. */
+export type JenkinsfileParamType = "boolean" | "string" | "choice";
+
+/** One entry of the pipeline's `properties([parameters([...])])` block. */
+export type JenkinsfileParam = {
+  name: string;
+  type: JenkinsfileParamType;
+  /**
+   * Always a string, whatever the type — `"true"` / `"false"` for a boolean.
+   * One shape means the editor can switch a parameter's type without dropping
+   * what was already typed into it.
+   */
+  defaultValue: string;
+  description: string;
+  /** `choice` only: the options, in the order Jenkins offers them. */
+  choices?: string[];
+};
+
+export type JenkinsfilePipeline = {
+  id: string;
+  /** Assigned by the server as `<author> #<n>` — there is no name field to fill in. */
+  name: string;
+  /** What goes inside `@Library('...') _` — the library name, optionally `@branch`. */
+  library: string;
+  /**
+   * Legacy: the pipeline-level `populateEnvVars` map, from before it became a
+   * stage card of its own. Records written since then carry `{}` here and a
+   * `populateEnvVars` stage instead; `toDraft` migrates the old shape on open.
+   */
+  envVars: Record<string, string>;
+  /** Build parameters, referenced from skip conditions and commands as `params.<name>`. */
+  params?: JenkinsfileParam[];
+  stages: JenkinsfileStage[];
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+};

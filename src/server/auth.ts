@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { config } from "./config";
+import { log } from "./log";
 import type { AssigneeCandidate, PortalUser } from "./types";
 
 declare global {
@@ -88,7 +89,8 @@ export function userFromSsoHeaders(req: Request): PortalUser | null {
   // first for that reason; the header-based attempts remain as fallbacks for
   // proxies that don't forward the token.
   const accessToken = readHeader(req.headers["x-forwarded-access-token"]);
-  const nameFromToken = accessToken ? decodeJwtPayload(accessToken).name : undefined;
+  const claims = accessToken ? decodeJwtPayload(accessToken) : {};
+  const nameFromToken = claims.name;
   // ?? only skips null/undefined, not "" — an IdP that sends an empty `name`
   // claim would otherwise win the chain and blank the display name instead
   // of falling through, so that case is filtered out explicitly here.
@@ -108,12 +110,20 @@ export function userFromSsoHeaders(req: Request): PortalUser | null {
     readHeader(req.headers["x-forwarded-groups"]) ??
     readHeader(req.headers["x-user-groups"]) ??
     "";
+  // `id` is whatever the IdP calls a subject, and under Keycloak that is a
+  // `sub` UUID no downstream system has ever heard of. The username claim is
+  // the handle Jira and Bitbucket know the person by, so it is carried
+  // alongside the id rather than derived from it.
+  const username =
+    readHeader(req.headers["x-forwarded-preferred-username"]) ??
+    (typeof claims.preferred_username === "string" ? claims.preferred_username : undefined);
 
   return {
     id,
     email,
     displayName,
     groups: parseGroups(rawGroups),
+    username,
   };
 }
 
@@ -122,7 +132,15 @@ export async function requireSession(req: Request, res: Response, next: NextFunc
 
   if (!user) {
     if (config.ssoRequired) {
-      res.status(401).json({ error: "Authentication required", ssoUrl: config.ssoUrl });
+      // The proxy is meant to inject these; arriving without them means the
+      // request bypassed it or the proxy is misconfigured — name the headers
+      // that were actually present so it is debuggable from the pod log alone.
+      log.warn("auth", "401 — no SSO headers on the request", {
+        id: req.id,
+        route: `${req.method} ${req.originalUrl}`,
+        headers: Object.keys(req.headers).filter((h) => h.startsWith("x-")).join(",") || "(none)",
+      });
+      res.status(401).json({ error: "Authentication required", ssoUrl: config.ssoUrl, requestId: req.id });
       return;
     }
     // Dev fallback: synthesize a user so the app works without an SSO proxy
@@ -140,11 +158,32 @@ export async function requireSession(req: Request, res: Response, next: NextFunc
     const userGroups = req.user!.groups;
     const allowed = config.allowedGroups.some((g) => userGroups.includes(g));
     if (!allowed) {
-      res.status(403).json({ error: "Access denied: your group is not permitted to use this portal" });
+      // Both sides of the comparison, because this is nearly always a mismatch
+      // between ALLOWED_GROUPS and what the IdP actually sends (DN vs. CN,
+      // wrong realm, group not mapped into the token) rather than a real denial.
+      log.warn("auth", "403 — user is in none of ALLOWED_GROUPS", {
+        id: req.id,
+        user: req.user!.id,
+        userGroups: userGroups.join("|") || "(none)",
+        allowedGroups: config.allowedGroups.join("|"),
+      });
+      res.status(403).json({
+        error: "Access denied: your group is not permitted to use this portal",
+        requestId: req.id,
+      });
       return;
     }
   }
 
+  if (!knownUsers.has(req.user!.id)) {
+    log.info("auth", "first request from user this process has seen", {
+      id: req.id,
+      user: req.user!.id,
+      name: req.user!.displayName,
+      groups: req.user!.groups.join("|") || "(none)",
+      admin: isAdmin(req.user!),
+    });
+  }
   rememberUser(req.user!);
   next();
 }
@@ -168,9 +207,42 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
 // do. Upgrade path: query GET /admin/realms/{realm}/groups/{id}/members via
 // a Keycloak service-account client if that gap ever actually matters.
 const knownUsers = new Map<string, PortalUser>();
+// The same people indexed by SSO username, because ids coming back from Jira
+// are usernames while ids coming from the proxy are subject UUIDs, and both
+// arrive at `displayNameFor`. A second index rather than a second entry in
+// `knownUsers`, whose values() feed the assignee dropdown and must stay one
+// row per person.
+const usersByUsername = new Map<string, PortalUser>();
+
+function lookup(id: string) {
+  return knownUsers.get(id) ?? usersByUsername.get(id);
+}
 
 export function rememberUser(user: PortalUser) {
   knownUsers.set(user.id, user);
+  if (user.username) {
+    usersByUsername.set(user.username, user);
+  }
+}
+
+/**
+ * The portal id for a name a backend handed back — the inverse of
+ * `usernameFor`. Ids the client compares against (its own `/api/me`, the
+ * assignee dropdown) are the proxy's, so identities coming out of Jira are
+ * folded back onto that axis before they leave the router.
+ */
+export function portalIdFor(id: string): string {
+  return lookup(id)?.id || id;
+}
+
+/**
+ * The name a backend that authenticates people itself (Jira, Bitbucket) knows
+ * this user by. Falls back to the id, which is correct whenever the proxy
+ * sends a username as the id in the first place — and is what a caller would
+ * have used anyway.
+ */
+export function usernameFor(id: string): string {
+  return lookup(id)?.username || id;
 }
 
 // The one place a user's name is decided. Ticket records carry a name
@@ -182,7 +254,7 @@ export function rememberUser(user: PortalUser) {
 // seen since it started.
 export function displayNameFor(id: string, storedName = ""): string {
   if (!id) return storedName;
-  return knownUsers.get(id)?.displayName || storedName || id;
+  return lookup(id)?.displayName || storedName || id;
 }
 
 export function listAdminCandidates(): AssigneeCandidate[] {

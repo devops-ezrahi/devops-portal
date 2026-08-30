@@ -31,8 +31,8 @@ const MAVEN_ARTIFACTS = [".jar", ".pom", ".war", ".ear", ".aar", ".zip", ".modul
 const RPM_RE = /^(.+)-([^-]+)-[^-]+\.[^.]+\.rpm$/;
 /** `name-version-buildstring.conda` — build string is the last field. */
 const CONDA_RE = /^(.+)-([^-]+)-[^-]+$/;
-/** An sdist is `name-version.tar.gz`; the version must start with a digit. */
-const SDIST_RE = /^(.+?)-(\d[^-]*)\.tar\.gz$/;
+/** An sdist is `name-version.tar.gz` (or, legacily, `.zip`); the version starts with a digit. */
+const SDIST_RE = /^(.+?)-(\d[^-]*)\.(?:tar\.gz|zip)$/;
 
 function repoFor(type: PackageType): string {
   const { npmRepo, mavenRepo, rpmRepo, pypiRepo, condaRepo } = config.artifactory;
@@ -131,7 +131,11 @@ function classifyPath(
     if (!MAVEN_ARTIFACTS.some((e) => artifact.toLowerCase().endsWith(e))) return null;
     const coords = classifyMaven(segments, artifact);
     // The layout IS the target — upload the relative path verbatim.
-    return coords && { ...coords, suffix: segments.join("/") };
+    // Falling through rather than returning null: `.zip` is both a Maven
+    // artifact and a (legacy) Python sdist, and only the layout tells them
+    // apart. A `.jar` that gets here has its coordinates read out of the file
+    // itself by the caller.
+    if (coords) return { ...coords, suffix: segments.join("/") };
   }
 
   // An sdist check has to come after the Maven and conda tarball rules so it does
@@ -160,4 +164,90 @@ export function urlArtifactPath(sourceUrl: string): string {
   if (URL_ROOTS_2.has(segments[0])) return segments.slice(2).join("/");
   if (URL_ROOTS_1.has(segments[0])) return segments.slice(1).join("/");
   return segments.join("/");
+}
+
+/**
+ * The `<artifactId>-<version>.pom` beside a Maven artifact URL, or `null` when
+ * the URL already points at that pom. A jar on its own is unresolvable — the pom
+ * is what carries the transitive dependencies — and a URL copy fetches only the
+ * URL that was pasted.
+ *
+ * The name comes from the layout, not from swapping the extension, so a
+ * classifier build (`bar-1.0-sources.jar`) still asks for `bar-1.0.pom`. Any
+ * query string on the source URL (a token) is kept.
+ */
+export function mavenPomUrl(sourceUrl: string): string | null {
+  const url = new URL(sourceUrl);
+  const segments = url.pathname.split("/").filter(Boolean);
+  if (segments.length < 4) return null;
+  const [artifactId, version] = segments.slice(-3, -1);
+  const pom = `${artifactId}-${version}.pom`;
+  if (segments[segments.length - 1] === pom) return null;
+  segments[segments.length - 1] = pom;
+  url.pathname = `/${segments.join("/")}`;
+  return url.toString();
+}
+
+/** Maven coordinates, as read out of a pom. */
+export type MavenCoords = { groupId: string; artifactId: string; version: string };
+
+/**
+ * Where the pom for these coordinates belongs, relative to the Maven repo root.
+ * The layout IS the address: Artifactory rejects a pom deployed anywhere else
+ * with a 409, because its own coordinates disagree with the path.
+ */
+export function mavenLayoutPath(coords: MavenCoords, filename: string): string {
+  return `${coords.groupId.replace(/\./g, "/")}/${coords.artifactId}/${coords.version}/${filename}`;
+}
+
+/**
+ * A pom's own `groupId:artifactId:version`, or `null` if it does not state all
+ * three. A child pom omits the groupId and version it inherits, so `<parent>`
+ * supplies whichever of the two is missing.
+ *
+ * ponytail: a scan, not an XML parser — everything below `<dependencies>` and
+ * friends is cut away first, because a *dependency's* `<groupId>` would
+ * otherwise pass for the project's own. Every caller cross-checks the result
+ * against the path the file actually sits at, so a misparse is caught rather
+ * than published. Reach for a real parser only if a pom in the wild slips past
+ * both.
+ */
+export function mavenCoordsFromPom(xml: string): MavenCoords | null {
+  const withoutComments = xml.replace(/<!--[\s\S]*?-->/g, "");
+  const parent = /<parent\b[^>]*>([\s\S]*?)<\/parent>/i.exec(withoutComments);
+  let body = parent ? withoutComments.replace(parent[0], "") : withoutComments;
+  // The project's own coordinates are the only ones above these elements.
+  const rest = /<(dependencies|dependencyManagement|build|profiles|modules|reporting|repositories)\b/i.exec(body);
+  if (rest) body = body.slice(0, rest.index);
+
+  const pick = (tag: string, from: string) =>
+    new RegExp(`<${tag}\\s*>([^<]*)</${tag}\\s*>`, "i").exec(from)?.[1].trim() ?? "";
+
+  const artifactId = pick("artifactId", body);
+  const groupId = pick("groupId", body) || (parent ? pick("groupId", parent[1]) : "");
+  const version = pick("version", body) || (parent ? pick("version", parent[1]) : "");
+  if (!groupId || !artifactId || !version) return null;
+  return { groupId, artifactId, version };
+}
+
+/**
+ * How many leading segments of `pomPath` sit *above* the Maven layout the pom
+ * describes — `null` when the path and the pom disagree, which is the check that
+ * makes this safe to trust.
+ *
+ * `m2/org/apache/commons/commons-lang3/3.12.0/commons-lang3-3.12.0.pom` for
+ * groupId `org.apache.commons` gives 1: the `m2` above the group root. Folding
+ * that into the groupId is what makes a dropped tree upload to a path nothing
+ * resolves from.
+ */
+export function mavenRootDepth(pomPath: string, coords: MavenCoords): number | null {
+  const segments = pomPath.split("/").filter(Boolean);
+  const group = coords.groupId.split(".");
+  // <prefix…> <group…> <artifactId> <version> <file>
+  const depth = segments.length - 3 - group.length;
+  if (depth < 0) return null;
+  if (segments[segments.length - 3] !== coords.artifactId) return null;
+  if (segments[segments.length - 2] !== coords.version) return null;
+  if (group.some((part, i) => segments[depth + i] !== part)) return null;
+  return depth;
 }

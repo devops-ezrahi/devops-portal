@@ -6,6 +6,8 @@ import { join } from "path";
 import { setTimeout as sleep } from "timers/promises";
 import { promisify } from "util";
 import { config } from "../../config";
+import { JobStore } from "../../jobStore";
+import { describeError, log, userMessage } from "../../log";
 import { redactSecrets } from "../../redact";
 import { createTmpDir, removeTmpDir } from "../../tmp";
 import { discoverPackages, packAndUpload } from "../artifactory/npmPackages";
@@ -60,17 +62,62 @@ export function parsePackConfig(text: string): PackConfig {
   return { project, version, department, team, repository };
 }
 
+// whitening.json at the root of the *target* repo — the closed-network side, not
+// the pack. `preserve` lists paths the PR must never delete; the packer's own
+// keys (`images`) live in the same file on the source side and are ignored here.
+export function parsePreserve(text: string): string[] {
+  let raw: { preserve?: unknown };
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw new Error("whitening.json in the repository is not valid JSON");
+  }
+  if (!Array.isArray(raw.preserve)) return [];
+  return raw.preserve.filter((p): p is string => typeof p === "string" && p.trim() !== "");
+}
+
+/**
+ * Read the target repo's preserve list. Missing file is the normal case; a
+ * malformed one throws, because silently ignoring a protect-list deletes the
+ * very files it was written to save.
+ */
+async function readPreserve(repoDir: string): Promise<string[]> {
+  let text: string;
+  try {
+    text = await readFile(join(repoDir, "whitening.json"), "utf8");
+  } catch {
+    return [];
+  }
+  // The file that says "don't delete these" must not delete itself, or the next
+  // PR finds no list at all.
+  return ["whitening.json", ...parsePreserve(text)];
+}
+
+/**
+ * Of the deletions currently staged, the ones a preserve pattern covers.
+ * Globbing is git's (`:(glob)` pathspecs handle `*`, `**`, `?`) rather than a
+ * dependency's — the module already shells out to git for everything.
+ */
+export async function preservedDeletions(repoDir: string, preserve: string[]): Promise<string[]> {
+  const { stdout } = await execFileAsync(
+    "git",
+    ["diff", "--cached", "--name-only", "--diff-filter=D", "--", ...preserve.map((p) => `:(glob)${p}`)],
+    { cwd: repoDir }
+  );
+  return stdout.split("\n").filter(Boolean);
+}
+
 export class RealWhiteningApi implements WhiteningApi {
-  private jobs = new Map<string, WhiteningJob>();
-  private counter = 0;
+  private readonly jobs: JobStore<WhiteningJob>;
   private bitbucket = new BitbucketApi(config.git);
   /** Phase each log line gets tagged with, so the UI can collapse by step. */
   private steps = new Map<string, string>();
   /** One per running job, so `cancelJob` can stop the work already in flight. */
   private controllers = new Map<string, AbortController>();
 
-  private newId() {
-    return `WHT-${String(++this.counter).padStart(4, "0")}`;
+  /** `dataDir` is a parameter purely so tests can point it at a mkdtemp. */
+  constructor(dataDir: string = config.dataDir) {
+    this.jobs = new JobStore<WhiteningJob>(join(dataDir, "whitening"), "WHT");
   }
 
   private patch(jobId: string, updates: Partial<WhiteningJob>) {
@@ -83,11 +130,16 @@ export class RealWhiteningApi implements WhiteningApi {
     this.steps.set(jobId, step);
   }
 
+  // Mirrored to stdout with the job id and the current step, so `kubectl logs`
+  // tells the same story the job drawer does — including the `$ git ...` and
+  // `$ skopeo ...` command echoes, which is where these runs actually fail.
   private appendLog(jobId: string, line: string) {
     const job = this.jobs.get(jobId);
     if (!job) return;
-    job.log.push({ step: this.steps.get(jobId) ?? "General", line: redactSecrets(line) });
+    const step = this.steps.get(jobId) ?? "General";
+    job.log.push({ step, line: redactSecrets(line) });
     job.updatedAt = nowIso();
+    log.info(`whitening ${jobId}`, `[${step}] ${line}`);
   }
 
   /**
@@ -145,13 +197,18 @@ export class RealWhiteningApi implements WhiteningApi {
       }
       packConfig = parsePackConfig(await readFile(configPath, "utf8"));
     } catch (err) {
+      // No job exists yet, so this failure has no job log to land in — without
+      // a line here a rejected pack is invisible outside the 400 the user got.
+      log.warn("whitening", `rejected ${archiveName} from ${submitter.id}: ${describeError(err)}`, {
+        bytes: archive.length,
+      });
       await removeTmpDir(workDir);
       throw err;
     }
 
     const { department, team, project, version } = packConfig;
     const job: WhiteningJob = {
-      id: this.newId(),
+      id: this.jobs.nextId(),
       status: "pending",
       submittedBy: submitter.id,
       submittedByName: submitter.displayName,
@@ -164,14 +221,23 @@ export class RealWhiteningApi implements WhiteningApi {
       version,
       log: [],
     };
-    this.jobs.set(job.id, job);
+    this.jobs.add(job);
+    log.info("whitening", `${job.id} submitted`, {
+      by: submitter.id,
+      archive: archiveName,
+      bytes: archive.length,
+      department,
+      team,
+      project,
+      version,
+    });
     void this.run(job.id, workDir, extractDir, packConfig);
     return job;
   }
 
   async simulate(submitter: PortalUser, scenario: WhiteningScenario = "success"): Promise<WhiteningJob> {
     const job: WhiteningJob = {
-      id: this.newId(),
+      id: this.jobs.nextId(),
       status: "pending",
       submittedBy: submitter.id,
       submittedByName: submitter.displayName,
@@ -180,7 +246,7 @@ export class RealWhiteningApi implements WhiteningApi {
       log: [],
       ...simulatedWhiteningJob(),
     };
-    this.jobs.set(job.id, job);
+    this.jobs.add(job);
     void this.runSimulation(job.id, scenario);
     return job;
   }
@@ -199,21 +265,26 @@ export class RealWhiteningApi implements WhiteningApi {
     } finally {
       this.controllers.delete(jobId);
       this.steps.delete(jobId);
+      await this.jobs.settle(jobId);
     }
   }
 
   async listJobs(user: PortalUser, allUsers = false): Promise<WhiteningJob[]> {
-    return [...this.jobs.values()]
+    // Logs are stripped here — the drawer fetches the full job by id.
+    return this.jobs
+      .all()
       .filter((j) => allUsers || j.submittedBy === user.id)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   async getJob(jobId: string): Promise<WhiteningJob | null> {
-    return this.jobs.get(jobId) ?? null;
+    return this.jobs.read(jobId);
   }
 
   async cancelJob(jobId: string, user: PortalUser, allUsers = false): Promise<WhiteningJob | null> {
-    const job = this.jobs.get(jobId);
+    // Live first, disk second: cancelling a job that just finished returns it
+    // rather than 404ing, which is what it did while everything was in memory.
+    const job = this.jobs.get(jobId) ?? (await this.jobs.read(jobId));
     if (!job) return null;
     if (!allUsers && job.submittedBy !== user.id) {
       throw new Error("Forbidden: not your job");
@@ -259,7 +330,7 @@ export class RealWhiteningApi implements WhiteningApi {
       }
 
       await this.pushSourceAndOpenPr(jobId, job, packConfig, extractDir);
-      await this.uploadDependencies(jobId, job, extractDir, workDir);
+      await this.uploadDependencies(jobId, extractDir, workDir);
       await this.uploadImages(jobId, job, extractDir);
 
       this.setStep(jobId, "Finish");
@@ -267,14 +338,19 @@ export class RealWhiteningApi implements WhiteningApi {
       this.appendLog(jobId, "Done.");
     } catch (err) {
       if (!this.aborted(jobId)) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = userMessage(err);
         this.patch(jobId, { status: "failed", errorMessage: message });
         this.appendLog(jobId, `Error: ${message}`);
+        // The stack and cause chain, which the user-facing job log omits.
+        log.error("whitening", `${jobId} failed at step ${this.steps.get(jobId) ?? "?"}`, err);
       }
     } finally {
       await removeTmpDir(workDir, (line) => this.appendLog(jobId, line));
       this.steps.delete(jobId);
       this.controllers.delete(jobId);
+      // Terminal by now on every path, and after the last appendLog above —
+      // this is where the job and its log leave memory for the volume.
+      await this.jobs.settle(jobId);
     }
   }
 
@@ -306,6 +382,9 @@ export class RealWhiteningApi implements WhiteningApi {
     const branch = `whitening/${project}-${version}`;
     await this.runCli(jobId, "git", ["checkout", "-b", branch], repoDir);
 
+    // Before the wipe below destroys it — this is the target repo's own file.
+    const preserve = await readPreserve(repoDir);
+
     const entries = await readdir(repoDir);
     for (const entry of entries) {
       if (entry === ".git") continue;
@@ -315,6 +394,18 @@ export class RealWhiteningApi implements WhiteningApi {
 
     this.setStep(jobId, "Commit & push");
     await this.runCli(jobId, "git", ["add", "-A"], repoDir);
+
+    // Undo only the *deletions* the wipe staged for preserved paths: a file the
+    // pack also ships keeps the packed content. Must run before the "no changes"
+    // check below, or a PR whose whole diff was those deletions still opens.
+    if (preserve.length) {
+      const kept = await preservedDeletions(repoDir, preserve);
+      if (kept.length) {
+        await this.runCli(jobId, "git", ["restore", "--source=HEAD", "--staged", "--worktree", "--", ...kept], repoDir);
+        this.appendLog(jobId, `Kept ${kept.length} file(s) marked preserve in whitening.json.`);
+      }
+    }
+
     const { stdout: statusOutput } = await execFileAsync("git", ["diff", "--cached", "--name-only"], { cwd: repoDir });
     if (!statusOutput.trim()) {
       this.appendLog(jobId, "No changes vs. default branch — skipping PR.");
@@ -361,7 +452,7 @@ export class RealWhiteningApi implements WhiteningApi {
     this.appendLog(jobId, `PR opened: ${url}`);
   }
 
-  private async uploadDependencies(jobId: string, job: WhiteningJob, extractDir: string, workDir: string) {
+  private async uploadDependencies(jobId: string, extractDir: string, workDir: string) {
     this.setStep(jobId, "Dependencies");
     const depsDir = join(extractDir, "node_modules");
     if (!(await pathExists(depsDir)) || (await readdir(depsDir)).length === 0) {

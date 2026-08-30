@@ -1,17 +1,43 @@
 import { execFile } from "child_process";
-import { mkdir, writeFile } from "fs/promises";
+import { createWriteStream } from "fs";
+import { mkdir, readFile, readdir } from "fs/promises";
 import { basename, dirname, join, relative } from "path";
+import { pipeline } from "stream/promises";
+import { Readable } from "stream";
+import type { ReadableStream as WebReadableStream } from "stream/web";
 // Rejects on abort, so a cancelled simulation stops mid-sleep instead of at the
 // end of the current beat.
 import { setTimeout as sleep } from "timers/promises";
 import { promisify } from "util";
 import { config } from "../../config";
+import { JobStore } from "../../jobStore";
+import { log, userMessage } from "../../log";
 import { redactSecrets } from "../../redact";
 import { createTmpDir, removeTmpDir } from "../../tmp";
 import { webUrl } from "./artifactoryRest";
 import { artifactorySimulation, simulatedArtifactoryJob } from "./devSimulation";
-import { discoverPackages, jobName, npmUploadItems, pool, targetPath, uploadFiles } from "./npmPackages";
-import { classify, urlArtifactPath } from "./packageTypes";
+import {
+  MAX_DEPENDENCY_PACKAGES,
+  npmRegistryFromUrl,
+  resolveNpmDependencies,
+  sourceTokenFor,
+} from "./npmDependencies";
+import { discoverPackages, jobName, npmUploadItems, targetPath, uniquePackages, uploadFiles } from "./npmPackages";
+import {
+  classify,
+  mavenCoordsFromPom,
+  mavenLayoutPath,
+  mavenPomUrl,
+  mavenRootDepth,
+  urlArtifactPath,
+} from "./packageTypes";
+import type { MavenCoords } from "./packageTypes";
+import {
+  mavenRepoFromUrl,
+  pypiIndexFromUrl,
+  resolveMavenDependencies,
+  resolvePypiDependencies,
+} from "./toolDependencies";
 import type { UploadItem } from "./npmPackages";
 import type {
   ArtifactoryApi,
@@ -24,16 +50,6 @@ import type {
 } from "../../types";
 
 const execFileAsync = promisify(execFile);
-
-/**
- * Staging the upload to disk is IO-bound, not CPU-bound, so overlapping it wins
- * a lot on a big node_modules. Kept well under the default file-descriptor
- * limit — every worker holds one open write at a time.
- *
- * ponytail: a flat constant, not a measured optimum. Raise it if staging is
- * still the slow part on the real hardware.
- */
-const TEMP_WRITE_CONCURRENCY = 16;
 
 function nowIso() {
   return new Date().toISOString();
@@ -57,14 +73,60 @@ function safeRelativePath(name: string): string {
   return segments.join("/");
 }
 
+/** Every file under `root`, as forward-slash paths relative to `root`. */
+async function listFilesRecursive(root: string): Promise<string[]> {
+  const out: string[] = [];
+  async function walk(dir: string) {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) await walk(full);
+      else if (entry.isFile()) out.push(relative(root, full).replace(/\\/g, "/"));
+    }
+  }
+  await walk(root);
+  return out;
+}
+
+/**
+ * The prefix a dropped Maven tree sits under, `""` when it is already at the
+ * root of the drop. Stripping it is what keeps a groupId from picking up the
+ * folders above the tree: `m2/org/apache/commons/...` otherwise deploys as
+ * groupId `m2.org.apache.commons`, a path nothing resolves from and one
+ * Artifactory answers with a 409 when the pom disagrees with it.
+ *
+ * Learned from the first pom whose own coordinates line up with where it sits —
+ * the pom says the group, the path says where it is, and the difference is the
+ * prefix. One prefix for the whole drop: an `~/.m2/repository` has one root.
+ * With no pom in the drop there is nothing to learn from and the path is taken
+ * as-is, exactly as before.
+ */
+async function mavenTreePrefix(sourceDir: string, relPaths: string[]): Promise<string> {
+  for (const path of relPaths) {
+    if (!path.toLowerCase().endsWith(".pom")) continue;
+    let coords;
+    try {
+      coords = mavenCoordsFromPom(await readFile(join(sourceDir, path), "utf8"));
+    } catch {
+      continue;
+    }
+    if (!coords) continue;
+    const depth = mavenRootDepth(path, coords);
+    // A pom that disagrees with its own path teaches nothing — keep looking.
+    if (depth === null) continue;
+    return path.split("/").slice(0, depth).join("/");
+  }
+  return "";
+}
+
 export class RealArtifactoryApi implements ArtifactoryApi {
-  private jobs = new Map<string, ArtifactoryJob>();
-  private counter = 0;
+  private readonly jobs: JobStore<ArtifactoryJob>;
   /** One per running job, so `cancelJob` can stop the work already in flight. */
   private controllers = new Map<string, AbortController>();
 
-  private newId() {
-    return `ART-${String(++this.counter).padStart(4, "0")}`;
+  /** `dataDir` is a parameter purely so tests can point it at a mkdtemp. */
+  constructor(dataDir: string = config.dataDir) {
+    this.jobs = new JobStore<ArtifactoryJob>(join(dataDir, "artifactory"), "ART");
   }
 
   private patch(jobId: string, updates: Partial<ArtifactoryJob>) {
@@ -73,11 +135,15 @@ export class RealArtifactoryApi implements ArtifactoryApi {
     Object.assign(job, { ...updates, updatedAt: nowIso() });
   }
 
+  // Every line the user sees in the job drawer is also a pod-log line, tagged
+  // with the job id. That is the whole point of these logs: a support request
+  // is "ART-0007 failed", and `kubectl logs | grep ART-0007` has to answer it.
   private appendLog(jobId: string, line: string) {
     const job = this.jobs.get(jobId);
     if (!job) return;
     job.log.push(redactSecrets(line));
     job.updatedAt = nowIso();
+    log.info(`artifactory ${jobId}`, line);
   }
 
   /**
@@ -97,7 +163,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
 
   async submitUrlCopy(input: UrlCopyInput, submitter: PortalUser): Promise<ArtifactoryJob> {
     const job: ArtifactoryJob = {
-      id: this.newId(),
+      id: this.jobs.nextId(),
       kind: "url-copy",
       status: "pending",
       submittedBy: submitter.id,
@@ -105,16 +171,23 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       createdAt: nowIso(),
       updatedAt: nowIso(),
       sourceUrl: input.sourceUrl,
+      includeDependencies: input.includeDependencies || undefined,
       log: [],
     };
-    this.jobs.set(job.id, job);
+    this.jobs.add(job);
+    log.info("artifactory", `${job.id} url-copy submitted`, {
+      by: submitter.id,
+      source: input.sourceUrl,
+      deps: !!input.includeDependencies,
+      jobs: this.jobs.all().length,
+    });
     void this.runUrlCopy(job.id, input);
     return job;
   }
 
   async submitFolderUpload(input: FolderUploadInput, submitter: PortalUser): Promise<ArtifactoryJob> {
     const job: ArtifactoryJob = {
-      id: this.newId(),
+      id: this.jobs.nextId(),
       kind: "folder-upload",
       status: "pending",
       submittedBy: submitter.id,
@@ -127,14 +200,22 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       totalBytes: input.totalBytes,
       log: [],
     };
-    this.jobs.set(job.id, job);
+    this.jobs.add(job);
+    log.info("artifactory", `${job.id} folder-upload submitted`, {
+      by: submitter.id,
+      folder: input.folderName,
+      files: input.fileCount,
+      bytes: input.totalBytes,
+      archive: input.archivePath,
+      jobs: this.jobs.all().length,
+    });
     void this.runFolderUpload(job.id, input);
     return job;
   }
 
   async simulate(submitter: PortalUser, scenario: ArtifactoryScenario = "npm"): Promise<ArtifactoryJob> {
     const job: ArtifactoryJob = {
-      id: this.newId(),
+      id: this.jobs.nextId(),
       kind: "folder-upload",
       status: "pending",
       submittedBy: submitter.id,
@@ -144,7 +225,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       log: [],
       ...simulatedArtifactoryJob(scenario),
     };
-    this.jobs.set(job.id, job);
+    this.jobs.add(job);
     void this.runSimulation(job.id, scenario);
     return job;
   }
@@ -161,21 +242,26 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       // Only sleep() rejects here, and only because the job was cancelled.
     } finally {
       this.controllers.delete(jobId);
+      await this.jobs.settle(jobId);
     }
   }
 
   async listJobs(user: PortalUser, allUsers = false): Promise<ArtifactoryJob[]> {
-    return [...this.jobs.values()]
+    // Logs are stripped here — the drawer fetches the full job by id.
+    return this.jobs
+      .all()
       .filter((j) => allUsers || j.submittedBy === user.id)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   async getJob(jobId: string): Promise<ArtifactoryJob | null> {
-    return this.jobs.get(jobId) ?? null;
+    return this.jobs.read(jobId);
   }
 
   async cancelJob(jobId: string, user: PortalUser, allUsers = false): Promise<ArtifactoryJob | null> {
-    const job = this.jobs.get(jobId);
+    // Live first, disk second: cancelling a job that just finished returns it
+    // rather than 404ing, which is what it did while everything was in memory.
+    const job = this.jobs.get(jobId) ?? (await this.jobs.read(jobId));
     if (!job) return null;
     if (!allUsers && job.submittedBy !== user.id) {
       throw new Error("Forbidden: not your job");
@@ -225,12 +311,20 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       if (!res.ok) {
         throw new Error(`Source responded with ${res.status} ${res.statusText}`);
       }
+      if (!res.body) throw new Error("Source returned an empty body");
 
       const filename = new URL(input.sourceUrl).pathname.split("/").filter(Boolean).pop();
       if (!filename) throw new Error("Cannot determine filename from source URL");
 
+      // Streamed, not buffered: an artifact is routinely hundreds of MB, and
+      // `arrayBuffer()` would hold all of it in the heap on the way to disk.
       const tmpFile = join(tmpDir, safeRelativePath(filename));
-      await writeFile(tmpFile, Buffer.from(await res.arrayBuffer()));
+      // fetch hands back the DOM stream type; Readable.fromWeb wants node's.
+      await pipeline(
+        Readable.fromWeb(res.body as unknown as WebReadableStream<Uint8Array>),
+        createWriteStream(tmpFile),
+        { signal }
+      );
 
       // The npm sniff reads the file itself, so it wins over any path guess.
       const identity = await readTarballIdentity(tmpFile);
@@ -238,9 +332,9 @@ export class RealArtifactoryApi implements ArtifactoryApi {
         ? null
         : classify(urlArtifactPath(input.sourceUrl), (line) => this.appendLog(jobId, line));
 
-      let item: UploadItem;
+      let items: UploadItem[];
       if (identity) {
-        item = {
+        const root: UploadItem = {
           path: targetPath(identity.name, identity.version),
           name: identity.name,
           version: identity.version,
@@ -248,27 +342,104 @@ export class RealArtifactoryApi implements ArtifactoryApi {
           resolve: async () => tmpFile,
         };
         this.patch(jobId, { name: `${identity.name}@${identity.version}` });
+        const deps = input.includeDependencies
+          ? await this.resolveDependencies(jobId, input.sourceUrl, identity, tmpDir, signal)
+          : [];
+        // Root last on purpose: uploadFiles dedupes by path keeping the *last*
+        // entry, and the root's repacked copy out of node_modules has to lose to
+        // the original tarball we downloaded — those bytes are byte-identical to
+        // what the source registry serves, so their integrity hash still matches.
+        items = [...deps, root];
       } else if (classified) {
-        item = { ...classified, resolve: async () => tmpFile };
+        items = [{ ...classified, resolve: async () => tmpFile }];
         this.appendLog(jobId, `Detected a ${classified.type} artifact.`);
         this.patch(jobId, { name: `${classified.name}@${classified.version}` });
+        if (classified.type === "maven") {
+          const pom = await this.fetchMavenPom(jobId, input.sourceUrl, tmpDir, signal);
+          if (pom) {
+            // The pom states the groupId; the URL only implies it. Where the two
+            // disagree the URL was read one segment too deep (an unrecognised
+            // repository root), so the artifact's own target is rebuilt too —
+            // both files have to land under the same group or neither resolves.
+            const fixed = `${config.artifactory.mavenRepo}/${mavenLayoutPath(pom.coords, filename)}`;
+            if (fixed !== classified.path) {
+              this.appendLog(
+                jobId,
+                `The pom says ${pom.coords.groupId}:${pom.coords.artifactId} — ` +
+                  `correcting the target to ${fixed}`
+              );
+              items[0] = { ...items[0], path: fixed, name: `${pom.coords.groupId}:${pom.coords.artifactId}` };
+              this.patch(jobId, { name: `${pom.coords.groupId}:${pom.coords.artifactId}@${pom.coords.version}` });
+            }
+            items.push(pom.item);
+          }
+          if (input.includeDependencies) {
+            // Root items last: uploadFiles dedupes by path keeping the *last*
+            // entry, and a dependency the resolver also produced must lose to
+            // the bytes we fetched from the source URL.
+            items = [
+              ...(await this.resolveToolDependencies(jobId, input.sourceUrl, classified, pom?.coords, tmpDir, signal)),
+              ...items,
+            ];
+          }
+        } else if (classified.type === "pypi" && input.includeDependencies) {
+          items = [
+            ...(await this.resolveToolDependencies(jobId, input.sourceUrl, classified, undefined, tmpDir, signal)),
+            ...items,
+          ];
+        }
       } else {
-        item = {
-          path: `${config.artifactory.repo}/${filename}`,
-          name: filename,
-          version: "",
-          type: "npm",
-          resolve: async () => tmpFile,
-        };
-        this.appendLog(jobId, "Unrecognised artifact — uploading under its own filename.");
-        this.patch(jobId, { name: filename });
+        // A jar outside a repository layout — a release asset, a flat file
+        // server — still carries its own coordinates. Without this it lands in
+        // the default repo under its filename, which for a jar is the npm one.
+        const coords = filename.toLowerCase().endsWith(".jar")
+          ? await mavenCoordsFromJar(tmpFile)
+          : null;
+        if (coords && config.artifactory.mavenRepo) {
+          items = [
+            {
+              path: `${config.artifactory.mavenRepo}/${mavenLayoutPath(coords, mavenFilename(coords, filename))}`,
+              name: `${coords.groupId}:${coords.artifactId}`,
+              version: coords.version,
+              type: "maven",
+              resolve: async () => tmpFile,
+            },
+          ];
+          this.appendLog(jobId, `The jar says it is ${coords.groupId}:${coords.artifactId}:${coords.version}.`);
+          this.patch(jobId, { name: `${coords.groupId}:${coords.artifactId}@${coords.version}` });
+        } else {
+          items = [
+            {
+              path: `${config.artifactory.repo}/${filename}`,
+              name: filename,
+              version: "",
+              type: "npm",
+              resolve: async () => tmpFile,
+            },
+          ];
+          this.appendLog(jobId, "Unrecognised artifact — uploading under its own filename.");
+          this.patch(jobId, { name: filename });
+        }
+      }
+
+      if (
+        input.includeDependencies &&
+        !identity &&
+        classified?.type !== "maven" &&
+        classified?.type !== "pypi"
+      ) {
+        this.appendLog(
+          jobId,
+          "Include dependencies: only npm, Maven and PyPI artifacts have a resolvable " +
+            "dependency tree — copying the single artifact."
+        );
       }
 
       // Same uploadFiles/finish path as a folder upload, so a URL copy fills in
       // `packages` and `progress` too — which is what makes the package table
       // (and its direct link) and the progress bar render for it at all.
       const results = await uploadFiles(
-        [item],
+        items,
         (line) => this.appendLog(jobId, line),
         (done, total) => this.patch(jobId, { progress: { done, total } }),
         signal
@@ -277,36 +448,301 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       this.finish(jobId, results);
     } catch (err) {
       if (this.aborted(jobId)) return;
-      const message = err instanceof Error ? err.message : String(err);
+      // userMessage, not err.message: Node's fetch throws a bare "fetch failed"
+      // and the reason the user needs (ENOTFOUND, self-signed cert) is in .cause.
+      const message = userMessage(err);
       this.patch(jobId, { status: "failed", errorMessage: message });
       this.appendLog(jobId, `Error: ${message}`);
+      // appendLog already mirrored the message; this adds the stack and the
+      // cause chain, which the user-facing job log deliberately does not carry.
+      log.error("artifactory", `${jobId} failed`, err);
     } finally {
       await removeTmpDir(tmpDir, (line) => this.appendLog(jobId, line));
       this.controllers.delete(jobId);
+      // Terminal by now on every path, and after the last appendLog above —
+      // this is where the job and its log leave memory for the volume.
+      await this.jobs.settle(jobId);
+    }
+  }
+
+  /**
+   * The `.pom` sibling of a URL-copied Maven artifact, as an upload item, or
+   * `null`. A jar without its pom is unresolvable for anyone consuming the repo,
+   * and the URL copy only ever fetches the one URL that was pasted.
+   *
+   * Missing is normal and quiet: a 404 (or any other failure) must not fail the
+   * copy the user actually asked for.
+   */
+  private async fetchMavenPom(
+    jobId: string,
+    sourceUrl: string,
+    tmpDir: string,
+    signal: AbortSignal
+  ): Promise<{ item: UploadItem; coords: MavenCoords } | null> {
+    const pomUrl = mavenPomUrl(sourceUrl);
+    if (!pomUrl) return null;
+    if (!config.artifactory.mavenRepo) return null;
+
+    try {
+      const res = await fetch(pomUrl, { signal });
+      if (!res.ok || !res.body) {
+        this.appendLog(jobId, `No sibling pom (${res.status}) — copying the artifact alone.`);
+        return null;
+      }
+      const filename = safeRelativePath(basename(new URL(pomUrl).pathname));
+      const file = join(tmpDir, filename);
+      await pipeline(
+        Readable.fromWeb(res.body as unknown as WebReadableStream<Uint8Array>),
+        createWriteStream(file),
+        { signal }
+      );
+
+      // The pom's own coordinates decide where it goes: Artifactory answers a
+      // pom deployed anywhere else with a 409, so a path guessed off the URL is
+      // not good enough once the real answer is on disk.
+      const coords = mavenCoordsFromPom(await readFile(file, "utf8"));
+      if (!coords) {
+        this.appendLog(jobId, `The sibling pom states no coordinates — copying the artifact alone.`);
+        return null;
+      }
+      const path = `${config.artifactory.mavenRepo}/${mavenLayoutPath(coords, filename)}`;
+      this.appendLog(jobId, `Also copying its pom: ${path}`);
+      return {
+        coords,
+        item: {
+          path,
+          name: `${coords.groupId}:${coords.artifactId}`,
+          version: coords.version,
+          type: "maven",
+          resolve: async () => file,
+        },
+      };
+    } catch (err) {
+      // A Stop is the caller's business; anything else is just "no pom".
+      if (this.aborted(jobId)) throw err;
+      this.appendLog(jobId, `Sibling pom not fetched (${userMessage(err)}) — copying the artifact alone.`);
+      return null;
+    }
+  }
+
+  /**
+   * The Maven or PyPI dependency tree of a URL-copied artifact, as upload items,
+   * or `[]`.
+   *
+   * Same contract as `resolveDependencies` below, and for the same reason:
+   * everything that can go wrong here — the tool not being in this image, a
+   * repository root that will not derive, a tree that will not resolve — is a
+   * log line and a single-artifact copy, never a failed job. Only a Stop
+   * propagates.
+   *
+   * The tools themselves do the copying: `dependency:copy-dependencies` and
+   * `pip download` write directories in exactly the two layouts `classify`
+   * already routes, so there is no dependency graph of our own to walk.
+   */
+  private async resolveToolDependencies(
+    jobId: string,
+    sourceUrl: string,
+    classified: { type: string; name: string; version: string },
+    coords: MavenCoords | undefined,
+    tmpDir: string,
+    signal: AbortSignal
+  ): Promise<UploadItem[]> {
+    try {
+      let items: UploadItem[] | null;
+
+      if (classified.type === "maven") {
+        // copy-dependencies has nothing to resolve without the pom, and the
+        // pom's own coordinates — not the URL's — are what it must be keyed on.
+        if (!coords) {
+          this.appendLog(
+            jobId,
+            "No pom for this artifact, so its dependencies are unknown — copying the single artifact."
+          );
+          return [];
+        }
+        const filename = basename(new URL(sourceUrl).pathname);
+        const repo = mavenRepoFromUrl(sourceUrl, coords, filename);
+        if (!repo) {
+          this.appendLog(
+            jobId,
+            "The URL does not sit at the coordinates its pom declares, so no repository " +
+              "root could be derived — copying the single artifact."
+          );
+          return [];
+        }
+        this.appendLog(jobId, `Source Maven repository: ${repo}`);
+        items = await resolveMavenDependencies({
+          coords,
+          repo,
+          token: sourceTokenFor(repo, config.artifactory.url, config.artifactory.token, ""),
+          root: join(tmpDir, "mvn"),
+          onLog: (line) => this.appendLog(jobId, line),
+          signal,
+        });
+        if (items === null) {
+          this.appendLog(jobId, "maven is not installed in this image — copying the single artifact.");
+          return [];
+        }
+      } else {
+        const index = pypiIndexFromUrl(sourceUrl);
+        if (!index) {
+          this.appendLog(
+            jobId,
+            "No Python index could be derived from the URL (no /packages/ in its path) — " +
+              "copying the single artifact."
+          );
+          return [];
+        }
+        this.appendLog(jobId, `Source Python index: ${index}`);
+        items = await resolvePypiDependencies({
+          name: classified.name,
+          version: classified.version,
+          index,
+          root: join(tmpDir, "pip"),
+          onLog: (line) => this.appendLog(jobId, line),
+          signal,
+        });
+        if (items === null) {
+          this.appendLog(jobId, "pip is not installed in this image — copying the single artifact.");
+          return [];
+        }
+      }
+
+      if (items.length > MAX_DEPENDENCY_PACKAGES) {
+        // Not a partial upload: a half-populated tree is a broken offline
+        // install that gives no signal it is broken.
+        this.appendLog(
+          jobId,
+          `Dependency tree has ${items.length} file(s), over the ${MAX_DEPENDENCY_PACKAGES} ` +
+            `cap — copying the single artifact. Use the folder upload tab for a tree this size.`
+        );
+        return [];
+      }
+
+      this.appendLog(jobId, `Dependency tree: ${items.length} file(s).`);
+      this.patch(jobId, {
+        name: `${classified.name}@${classified.version} (+${items.length} deps)`,
+      });
+      return items;
+    } catch (err) {
+      // A cancel surfaces as an AbortError out of the spawn; swallowing it would
+      // upload the artifact after the user had already pressed Stop.
+      if (this.aborted(jobId) || signal.aborted) throw err;
+      const message = userMessage(err);
+      this.appendLog(jobId, `Could not resolve dependencies (${message}) — copying the single artifact.`);
+      log.warn("artifactory", `${jobId} dependency resolution failed`, { error: message });
+      return [];
+    }
+  }
+
+  /**
+   * The npm dependency tree of a URL-copied artifact, as upload items, or `[]`.
+   *
+   * Never throws for a resolution problem. A URL copy that cannot resolve
+   * dependencies still does the single-artifact copy it would have done with the
+   * box unticked, and says in the log why it did not do more — the user asked to
+   * copy a package, and half-answering that with a failed job helps nobody. The
+   * one thing that does propagate is a Stop, which has to stay a Stop rather than
+   * quietly falling through to an upload the user just cancelled.
+   */
+  private async resolveDependencies(
+    jobId: string,
+    sourceUrl: string,
+    identity: { name: string; version: string },
+    tmpDir: string,
+    signal: AbortSignal
+  ): Promise<UploadItem[]> {
+    const registry = npmRegistryFromUrl(sourceUrl);
+    if (!registry) {
+      this.appendLog(
+        jobId,
+        `No npm registry could be derived from the URL (no /-/ in its path) — ` +
+          `copying the single artifact.`
+      );
+      return [];
+    }
+    this.appendLog(jobId, `Source npm registry: ${registry}`);
+
+    try {
+      const packages = await resolveNpmDependencies({
+        name: identity.name,
+        version: identity.version,
+        registry,
+        token: sourceTokenFor(
+          registry,
+          config.artifactory.url,
+          config.artifactory.token,
+          config.artifactory.npmSourceToken
+        ),
+        root: join(tmpDir, "deps"),
+        cacheDir: join(tmpDir, "npm-cache"),
+        onLog: (line) => this.appendLog(jobId, line),
+        signal,
+      });
+
+      if (packages.length > MAX_DEPENDENCY_PACKAGES) {
+        // Not a partial upload: a half-populated tree is a broken offline install
+        // that gives no signal it is broken.
+        this.appendLog(
+          jobId,
+          `Dependency tree has ${packages.length} package(s), over the ` +
+            `${MAX_DEPENDENCY_PACKAGES} cap — copying the single artifact. ` +
+            `Use the folder upload tab for a tree this size.`
+        );
+        return [];
+      }
+
+      // The root is uploaded from the tarball we downloaded, not from its
+      // repacked copy in node_modules — see the ordering note in runUrlCopy.
+      const rootPath = targetPath(identity.name, identity.version);
+      const items = npmUploadItems(packages, join(tmpDir, "stage")).filter(
+        (item) => item.path !== rootPath
+      );
+      this.appendLog(jobId, `Dependency tree: ${items.length} package(s).`);
+      this.patch(jobId, {
+        name: `${identity.name}@${identity.version} (+${items.length} deps)`,
+      });
+      return items;
+    } catch (err) {
+      // A cancel surfaces as an AbortError out of the spawn; swallowing it would
+      // upload the artifact after the user had already pressed Stop.
+      if (this.aborted(jobId) || signal.aborted) throw err;
+      const message = userMessage(err);
+      this.appendLog(jobId, `Could not resolve dependencies (${message}) — copying the single artifact.`);
+      log.warn("artifactory", `${jobId} dependency resolution failed`, { error: message });
+      return [];
     }
   }
 
   private async runFolderUpload(jobId: string, input: FolderUploadInput) {
     const signal = this.start(jobId);
-    const tmpDir = await createTmpDir("art-");
+    // the upload landed in a dir of its own, part by part; the job owns it now,
+    // and drops it (archive included) in the `finally` below.
+    const tmpDir = dirname(input.archivePath);
     try {
       this.patch(jobId, { status: "in-progress" });
 
-      const files = input.files ?? [];
-      if (files.length === 0) {
-        throw new Error("No file data received — ensure the client sends actual files");
-      }
-
-      this.appendLog(jobId, `Writing ${files.length} file(s) to temp directory ...`);
+      // One compressed blob + one native unzip beats tens of thousands of
+      // uncompressed multipart parts and as many individual fs writes — this
+      // is the whole reason a folder drop used to be ~100x slower than
+      // dragging a hand-made zip of the same folder.
       const sourceDir = join(tmpDir, "source");
-      // Pooled rather than a plain for-await: a dropped node_modules is tens of
-      // thousands of files, and one serialized mkdir+writeFile round trip each
-      // was the bulk of the wait before any upload had started.
-      await pool(files, TEMP_WRITE_CONCURRENCY, async (file) => {
-        const dest = join(sourceDir, safeRelativePath(file.originalname));
-        await mkdir(dirname(dest), { recursive: true });
-        await writeFile(dest, file.buffer);
-      });
+      this.appendLog(jobId, "Extracting uploaded archive ...");
+      await mkdir(sourceDir, { recursive: true });
+      try {
+        await execFileAsync("unzip", ["-q", basename(input.archivePath), "-d", "source"], {
+          cwd: tmpDir,
+        });
+      } catch (err) {
+        // unzip exits 1 for "extracted, with warnings" (e.g. a Windows-built
+        // zip warning about backslash separators) and only >= 2 for a real
+        // failure — see RealWhiteningApi.submitUnpack for the same handling.
+        const code = (err as { code?: number }).code;
+        if (code !== 1) {
+          throw new Error("Could not extract the uploaded folder archive");
+        }
+      }
+      const relPaths = await listFilesRecursive(sourceDir);
 
       const log = (line: string) => this.appendLog(jobId, line);
       const packages = await discoverPackages(sourceDir, log);
@@ -316,14 +752,28 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       const packageDirs = packages
         .map((p) => relative(sourceDir, p.dir).replace(/\\/g, "/"))
         .filter(Boolean);
-      const loose = files
-        .map((f) => safeRelativePath(f.originalname))
-        .filter((p) => !packageDirs.some((d) => p === d || p.startsWith(`${d}/`)));
+      const loose = relPaths.filter(
+        (p) => !packageDirs.some((d) => p === d || p.startsWith(`${d}/`))
+      );
 
-      const items: UploadItem[] = npmUploadItems(packages, join(tmpDir, "stage"));
-      let unrecognised = 0;
+      // Every copy of a package covers its own files above; only one of them is
+      // worth uploading.
+      const unique = uniquePackages(packages, log);
+      const items: UploadItem[] = npmUploadItems(unique, join(tmpDir, "stage"));
+
+      // Everything below is classified by filename except Maven, which is
+      // classified by where the file sits — so the folders above the tree have
+      // to come off first.
+      const mavenPrefix = await mavenTreePrefix(sourceDir, loose);
+      if (mavenPrefix) {
+        this.appendLog(jobId, `Maven repository root: ${mavenPrefix}/ — stripped from the target paths.`);
+      }
+      const target = (path: string) =>
+        mavenPrefix && path.startsWith(`${mavenPrefix}/`) ? path.slice(mavenPrefix.length + 1) : path;
+
+      let unrelated = 0;
       for (const path of loose) {
-        const found = classify(path, log);
+        const found = classify(target(path), log);
         if (found) {
           // Already a finished artifact — nothing to pack, upload it as it is.
           items.push({ ...found, resolve: async () => join(sourceDir, path) });
@@ -331,7 +781,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
         }
         // classify() deliberately leaves .tgz alone: the filename can't give the
         // scope (@babel/core ships as core-7.0.0.tgz), so the manifest inside
-        // decides. Without this a folder of loose tarballs looks unrecognised.
+        // decides. Without this a folder of loose tarballs looks unrelated.
         const identity = path.toLowerCase().endsWith(".tgz")
           ? await readTarballIdentity(join(sourceDir, path))
           : null;
@@ -345,7 +795,28 @@ export class RealArtifactoryApi implements ArtifactoryApi {
           });
           continue;
         }
-        unrecognised++;
+        // Same idea one type over: a jar outside a repository layout carries its
+        // own coordinates, which is the only thing that makes the flat folder
+        // `mvn dependency:copy-dependencies` writes uploadable.
+        const coords = path.toLowerCase().endsWith(".jar")
+          ? await mavenCoordsFromJar(join(sourceDir, path))
+          : null;
+        if (coords) {
+          if (!config.artifactory.mavenRepo) {
+            log(`ARTIFACTORY_MAVEN_REPO not set — skipping ${basename(path)}`);
+            unrelated++;
+            continue;
+          }
+          items.push({
+            path: `${config.artifactory.mavenRepo}/${mavenLayoutPath(coords, mavenFilename(coords, path))}`,
+            name: `${coords.groupId}:${coords.artifactId}`,
+            version: coords.version,
+            type: "maven",
+            resolve: async () => join(sourceDir, path),
+          });
+          continue;
+        }
+        unrelated++;
       }
 
       if (items.length === 0) {
@@ -358,15 +829,15 @@ export class RealArtifactoryApi implements ArtifactoryApi {
         );
       }
 
-      this.patch(jobId, { name: jobName(packages, input.folderName) });
+      this.patch(jobId, { name: jobName(unique, input.folderName) });
       const counts = new Map<string, number>();
       for (const item of items) counts.set(item.type, (counts.get(item.type) ?? 0) + 1);
       this.appendLog(
         jobId,
         `Found ${[...counts].map(([type, n]) => `${n} ${type}`).join(", ")} package(s).`
       );
-      if (unrecognised > 0) {
-        this.appendLog(jobId, `${unrecognised} unrecognised file(s) skipped.`);
+      if (unrelated > 0) {
+        this.appendLog(jobId, `${unrelated} unrelated file(s) skipped.`);
       }
 
       const results = await uploadFiles(
@@ -379,15 +850,70 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       this.finish(jobId, results);
     } catch (err) {
       if (this.aborted(jobId)) return;
-      const message = err instanceof Error ? err.message : String(err);
+      // userMessage, not err.message: Node's fetch throws a bare "fetch failed"
+      // and the reason the user needs (ENOTFOUND, self-signed cert) is in .cause.
+      const message = userMessage(err);
       this.patch(jobId, { status: "failed", errorMessage: message });
       this.appendLog(jobId, `Error: ${message}`);
+      // appendLog already mirrored the message; this adds the stack and the
+      // cause chain, which the user-facing job log deliberately does not carry.
+      log.error("artifactory", `${jobId} failed`, err);
     } finally {
       await removeTmpDir(tmpDir, (line) => this.appendLog(jobId, line));
       this.controllers.delete(jobId);
+      // Terminal by now on every path, and after the last appendLog above —
+      // this is where the job and its log leave memory for the volume.
+      await this.jobs.settle(jobId);
     }
   }
 
+}
+
+/**
+ * What to call a jar whose coordinates were sniffed out of it. Its own name is
+ * kept when it already starts with `<artifactId>-<version>`, so a classifier
+ * (`-sources`, `-javadoc`) survives; anything else is renamed to the canonical
+ * form, since a renamed jar at a layout path resolves for nobody.
+ */
+function mavenFilename(coords: MavenCoords, path: string): string {
+  const name = basename(path);
+  return name.startsWith(`${coords.artifactId}-${coords.version}`)
+    ? name
+    : `${coords.artifactId}-${coords.version}.jar`;
+}
+
+/**
+ * Maven coordinates out of a jar's own `META-INF/maven/<g>/<a>/pom.properties`,
+ * which every jar Maven builds carries. This is what makes a *flat* folder of
+ * jars uploadable at all — `mvn dependency:copy-dependencies` writes exactly
+ * that, and a filename alone cannot give the groupId.
+ *
+ * `null` for a jar without one (hand-built, shaded, or repackaged), which then
+ * falls through to the same "unrelated file" path as before.
+ *
+ * The embedded `pom.xml` beside it is deliberately *not* uploaded with the jar:
+ * a pom whose `<parent>` is not in the repo fails resolution outright, which is
+ * worse than the "Missing POM" warning a jar on its own produces.
+ */
+async function mavenCoordsFromJar(file: string): Promise<MavenCoords | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      "unzip",
+      ["-p", basename(file), "META-INF/maven/*/*/pom.properties"],
+      { cwd: dirname(file), maxBuffer: 1024 * 1024 }
+    );
+    // A shaded jar carries one block per bundled artifact; the first is the jar
+    // itself, the rest are what it swallowed.
+    const read = (key: string) => new RegExp(`^${key}=(.+)$`, "m").exec(stdout)?.[1].trim() ?? "";
+    const groupId = read("groupId");
+    const artifactId = read("artifactId");
+    const version = read("version");
+    if (!groupId || !artifactId || !version) return null;
+    return { groupId, artifactId, version };
+  } catch {
+    // Not a zip, no such entry, or no unzip on PATH.
+    return null;
+  }
 }
 
 /**

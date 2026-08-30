@@ -28,13 +28,7 @@ export function CreateTicketView({
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!selected) return warn("ticketing/create", "no request type available — nothing submitted");
-    const fields = Object.fromEntries(
-      selected.fields.map((field) => {
-        if (field.name === "title") return [field.name, title];
-        if (field.name === "description") return [field.name, description];
-        return [field.name, field.options?.[0] ?? title];
-      })
-    );
+    const fields = { title, description };
     setSubmitting(true);
     log("ticketing/create", "submitting", { requestType: selected.id, priority, fields });
     try {

@@ -1,7 +1,7 @@
 import express from "express";
 import { z } from "zod";
 import { requestCatalog } from "./catalog";
-import { displayNameFor, listAdminCandidates, requireAdmin } from "../../auth";
+import { displayNameFor, listAdminCandidates, portalIdFor, requireAdmin } from "../../auth";
 import { ticketPriorities } from "./priority";
 import { customerStages } from "./status";
 import type { CustomerStage, TicketDetail, TicketPriority, TicketSummary, TicketingApi } from "../../types";
@@ -35,11 +35,18 @@ const adminUpdateSchema = z.object({
 // for the same person. Applied on the way out rather than at write time
 // because it also repairs rows the backend (Jira, or an older assignment)
 // already holds.
+// Ids are normalised on the same pass: a Jira-backed ticket carries Jira
+// usernames, while the client only ever holds the proxy's id for a person
+// (that's what /api/me reports and what the assignee dropdown is keyed by).
 function withResolvedNames<T extends TicketSummary>(ticket: T): T {
+  const requesterId = portalIdFor(ticket.requesterId);
+  const assigneeId = portalIdFor(ticket.assigneeId);
   return {
     ...ticket,
-    requesterName: displayNameFor(ticket.requesterId, ticket.requesterName),
-    assigneeName: displayNameFor(ticket.assigneeId, ticket.assigneeName)
+    requesterId,
+    assigneeId,
+    requesterName: displayNameFor(requesterId, ticket.requesterName),
+    assigneeName: displayNameFor(assigneeId, ticket.assigneeName)
   };
 }
 
@@ -48,6 +55,7 @@ function detailWithResolvedNames(ticket: TicketDetail): TicketDetail {
     ...withResolvedNames(ticket),
     comments: ticket.comments.map((comment) => ({
       ...comment,
+      authorId: portalIdFor(comment.authorId),
       authorName: displayNameFor(comment.authorId, comment.authorName)
     }))
   };

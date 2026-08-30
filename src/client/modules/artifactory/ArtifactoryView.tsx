@@ -1,9 +1,9 @@
 import { FlaskConical, FolderOpen, Link, Plus } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ArtifactoryJob, ArtifactoryScenario } from "../../../server/types";
 import { log, error as logError } from "../../log";
-import { cancelJob, listJobs, simulateJob } from "./api";
+import { cancelJob, getJob, listJobs, simulateJob } from "./api";
 import { JobDetail } from "./components/JobDetail";
 import { JobList } from "./components/JobList";
 import { FolderUploadForm } from "./components/FolderUploadForm";
@@ -25,11 +25,13 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
   const [activeTab, setActiveTab] = useState<Tab>("url-copy");
   const [jobs, setJobs] = useState<ArtifactoryJob[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  // The list is log-free (server strips it — a finished job's log lives on the
+  // volume, not in the server's heap), so the drawer fetches the whole job.
+  const [openJob, setOpenJob] = useState<ArtifactoryJob | null>(null);
   // Admins get everything from the server; the toggle narrows it back client-side,
   // same as the ticketing queue.
   const [showAll, setShowAll] = useState(true);
   const [testScenario, setTestScenario] = useState<ArtifactoryScenario>(TEST_SCENARIOS[0].value);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   function fetchJobs() {
     listJobs()
@@ -51,14 +53,33 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
     fetchJobs();
   }, [refreshKey]);
 
+  // Only a running job changes on its own. Polling every 2s while the list is
+  // idle re-sends every job's full log to every open tab for nothing.
+  const anyRunning = jobs.some((j) => j.status === "pending" || j.status === "in-progress");
+
   useEffect(() => {
-    log("artifactory", "starting 2s job poll");
-    intervalRef.current = setInterval(fetchJobs, 2000);
-    return () => {
-      log("artifactory", "stopping job poll");
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, []);
+    const every = anyRunning ? 2000 : 15000;
+    log("artifactory", `job poll every ${every}ms`);
+    const id = setInterval(fetchJobs, every);
+    return () => clearInterval(id);
+  }, [anyRunning]);
+
+  // Same cadence as the list, but one job instead of all of them — which is
+  // also why the list poll is now cheap: it no longer ships every log to every
+  // open tab on every tick.
+  useEffect(() => {
+    if (!selectedJobId) {
+      setOpenJob(null);
+      return;
+    }
+    const fetchOpen = () =>
+      getJob(selectedJobId)
+        .then((result) => setOpenJob(result.job))
+        .catch((err: Error) => logError("artifactory", "getJob failed", err));
+    fetchOpen();
+    const id = setInterval(fetchOpen, anyRunning ? 2000 : 15000);
+    return () => clearInterval(id);
+  }, [selectedJobId, anyRunning]);
 
   function handleSubmitted(job: ArtifactoryJob) {
     log("artifactory", "job submitted", job);
@@ -79,7 +100,10 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
     [jobs, showAll, isAdmin, user.id]
   );
 
-  const selectedJob = jobs.find((j) => j.id === selectedJobId) ?? null;
+  // Fall back to the list row until the full job lands, so selecting a job
+  // paints immediately and only the log arrives a tick later.
+  const selectedJob =
+    (openJob?.id === selectedJobId ? openJob : null) ?? jobs.find((j) => j.id === selectedJobId) ?? null;
 
   return (
     <>
@@ -186,10 +210,10 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
                   the active form mid-upload, throwing away its scanned folder
                   and progress bar — which read as "switching tabs stops the
                   run" even though nothing was ever cancelled. */}
-              <div hidden={activeTab !== "url-copy"}>
+              <div className="tab-panel" hidden={activeTab !== "url-copy"}>
                 <UrlCopyForm onSubmitted={handleSubmitted} onError={onError} />
               </div>
-              <div hidden={activeTab !== "folder-upload"}>
+              <div className="tab-panel" hidden={activeTab !== "folder-upload"}>
                 <FolderUploadForm onSubmitted={handleSubmitted} onError={onError} />
               </div>
             </section>

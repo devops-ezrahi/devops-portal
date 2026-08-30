@@ -11,6 +11,7 @@ type Props = {
 
 export function UrlCopyForm({ onSubmitted, onError }: Props) {
   const [sourceUrl, setSourceUrl] = useState("");
+  const [includeDependencies, setIncludeDependencies] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -18,10 +19,11 @@ export function UrlCopyForm({ onSubmitted, onError }: Props) {
     setSubmitting(true);
     log("artifactory/url-copy", "submitting", sourceUrl);
     try {
-      const result = await submitUrlCopy({ sourceUrl });
+      const result = await submitUrlCopy({ sourceUrl, includeDependencies });
       log("artifactory/url-copy", "accepted", result.job.id, result.job.status);
       onSubmitted(result.job);
       setSourceUrl("");
+      setIncludeDependencies(false);
     } catch (err) {
       logError("artifactory/url-copy", "submit failed", sourceUrl, err);
       onError(err instanceof Error ? err.message : "Failed to submit");
@@ -45,6 +47,23 @@ export function UrlCopyForm({ onSubmitted, onError }: Props) {
         <span className="field-hint">
           URL of the artifact in the source repository. The package type is detected from the file —
           .tgz, .jar, .rpm, .whl and .conda each go to their own repo.
+        </span>
+      </div>
+
+      <div className="form-field checkbox-field">
+        <label htmlFor="include-deps">
+          <input
+            id="include-deps"
+            type="checkbox"
+            checked={includeDependencies}
+            onChange={(e) => setIncludeDependencies(e.target.checked)}
+          />
+          Include dependencies <span className="field-note">(takes longer)</span>
+        </label>
+        <span className="field-hint">
+          Resolves the full runtime tree for npm, Maven and PyPI and copies every artifact in it
+          (PyPI is wheels only). A tree that won&rsquo;t resolve still copies the single artifact and
+          says why in the job log. RPM does resolve dependencies.
         </span>
       </div>
 

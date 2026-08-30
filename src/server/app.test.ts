@@ -61,9 +61,6 @@ describe("portal API", () => {
       idempotencyKey: "key-123",
       fields: {
         title: "Add smoke tests",
-        application: "portal",
-        repository: "https://git.example.com/portal",
-        environment: "Staging",
         description: "Run smoke tests after deploy"
       }
     };

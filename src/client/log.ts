@@ -23,8 +23,13 @@ export function warn(scope: string, ...args: unknown[]) {
   emit(console.warn, "#e0a33e", scope, args);
 }
 
+/**
+ * Errors ignore the debug gate. Something that already went wrong is worth a
+ * console line in production too — a user reporting a problem should not have
+ * to set a localStorage flag and reproduce it before there is anything to read.
+ */
 export function error(scope: string, ...args: unknown[]) {
-  emit(console.error, "#e0554e", scope, args);
+  console.error(`%c${scope}%c ${since()}`, "color:#e0554e;font-weight:700", "color:#7a8b90", ...args);
 }
 
 function describeBody(body: BodyInit | null | undefined) {
@@ -39,7 +44,12 @@ function describeBody(body: BodyInit | null | undefined) {
 }
 
 export function installConsoleLogging() {
-  if (!ON) return;
+  // Installed even when verbose logging is off: failures, unhandled rejections
+  // and network errors still reach the console, which is what someone opening
+  // devtools after something broke is actually looking for.
+  if (!ON) {
+    console.info("%cportal%c verbose logs are off — localStorage.portalDebug = \"1\" then reload to enable", "color:#20c7bd;font-weight:700", "color:#7a8b90");
+  }
 
   log("boot", "portal starting", {
     url: window.location.href,
@@ -61,8 +71,12 @@ export function installConsoleLogging() {
       const ms = (performance.now() - started).toFixed(0);
       // ponytail: status + timing only — reading the body here would drain the
       // chat SSE stream before ChatView gets it.
+      // x-request-id is the server's correlation id for this exact request —
+      // the same string appears on the pod's http line and in the error body,
+      // so a console screenshot is enough to find the request in `kubectl logs`.
       (res.ok ? log : error)(`net#${id} ←`, method, url, res.status, res.statusText, `${ms}ms`, {
         type: res.headers.get("content-type"),
+        ref: res.headers.get("x-request-id"),
       });
       return res;
     } catch (err) {

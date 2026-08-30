@@ -1,12 +1,15 @@
 import { execFile, spawn } from "child_process";
-import { mkdirSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "fs";
 import { mkdir, stat } from "fs/promises";
 import { platform, tmpdir } from "os";
 import { dirname, join } from "path";
 import { promisify } from "util";
 import { config } from "../../config";
+import { log, userMessage } from "../../log";
+import { JobStore, writeJsonAtomic } from "../../jobStore";
 import { redactSecrets } from "../../redact";
 import type { PortalUser, AiApi, AiCategory, AiConversation, AiJob } from "../../types";
+import { sweepConversations } from "./sweepConversations";
 
 const execFileAsync = promisify(execFile);
 const isWindows = platform() === "win32";
@@ -131,25 +134,74 @@ type OpencodeEvent = {
 };
 
 export class RealAiApi implements AiApi {
+  /**
+   * Conversations stay resident: one is ~400 bytes, so even 10k chats is a few
+   * MB, and the idle sweep walks all of them on every list anyway. The jobs
+   * hanging off them are the fat part, and those live in the JobStore.
+   */
   private conversations = new Map<string, AiConversation>();
-  private jobs = new Map<string, AiJob>();
   private conversationCounter = 0;
-  private jobCounter = 0;
+  private readonly conversationsDir: string;
+  private readonly jobs: JobStore<AiJob>;
+  private readonly clonesDir: string;
   /** One per running job, so `cancelJob`/timeout can stop the work already in flight. */
   private controllers = new Map<string, AbortController>();
 
-  private newConversationId() {
-    return `CONV-${String(++this.conversationCounter).padStart(4, "0")}`;
+  /** `dataDir` is a parameter purely so tests can point it at a mkdtemp. */
+  constructor(dataDir: string = config.dataDir) {
+    this.jobs = new JobStore<AiJob>(join(dataDir, "ai", "jobs"), "RES");
+    this.conversationsDir = join(dataDir, "ai", "conversations");
+    this.clonesDir = join(dataDir, "clones");
+    this.loadConversations();
   }
 
-  private newJobId() {
-    return `RES-${String(++this.jobCounter).padStart(4, "0")}`;
+  private loadConversations() {
+    mkdirSync(this.conversationsDir, { recursive: true });
+    let files: string[];
+    try {
+      files = readdirSync(this.conversationsDir);
+    } catch {
+      return;
+    }
+    for (const file of files) {
+      if (!file.endsWith(".json") || file.endsWith(".tmp")) continue;
+      let conversation: AiConversation;
+      try {
+        conversation = JSON.parse(readFileSync(join(this.conversationsDir, file), "utf8")) as AiConversation;
+      } catch (err) {
+        // One unreadable file must not stop the process booting.
+        log.warn("ai", `skipping unreadable conversation ${file}`, {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        continue;
+      }
+      if (!conversation?.id) continue;
+      this.conversations.set(conversation.id, conversation);
+      const n = Number(conversation.id.slice("CONV-".length));
+      if (Number.isFinite(n) && n > this.conversationCounter) this.conversationCounter = n;
+    }
+    log.info("ai", `loaded ${this.conversations.size} conversation(s)`, {
+      dir: this.conversationsDir,
+      nextId: this.conversationCounter + 1,
+    });
+  }
+
+  /** Small and rarely mutated, so every mutation writes the whole record through. */
+  private saveConversation(conversation: AiConversation) {
+    void writeJsonAtomic(join(this.conversationsDir, `${conversation.id}.json`), conversation).catch((err) =>
+      log.error("ai", `could not persist ${conversation.id}`, err)
+    );
+  }
+
+  private newConversationId() {
+    return `CONV-${String(++this.conversationCounter).padStart(4, "0")}`;
   }
 
   private patchConversation(conversationId: string, updates: Partial<AiConversation>) {
     const conversation = this.conversations.get(conversationId);
     if (!conversation) return;
     Object.assign(conversation, { ...updates, updatedAt: nowIso() });
+    this.saveConversation(conversation);
   }
 
   private patch(jobId: string, updates: Partial<AiJob>) {
@@ -158,16 +210,19 @@ export class RealAiApi implements AiApi {
     Object.assign(job, { ...updates, updatedAt: nowIso() });
   }
 
+  // Mirrored to stdout with the job id — a question that fails inside opencode
+  // leaves no other trace in the pod.
   private appendLog(jobId: string, line: string) {
     const job = this.jobs.get(jobId);
     if (!job) return;
     job.log.push({ step: "AI", line: redactSecrets(line) });
     job.updatedAt = nowIso();
+    log.info(`ai ${jobId}`, line);
   }
 
   private cloneDirFor(project: string): string {
     const safe = project.replace(/[^a-zA-Z0-9_-]/g, "_");
-    return join(tmpdir(), "ai-clones", safe);
+    return join(this.clonesDir, safe);
   }
 
   /**
@@ -182,7 +237,7 @@ export class RealAiApi implements AiApi {
     if (categories.length === 1) return categories[0].name;
 
     this.appendLog(jobId, "Figuring out which repo fits your question ...");
-    const scratchDir = join(tmpdir(), "ai-clones", "_classify");
+    const scratchDir = join(this.clonesDir, "_classify");
     await mkdir(scratchDir, { recursive: true });
 
     const list = categories.map((c) => `- ${c.name}: ${c.description}`).join("\n");
@@ -190,6 +245,11 @@ export class RealAiApi implements AiApi {
       `Categories:\n${list}\n\nQuestion: ${question}\n\n` +
       `Which category best fits this question? Reply with ONLY the category name from the list above, nothing else.`;
 
+    // ponytail: `undefined` session, so every classification opens a throwaway
+    // opencode session whose id nothing records. Harmless while opencode's store
+    // was ephemeral; now that it is on the PVC they accumulate (~5KB each, and
+    // only on "I'm not sure" questions). Reusing one session would bias the
+    // classifier with its own prior answers, so this stays as-is until it matters.
     const { answer } = await this.askOpencode(jobId, scratchDir, prompt, undefined, signal);
     const picked = answer.trim().split("\n")[0].replace(/[.:,]+$/, "").trim().toLowerCase();
     const match = categories.find((c) => c.name.toLowerCase() === picked || picked.includes(c.name.toLowerCase()));
@@ -216,22 +276,59 @@ export class RealAiApi implements AiApi {
       updatedAt: nowIso(),
     };
     this.conversations.set(conversation.id, conversation);
+    this.saveConversation(conversation);
     return conversation;
   }
 
   async listConversations(user: PortalUser, allUsers = false): Promise<AiConversation[]> {
+    // ponytail: swept on read, not on a timer — every open tab reloads this
+    // list, and there is nothing to reclaim while nobody is looking. Add an
+    // unref'd interval only if idle-process memory ever actually matters.
+    // `all()` is every job ever, but only the in-flight ones are still
+    // non-terminal, which is exactly the "busy" set the sweep looks for.
+    const { archived } = sweepConversations(this.conversations, this.jobs.all(), config.ai.archiveAfterMs);
+    for (const id of archived) this.saveConversation(this.conversations.get(id)!);
+    // A chat folding out of someone's list should be greppable in the pod log.
+    if (archived.length) log.info("ai", "archived idle chats", { archived: archived.length });
+
     return [...this.conversations.values()]
       .filter((c) => allUsers || c.submittedBy === user.id)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
+  async archiveConversation(
+    conversationId: string,
+    user: PortalUser,
+    allUsers = false
+  ): Promise<AiConversation | null> {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return null;
+    if (!allUsers && conversation.submittedBy !== user.id) {
+      throw new Error("Forbidden: not your chat");
+    }
+    // Same as the sweep, and for the same reason: not via patchConversation.
+    // `updatedAt` is the delete clock, so archiving by hand must not push the
+    // chat's eventual deletion out by however long it had already been idle.
+    if (!conversation.archivedAt) conversation.archivedAt = nowIso();
+    this.saveConversation(conversation);
+    log.info("ai", "chat archived", { id: conversationId, by: user.id });
+    return conversation;
+  }
+
   async submitQuestion(conversationId: string, question: string, submitter: PortalUser): Promise<AiJob> {
     const conversation = this.conversations.get(conversationId);
     if (!conversation) throw new Error("Conversation not found");
-    if (!conversation.title) this.patchConversation(conversationId, { title: truncateTitle(question) });
+    // The only un-archive there is — for the sweep's stamp and the button's
+    // alike. Done before the job exists, so the chat leaves the Archived list
+    // the moment the question is asked rather than when the answer lands.
+    delete conversation.archivedAt;
+    // Unconditional, even when there is nothing to change: patchConversation
+    // restamps `updatedAt`, and that is the only clock the idle sweep reads.
+    // Stamping it just on the first question would archive a chat in active use.
+    this.patchConversation(conversationId, conversation.title ? {} : { title: truncateTitle(question) });
 
     const job: AiJob = {
-      id: this.newJobId(),
+      id: this.jobs.nextId(),
       conversationId,
       status: "pending",
       submittedBy: submitter.id,
@@ -242,23 +339,26 @@ export class RealAiApi implements AiApi {
       question,
       log: [],
     };
-    this.jobs.set(job.id, job);
+    this.jobs.add(job);
     void this.run(job.id, conversationId, question);
     return job;
   }
 
   async listJobs(conversationId: string, user: PortalUser, allUsers = false): Promise<AiJob[]> {
-    return [...this.jobs.values()]
+    return this.jobs
+      .all()
       .filter((j) => j.conversationId === conversationId && (allUsers || j.submittedBy === user.id))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
   async getJob(jobId: string): Promise<AiJob | null> {
-    return this.jobs.get(jobId) ?? null;
+    return this.jobs.read(jobId);
   }
 
   async cancelJob(jobId: string, user: PortalUser, allUsers = false): Promise<AiJob | null> {
-    const job = this.jobs.get(jobId);
+    // Live first, disk second: cancelling a job that just finished returns it
+    // rather than 404ing, which is what it did while everything was in memory.
+    const job = this.jobs.get(jobId) ?? (await this.jobs.read(jobId));
     if (!job) return null;
     if (!allUsers && job.submittedBy !== user.id) {
       throw new Error("Forbidden: not your job");
@@ -349,13 +449,17 @@ export class RealAiApi implements AiApi {
       }
     } catch (err) {
       if (this.jobs.get(jobId)?.status === "in-progress") {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = userMessage(err);
         this.patch(jobId, { status: "failed", errorMessage: message });
         this.appendLog(jobId, `Error: ${message}`);
+        log.error("ai", `${jobId} failed`, err);
       }
     } finally {
       clearTimeout(timeout);
       this.controllers.delete(jobId);
+      // Terminal on every path out of the try above, so this is where the job
+      // and its log leave memory for the volume.
+      await this.jobs.settle(jobId);
     }
   }
 
@@ -426,8 +530,10 @@ export class RealAiApi implements AiApi {
           env,
         ] as const);
 
+    const started = Date.now();
     return new Promise((resolve, reject) => {
       const child = spawn(bin, args, { env: spawnEnv, signal, stdio: ["ignore", "pipe", "pipe"] });
+      log.info("ai", `${jobId} spawned opencode`, { pid: child.pid, model: config.ai.model, cwd, session: existingSessionId });
       let buffer = "";
       const thinkingLines: string[] = [];
       const answerParts: string[] = [];
@@ -466,6 +572,16 @@ export class RealAiApi implements AiApi {
       });
       child.on("close", (code) => {
         if (buffer.trim()) handleLine(buffer);
+        const ms = Date.now() - started;
+        // stderr is normally empty (all JSON events go to stdout), so anything
+        // on it is worth a line even when the run succeeded.
+        log[code === 0 ? "info" : "warn"](`ai ${jobId}`, `opencode exited ${code}`, {
+          ms,
+          answerChars: answerParts.join("").length,
+          toolCalls: thinkingLines.length,
+          session: sessionId,
+          stderr: stderrText.trim().slice(0, 500) || undefined,
+        });
         if (code === 0) {
           resolve({
             answer: answerParts.join("").trim() || "(opencode returned no answer)",

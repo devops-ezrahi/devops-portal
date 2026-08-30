@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { rememberUser } from "./auth";
 import { JiraTicketingApi } from "./modules/ticketing/JiraTicketingApi";
 import type { PortalUser } from "./types";
 
@@ -87,6 +88,46 @@ describe("JiraTicketingApi.listTickets", () => {
     const jql = JSON.parse(searchCall![1]!.body as string).jql as string;
     expect(jql).toContain(`project = "DEVOPS"`);
     expect(jql).toContain(`reporter = "jdoe"`);
+  });
+
+  it("queries by the SSO username, not the proxy's subject id", async () => {
+    // Keycloak's `sub` is a UUID; Jira has never heard of it and rejects the
+    // whole query. The username claim is the handle it does know.
+    const keycloakUser: PortalUser = {
+      id: "8f1c-uuid",
+      email: "dvora@example.com",
+      displayName: "Dvora",
+      groups: [],
+      username: "dvora"
+    };
+    rememberUser(keycloakUser);
+
+    const jql = await jqlOf(() => makeApi("").listTickets(keycloakUser, { scope: "mine" }));
+
+    expect(jql).toContain(`reporter = "dvora"`);
+    expect(jql).not.toContain("8f1c-uuid");
+  });
+
+  it("falls back to the JIRA_TOKEN account when Jira doesn't know the portal user", async () => {
+    const fetchMock = vi.fn(async (_url: string, options?: RequestInit) => {
+      const jql = JSON.parse(options!.body as string).jql as string;
+      return jql.includes(`reporter = "jdoe"`)
+        ? new Response(`{"errorMessages":["The reporter value 'jdoe' does not exist."]}`, { status: 400 })
+        : jsonResponse({ issues: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const api = makeApi("");
+
+    await api.listTickets(user, { scope: "mine" });
+
+    const jqls = fetchMock.mock.calls.map(([, options]) => JSON.parse(options!.body as string).jql as string);
+    expect(jqls).toHaveLength(2);
+    expect(jqls[1]).toContain("reporter = currentUser()");
+
+    // The rejected id is remembered, so the next poll doesn't pay for the
+    // failed attempt again.
+    await api.listTickets(user, { scope: "mine" });
+    expect(fetchMock.mock.calls).toHaveLength(3);
   });
 });
 

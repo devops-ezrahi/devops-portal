@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { getRequestType, validateRequestFields } from "./catalog";
-import { MetadataStore } from "./metadataStore";
 import { mapInternalStatus } from "./status";
 import type {
   CreateTicketInput,
@@ -20,7 +19,7 @@ function nowIso() {
 }
 
 function summarize(ticket: TicketDetail): TicketSummary {
-  const { description: _description, comments, metadata: _metadata, ...summary } = ticket;
+  const { description: _description, comments, ...summary } = ticket;
   return {
     ...summary,
     // Anyone other than the requester answering counts as the reply the SLA
@@ -31,11 +30,12 @@ function summarize(ticket: TicketDetail): TicketSummary {
 
 export class InMemoryTicketingApi implements TicketingApi {
   private tickets = new Map<string, TicketDetail>();
+  /** idempotency key -> ticket id, so a resubmitted create returns the first ticket. */
+  private ticketIdForKey = new Map<string, string>();
 
-  constructor(seed: TicketDetail[] = [], private readonly metadataStore = new MetadataStore()) {
+  constructor(seed: TicketDetail[] = []) {
     for (const ticket of seed) {
       this.tickets.set(ticket.id, ticket);
-      this.metadataStore.cacheTicket(summarize(ticket));
     }
   }
 
@@ -46,7 +46,7 @@ export class InMemoryTicketingApi implements TicketingApi {
     }
 
     if (input.idempotencyKey) {
-      const existingId = this.metadataStore.getTicketIdForKey(input.idempotencyKey);
+      const existingId = this.ticketIdForKey.get(input.idempotencyKey);
       if (existingId) {
         const existingTicket = this.tickets.get(existingId);
         if (existingTicket) {
@@ -73,15 +73,12 @@ export class InMemoryTicketingApi implements TicketingApi {
       updatedAt: createdAt,
       lastActivityAt: createdAt,
       description: fields.description ?? "",
-      metadata: Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, String(value)])),
       comments: []
     };
 
     this.tickets.set(ticket.id, ticket);
-    this.metadataStore.cacheTicket(summarize(ticket));
-    this.metadataStore.recordAudit("ticket.create", ticket.id, requester.id);
     if (input.idempotencyKey) {
-      this.metadataStore.recordIdempotency(input.idempotencyKey, ticket.id);
+      this.ticketIdForKey.set(input.idempotencyKey, ticket.id);
     }
     return ticket;
   }
@@ -126,8 +123,6 @@ export class InMemoryTicketingApi implements TicketingApi {
     ticket.comments.push(comment);
     ticket.updatedAt = createdAt;
     ticket.lastActivityAt = createdAt;
-    this.metadataStore.cacheTicket(summarize(ticket));
-    this.metadataStore.recordAudit("ticket.comment", ticket.id, user.id);
     return comment;
   }
 
@@ -151,7 +146,7 @@ export class InMemoryTicketingApi implements TicketingApi {
     return this.tickets.get(ticketId) ?? null;
   }
 
-  async updateAdminTicket(ticketId: string, admin: PortalUser, update: AdminTicketUpdate): Promise<TicketDetail> {
+  async updateAdminTicket(ticketId: string, _admin: PortalUser, update: AdminTicketUpdate): Promise<TicketDetail> {
     const ticket = this.tickets.get(ticketId);
     if (!ticket) {
       throw new Error("Ticket not found");
@@ -182,8 +177,6 @@ export class InMemoryTicketingApi implements TicketingApi {
     }
     ticket.updatedAt = updatedAt;
     ticket.lastActivityAt = updatedAt;
-    this.metadataStore.cacheTicket(summarize(ticket));
-    this.metadataStore.recordAudit("ticket.admin.update", ticket.id, admin.id);
     return ticket;
   }
 
@@ -203,8 +196,6 @@ export class InMemoryTicketingApi implements TicketingApi {
     ticket.comments.push(comment);
     ticket.updatedAt = createdAt;
     ticket.lastActivityAt = createdAt;
-    this.metadataStore.cacheTicket(summarize(ticket));
-    this.metadataStore.recordAudit("ticket.admin.comment", ticket.id, admin.id);
     return comment;
   }
 }
