@@ -24,7 +24,7 @@ vi.mock("./artifactoryRest", () => ({
   nativeUrl: (path: string) => path,
 }));
 
-const { discoverPackages, pool, targetPath, uploadFiles } = await import("./npmPackages");
+const { discoverPackages, pool, targetPath, uniquePackages, uploadFiles } = await import("./npmPackages");
 type UploadItem = Parameters<typeof uploadFiles>[0][number];
 
 async function writePackage(dir: string, name: string, version: string) {
@@ -45,6 +45,10 @@ beforeAll(async () => {
   // A package.json buried in the package's own subtree (an example app), not
   // inside node_modules — must not be discovered as if it were a dependency.
   await writePackage(join(root, "outer", "examples", "demo"), "demo-app", "0.0.1");
+  // npm nests a second copy of the same version whenever hoisting cannot reach
+  // a dependent. It packs to the same tarball at the same path as the copy
+  // already found.
+  await writePackage(join(root, "outer", "node_modules", "arg"), "arg", "4.1.5");
   // Junk that must be skipped rather than crash the walk.
   await mkdir(join(root, ".bin"), { recursive: true });
   await mkdir(join(root, "broken"), { recursive: true });
@@ -67,7 +71,15 @@ describe("discoverPackages", () => {
   it("finds unscoped, scoped and nested packages", async () => {
     const found = await discoverPackages(root);
     const ids = found.map((p) => `${p.name}@${p.version}`).sort();
-    expect(ids).toEqual(["@babel/core@7.24.0", "arg@4.1.5", "inner@2.0.0", "outer@1.0.0"]);
+    // `arg` twice: the top-level copy and the nested one, which is what npm
+    // leaves behind and what `uniquePackages` (not this) folds together.
+    expect(ids).toEqual([
+      "@babel/core@7.24.0",
+      "arg@4.1.5",
+      "arg@4.1.5",
+      "inner@2.0.0",
+      "outer@1.0.0",
+    ]);
   });
 
   it("skips directories with unusable manifests and reports why", async () => {
@@ -81,9 +93,35 @@ describe("discoverPackages", () => {
     expect(await discoverPackages(join(root, ".bin"))).toEqual([]);
   });
 
+  // Every copy is returned: the caller uses the directory list to tell which
+  // files on disk belong to a package, and dropping one here reports every file
+  // inside it as an unrelated loose file instead.
+  it("returns every copy of a package, duplicates included", async () => {
+    const found = await discoverPackages(root);
+    expect(found.filter((p) => p.name === "arg")).toHaveLength(2);
+  });
+
   it("does not descend into a package's own non-node_modules subdirectories", async () => {
     const found = await discoverPackages(root);
     expect(found.some((p) => p.name === "demo-app")).toBe(false);
+  });
+});
+
+describe("uniquePackages", () => {
+  it("keeps one package per name@version and says how many it dropped", async () => {
+    const skipped: string[] = [];
+    const unique = uniquePackages(await discoverPackages(root), (line) => skipped.push(line));
+
+    expect(unique.filter((p) => p.name === "arg")).toHaveLength(1);
+    expect(skipped.some((s) => s.includes("1 duplicate"))).toBe(true);
+  });
+
+  it("keeps a nested copy of a different version", () => {
+    const packages = [
+      { dir: "/a", name: "arg", version: "4.1.5" },
+      { dir: "/b/node_modules/arg", name: "arg", version: "5.0.0" },
+    ];
+    expect(uniquePackages(packages)).toHaveLength(2);
   });
 });
 

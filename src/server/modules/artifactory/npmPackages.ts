@@ -58,6 +58,10 @@ export function targetPath(name: string, version: string): string {
  * Every directory under `root` holding a usable package.json. One recursive walk
  * covers all the shapes a user can drop: a bare node_modules, a single package,
  * scoped `@scope/name`, and nested `node_modules/a/node_modules/b`.
+ *
+ * One entry per *directory*, duplicates included — the caller needs the full
+ * list to tell which files on disk belong to a package at all. Deciding what to
+ * upload out of it is `uniquePackages`.
  */
 export async function discoverPackages(
   root: string,
@@ -111,6 +115,38 @@ export async function discoverPackages(
 
   await walk(root);
   return found;
+}
+
+/**
+ * One package per `name@version`, however many copies of it are on disk. npm
+ * nests a second copy of the *same* version wherever hoisting cannot reach a
+ * dependent — this repo's own node_modules is 884 package directories for 799
+ * packages — and every copy packs to the same tarball at the same target path,
+ * so keeping them all means packing, checking and PUTting the identical file two
+ * or three times. A nested copy of a *different* version is a different package
+ * and is kept.
+ *
+ * Deliberately not folded into `discoverPackages`: the directories dropped here
+ * are still package directories, and a caller that treats them as anything else
+ * reports every file inside them as an unrelated loose file.
+ */
+export function uniquePackages(
+  packages: DiscoveredPackage[],
+  onSkip: (message: string) => void = () => {}
+): DiscoveredPackage[] {
+  const unique = new Map<string, DiscoveredPackage>();
+  for (const pkg of packages) {
+    const key = `${pkg.name}@${pkg.version}`;
+    if (!unique.has(key)) unique.set(key, pkg);
+  }
+
+  const dropped = packages.length - unique.size;
+  // Said out loud because the number on screen is otherwise smaller than the
+  // number of package folders the user knows they dropped.
+  if (dropped > 0) {
+    onSkip(`Ignoring ${dropped} duplicate copies of packages already found (same name and version).`);
+  }
+  return [...unique.values()];
 }
 
 /**

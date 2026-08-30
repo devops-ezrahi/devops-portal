@@ -66,8 +66,8 @@ const user: PortalUser = {
 
 /**
  * Submit a folder upload and wait for the job to settle. The tree is zipped to a
- * temp file first, because that is exactly what the router hands the job: multer
- * streams the client's archive to disk and passes down its path.
+ * temp file first, because that is exactly what the router hands the job: the
+ * client's parts are appended to a file on disk and its path is passed down.
  */
 async function run(entries: Entry[], folderName: string) {
   const inputs: Record<string, Uint8Array> = {};
@@ -115,6 +115,24 @@ describe("folder upload log", () => {
     expect(job.log.at(-1)).toBe("Done. 1 uploaded, 1 already present, 1 failed.");
   });
 
+  // npm nests a second copy of a version wherever hoisting cannot reach a
+  // dependent. Only one copy is uploaded — and the other copy's files stay
+  // inside a package, rather than being reported as unrelated loose files.
+  it("uploads one copy of a duplicated package and counts nothing loose", async () => {
+    const job = await run(
+      [
+        ...pkg("node_modules/left-pad", "left-pad", "1.3.0"),
+        ...pkg("node_modules/cross-spawn", "cross-spawn", "7.0.3"),
+        ...pkg("node_modules/cross-spawn/node_modules/left-pad", "left-pad", "1.3.0"),
+      ],
+      "node_modules"
+    );
+
+    expect(job.log).toContain("Ignoring 1 duplicate copies of packages already found (same name and version).");
+    expect(job.log).toContain("Found 2 npm package(s).");
+    expect(job.log.some((l) => l.includes("unrelated"))).toBe(false);
+  });
+
   it("routes each type to its own repo and leaves node_modules contents alone", async () => {
     const files: Entry[] = [
       ...pkg("node_modules/left-pad", "left-pad", "1.3.0"),
@@ -135,7 +153,7 @@ describe("folder upload log", () => {
       "npm-local/left-pad/-/left-pad-1.3.0.tgz",
       "rpm-local/nginx-1.24.0-1.el9.x86_64.rpm",
     ]);
-    expect(job.log).toContain("1 unrecognised file(s) skipped.");
+    expect(job.log).toContain("1 unrelated file(s) skipped.");
   });
 
   // This used to fall back to uploading the tree verbatim under the folder's
@@ -183,9 +201,16 @@ describe("folder upload log", () => {
 // a URL copy — the reason its output looked nothing like a folder upload's.
 describe("url copy", () => {
   it("reports packages and progress like a folder upload does", async () => {
+    // The pom has to be a real one: its own coordinates are what decides where
+    // both it and the jar are deployed.
+    const pom = `<project><groupId>org.foo</groupId><artifactId>bar</artifactId><version>1.0.0</version></project>`;
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response(Buffer.from("not really a tarball"), { status: 200 }))
+      vi.fn(async (url: string) =>
+        String(url).endsWith(".pom")
+          ? new Response(pom, { status: 200 })
+          : new Response(Buffer.from("not really a tarball"), { status: 200 })
+      )
     );
 
     const api = new RealArtifactoryApi();
@@ -201,10 +226,14 @@ describe("url copy", () => {
     }
 
     expect(job!.status).toBe("completed");
-    expect(job!.packages).toHaveLength(1);
-    expect(job!.packages![0].path).toBe("maven-local/org/foo/bar/1.0.0/bar-1.0.0.jar");
+    // The sibling pom rides along: a jar without it is unresolvable for anyone
+    // consuming the repo.
+    expect(job!.packages!.map((p) => p.path)).toEqual([
+      "maven-local/org/foo/bar/1.0.0/bar-1.0.0.jar",
+      "maven-local/org/foo/bar/1.0.0/bar-1.0.0.pom",
+    ]);
     expect(job!.packages![0].nativeUrl).toBeTruthy();
-    expect(job!.progress).toEqual({ done: 1, total: 1 });
+    expect(job!.progress).toEqual({ done: 2, total: 2 });
 
     vi.unstubAllGlobals();
   });
