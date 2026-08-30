@@ -18,7 +18,9 @@ describe("stageToGroovy", () => {
 
   it("keeps catalog order regardless of the order the args were added", () => {
     const code = stageToGroovy(stage("genStage", { commands: ["npm ci"], image: "node20", title: "Build" }));
-    expect(code).toBe(["genStage(", "    title: 'Build',", "    image: 'node20',", "    commands: ['npm ci']", ")"].join("\n"));
+    expect(code).toBe(
+      ["genStage(", "    title: 'Build',", "    image: 'node20',", "    commands: [", "        'npm ci'", "    ]", ")"].join("\n")
+    );
   });
 
   it("drops arguments that would render empty", () => {
@@ -41,7 +43,7 @@ describe("stageToGroovy", () => {
 
   it("writes commands as a shell list or as a closure, whichever the stage holds", () => {
     const shell = stageToGroovy(stage("genStage", { title: "T", image: "i", commands: ["npm ci", "npm test"] }));
-    expect(shell).toContain("commands: ['npm ci', 'npm test']");
+    expect(shell).toContain("commands: [\n        'npm ci',\n        'npm test'\n    ]");
 
     const closure = stageToGroovy(
       stage("genStage", {
@@ -84,9 +86,11 @@ describe("stageToGroovy", () => {
     expect(code).toBe("AIStage(prompt: 'don\\'t fail')");
   });
 
-  it("keeps a short list inline", () => {
+  // Commands are read as a script, so every one of them gets its own row —
+  // short enough to fit on one line is not a reason to run them together.
+  it("gives every command its own line, however short they are", () => {
     const code = stageToGroovy(stage("genStage", { title: "Build", image: "node20", commands: ["npm ci", "npm run build"] }));
-    expect(code).toContain("commands: ['npm ci', 'npm run build']");
+    expect(code).toContain("commands: [\n        'npm ci',\n        'npm run build'\n    ]");
   });
 
   it("breaks a list that would run long one entry per line", () => {
@@ -155,7 +159,7 @@ describe("toGroovy", () => {
   it("takes the quotes and commas off a list pasted out of an existing Jenkinsfile", () => {
     const pasted = ['"npm install",', "'npm run dev',", '  "npm test"  '];
     expect(stageToGroovy(stage("genStage", { title: "T", image: "i", commands: pasted }))).toContain(
-      "commands: ['npm install', 'npm run dev', 'npm test']"
+      "commands: [\n        'npm install',\n        'npm run dev',\n        'npm test'\n    ]"
     );
   });
 

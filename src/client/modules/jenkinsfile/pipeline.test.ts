@@ -73,10 +73,6 @@ describe("isEmptyArg", () => {
 describe("validatePipeline", () => {
   const withStage = (stage: JenkinsfileStage) => ({ ...newPipeline(), stages: [stage] });
 
-  it("wants at least one stage", () => {
-    expect(validatePipeline(newPipeline()).pipeline).toContain("A pipeline needs at least one stage.");
-  });
-
   it("requires a title on a step that does not default one", () => {
     const errors = validatePipeline(withStage({ id: "s", step: "genStage", args: { image: "node20" } }));
     expect(errors.stages.s).toContain("title is required.");

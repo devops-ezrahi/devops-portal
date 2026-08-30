@@ -1,4 +1,4 @@
-import type { JenkinsfileParam, JenkinsfileParamType } from "../../../server/types";
+import type { JenkinsfileParam, JenkinsfileParamType, JenkinsfileStage } from "../../../server/types";
 
 export type ParamTypeSpec = {
   type: JenkinsfileParamType;
@@ -39,4 +39,22 @@ export const PARAM_TYPES: ParamTypeSpec[] = [
 
 export function newParam(): JenkinsfileParam {
   return { name: "", type: "boolean", defaultValue: "false", description: "" };
+}
+
+/**
+ * Parameter names actually referenced by the stages — `params.skipImage`,
+ * `params['skipImage']`.
+ *
+ * A parameter nothing reads is a build-time question with no effect, which is
+ * silent until someone wonders why ticking the box changed nothing. Scanning
+ * the serialised stages rather than the generated Groovy is deliberate: a
+ * reference can sit in any argument shape — an expression, a command line, a
+ * closure body, a map value — and JSON.stringify reaches all of them for free.
+ */
+export function usedParamNames(stages: JenkinsfileStage[]): Set<string> {
+  const used = new Set<string>();
+  // JSON escapes a double quote as \" — hence the optional backslash.
+  const re = /params\s*(?:\.\s*([A-Za-z_]\w*)|\[\s*\\?["']([^"'\\]+)\\?["']\s*\])/g;
+  for (const m of JSON.stringify(stages).matchAll(re)) used.add(m[1] ?? m[2]);
+  return used;
 }

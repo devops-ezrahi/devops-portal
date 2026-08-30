@@ -1,22 +1,24 @@
-import { AlertTriangle, Check, Copy, Download } from "lucide-react";
+import { AlertTriangle, Check, Copy, Download, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import hljs from "highlight.js/lib/core";
-import groovy from "highlight.js/lib/languages/groovy";
-// rehype-highlight only tags code with .hljs-* classes and the AI module already
-// pulls this theme in for the same reason — a duplicate import dedupes.
-import "highlight.js/styles/atom-one-dark.css";
+import { highlightGroovy } from "../highlight";
 import { log, error as logError } from "../../../log";
-
-hljs.registerLanguage("groovy", groovy);
 
 type Props = {
   code: string;
   problems: string[];
+  /**
+   * Every problem in the pipeline, including the stages' own and the ones still
+   * held back by the touched gate — a mistake you have not looked at yet is
+   * exactly the one worth warning about on the way out.
+   */
+  problemCount: number;
 };
 
-export function JenkinsfilePreview({ code, problems }: Props) {
+export function JenkinsfilePreview({ code, problems, problemCount }: Props) {
   const [copied, setCopied] = useState(false);
-  const html = useMemo(() => hljs.highlight(code, { language: "groovy" }).value, [code]);
+  /** Which action is waiting on the "it has problems" dialog, if any. */
+  const [pending, setPending] = useState<null | "Copy" | "Download">(null);
+  const html = useMemo(() => highlightGroovy(code), [code]);
   const lines = code.trim() ? code.trim().split("\n").length : 0;
 
   useEffect(() => {
@@ -24,6 +26,18 @@ export function JenkinsfilePreview({ code, problems }: Props) {
     const id = setTimeout(() => setCopied(false), 2000);
     return () => clearTimeout(id);
   }, [copied]);
+
+  /**
+   * Taking a broken file out of the builder is allowed, but not by accident —
+   * so a problem holds the action back until it is confirmed. The portal's own
+   * modal rather than `window.confirm`: a browser dialog looks like it came
+   * from somewhere else.
+   */
+  function ask(action: "Copy" | "Download") {
+    if (problemCount > 0) setPending(action);
+    else if (action === "Copy") handleCopy();
+    else handleDownload();
+  }
 
   function handleCopy() {
     navigator.clipboard
@@ -55,18 +69,24 @@ export function JenkinsfilePreview({ code, problems }: Props) {
           <span className="jf-group-count">{lines} line{lines === 1 ? "" : "s"}</span>
         </div>
         <div className="jf-preview-actions">
-          <button type="button" className="ghost-button" onClick={handleCopy}>
+          <button type="button" className="ghost-button" onClick={() => ask("Copy")}>
             {copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
             {copied ? "Copied" : "Copy"}
           </button>
-          <button type="button" className="ghost-button" onClick={handleDownload}>
+          <button type="button" className="ghost-button" onClick={() => ask("Download")}>
             <Download size={16} aria-hidden="true" /> Download
           </button>
         </div>
       </div>
 
-      {problems.length > 0 && (
+      {(problems.length > 0 || problemCount > 0) && (
         <ul className="jf-errors" aria-label="Pipeline problems">
+          {problemCount > 0 && (
+            <li>
+              <AlertTriangle size={14} aria-hidden="true" /> {problemCount} unresolved problem
+              {problemCount === 1 ? "" : "s"} — this Jenkinsfile is incomplete and will likely fail in Jenkins.
+            </li>
+          )}
           {problems.map((message) => (
             <li key={message}>
               <AlertTriangle size={14} aria-hidden="true" /> {message}
@@ -76,8 +96,47 @@ export function JenkinsfilePreview({ code, problems }: Props) {
       )}
 
       <pre className="jf-code">
-        <code className="hljs language-groovy" dangerouslySetInnerHTML={{ __html: html }} />
+        <code className="hljs" dangerouslySetInnerHTML={{ __html: html }} />
       </pre>
+
+      {pending && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="jf-broken-title">
+            <div className="modal-heading">
+              <h2 id="jf-broken-title">
+                <AlertTriangle size={18} aria-hidden="true" className="jf-broken-icon" />
+                {problemCount} unresolved problem{problemCount === 1 ? "" : "s"}
+              </h2>
+              <button className="icon-button" aria-label="Close" onClick={() => setPending(null)}>
+                <X size={18} aria-hidden="true" />
+              </button>
+            </div>
+            {/* Same padded body and right-aligned footer the import dialog uses. */}
+            <div className="jf-new-import">
+              <p>
+                This Jenkinsfile is incomplete — Jenkins will likely fail the build. The problems are listed
+                above, on the stages they belong to.
+              </p>
+              <div className="jf-import-buttons">
+                <button type="button" className="ghost-button" onClick={() => setPending(null)}>
+                  Go back
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => {
+                    setPending(null);
+                    if (pending === "Copy") handleCopy();
+                    else handleDownload();
+                  }}
+                >
+                  {pending} anyway
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

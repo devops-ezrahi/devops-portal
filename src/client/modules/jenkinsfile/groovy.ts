@@ -47,11 +47,13 @@ function key(name: string): string {
  * `[a, b, c]` on one line, or one entry per line once that would run long.
  * An entry that already broke across lines never gets inlined — otherwise a
  * single multi-line secret renders as `[[` with its closing bracket stranded.
+ * `stacked` forces a line per entry however short they are: commands are read
+ * as a script, one per row, the way they were typed.
  */
-function bracket(entries: string[], indent: string): string {
+function bracket(entries: string[], indent: string, stacked = false): string {
   if (entries.length === 0) return "[]";
   const inline = `[${entries.join(", ")}]`;
-  if (!inline.includes("\n") && inline.length + indent.length <= 100) return inline;
+  if (!stacked && !inline.includes("\n") && inline.length + indent.length <= 100) return inline;
   return `[\n${entries.map((e) => `${indent}${INDENT}${e}`).join(",\n")}\n${indent}]`;
 }
 
@@ -84,7 +86,7 @@ function renderValue(kind: ArgKind, value: unknown, indent: string): string {
         while (body.length && !body[body.length - 1].trim()) body.pop();
         return `{\n${body.map((line) => (line.trim() ? `${indent}${INDENT}${line}` : "")).join("\n")}\n${indent}}`;
       }
-      return bracket(linesOf(value).map(unwrap).filter(Boolean).map(quote), indent);
+      return bracket(linesOf(value).map(unwrap).filter(Boolean).map(quote), indent, true);
     }
     case "stringList":
       return bracket(linesOf(value).map(unwrap).filter(Boolean).map(quote), indent);

@@ -5,6 +5,7 @@ import type { JenkinsfileParam, JenkinsfilePipeline, JenkinsfileStage } from "..
 import { log, error as logError } from "../../log";
 import { createPipeline, deletePipeline, getImages, listPipelines, updatePipeline, type PickableImage } from "./api";
 import { toGroovy } from "./groovy";
+import { usedParamNames } from "./params";
 import {
   createStage,
   DEFAULT_LIBRARY,
@@ -16,7 +17,7 @@ import {
 } from "./pipeline";
 import { JenkinsfilePreview } from "./components/JenkinsfilePreview";
 import { LibraryField } from "./components/LibraryField";
-import { ParamsEditor } from "./components/ParamsEditor";
+import { ParamsEditor, paramScope } from "./components/ParamsEditor";
 import { PipelineList } from "./components/PipelineList";
 import { ImagesContext } from "./components/ArgField";
 import { NewPipelineDialog } from "./components/NewPipelineDialog";
@@ -50,10 +51,20 @@ function useLeaveScopes(onLeave: (scope: string) => void, scopes: string[]) {
 
   useEffect(() => {
     function onDown(e: PointerEvent) {
-      const inside = (e.target as Element | null)?.closest?.("[data-touch-scope]");
-      const pressed = inside?.getAttribute("data-touch-scope");
+      // Every scope the press landed inside, not just the nearest: scopes nest
+      // (a parameter sits inside the parameters section), and pressing into a
+      // parameter must not count as leaving the section that holds it.
+      const inside = new Set<string>();
+      for (
+        let el = (e.target as Element | null)?.closest?.("[data-touch-scope]") ?? null;
+        el;
+        el = el.parentElement?.closest("[data-touch-scope]") ?? null
+      ) {
+        const scope = el.getAttribute("data-touch-scope");
+        if (scope) inside.add(scope);
+      }
       for (const scope of latest.current.scopes) {
-        if (scope !== pressed) latest.current.onLeave(scope);
+        if (!inside.has(scope)) latest.current.onLeave(scope);
       }
     }
     document.addEventListener("pointerdown", onDown);
@@ -126,6 +137,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
     [pipelines, showAll, isAdmin, user.id]
   );
   const code = useMemo(() => toGroovy(draft), [draft]);
+  const usedParams = useMemo(() => usedParamNames(draft.stages), [draft.stages]);
   const errors = useMemo(() => {
     const all = validatePipeline(draft);
     return {
@@ -133,6 +145,14 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
       stages: Object.fromEntries(Object.entries(all.stages).filter(([id]) => touched.has(id))),
     };
   }, [draft, touched]);
+  // What the preview warns about is what is on screen: a stage you are still in
+  // the middle of shows nothing, so the summary must not count it either. By
+  // the time Copy or Download is pressed the gate has opened anyway — that
+  // press lands outside every stage, which is what `useLeaveScopes` watches.
+  const problemCount = useMemo(
+    () => errors.pipeline.length + Object.values(errors.stages).flat().length,
+    [errors]
+  );
 
   function patchDraft(updates: Partial<DraftPipeline>) {
     setDraft((prev) => ({ ...prev, ...updates }));
@@ -148,7 +168,15 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
     // opening one would write it straight back.
     idRef.current = pipeline.id;
     persisted.current = JSON.stringify(toInput(opened));
-    setTouched(new Set());
+    // Everything in it is finished work, not a field someone is in the middle
+    // of, so its problems show straight away — otherwise a reload hides them.
+    setTouched(
+      new Set([
+        PIPELINE_SCOPE,
+        ...opened.stages.map((stage) => stage.id),
+        ...opened.params.map(paramScope),
+      ])
+    );
     setSaveState("idle");
   }
 
@@ -157,7 +185,9 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
     setDraft(start);
     idRef.current = "";
     persisted.current = "";
-    setTouched(new Set());
+    // Same for an import: those stages came from a file, not from typing. An
+    // empty new pipeline has no stages, so this is a no-op for it.
+    setTouched(new Set([...start.stages.map((stage) => stage.id), ...start.params.map(paramScope)]));
     setSaveState("idle");
     setNewOpen(false);
     localStorage.removeItem(LAST_OPENED_KEY);
@@ -179,7 +209,11 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
     setTouched((prev) => (prev.has(scope) ? prev : new Set(prev).add(scope)));
   }
 
-  useLeaveScopes(touch, [PIPELINE_SCOPE, ...draft.stages.map((s) => s.id)]);
+  useLeaveScopes(touch, [
+    PIPELINE_SCOPE,
+    ...draft.stages.map((s) => s.id),
+    ...draft.params.map(paramScope),
+  ]);
 
   function handleAddStage(step: string) {
     const stage = createStage(step);
@@ -290,11 +324,6 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
         <div className="jf-topbar-actions">
           <span className={`jf-save-state ${saveState}`} role="status">
             {saveState === "saving" && "Saving…"}
-            {saveState === "saved" && (
-              <>
-                <Check size={15} aria-hidden="true" /> Saved
-              </>
-            )}
             {saveState === "error" && (
               <>
                 <TriangleAlert size={15} aria-hidden="true" /> Not saved
@@ -341,80 +370,91 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
         </div>
 
         <div className="content-column">
-          {/* The open pipeline's name heads the editor, level with the list
-              heading beside it — it names what the whole column is showing, so
-              it belongs above the column rather than tucked into the toolbar.
-              Text with a pencil, the same shape a ticket's title uses, because
-              a box sitting there permanently reads as a search field. A list of
-              "Dev User #7" says nothing about what any of them build; the
-              server still mints that name and this renames over it. */}
-          <div className="jf-title-row">
-            {naming ? (
-              <input
-                className="title-edit-input jf-title"
-                aria-label="Pipeline name"
-                value={draft.name}
-                placeholder="Untitled pipeline"
-                autoFocus
-                onChange={(e) => setDraft((prev) => ({ ...prev, name: e.target.value }))}
-                onBlur={() => setNaming(false)}
-                onKeyDown={(e) => {
-                  // Enter and Escape both just leave the field — every keystroke
-                  // is already in the draft, and autosave is what writes it.
-                  if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
-                }}
+          {/* One outlined panel for the whole editor, the same box every other
+              module's content column is — the four parts are separated by a rule
+              inside it rather than by four outlines. */}
+          <section className="detail-panel jf-editor" aria-label="Pipeline editor">
+            {/* The open pipeline's name heads the panel, inside the box with
+                everything it names rather than floating above it. Text with a
+                pencil, the same shape a ticket's title uses, because a box
+                sitting there permanently reads as a search field. A list of
+                "Dev User #7" says nothing about what any of them build; the
+                server still mints that name and this renames over it. */}
+            <div className="jf-section jf-title-row">
+              {naming ? (
+                <input
+                  className="title-edit-input jf-title"
+                  aria-label="Pipeline name"
+                  value={draft.name}
+                  placeholder="Untitled pipeline"
+                  autoFocus
+                  onChange={(e) => setDraft((prev) => ({ ...prev, name: e.target.value }))}
+                  onBlur={() => setNaming(false)}
+                  onKeyDown={(e) => {
+                    // Enter and Escape both just leave the field — every keystroke
+                    // is already in the draft, and autosave is what writes it.
+                    if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
+                  }}
+                />
+              ) : (
+                <h2 className={`jf-title${draft.name.trim() ? "" : " jf-title-empty"}`}>{draft.name.trim() || "Untitled pipeline"}</h2>
+              )}
+              <button
+                type="button"
+                className="icon-button edit-toggle"
+                aria-label={naming ? "Done editing the name" : "Rename this pipeline"}
+                onClick={() => setNaming((v) => !v)}
+              >
+                {naming ? <Check size={16} aria-hidden="true" /> : <Pencil size={16} aria-hidden="true" />}
+              </button>
+            </div>
+
+            <div className="jf-section">
+              <LibraryField
+                value={draft.library}
+                name={sharedLibrary}
+                onChange={(library) => patchDraft({ library })}
               />
-            ) : (
-              <h2 className={`jf-title${draft.name.trim() ? "" : " jf-title-empty"}`}>{draft.name.trim() || "Untitled pipeline"}</h2>
-            )}
-            <button
-              type="button"
-              className="icon-button edit-toggle"
-              aria-label={naming ? "Done editing the name" : "Rename this pipeline"}
-              onClick={() => setNaming((v) => !v)}
+            </div>
+
+            <div
+              className="jf-section"
+              data-touch-scope={PIPELINE_SCOPE}
+              onBlur={(e) => {
+                if (!e.relatedTarget || !e.currentTarget.contains(e.relatedTarget)) touch(PIPELINE_SCOPE);
+              }}
             >
-              {naming ? <Check size={16} aria-hidden="true" /> : <Pencil size={16} aria-hidden="true" />}
-            </button>
-          </div>
+              <ParamsEditor
+                params={draft.params}
+                used={usedParams}
+                touched={touched}
+                onLeave={touch}
+                onChange={(params) => patchDraft({ params })}
+              />
+            </div>
 
-          <section className="detail-panel" aria-label="Pipeline settings">
-            <LibraryField
-              value={draft.library}
-              name={sharedLibrary}
-              onChange={(library) => patchDraft({ library })}
-            />
-          </section>
+            <div className="jf-section jf-builder">
+              <StageList
+                stages={draft.stages}
+                errors={errors.stages}
+                onToggle={toggleStage}
+                onCollapseAll={collapseAll}
+                onReorder={(stages) => patchDraft({ stages })}
+                onChange={handleStageChange}
+                onLeave={touch}
+                onAdd={handleAddStage}
+                onRemove={handleRemoveStage}
+              />
+            </div>
 
-          <section
-            className="detail-panel"
-            aria-label="Pipeline parameters"
-            data-touch-scope={PIPELINE_SCOPE}
-            onBlur={(e) => {
-              if (!e.relatedTarget || !e.currentTarget.contains(e.relatedTarget)) touch(PIPELINE_SCOPE);
-            }}
-          >
-            <ParamsEditor params={draft.params} onChange={(params) => patchDraft({ params })} />
-          </section>
-
-          <section className="detail-panel jf-builder" aria-label="Stages">
-            <StageList
-              stages={draft.stages}
-              errors={errors.stages}
-              onToggle={toggleStage}
-              onCollapseAll={collapseAll}
-              onReorder={(stages) => patchDraft({ stages })}
-              onChange={handleStageChange}
-              onLeave={touch}
-              onAdd={handleAddStage}
-              onRemove={handleRemoveStage}
-            />
-          </section>
-
-          <section className="detail-panel" aria-label="Generated Jenkinsfile">
-            <JenkinsfilePreview code={code} problems={errors.pipeline} />
+            <div className="jf-section">
+              <JenkinsfilePreview code={code} problems={errors.pipeline} problemCount={problemCount} />
+              <p className="jf-credit">Idea and system design by Yuval Danilovich.</p>
+            </div>
           </section>
         </div>
       </div>
+
       {newOpen && (
         <NewPipelineDialog onScratch={handleNew} onImport={handleImport} onClose={() => setNewOpen(false)} />
       )}

@@ -224,8 +224,6 @@ export const NO_ERRORS: PipelineErrors = Object.freeze({ stages: {}, pipeline: [
 export function validatePipeline(pipeline: DraftPipeline): PipelineErrors {
   const errors: PipelineErrors = { stages: {}, pipeline: [] };
 
-  if (pipeline.stages.length === 0) errors.pipeline.push("A pipeline needs at least one stage.");
-
   // Jenkins takes the parameter name as a Groovy identifier — `params.my-flag`
   // does not parse — and a duplicate silently wins over the one before it.
   const seen = new Set<string>();

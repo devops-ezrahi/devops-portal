@@ -1,5 +1,6 @@
 import { FilePlus2, FileUp, TriangleAlert, Upload, X } from "lucide-react";
 import { useRef, useState } from "react";
+import { highlightGroovy } from "../highlight";
 import { parseJenkinsfile } from "../parse";
 import type { DraftPipeline } from "../pipeline";
 
@@ -24,6 +25,7 @@ export function NewPipelineDialog({
   const [warnings, setWarnings] = useState<string[] | null>(null);
   const [filename, setFilename] = useState("");
   const file = useRef<HTMLInputElement>(null);
+  const shadow = useRef<HTMLPreElement>(null);
 
   // Parsed on demand rather than per keystroke: pasting a long file would
   // otherwise re-parse it on every character of the paste.
@@ -89,17 +91,33 @@ export function NewPipelineDialog({
             </div>
 
             <label htmlFor="jf-import-text">Or paste it here</label>
-            <textarea
-              id="jf-import-text"
-              className="jf-import-text"
-              spellCheck={false}
-              placeholder={"@Library('jenkins-k8s-shared-library') _\n\ngenStage(\n    title: 'Build',\n    image: 'python311',\n    commands: ['npm ci']\n)"}
-              value={text}
-              onChange={(e) => {
-                setText(e.target.value);
-                setWarnings(null);
-              }}
-            />
+            {/* A textarea cannot colour its own text, so the highlighted copy sits
+                behind it and the textarea's own text is transparent — the two share
+                every metric that decides where a character lands, and the scroll
+                position is copied over on each scroll. */}
+            <div className="jf-import-editor">
+              <pre className="jf-import-text jf-import-shadow" aria-hidden="true" ref={shadow}>
+                {/* The trailing newline keeps a final empty line scrollable in step
+                    with the textarea, which always reserves one. */}
+                <code className="hljs" dangerouslySetInnerHTML={{ __html: highlightGroovy(text) + "\n" }} />
+              </pre>
+              <textarea
+                id="jf-import-text"
+                className="jf-import-text"
+                spellCheck={false}
+                placeholder={"@Library('jenkins-k8s-shared-library') _\n\ngenStage(\n    title: 'Build',\n    image: 'python311',\n    commands: ['npm ci']\n)"}
+                value={text}
+                onScroll={(e) => {
+                  if (!shadow.current) return;
+                  shadow.current.scrollTop = e.currentTarget.scrollTop;
+                  shadow.current.scrollLeft = e.currentTarget.scrollLeft;
+                }}
+                onChange={(e) => {
+                  setText(e.target.value);
+                  setWarnings(null);
+                }}
+              />
+            </div>
 
             {warnings && warnings.length > 0 && (
               <div className="jf-import-warnings" role="status">

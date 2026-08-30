@@ -130,7 +130,7 @@ describe("JenkinsfileView", () => {
     addStage("Sonar scan");
 
     expect(code()).toContain("genStage(");
-    expect(code()).toContain("commands: ['npm ci', 'npm run build']");
+    expect(code()).toContain("commands: [\n        'npm ci',\n        'npm run build'\n    ]");
     expect(code().indexOf("genStage")).toBeLessThan(code().indexOf("sonarStage"));
   });
 
@@ -188,7 +188,7 @@ describe("JenkinsfileView", () => {
     // Nothing was typed in the name field, so it goes up blank and the server
     // mints one — the field is a rename, not a required step before saving.
     expect(input.name).toBe("");
-    expect(screen.getByRole("status")).toHaveTextContent("Saved");
+    expect(screen.getByRole("status")).toHaveTextContent("");
 
     // A second change goes to the id the create handed back, not to a new record.
     setArg("projectKey", "checkout");
@@ -250,13 +250,13 @@ describe("JenkinsfileView", () => {
     setArg("image", "node20");
 
     setList("commands", ["npm ci", "npm test"]);
-    expect(code()).toContain("commands: ['npm ci', 'npm test']");
+    expect(code()).toContain("commands: [\n        'npm ci',\n        'npm test'\n    ]");
 
     // An empty box is not a mistake to be swept up under the cursor — it stays
     // until Backspace takes it, and the generator is what drops it.
     fireEvent.keyDown(screen.getByLabelText("commands 2"), { key: "Enter" });
     expect(screen.getByLabelText("commands 3")).toHaveValue("");
-    expect(code()).toContain("commands: ['npm ci', 'npm test']");
+    expect(code()).toContain("commands: [\n        'npm ci',\n        'npm test'\n    ]");
 
     fireEvent.keyDown(screen.getByLabelText("commands 3"), { key: "Backspace" });
     expect(screen.queryByLabelText("commands 3")).toBeNull();
@@ -271,7 +271,7 @@ describe("JenkinsfileView", () => {
     fireEvent.paste(screen.getByLabelText("commands"), {
       clipboardData: { getData: () => "mvn -B package\nmvn -B verify" },
     });
-    expect(code()).toContain("commands: ['mvn -B package', 'mvn -B verify']");
+    expect(code()).toContain("commands: [\n        'mvn -B package',\n        'mvn -B verify'\n    ]");
   });
 
   it("drops an argument when the last entry of it is removed", () => {
@@ -462,7 +462,7 @@ genStage(title: 'Build', image: 'python311', commands: ['npm ci'])`,
   it("offers boolean, string and choice parameters, and writes the one picked", () => {
     const { code } = renderView();
 
-    fireEvent.click(screen.getByRole("button", { name: /Add parameter/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add pipeline parameters/ }));
     expect(
       [...screen.getByLabelText("Parameter 1 type").querySelectorAll("option")].map((o) => o.value)
     ).toEqual(["boolean", "string", "choice"]);

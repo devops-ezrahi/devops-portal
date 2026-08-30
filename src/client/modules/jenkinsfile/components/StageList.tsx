@@ -30,7 +30,8 @@ type Props = {
  * expanded card cannot be selected with the mouse if its ancestor is grabbing
  * the drag.
  *
- * Adding a stage is the last thing in the list, and its palette is a popover:
+ * Adding a stage is the last thing in the list, and its palette is a popover
+ * that opens upwards, right-aligned with the button:
  * a panel that pushed the page down would move the button out from under the
  * cursor the moment it opened.
  */
