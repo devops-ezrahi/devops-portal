@@ -8,10 +8,16 @@ on:
     branches: [main, dev]
   pull_request:
   workflow_dispatch:
+    inputs:
+      all_deps:
+        description: "Pack every dependency, not only the ones changed since the last release"
+        type: boolean
+        default: false
 
 env:
-  # .npmrc is tracked and sets script-shell to a Windows Git-bash path;
-  # this overrides it so lifecycle scripts work on a Linux runner.
+  # Belt and braces: .npmrc used to be tracked and set script-shell to a Windows
+  # Git-bash path. It is gone, but pinning the shell keeps a reintroduced one
+  # from breaking lifecycle scripts on a Linux runner.
   npm_config_script_shell: /bin/bash
 
 jobs:
@@ -44,7 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # pack/* tags are the delta baseline
+          fetch-depth: 0 # the previous release tag is the pack's delta baseline
 
       - uses: actions/checkout@v4
         with:
@@ -80,9 +86,19 @@ jobs:
           echo "version=$after" >> "$GITHUB_OUTPUT"
           if [ "$before" = "$after" ]; then
             echo "released=false" >> "$GITHUB_OUTPUT"
-            echo "no new version — skipping pack"
           else
             echo "released=true" >> "$GITHUB_OUTPUT"
+          fi
+          # A manual all_deps run is a *repack* of the version that is already
+          # out: semantic-release finds nothing new, but the whole point is to
+          # rebuild the bundle and replace the asset on that same tag. So the
+          # pack runs for either reason, while the image build and the homelab
+          # bump below stay on `released` — a repack must not redeploy.
+          if [ "$before" != "$after" ] || [ "${{ inputs.all_deps }}" = "true" ]; then
+            echo "pack=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pack=false" >> "$GITHUB_OUTPUT"
+            echo "no new version and no repack asked for — skipping pack"
           fi
 
       # The image. Built here rather than in its own job because semantic-release
@@ -119,21 +135,26 @@ jobs:
       # "images": false (skip the docker-save tars, ~127 MB -> ~1 MB) stays in
       # whitening.json. pack.py prints only the .tgz path on stdout and creates
       # no tags of its own — it deltas against the release tag before this one.
+      # --all-deps turns the delta off and bundles every dependency, which is
+      # what a closed network needs when it has no earlier pack to extract this
+      # one on top of. Empty on a push, so the delta stays the default.
       - id: pack
-        if: steps.release.outputs.released == 'true'
+        if: steps.release.outputs.pack == 'true'
         env:
           WHITENING_DEPARTMENT: ultra
           WHITENING_TEAM: dem
           WHITENING_REPOSITORY: devops-portal
-        run: echo "pack=$(python3 .packer/pack.py .)" >> "$GITHUB_OUTPUT"
+        run: echo "pack=$(python3 .packer/pack.py . ${{ inputs.all_deps && '--all-deps' || '' }})" >> "$GITHUB_OUTPUT"
 
       # Onto the release semantic-release just cut, so a version is one tag and
       # one release. Release asset, not an artifact: downloads as the file
       # itself (dem-devops-portal-<version>.tgz), no wrapper zip, permanent URL.
       # The portal's whitening module reads repository/config.json, not this
       # name. gh is preinstalled.
-      - if: steps.release.outputs.released == 'true'
-        run: gh release upload "v$VERSION" "$PACK"
+      # --clobber so a repack replaces the asset already on the tag rather than
+      # failing on the name it is about to reuse.
+      - if: steps.release.outputs.pack == 'true'
+        run: gh release upload --clobber "v$VERSION" "$PACK"
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.release.outputs.version }}
