@@ -47,6 +47,7 @@ export function createApp(
       rpm: config.artifactory.rpmRepo || "(not set)",
       pypi: config.artifactory.pypiRepo || "(not set)",
       conda: config.artifactory.condaRepo || "(not set)",
+      helm: config.artifactory.helmRepo || "(not set)",
       docker: config.artifactory.dockerRepo || "(not set)",
     });
   } else {

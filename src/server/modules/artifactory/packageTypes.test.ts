@@ -12,11 +12,12 @@ vi.mock("../../config", () => ({
       pypiRepo: "pypi-local",
       // Deliberately unset — the "type not configured" case.
       condaRepo: "",
+      helmRepo: "helm-local",
     },
   },
 }));
 
-const { classify, mavenCoordsFromPom, mavenPomUrl, mavenRootDepth, urlArtifactPath } =
+const { classify, downloadUrl, mavenCoordsFromPom, mavenPomUrl, mavenRootDepth, urlArtifactPath } =
   await import("./packageTypes");
 
 describe("classify", () => {
@@ -252,5 +253,28 @@ describe("classify pypi", () => {
       name: "org.foo:bar",
       version: "1.0",
     });
+  });
+});
+
+describe("downloadUrl", () => {
+  it("rewrites the tree-browser link Artifactory puts in the address bar", () => {
+    expect(
+      downloadUrl("https://art.example.com/ui/repos/tree/General/npm-local/%40acme/w/-/w-1.0.0.tgz")
+    ).toBe("https://art.example.com/artifactory/npm-local/%40acme/w/-/w-1.0.0.tgz");
+  });
+
+  it("rewrites the native package view too", () => {
+    expect(downloadUrl("https://art.example.com/ui/native/rpm-local/htop-3.2.2.rpm")).toBe(
+      "https://art.example.com/artifactory/rpm-local/htop-3.2.2.rpm"
+    );
+  });
+
+  it("leaves a plain download URL — and anything unparseable — alone", () => {
+    const direct = "https://repo1.maven.org/maven2/org/foo/bar/1.0/bar-1.0.jar";
+    expect(downloadUrl(direct)).toBe(direct);
+    expect(downloadUrl("not a url")).toBe("not a url");
+    expect(downloadUrl("https://art.example.com/ui/repos/tree/General")).toBe(
+      "https://art.example.com/ui/repos/tree/General"
+    );
   });
 });

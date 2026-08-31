@@ -94,13 +94,14 @@ Key variables (see `.env.example`):
 | `ADMIN_GROUP`                                                | `portal-admins` | Pipe-separated groups that grant admin access                                                                               |
 | `ARTIFACTORY_URL` / `ARTIFACTORY_REPO` / `ARTIFACTORY_TOKEN` | —               | All three required to activate `RealArtifactoryApi` (REST — `HEAD` to check, `PUT` to upload; no `jf` CLI)                  |
 | `ARTIFACTORY_DOCKER_REPO`                                    | —               | Docker repo the Whitening module pushes retagged images to via `skopeo`                                                     |
-| `ARTIFACTORY_MAVEN_REPO` / `_RPM_REPO` / `_PYPI_REPO` / `_CONDA_REPO` | —       | Per-type repos the Artifactory module routes detected artifacts to (`packageTypes.ts`); unset = that type is skipped with a log line |
+| `ARTIFACTORY_MAVEN_REPO` / `_RPM_REPO` / `_PYPI_REPO` / `_CONDA_REPO` / `_HELM_REPO` | —       | Per-type repos the Artifactory module routes detected artifacts to (`packageTypes.ts`); unset = that type is skipped with a log line. Helm is the one that is not routed by filename: a chart is a `.tgz` exactly like an npm package, so `readTarballIdentity` decides from the manifest inside (`<chart>/Chart.yaml` vs `package/package.json`). |
 | `NPM_SOURCE_TOKEN`                                            | —               | Credential for the *source* npm registry when a URL copy is submitted with **Include dependencies** ticked. That path derives the registry from the pasted tarball URL (`<registry>/<name>/-/<file>.tgz`), writes it plus this token into a throwaway `.npmrc`, and runs a real `npm install` — once per target platform, since optional deps are platform-gated. Unset is normal: a public registry needs nothing, and a source registry on the same host as `ARTIFACTORY_URL` reuses `ARTIFACTORY_TOKEN` automatically. |
 | `GIT_URL` / `GIT_TOKEN`                                      | —               | Bitbucket Server base URL + HTTP access token; required for the Whitening module to open pull requests. The AI module reuses the same token to authenticate `git clone` for registered `ai-*` project repos (unset = clone stays unauthenticated, so public repos still work) |
 | `GIT_USERNAME`                                               | —               | Empty (default) puts the token alone in the clone URL; set it only if Bitbucket wants `username:token` basic auth           |
 | `JENKINS_IMAGES_PATH`                                        | —               | Artifactory storage path whose child folders name the agent images the Jenkinsfile builder's `image` field suggests (e.g. `docker-local/jenkins-agents`). One AQL search per hour per pod returns the names *and* each image's `SCREAMING_CASE` Docker labels (`JDK=17`), which are shown beside the name. Unset, or unreachable, = the field is plain free text exactly as before. |
 | `JIRA_URL` / `JIRA_TOKEN` / `JIRA_PROJECT_KEY`               | —               | All three required to activate `JiraTicketingApi` (Jira Data Center, Bearer PAT); otherwise `InMemoryTicketingApi` fallback |
 | `JIRA_STORY_POINTS_FIELD`                                    | —               | Custom-field id holding story points (e.g. `customfield_10016`) — instance-specific; unset = points stay portal-only and are not synced to Jira |
+| `JIRA_MAINTENANCE_ISSUE_TYPE`                                | `Maintenance`   | The Jira issue type the portal **creates** tickets as, and the one `listAdminTickets` filters the admin queue on — deliberately one var, since creating anything else files tickets the queue then cannot see. It is a Jira fact: the request catalog's display name ("CI/CD Pipeline") is not an issue type any instance has, and Jira answers an unresolvable one with *both* `Could not find issuetype` and a red-herring `project is required`. |
 | `AI_SKILLS_DIR`                                               | `~/.claude/skills` | Where the AI module's project registry lives — one `ai-<name>/SKILL.md` per repo (frontmatter `description` + a `Repo:` line, plus a free-text body describing how to work with that repo). This app's own code reads `description`/`Repo:` for the picker UI and the clone step (opencode has no bash access, so it can't clone itself) — but opencode's own native skill-discovery reads the *same* files: each question is prefixed "Use the ai-\<project\> skill", and opencode loads the SKILL.md body itself via its `skill` tool. That discovery is fixed to a few paths opencode always scans (`~/.claude/skills`, `~/.config/opencode/skills`, `~/.agents/skills`, plus project-level equivalents) — keep `AI_SKILLS_DIR` pointed at one of those (the default already is) or the portal's picker still works but opencode's `skill` tool won't find the project when asked to use it. The module activates once at least one `ai-*` entry is found there. The server logs the resolved path and the project count at startup, because an empty registry is otherwise indistinguishable from a wrong path. |
 | `OPENCODE_API_KEY`                                            | —               | `OPENCODE_MODEL` (default `anthropic/claude-sonnet-5`) picks the provider — the env var opencode reads for credentials is derived from it (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) and set from `OPENCODE_API_KEY`. Leave `OPENCODE_API_KEY` empty for opencode's own free `opencode/*-free` models — they reject a non-empty placeholder as an invalid key. |
 | `OPENCODE_BASE_URL`                                           | —               | Points the provider at a gateway/proxy instead of its public endpoint. opencode exposes no env var for this, so the server writes it into the opencode config it already generates for the read-only policy, as `provider.<id>.options.baseURL` — `<id>` is the provider half of `OPENCODE_MODEL`, so set the two together. |
@@ -199,6 +200,31 @@ change if any of this moves.
 | pypi | `<pypiRepo>/<file>`, flat | The indexer reads the wheel's or sdist's own metadata, so the path carries nothing. Flat also stays clear of `packages/**` and `simple/**`, which Artifactory reserves. |
 | rpm | `<rpmRepo>/<file>`, flat | YUM metadata depth defaults to 0, i.e. `repodata` at the repo root, which is what a flat layout indexes. |
 | conda | `<condaRepo>/<subdir>/<file>` | The channel subdir is part of the address; see the `ponytail:` note in `packageTypes.ts`. |
+| helm | `<helmRepo>/<name>-<version>.tgz`, flat | Artifactory builds `index.yaml` from each chart's own `Chart.yaml`, so the path carries nothing — the same reason RPM and PyPI are flat. |
+
+**A `.tgz` is identified by what is inside it, never by its name.**
+`classify` deliberately does not touch `.tgz`: the filename gives neither the
+npm scope (`@babel/core` ships as `core-7.0.0.tgz`) nor whether the tarball is
+an npm package at all — a Helm chart is the same gzipped tar with the same
+extension. `readTarballIdentity` looks for `package/package.json` first (an
+exact path) and then `<chart>/Chart.yaml` (a wildcard, `--no-wildcards-match-slash`
+so a bundled subchart's manifest cannot win). When *neither* can be read, the
+URL copy falls back to `npmIdentityFromUrl` — a registry-layout URL carries the
+scope in its directory, and without that fallback
+`.../%40octokit/types/-/types-16.0.0.tgz` fell through to "unrecognised
+artifact" and was uploaded flat as `types-16.0.0.tgz`. That fallback path also
+now fails loudly when `ARTIFACTORY_REPO` (the unrecognised-file repo, which is
+genuinely optional) is unset, instead of PUTting to a path with no repo in it —
+which Artifactory answers with a 404 reading "User authentication has failed due
+to Repo key cannot be empty", sending the reader after a token problem that does
+not exist.
+
+**A pasted URL may be an Artifactory *page*, not a download.** `downloadUrl` in
+`packageTypes.ts` rewrites the tree browser (`/ui/repos/tree/General/<repo>/<path>`
+— exactly what this app's own `webUrl` hands out) and the package view
+(`/ui/native/<repo>/<path>`) to `/artifactory/<repo>/<path>`; anything else is
+returned untouched. It runs in `submitUrlCopy`, not in the router's schema, so
+the job records the URL everything downstream actually used.
 
 **A groupId cannot be read off a path, so the pom is the authority.**
 `org/foo/bar/1.0/bar-1.0.jar` is a valid layout under any number of roots, and
@@ -310,6 +336,23 @@ already-compressed extensions (`.tgz`, `.whl`, `.rpm`, `.jar`, …) stored
 verbatim. `AsyncZipDeflate` spawns a Worker *per entry*, which for a folder of
 thousands of small files costs far more than the deflate it moves off-thread —
 3,000 files measured at 47.8s async against 0.41s sync.
+
+## Ticketing: one Jira account, many people
+
+The portal authenticates to Jira with a single service-level PAT (`JIRA_TOKEN`),
+so Jira records **every** portal action as that one account. Two places had to
+work around it rather than pretend otherwise:
+
+- **Comments.** Jira resolves a comment's author from whoever's credentials made
+  the request, so the whole thread came back as one person talking to
+  themselves. `stampPortalAuthor` writes `<name> (via DevOps Portal, <id>)` as
+  the body's first line and `readPortalAuthor` strips it again on the way in —
+  readable in Jira's own UI, and a comment written *in* Jira carries no stamp
+  and keeps the author Jira recorded. The client's own `[status] ` prefix still
+  leads the body once the stamp is off, so `isStatusMessage` is unaffected.
+- **Reporter.** Already handled: `unknownReporters` falls "my tickets" back to
+  `reporter = currentUser()` once Jira rejects a portal id it has never heard
+  of, which is who it recorded as the reporter of everything the portal filed.
 
 ## Whitening: preserving target-repo files
 
@@ -582,11 +625,45 @@ no external system — the only server-side state is saved pipeline documents.
 - The saved list uses the portal's standard `.ticket-row` shape, same as every
   other module. Editing a pipeline is opening it; there is nothing else to do to it.
 
+## Job lists: scope and links
+
+Both job modules (artifactory, whitening) share these, and the ticket queue
+follows the first:
+
+- **An admin opens on their own jobs.** The server sends an admin everything and
+  the toggle narrows it client-side, but the default is `showAll = false`: the
+  run an admin just started is the one they came to look at, and in a shared
+  list it is buried. The button names the list it switches *to*; the heading
+  beside it says which one is on screen.
+- **The selected job is in the URL** (`/artifactory/ART-0007`), so a job can be
+  pasted to someone. `useDeepLink` in `src/client/deepLink.ts` is the whole
+  mechanism: the shell's router only ever reads the *first* path segment
+  (`moduleFromPath` in App.tsx), so a second one costs it nothing, and the prod
+  SPA fallback already serves index.html for any path. Two details matter —
+  the push effect is keyed on the selected id **alone**, because modules stay
+  mounted when hidden and an effect running every render would have a
+  background module shove its own path over the one the nav just pushed; and
+  the `popstate` handler ignores a pop whose first segment is another module,
+  which would otherwise clear the selection sitting behind the tab you left.
+
 ## Shared UI conventions
 
 The five modules are meant to read as one product, so these are portal-wide, not
 per-module choices:
 
+- **A job's package table is one row per package, not per file.** A Maven copy
+  uploads the jar *and* its pom under the same coordinates, and a `.m2` drop
+  adds `.sha1`/`.asc` sidecars and `-sources.jar` classifiers on top; listing
+  each separately read as several different packages that happened to share a
+  name. `groupPackages` in the Artifactory `JobDetail` folds them by
+  `type|name@version`, links the non-sidecar file, and shows the **worst**
+  status in the group — a pom that failed while the jar landed is a broken
+  copy, and rolling it up as "Uploaded" would hide that.
+- **A row's error gets its own line.** `.package-row` is `flex-wrap: wrap` with
+  the error at `flex-basis: 100%`. Sharing the line with the name meant a
+  200-character Artifactory error won, and since `.package-name` is `flex: 1`
+  (basis 0) with `word-break: break-all`, its min-content is *one character* —
+  the name came out as a vertical column of letters down the left edge.
 - **The topbar is `<h1>` then actions, primary last.** "New" is
   `className="primary"` with `<Plus size={18} />` in every module — Tickets,
   Artifactory ("New Job"), Whitening, AI ("New chat") and Jenkinsfile. Secondary

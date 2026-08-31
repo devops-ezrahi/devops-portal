@@ -88,6 +88,23 @@ export type JiraTicketingConfig = {
   ticketLabel?: string;
 };
 
+/**
+ * One shared Jira account writes every portal comment (see addComment), so the
+ * portal author is carried in the body's first line instead. Readable in Jira's
+ * own UI, and stripped again by `readPortalAuthor` before the portal shows it.
+ */
+function stampPortalAuthor(user: PortalUser, body: string): string {
+  return `${user.displayName} (via DevOps Portal, ${user.id})\n\n${body}`;
+}
+
+const PORTAL_AUTHOR_RE = /^(.+?) \(via DevOps Portal, ([^)]*)\)\r?\n\r?\n([\s\S]*)$/;
+
+/** The inverse. `null` for a comment written in Jira rather than the portal. */
+function readPortalAuthor(body: string): { displayName: string; id: string; body: string } | null {
+  const m = PORTAL_AUTHOR_RE.exec(body);
+  return m ? { displayName: m[1], id: m[2], body: m[3] } : null;
+}
+
 function quoteJql(value: string) {
   return `"${value.replace(/["\\]/g, "\\$&")}"`;
 }
@@ -211,11 +228,12 @@ export class JiraTicketingApi implements TicketingApi {
   }
 
   private mapComment(comment: JiraComment): TicketComment {
+    const stamped = readPortalAuthor(comment.body ?? "");
     return {
       id: comment.id ?? "",
-      authorName: this.userName(comment.author),
-      authorId: this.userId(comment.author),
-      body: comment.body ?? "",
+      authorName: stamped?.displayName ?? this.userName(comment.author),
+      authorId: stamped?.id || this.userId(comment.author),
+      body: stamped?.body ?? comment.body ?? "",
       createdAt: comment.created ?? ""
     };
   }
@@ -303,7 +321,14 @@ export class JiraTicketingApi implements TicketingApi {
       body: JSON.stringify({
         fields: {
           project: { key: this.projectKey },
-          issuetype: { name: requestType.name },
+          // The issue type is a *Jira* fact, not a portal one. It used to be
+          // the catalog's display name ("CI/CD Pipeline"), which no Jira
+          // instance has, and Jira answers an unresolvable issuetype with
+          // *both* "Could not find issuetype" and "project is required" — the
+          // second error is a red herring. JIRA_MAINTENANCE_ISSUE_TYPE is the
+          // type listAdminTickets already filters the admin queue on, so
+          // creating anything else would also hide every new ticket from it.
+          issuetype: { name: this.maintenanceIssueType || "Task" },
           priority: { name: input.priority },
           summary: fields.title ?? requestType.name,
           description: fields.description ?? "",
@@ -368,15 +393,22 @@ export class JiraTicketingApi implements TicketingApi {
   async addComment(ticketId: string, user: PortalUser, body: string): Promise<TicketComment> {
     const comment = await this.request<JiraComment>(`/issue/${encodeURIComponent(ticketId)}/comment`, {
       method: "POST",
-      // ponytail: real Jira resolves the comment author from whichever
-      // user's OAuth/PAT made the request. This app authenticates to Jira
-      // with one shared service-level token (JIRA_TOKEN) for every portal
-      // user, so there's no per-request identity for Jira to resolve --
-      // `author` here is a jira-mock-only extension so it can echo the real
-      // portal user back instead of one hardcoded "Mock User" for everyone.
-      // A real Jira Data Center instance ignores unknown JSON properties on
-      // this endpoint, so this is harmless if ever pointed at a real Jira.
-      body: JSON.stringify({ body, author: { name: user.id, displayName: user.displayName } })
+      // Real Jira resolves the comment author from whichever user's OAuth/PAT
+      // made the request. This app authenticates with one shared service-level
+      // token (JIRA_TOKEN) for every portal user, so Jira records *every*
+      // portal comment as that one account -- which is why the thread read as
+      // one person talking to themselves. The author is therefore written into
+      // the body itself (`stampPortalAuthor`) and read back out on the way in
+      // (`readPortalAuthor`); Jira's own users' comments carry no stamp and
+      // keep the author Jira recorded.
+      //
+      // `author` stays as well: it is a jira-mock-only extension the mock
+      // echoes back, and a real Jira Data Center ignores unknown JSON
+      // properties on this endpoint.
+      body: JSON.stringify({
+        body: stampPortalAuthor(user, body),
+        author: { name: user.id, displayName: user.displayName }
+      })
     });
     return this.mapComment(comment);
   }

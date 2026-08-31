@@ -1881,7 +1881,12 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 .package-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  /* An Artifactory error runs to a couple of hundred characters. Unwrapped it
+     shared the row with the name, and since .package-name is `flex: 1` (basis
+     0) the name is what collapsed — a package called `t y p e s - 1 6 . 0`
+     down the left edge. The error gets its own full-width line instead. */
+  flex-wrap: wrap;
+  gap: 4px 10px;
   padding: 6px 10px;
   border: 1px solid #203238;
   border-radius: 6px;
@@ -1896,6 +1901,7 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 }
 
 .package-error {
+  flex-basis: 100%;
   color: #f0a5a5;
   font-size: 12px;
   word-break: break-word;

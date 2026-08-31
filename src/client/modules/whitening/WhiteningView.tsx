@@ -1,5 +1,6 @@
 import { FlaskConical, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { idFromPath, useDeepLink } from "../../deepLink";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { WhiteningJob, WhiteningScenario } from "../../../server/types";
 import { log, error as logError } from "../../log";
@@ -18,15 +19,21 @@ const TEST_SCENARIOS: { value: WhiteningScenario; label: string }[] = [
 
 export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) {
   const [jobs, setJobs] = useState<WhiteningJob[]>([]);
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  // From the URL on first paint, so /whitening/ART-0007 opens that job.
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(() => idFromPath("whitening"));
   // The list is log-free (server strips it — a finished job's log lives on the
   // volume, not in the server's heap), so the drawer fetches the whole job.
   const [openJob, setOpenJob] = useState<WhiteningJob | null>(null);
   // Admins get everything from the server; the toggle narrows it back client-side,
   // same as the ticketing queue.
-  const [showAll, setShowAll] = useState(true);
+  // Own jobs first: an admin opening the module wants their own run, not a
+  // list where it is buried under everyone else's. The toggle widens it.
+  const [showAll, setShowAll] = useState(false);
   const [testScenario, setTestScenario] = useState<WhiteningScenario>(TEST_SCENARIOS[0].value);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Selecting a job puts it in the URL, so the link can be pasted to someone.
+  useDeepLink("whitening", selectedJobId, setSelectedJobId);
 
   function fetchJobs() {
     listJobs()

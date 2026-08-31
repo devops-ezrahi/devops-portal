@@ -24,6 +24,7 @@ export const ARTIFACTORY_SCENARIOS: readonly ArtifactoryScenario[] = [
   "maven",
   "rpm",
   "pypi",
+  "helm",
   // ponytail: conda dropped from the Test menu — its repo path/link shape isn't
   // decided yet. PACKAGE_SCENARIOS.conda stays below so re-adding it is a
   // one-line change once that's settled.
@@ -106,6 +107,14 @@ const PACKAGE_SCENARIOS: Record<PackageType, PackageScenario> = {
       { name: "scipy", version: "1.11.4", status: "uploaded" },
     ],
   },
+  helm: {
+    folderName: "charts",
+    repo: "helm-local",
+    items: [
+      { name: "redis", version: "19.6.1", status: "exists" },
+      { name: "ingress-nginx", version: "4.11.2", status: "uploaded" },
+    ],
+  },
 };
 
 /** A clean run through one package type: found, checked, uploaded, done. */
@@ -119,7 +128,9 @@ function packageTypeBeats(type: PackageType): SimulationBeat[] {
           ? npmPath(scenario.repo, i.name, i.version)
           : type === "pypi"
             ? pypiPath(scenario.repo, i.name, i.version)
-            : `${scenario.repo}/${i.name}/${i.version}`;
+            : type === "helm"
+              ? `${scenario.repo}/${i.name}-${i.version}.tgz`
+              : `${scenario.repo}/${i.name}/${i.version}`;
     return { ...i, type, path, url: `${BASE}/ui/repos/tree/General/${path}`, nativeUrl: `${BASE}/ui/native/${path}` };
   });
   const uploaded = items.filter((i) => i.status === "uploaded").length;

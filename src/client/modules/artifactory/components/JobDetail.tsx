@@ -1,6 +1,11 @@
 import { CircleStop } from "lucide-react";
 import { classifyLogLine } from "../../../logLines";
-import type { ArtifactoryJob, ArtifactoryJobStatus, PackageUploadStatus } from "../../../../server/types";
+import type {
+  ArtifactoryJob,
+  ArtifactoryJobStatus,
+  PackageUploadResult,
+  PackageUploadStatus,
+} from "../../../../server/types";
 
 type Props = {
   job: ArtifactoryJob;
@@ -56,6 +61,46 @@ function packageStatusLabel(status: PackageUploadStatus): string {
     case "exists": return "Already there";
     case "failed": return "Failed";
   }
+}
+
+/**
+ * One row per package, not per file. A Maven copy uploads the jar *and* its
+ * pom — same coordinates, two files — and listing them separately read as two
+ * different packages that happened to share a name. Folder uploads pair them
+ * the same way, plus `.sha1`/`.asc` sidecars and `-sources.jar` classifiers.
+ *
+ * The badge is the worst status in the group: a pom that failed while the jar
+ * landed is a broken copy, and rolling it up as "Uploaded" would hide that.
+ */
+type PackageGroup = {
+  key: string;
+  main: PackageUploadResult;
+  status: PackageUploadStatus;
+  files: number;
+  error?: string;
+};
+
+const SIDECAR = /\.(pom|sha1|sha256|sha512|md5|asc|module)$/i;
+const WORST: PackageUploadStatus[] = ["exists", "uploaded", "failed"];
+
+function groupPackages(packages: PackageUploadResult[]): PackageGroup[] {
+  const groups = new Map<string, PackageGroup>();
+  for (const pkg of packages) {
+    const key = `${pkg.type ?? ""}|${pkg.name}@${pkg.version}`;
+    const group = groups.get(key);
+    if (!group) {
+      groups.set(key, { key, main: pkg, status: pkg.status, files: 1, error: pkg.error });
+      continue;
+    }
+    group.files++;
+    // The jar, not its pom, is what the link should point at.
+    if (SIDECAR.test(group.main.path) && !SIDECAR.test(pkg.path)) group.main = pkg;
+    if (WORST.indexOf(pkg.status) > WORST.indexOf(group.status)) group.status = pkg.status;
+    if (pkg.error && pkg.error !== group.error) {
+      group.error = group.error ? `${group.error}; ${pkg.error}` : pkg.error;
+    }
+  }
+  return [...groups.values()];
 }
 
 export function JobDetail({ job, onStop }: Props) {
@@ -153,22 +198,23 @@ export function JobDetail({ job, onStop }: Props) {
         <section>
           <h3>Packages</h3>
           <div className="package-table">
-            {job.packages.map((pkg) => (
-              <div key={pkg.path} className="package-row">
+            {groupPackages(job.packages).map(({ key, main, status, files, error }) => (
+              <div key={key} className="package-row">
                 <span className="package-name">
-                  {pkg.url ? (
-                    <a href={pkg.url} target="_blank" rel="noreferrer">{pkg.name}@{pkg.version}</a>
+                  {main.url ? (
+                    <a href={main.url} target="_blank" rel="noreferrer">{main.name}@{main.version}</a>
                   ) : (
-                    <>{pkg.name}@{pkg.version}</>
+                    <>{main.name}@{main.version}</>
                   )}
-                  {pkg.nativeUrl && (
-                    <a className="package-native-link" href={pkg.nativeUrl} target="_blank" rel="noreferrer">
+                  {files > 1 && <span className="package-native-link">{files} files</span>}
+                  {main.nativeUrl && (
+                    <a className="package-native-link" href={main.nativeUrl} target="_blank" rel="noreferrer">
                       direct link
                     </a>
                   )}
                 </span>
-                <span className={`stage ${packageStatusClass(pkg.status)}`}>{packageStatusLabel(pkg.status)}</span>
-                {pkg.error && <span className="package-error">{pkg.error}</span>}
+                <span className={`stage ${packageStatusClass(status)}`}>{packageStatusLabel(status)}</span>
+                {error && <span className="package-error">{error}</span>}
               </div>
             ))}
           </div>

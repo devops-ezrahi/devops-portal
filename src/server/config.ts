@@ -71,6 +71,7 @@ const artifactoryMavenRepo = requireEnv("ARTIFACTORY_MAVEN_REPO");
 const artifactoryRpmRepo = requireEnv("ARTIFACTORY_RPM_REPO");
 const artifactoryPypiRepo = requireEnv("ARTIFACTORY_PYPI_REPO");
 const artifactoryCondaRepo = requireEnv("ARTIFACTORY_CONDA_REPO");
+const artifactoryHelmRepo = requireEnv("ARTIFACTORY_HELM_REPO");
 const npmSourceToken = requireEnv("NPM_SOURCE_TOKEN");
 
 const gitUrl = requireEnv("GIT_URL");
@@ -132,6 +133,10 @@ export const config = {
     rpmRepo: artifactoryRpmRepo ?? "",
     pypiRepo: artifactoryPypiRepo ?? "",
     condaRepo: artifactoryCondaRepo ?? "",
+    // Helm charts ship as .tgz, same as npm, so which of the two a tarball is
+    // can only be decided by looking inside it (package/package.json vs
+    // <chart>/Chart.yaml) — see readTarballIdentity.
+    helmRepo: artifactoryHelmRepo ?? "",
     // Credential for the *source* npm registry, used only by a URL copy with
     // "Include dependencies" ticked and only when that registry is protected.
     // Normally empty: a public registry needs nothing, and a source registry on

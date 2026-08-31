@@ -35,8 +35,22 @@ const CONDA_RE = /^(.+)-([^-]+)-[^-]+$/;
 const SDIST_RE = /^(.+?)-(\d[^-]*)\.(?:tar\.gz|zip)$/;
 
 function repoFor(type: PackageType): string {
-  const { npmRepo, mavenRepo, rpmRepo, pypiRepo, condaRepo } = config.artifactory;
-  return { npm: npmRepo, maven: mavenRepo, rpm: rpmRepo, pypi: pypiRepo, conda: condaRepo }[type];
+  const { npmRepo, mavenRepo, rpmRepo, pypiRepo, condaRepo, helmRepo } = config.artifactory;
+  return { npm: npmRepo, maven: mavenRepo, rpm: rpmRepo, pypi: pypiRepo, conda: condaRepo, helm: helmRepo }[type];
+}
+
+/**
+ * Helm charts sit flat at the repo root: Artifactory's Helm indexer builds
+ * index.yaml from each chart's own Chart.yaml, so the path carries nothing —
+ * the same reason RPM and PyPI are flat. `null` when ARTIFACTORY_HELM_REPO is
+ * unset, which the callers report as a skip like any other missing type repo.
+ */
+export function helmTargetPath(name: string, version: string, onSkip: (message: string) => void = () => {}) {
+  if (!config.artifactory.helmRepo) {
+    onSkip(`ARTIFACTORY_HELM_REPO not set — skipping ${name}-${version}.tgz`);
+    return null;
+  }
+  return `${config.artifactory.helmRepo}/${name}-${version}.tgz`;
 }
 
 function envVarFor(type: PackageType): string {
@@ -144,6 +158,35 @@ function classifyPath(
   if (sdist) return { type: "pypi", name: sdist[1], version: sdist[2], suffix: file };
 
   return null;
+}
+
+/**
+ * Artifactory's own UI links are what people copy out of the browser — the tree
+ * browser (`/ui/repos/tree/General/<repo>/<path>`, which is exactly what this
+ * app's own `webUrl` hands back) and the package view (`/ui/native/<repo>/<path>`).
+ * Neither serves bytes. Both name the repo-relative path, so rewriting them to
+ * the download URL (`/artifactory/<repo>/<path>`) is mechanical, and anything
+ * else is returned untouched.
+ */
+export function downloadUrl(sourceUrl: string): string {
+  let url: URL;
+  try {
+    url = new URL(sourceUrl);
+  } catch {
+    return sourceUrl;
+  }
+  const segments = url.pathname.split("/").filter(Boolean);
+  if (segments[0] !== "ui") return sourceUrl;
+  // `General` is the tree browser's own root node, not part of the repo path.
+  const rest =
+    segments[1] === "repos" && segments[2] === "tree"
+      ? segments.slice(segments[3] === "General" ? 4 : 3)
+      : segments[1] === "native"
+        ? segments.slice(2)
+        : null;
+  if (!rest || rest.length === 0) return sourceUrl;
+  url.pathname = `/artifactory/${rest.join("/")}`;
+  return url.toString();
 }
 
 /** Repository roots that sit above the artifact path in a public repo URL. */
