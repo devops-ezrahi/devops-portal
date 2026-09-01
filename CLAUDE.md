@@ -305,6 +305,14 @@ half-resolved tree is a broken offline install that gives no sign it is broken.
   into "not installed in this image — copying the single artifact". The
   Dockerfile line is revertable, and a dev box with neither still runs the
   module.
+- **A fallback is visible without reading the log.** Every "copying the single
+  artifact" path goes through one helper that also writes the reason to
+  `job.dependencyFallback`, so the drawer says *Dependencies: Requested, not
+  copied* over an amber banner naming the cause. The badge reads **Incomplete**
+  — in the list as well as the drawer, from the one `jobStatus.ts` both share.
+  That is a label, not a status: the job really is `completed`, since it did the
+  copy it was asked for, and failing it would be a lie in the other direction.
+  The dev Test menu's **npm — dependencies not resolved** scenario replays it.
 - `runTool.ts` is the one streaming-spawn helper all three share — line
   buffering, the 300-line log cap, the 15s heartbeat, and keeping a user's Stop
   an `AbortError` while a timeout becomes a message. Three copies of that is

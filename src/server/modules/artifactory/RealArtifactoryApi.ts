@@ -167,6 +167,17 @@ export class RealArtifactoryApi implements ArtifactoryApi {
   }
 
   /**
+   * The tree was asked for and not copied. Says so on the job as well as in the
+   * log: the fallback is deliberately not a failed job, so a "Completed" run
+   * whose only trace of it was one line among fifty read as a dependency copy
+   * that worked. `hint` is a next step, not a reason, so it trails the sentence.
+   */
+  private dependencyFallback(jobId: string, reason: string, hint?: string) {
+    this.patch(jobId, { dependencyFallback: hint ? `${reason}. ${hint}` : reason });
+    this.appendLog(jobId, `${reason} — copying the single artifact.${hint ? ` ${hint}` : ""}`);
+  }
+
+  /**
    * True once the user has stopped the job. Every run's `catch` and `finish`
    * consults it: the AbortError the cancel *caused* must not relabel an
    * aborted job as failed.
@@ -481,10 +492,9 @@ export class RealArtifactoryApi implements ArtifactoryApi {
         classified?.type !== "maven" &&
         classified?.type !== "pypi"
       ) {
-        this.appendLog(
+        this.dependencyFallback(
           jobId,
-          "Include dependencies: only npm, Maven and PyPI artifacts have a resolvable " +
-            "dependency tree — copying the single artifact."
+          "Only npm, Maven and PyPI artifacts have a resolvable dependency tree"
         );
       }
 
@@ -607,19 +617,19 @@ export class RealArtifactoryApi implements ArtifactoryApi {
         // copy-dependencies has nothing to resolve without the pom, and the
         // pom's own coordinates — not the URL's — are what it must be keyed on.
         if (!coords) {
-          this.appendLog(
+          this.dependencyFallback(
             jobId,
-            "No pom for this artifact, so its dependencies are unknown — copying the single artifact."
+            "No pom for this artifact, so its dependencies are unknown"
           );
           return [];
         }
         const filename = basename(new URL(sourceUrl).pathname);
         const repo = mavenRepoFromUrl(sourceUrl, coords, filename);
         if (!repo) {
-          this.appendLog(
+          this.dependencyFallback(
             jobId,
             "The URL does not sit at the coordinates its pom declares, so no repository " +
-              "root could be derived — copying the single artifact."
+              "root could be derived"
           );
           return [];
         }
@@ -633,16 +643,15 @@ export class RealArtifactoryApi implements ArtifactoryApi {
           signal,
         });
         if (items === null) {
-          this.appendLog(jobId, "maven is not installed in this image — copying the single artifact.");
+          this.dependencyFallback(jobId, "maven is not installed in this image");
           return [];
         }
       } else {
         const index = pypiIndexFromUrl(sourceUrl);
         if (!index) {
-          this.appendLog(
+          this.dependencyFallback(
             jobId,
-            "No Python index could be derived from the URL (no /packages/ in its path) — " +
-              "copying the single artifact."
+            "No Python index could be derived from the URL (no /packages/ in its path)"
           );
           return [];
         }
@@ -656,7 +665,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
           signal,
         });
         if (items === null) {
-          this.appendLog(jobId, "pip is not installed in this image — copying the single artifact.");
+          this.dependencyFallback(jobId, "pip is not installed in this image");
           return [];
         }
       }
@@ -664,10 +673,10 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       if (items.length > MAX_DEPENDENCY_PACKAGES) {
         // Not a partial upload: a half-populated tree is a broken offline
         // install that gives no signal it is broken.
-        this.appendLog(
+        this.dependencyFallback(
           jobId,
-          `Dependency tree has ${items.length} file(s), over the ${MAX_DEPENDENCY_PACKAGES} ` +
-            `cap — copying the single artifact. Use the folder upload tab for a tree this size.`
+          `Dependency tree has ${items.length} file(s), over the ${MAX_DEPENDENCY_PACKAGES} cap`,
+          "Use the folder upload tab for a tree this size."
         );
         return [];
       }
@@ -682,7 +691,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       // upload the artifact after the user had already pressed Stop.
       if (this.aborted(jobId) || signal.aborted) throw err;
       const message = userMessage(err);
-      this.appendLog(jobId, `Could not resolve dependencies (${message}) — copying the single artifact.`);
+      this.dependencyFallback(jobId, `Could not resolve dependencies (${message})`);
       log.warn("artifactory", `${jobId} dependency resolution failed`, { error: message });
       return [];
     }
@@ -707,10 +716,9 @@ export class RealArtifactoryApi implements ArtifactoryApi {
   ): Promise<UploadItem[]> {
     const registry = npmRegistryFromUrl(sourceUrl);
     if (!registry) {
-      this.appendLog(
+      this.dependencyFallback(
         jobId,
-        `No npm registry could be derived from the URL (no /-/ in its path) — ` +
-          `copying the single artifact.`
+        "No npm registry could be derived from the URL (no /-/ in its path)"
       );
       return [];
     }
@@ -736,11 +744,11 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       if (packages.length > MAX_DEPENDENCY_PACKAGES) {
         // Not a partial upload: a half-populated tree is a broken offline install
         // that gives no signal it is broken.
-        this.appendLog(
+        this.dependencyFallback(
           jobId,
           `Dependency tree has ${packages.length} package(s), over the ` +
-            `${MAX_DEPENDENCY_PACKAGES} cap — copying the single artifact. ` +
-            `Use the folder upload tab for a tree this size.`
+            `${MAX_DEPENDENCY_PACKAGES} cap`,
+          "Use the folder upload tab for a tree this size."
         );
         return [];
       }
@@ -761,7 +769,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       // upload the artifact after the user had already pressed Stop.
       if (this.aborted(jobId) || signal.aborted) throw err;
       const message = userMessage(err);
-      this.appendLog(jobId, `Could not resolve dependencies (${message}) — copying the single artifact.`);
+      this.dependencyFallback(jobId, `Could not resolve dependencies (${message})`);
       log.warn("artifactory", `${jobId} dependency resolution failed`, { error: message });
       return [];
     }

@@ -62,3 +62,32 @@ describe("JobDetail package table", () => {
     expect(screen.queryByText("2 files")).not.toBeInTheDocument();
   });
 });
+
+// The fallback keeps the job "Completed", so the drawer used to show
+// "Dependencies: Included" over a copy of exactly one file.
+describe("JobDetail dependency fallback", () => {
+  it("says the tree was not copied, and why", () => {
+    const fell = {
+      ...job([jar]),
+      includeDependencies: true,
+      dependencyFallback: "maven is not installed in this image",
+    };
+    render(<JobDetail job={fell} onStop={() => {}} />);
+
+    expect(screen.getByText(/Dependencies were not copied/)).toHaveTextContent(
+      "maven is not installed in this image"
+    );
+    expect(screen.getByText("Requested, not copied")).toBeInTheDocument();
+    // The badge has to say it too — the list is read without opening anything.
+    expect(screen.getByText("Incomplete")).toBeInTheDocument();
+    expect(screen.queryByText("Completed")).not.toBeInTheDocument();
+    expect(screen.queryByText("Included")).not.toBeInTheDocument();
+  });
+
+  it("still says Included when the tree came through", () => {
+    render(<JobDetail job={{ ...job([jar]), includeDependencies: true }} onStop={() => {}} />);
+
+    expect(screen.getByText("Included")).toBeInTheDocument();
+    expect(document.querySelector(".warn-banner")).toBeNull();
+  });
+});

@@ -1,5 +1,6 @@
 import { CircleStop } from "lucide-react";
 import { classifyLogLine } from "../../../logLines";
+import { jobStatusClass, jobStatusLabel } from "../jobStatus";
 import type {
   ArtifactoryJob,
   ArtifactoryJobStatus,
@@ -20,26 +21,6 @@ function formatBytes(bytes: number): string {
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString();
-}
-
-function statusClass(status: ArtifactoryJobStatus): string {
-  switch (status) {
-    case "pending": return "stage stage-submitted";
-    case "in-progress": return "stage stage-in-progress";
-    case "completed": return "stage stage-resolved";
-    case "failed": return "stage stage-waiting-on-customer";
-    case "aborted": return "stage stage-aborted";
-  }
-}
-
-function statusLabel(status: ArtifactoryJobStatus): string {
-  switch (status) {
-    case "pending": return "Pending";
-    case "in-progress": return "In Progress";
-    case "completed": return "Completed";
-    case "failed": return "Failed";
-    case "aborted": return "Aborted";
-  }
 }
 
 /** Only a job that hasn't reached an end state can be stopped. */
@@ -108,7 +89,7 @@ export function JobDetail({ job, onStop }: Props) {
     <article className="ticket-detail">
       <div className="detail-heading">
         <div className="badge-row">
-          <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
+          <span className={jobStatusClass(job)}>{jobStatusLabel(job)}</span>
           <span className="detail-id">{job.id}</span>
         </div>
         <div className="detail-title-row">
@@ -123,6 +104,14 @@ export function JobDetail({ job, onStop }: Props) {
 
       {job.status === "failed" && job.errorMessage && (
         <div className="error-banner">{job.errorMessage}</div>
+      )}
+
+      {/* A fallback is not a failure, so the status badge still says Completed —
+          which on its own reads as "dependencies copied fine". */}
+      {job.dependencyFallback && (
+        <div className="warn-banner">
+          Dependencies were not copied: {job.dependencyFallback}
+        </div>
       )}
 
       <dl className="metadata-list">
@@ -149,7 +138,7 @@ export function JobDetail({ job, onStop }: Props) {
         {job.kind === "url-copy" && job.includeDependencies && (
           <div>
             <dt>Dependencies</dt>
-            <dd>Included</dd>
+            <dd>{job.dependencyFallback ? "Requested, not copied" : "Included"}</dd>
           </div>
         )}
 

@@ -30,6 +30,7 @@ export const ARTIFACTORY_SCENARIOS: readonly ArtifactoryScenario[] = [
   // one-line change once that's settled.
   "partial-failure",
   "total-failure",
+  "dependency-fallback",
 ];
 
 const BASE = "https://artifactory.example.com";
@@ -231,15 +232,61 @@ function totalFailureBeats(): SimulationBeat[] {
   ];
 }
 
+/**
+ * The box was ticked and the tree would not resolve: the copy still happens,
+ * the job still ends `completed`, and `dependencyFallback` is what stops the
+ * badge from claiming the dependencies came with it.
+ */
+function dependencyFallbackBeats(): SimulationBeat[] {
+  const path = npmPath("npm-local", "arg", "4.1.5");
+  const item: PackageUploadResult = {
+    name: "arg",
+    version: "4.1.5",
+    type: "npm",
+    status: "uploaded",
+    path,
+    url: `${BASE}/ui/repos/tree/General/${path}`,
+    nativeUrl: `${BASE}/ui/native/${path}`,
+  };
+  const reason = "Could not resolve dependencies (npm ERR! ENOTFOUND registry.npmjs.org)";
+  return [
+    { ms: 400, patch: { status: "in-progress" } },
+    { ms: 700, line: "Downloading https://registry.npmjs.org/arg/-/arg-4.1.5.tgz ..." },
+    { ms: 800, line: "The tarball says it is arg@4.1.5." },
+    { ms: 900, line: "Source npm registry: https://registry.npmjs.org" },
+    { ms: 2500, line: `${reason} — copying the single artifact.`, patch: { dependencyFallback: reason } },
+    {
+      ms: 1200,
+      line: "Uploaded arg@4.1.5",
+      patch: { progress: { done: 1, total: 1 }, packages: [item] },
+    },
+    {
+      ms: 800,
+      line: "Done. 1 uploaded, 0 already present, 0 failed.",
+      patch: { status: "completed", resultUrl: item.url },
+    },
+  ];
+}
+
 /** Roughly 8-11 s end to end — long enough to switch tabs or hit Stop mid-run. */
 export function artifactorySimulation(scenario: ArtifactoryScenario): SimulationBeat[] {
   if (scenario === "partial-failure") return partialFailureBeats();
   if (scenario === "total-failure") return totalFailureBeats();
+  if (scenario === "dependency-fallback") return dependencyFallbackBeats();
   return packageTypeBeats(scenario);
 }
 
 /** The job the beats are applied to. */
 export function simulatedArtifactoryJob(scenario: ArtifactoryScenario): Partial<ArtifactoryJob> {
+  // The only url-copy scenario: the fallback is a thing only a URL copy does.
+  if (scenario === "dependency-fallback") {
+    return {
+      kind: "url-copy",
+      name: "arg@4.1.5",
+      sourceUrl: "https://registry.npmjs.org/arg/-/arg-4.1.5.tgz",
+      includeDependencies: true,
+    };
+  }
   const folderName =
     scenario === "partial-failure" || scenario === "total-failure" ? "node_modules" : PACKAGE_SCENARIOS[scenario].folderName;
   return {

@@ -21,6 +21,7 @@ const TEST_SCENARIOS: { value: ArtifactoryScenario; label: string }[] = [
   { value: "helm", label: "Helm — success" },
   { value: "partial-failure", label: "npm — one package fails" },
   { value: "total-failure", label: "npm — Artifactory unreachable" },
+  { value: "dependency-fallback", label: "npm — dependencies not resolved" },
 ];
 
 export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) {

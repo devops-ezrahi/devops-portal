@@ -161,6 +161,13 @@ export type ArtifactoryJob = {
   sourceUrl?: string;
   /** url-copy only. Persisted, so a finished job still says deps were asked for. */
   includeDependencies?: boolean;
+  /**
+   * Why the dependency tree was not copied, on a job that asked for one. The
+   * fallback is deliberately not a failed job, so without this the drawer said
+   * "Completed / Dependencies: Included" over a single-artifact copy and only
+   * the log knew better.
+   */
+  dependencyFallback?: string;
   folderName?: string;
   fileCount?: number;
   totalBytes?: number;
@@ -195,7 +202,11 @@ export type FolderUploadInput = {
 };
 
 /** Which scripted run the Test button replays — one per package type, plus two failure modes. */
-export type ArtifactoryScenario = PackageType | "partial-failure" | "total-failure";
+export type ArtifactoryScenario =
+  | PackageType
+  | "partial-failure"
+  | "total-failure"
+  | "dependency-fallback";
 
 export interface ArtifactoryApi {
   submitUrlCopy(input: UrlCopyInput, submitter: PortalUser): Promise<ArtifactoryJob>;
