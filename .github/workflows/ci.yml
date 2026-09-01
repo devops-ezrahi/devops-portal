@@ -132,8 +132,10 @@ jobs:
       # Running the script by path puts .packer on sys.path so its sibling
       # imports resolve. This job is where department/team/repository come
       # from — the packer writes them into the pack's repository/config.json.
-      # "images": false (skip the docker-save tars, ~127 MB -> ~1 MB) stays in
-      # whitening.json. pack.py prints only the .tgz path on stdout and creates
+      # --no-images skips the docker-save tars (~127 MB -> ~1 MB); it used to be
+      # `"images": false` in a whitening.json at the repo root, which is gone —
+      # the packer defaults to packing them, so the flag has to say it here.
+      # pack.py prints only the .tgz path on stdout and creates
       # no tags of its own — it deltas against the release tag before this one.
       # --all-deps turns the delta off and bundles every dependency, which is
       # what a closed network needs when it has no earlier pack to extract this
@@ -144,7 +146,7 @@ jobs:
           WHITENING_DEPARTMENT: ultra
           WHITENING_TEAM: dem
           WHITENING_REPOSITORY: devops-portal
-        run: echo "pack=$(python3 .packer/pack.py . ${{ inputs.all_deps && '--all-deps' || '' }})" >> "$GITHUB_OUTPUT"
+        run: echo "pack=$(python3 .packer/pack.py . --no-images ${{ inputs.all_deps && '--all-deps' || '' }})" >> "$GITHUB_OUTPUT"
 
       # Onto the release semantic-release just cut, so a version is one tag and
       # one release. Release asset, not an artifact: downloads as the file

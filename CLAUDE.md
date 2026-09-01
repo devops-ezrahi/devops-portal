@@ -108,15 +108,18 @@ Key variables (see `.env.example`):
 | `DATA_DIR`                                                    | OS temp dir     | Where job history, the AI repo clones and opencode's session store are kept. In the cluster this is the PVC mount (`/data`); the tmpdir default is purely so local dev runs with an empty `.env`. Everything under it is derived (`<DATA_DIR>/{artifactory,whitening,ai}`, `<DATA_DIR>/clones`), so there is no second path var. See **Job persistence** below. |
 | `AI_ARCHIVE_AFTER_HOURS`                                      | `4`             | Idle hours before a chat folds into the client's collapsed **Archived** list. `updatedAt` is the clock — every question restamps it, so asking in an archived chat un-archives it and the repo clone is re-pulled as usual. The sweep runs on read (inside `listConversations`), not on a timer. The topbar's **Archive** button (`POST /api/ai/conversations/:id/archive`) does the same stamp early, by hand. Un-archiving belongs to `submitQuestion`, not to the sweep — a chat archived by hand was just used, so any "clear the flag when not idle" rule would undo the click on the next read. Archiving never moves `updatedAt`, because that is what the client sorts by. Set to `0` to watch it work without waiting. **Nothing is ever deleted** — chats and jobs live under `DATA_DIR`, so there is no memory to reclaim by dropping them. |
 
-`whitening.json` at the repo root is read by the whitening packer, not by the app, and now
-holds only `images: false`. **Department, team and repository come from the CI job that
-runs the packer** (`WHITENING_*` env vars in `.github/workflows/ci.yml`'s `pack` step) —
-the packer writes them into the pack's `repository/config.json`, which is what the
-Whitening module reads (never the filename).
+There is **no `whitening.json` at this repo's root** — the packer treats it as
+optional, and every setting it used to carry now comes from the CI job that runs
+the packer (`.github/workflows/ci.yml`'s `pack` step): department, team and
+repository as `WHITENING_*` env vars, which the packer writes into the pack's
+`repository/config.json` (what the Whitening module reads, never the filename),
+and the docker-save tars as `--no-images`. Without that flag the packer packs
+them and the tgz goes from ~1 MB to ~127 MB, so the two travel together — don't
+drop one.
 
 The same filename means something else on the **other** side of the wire — see
-**Whitening: preserving target-repo files** below. This repo's own copy stays
-packer-only; the app never reads the one at this root.
+**Whitening: preserving target-repo files** below. That one is the *target*
+repo's file, read by the app; this repo simply doesn't have one.
 
 Groups are pipe-separated (not comma) so LDAP-style DNs containing commas work. Set `ALLOWED_GROUPS`/`ADMIN_GROUP` to plain group names (e.g. `devops-admins`), even when the IdP's groups claim sends full DNs (`CN=devops-admins,OU=...,DC=...`) — `auth.ts`'s `parseGroups` detects `CN=` and extracts just the CN for matching, since oauth2-proxy comma-joins multiple groups into one `X-Forwarded-Groups` header value and a naive split can't tell a group boundary from a comma inside a DN.
 
