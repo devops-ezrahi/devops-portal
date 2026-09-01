@@ -114,7 +114,7 @@ the packer (`.github/workflows/ci.yml`'s `pack` step): department, team and
 repository as `WHITENING_*` env vars, which the packer writes into the pack's
 `repository/config.json` (what the Whitening module reads, never the filename),
 and the docker-save tars as `--no-images`. Without that flag the packer packs
-them and the tgz goes from ~1 MB to ~127 MB, so the two travel together — don't
+them and the zip goes from ~1 MB to ~127 MB, so the two travel together — don't
 drop one.
 
 The same filename means something else on the **other** side of the wire — see
@@ -847,9 +847,9 @@ reads the Conventional Commit subjects since the last `v*` tag, and then:
 3. tags `v<version>` (`v1.2.0-dev.3` on `dev`) and cuts the GitHub release.
 
 It runs **before** the whitening pack step and in the same workspace, because
-`pack.py` reads `package.json` off disk to name the tgz
-(`dem-devops-portal-<version>.tgz`), and the `v<version>` release it just cut is
-where CI uploads that tgz as an asset. Both channels produce packs.
+`pack.py` reads `package.json` off disk to name the zip
+(`devops-portal-<version>.zip`), and the `v<version>` release it just cut is
+where CI uploads that zip as an asset. Both channels produce packs.
 
 **One version = one tag = one release.** There are no `pack/*` tags any more —
 the packer creates none, and deltas its dependency bundle against the previous
@@ -894,7 +894,7 @@ That is the whole thing. The `pack` job in `.github/workflows/ci.yml`:
    needs only `github.token` + `packages: write`, no secret to rotate; the
    package is private, so *pulling* needs the `ghcr-pull` Secret that External
    Secrets builds in the cluster (`../homelab/manifests/external-secrets.yaml`),
-3. whitening-packs and uploads the tgz to the release,
+3. whitening-packs and uploads the zip to the release,
 4. commits that tag into `devops-portal/chart/values.yaml` on **homelab's
    `main`**, using the `HOMELAB_TOKEN` secret — `github.token` is scoped to this
    repo and cannot push cross-repo.

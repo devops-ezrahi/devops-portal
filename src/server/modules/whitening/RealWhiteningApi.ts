@@ -175,7 +175,10 @@ export class RealWhiteningApi implements WhiteningApi {
       // Zip needs its own extractor: Debian's GNU tar cannot read the format at
       // all. (It appears to work on Windows only because tar.exe there is
       // bsdtar.) The runtime image installs unzip for this — see Dockerfile.
-      const isZip = /\.zip$/i.test(archiveName);
+      // The magic bytes, not the extension: a pack renamed on the way here is
+      // still the same archive, and the name is never the authority (the repo
+      // it belongs to comes from repository/config.json below).
+      const isZip = archive.subarray(0, 2).toString("latin1") === "PK";
       const packFile = isZip ? "pack.zip" : "pack.tgz";
       await writeFile(join(workDir, packFile), archive);
       try {
