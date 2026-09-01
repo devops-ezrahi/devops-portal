@@ -18,13 +18,24 @@ import { webUrl } from "./artifactoryRest";
 import { artifactorySimulation, simulatedArtifactoryJob } from "./devSimulation";
 import {
   MAX_DEPENDENCY_PACKAGES,
+  npmIdentityFromUrl,
   npmRegistryFromUrl,
   resolveNpmDependencies,
   sourceTokenFor,
 } from "./npmDependencies";
-import { discoverPackages, jobName, npmUploadItems, targetPath, uniquePackages, uploadFiles } from "./npmPackages";
+import {
+  discoverPackages,
+  jobName,
+  npmUploadItems,
+  pool,
+  targetPath,
+  uniquePackages,
+  uploadFiles,
+} from "./npmPackages";
 import {
   classify,
+  downloadUrl,
+  helmTargetPath,
   mavenCoordsFromPom,
   mavenLayoutPath,
   mavenPomUrl,
@@ -50,6 +61,15 @@ import type {
 } from "../../types";
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * How many loose files to sniff at once. Each one is a short-lived `tar` or
+ * `unzip`, so this is bounded by process spawn cost, not by the pod's CPU.
+ *
+ * ponytail: an informed guess, like the upload pools next door. Tune it if a
+ * huge drop still crawls.
+ */
+const SNIFF_CONCURRENCY = 16;
 
 function nowIso() {
   return new Date().toISOString();
@@ -147,6 +167,17 @@ export class RealArtifactoryApi implements ArtifactoryApi {
   }
 
   /**
+   * The tree was asked for and not copied. Says so on the job as well as in the
+   * log: the fallback is deliberately not a failed job, so a "Completed" run
+   * whose only trace of it was one line among fifty read as a dependency copy
+   * that worked. `hint` is a next step, not a reason, so it trails the sentence.
+   */
+  private dependencyFallback(jobId: string, reason: string, hint?: string) {
+    this.patch(jobId, { dependencyFallback: hint ? `${reason}. ${hint}` : reason });
+    this.appendLog(jobId, `${reason} — copying the single artifact.${hint ? ` ${hint}` : ""}`);
+  }
+
+  /**
    * True once the user has stopped the job. Every run's `catch` and `finish`
    * consults it: the AbortError the cancel *caused* must not relabel an
    * aborted job as failed.
@@ -162,6 +193,11 @@ export class RealArtifactoryApi implements ArtifactoryApi {
   }
 
   async submitUrlCopy(input: UrlCopyInput, submitter: PortalUser): Promise<ArtifactoryJob> {
+    // People paste what Artifactory's own UI put in their address bar — which
+    // serves a web page, not the artifact. Normalised once here rather than at
+    // the fetch, so the job records the URL everything downstream actually
+    // used: classify, the npm registry, the sibling pom and the log all read it.
+    input = { ...input, sourceUrl: downloadUrl(input.sourceUrl) };
     const job: ArtifactoryJob = {
       id: this.jobs.nextId(),
       kind: "url-copy",
@@ -326,25 +362,41 @@ export class RealArtifactoryApi implements ArtifactoryApi {
         { signal }
       );
 
-      // The npm sniff reads the file itself, so it wins over any path guess.
-      const identity = await readTarballIdentity(tmpFile);
+      // The tarball sniff reads the file itself, so it wins over any path guess.
+      const sniffed = await readTarballIdentity(tmpFile);
+      // A .tgz whose manifest could not be read still has the registry layout in
+      // its own URL. Without this, `@octokit/types/-/types-16.0.0.tgz` fell all
+      // the way through to "unrecognised artifact" and was uploaded flat, scope
+      // and all, under the bare name `types-16.0.0.tgz`.
+      const fromUrl = sniffed ? null : npmIdentityFromUrl(input.sourceUrl);
+      if (fromUrl) {
+        this.appendLog(
+          jobId,
+          `No manifest inside the tarball — taking ${fromUrl.name}@${fromUrl.version} from the registry URL.`
+        );
+      }
+      const identity: TarballIdentity | null = sniffed ?? (fromUrl ? { type: "npm", ...fromUrl } : null);
       const classified = identity
         ? null
         : classify(urlArtifactPath(input.sourceUrl), (line) => this.appendLog(jobId, line));
 
       let items: UploadItem[];
       if (identity) {
-        const root: UploadItem = {
-          path: targetPath(identity.name, identity.version),
-          name: identity.name,
-          version: identity.version,
-          type: "npm",
-          resolve: async () => tmpFile,
-        };
+        const root = tarballUploadItem(identity, tmpFile, (line) => this.appendLog(jobId, line));
+        if (!root) {
+          throw new Error(
+            `${identity.name}@${identity.version} is a ${identity.type} package, but ` +
+              `ARTIFACTORY_${identity.type.toUpperCase()}_REPO is not set — nothing was uploaded.`
+          );
+        }
+        this.appendLog(jobId, `Detected a ${identity.type} artifact.`);
         this.patch(jobId, { name: `${identity.name}@${identity.version}` });
-        const deps = input.includeDependencies
-          ? await this.resolveDependencies(jobId, input.sourceUrl, identity, tmpDir, signal)
-          : [];
+        // Helm charts carry their dependencies inside the chart (charts/), so
+        // there is no tree to resolve; the note below says so.
+        const deps =
+          input.includeDependencies && identity.type === "npm"
+            ? await this.resolveDependencies(jobId, input.sourceUrl, identity, tmpDir, signal)
+            : [];
         // Root last on purpose: uploadFiles dedupes by path keeping the *last*
         // entry, and the root's repacked copy out of node_modules has to lose to
         // the original tarball we downloaded — those bytes are byte-identical to
@@ -408,6 +460,18 @@ export class RealArtifactoryApi implements ArtifactoryApi {
           this.appendLog(jobId, `The jar says it is ${coords.groupId}:${coords.artifactId}:${coords.version}.`);
           this.patch(jobId, { name: `${coords.groupId}:${coords.artifactId}@${coords.version}` });
         } else {
+          // ARTIFACTORY_REPO is the fallback repo and it is genuinely optional —
+          // a deployment can set only the per-type ones. Uploading anyway built
+          // the path `/<filename>` with no repo at all, which Artifactory
+          // answers with a 404 reading "User authentication has failed due to
+          // Repo key cannot be empty" — a message that sends the reader after a
+          // token problem that does not exist.
+          if (!config.artifactory.repo) {
+            throw new Error(
+              `${filename} matched no known package type, and ARTIFACTORY_REPO ` +
+                `(the fallback repo for unrecognised files) is not set — nothing was uploaded.`
+            );
+          }
           items = [
             {
               path: `${config.artifactory.repo}/${filename}`,
@@ -424,14 +488,13 @@ export class RealArtifactoryApi implements ArtifactoryApi {
 
       if (
         input.includeDependencies &&
-        !identity &&
+        identity?.type !== "npm" &&
         classified?.type !== "maven" &&
         classified?.type !== "pypi"
       ) {
-        this.appendLog(
+        this.dependencyFallback(
           jobId,
-          "Include dependencies: only npm, Maven and PyPI artifacts have a resolvable " +
-            "dependency tree — copying the single artifact."
+          "Only npm, Maven and PyPI artifacts have a resolvable dependency tree"
         );
       }
 
@@ -554,19 +617,19 @@ export class RealArtifactoryApi implements ArtifactoryApi {
         // copy-dependencies has nothing to resolve without the pom, and the
         // pom's own coordinates — not the URL's — are what it must be keyed on.
         if (!coords) {
-          this.appendLog(
+          this.dependencyFallback(
             jobId,
-            "No pom for this artifact, so its dependencies are unknown — copying the single artifact."
+            "No pom for this artifact, so its dependencies are unknown"
           );
           return [];
         }
         const filename = basename(new URL(sourceUrl).pathname);
         const repo = mavenRepoFromUrl(sourceUrl, coords, filename);
         if (!repo) {
-          this.appendLog(
+          this.dependencyFallback(
             jobId,
             "The URL does not sit at the coordinates its pom declares, so no repository " +
-              "root could be derived — copying the single artifact."
+              "root could be derived"
           );
           return [];
         }
@@ -580,16 +643,15 @@ export class RealArtifactoryApi implements ArtifactoryApi {
           signal,
         });
         if (items === null) {
-          this.appendLog(jobId, "maven is not installed in this image — copying the single artifact.");
+          this.dependencyFallback(jobId, "maven is not installed in this image");
           return [];
         }
       } else {
         const index = pypiIndexFromUrl(sourceUrl);
         if (!index) {
-          this.appendLog(
+          this.dependencyFallback(
             jobId,
-            "No Python index could be derived from the URL (no /packages/ in its path) — " +
-              "copying the single artifact."
+            "No Python index could be derived from the URL (no /packages/ in its path)"
           );
           return [];
         }
@@ -603,7 +665,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
           signal,
         });
         if (items === null) {
-          this.appendLog(jobId, "pip is not installed in this image — copying the single artifact.");
+          this.dependencyFallback(jobId, "pip is not installed in this image");
           return [];
         }
       }
@@ -611,10 +673,10 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       if (items.length > MAX_DEPENDENCY_PACKAGES) {
         // Not a partial upload: a half-populated tree is a broken offline
         // install that gives no signal it is broken.
-        this.appendLog(
+        this.dependencyFallback(
           jobId,
-          `Dependency tree has ${items.length} file(s), over the ${MAX_DEPENDENCY_PACKAGES} ` +
-            `cap — copying the single artifact. Use the folder upload tab for a tree this size.`
+          `Dependency tree has ${items.length} file(s), over the ${MAX_DEPENDENCY_PACKAGES} cap`,
+          "Use the folder upload tab for a tree this size."
         );
         return [];
       }
@@ -629,7 +691,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       // upload the artifact after the user had already pressed Stop.
       if (this.aborted(jobId) || signal.aborted) throw err;
       const message = userMessage(err);
-      this.appendLog(jobId, `Could not resolve dependencies (${message}) — copying the single artifact.`);
+      this.dependencyFallback(jobId, `Could not resolve dependencies (${message})`);
       log.warn("artifactory", `${jobId} dependency resolution failed`, { error: message });
       return [];
     }
@@ -654,10 +716,9 @@ export class RealArtifactoryApi implements ArtifactoryApi {
   ): Promise<UploadItem[]> {
     const registry = npmRegistryFromUrl(sourceUrl);
     if (!registry) {
-      this.appendLog(
+      this.dependencyFallback(
         jobId,
-        `No npm registry could be derived from the URL (no /-/ in its path) — ` +
-          `copying the single artifact.`
+        "No npm registry could be derived from the URL (no /-/ in its path)"
       );
       return [];
     }
@@ -683,11 +744,11 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       if (packages.length > MAX_DEPENDENCY_PACKAGES) {
         // Not a partial upload: a half-populated tree is a broken offline install
         // that gives no signal it is broken.
-        this.appendLog(
+        this.dependencyFallback(
           jobId,
           `Dependency tree has ${packages.length} package(s), over the ` +
-            `${MAX_DEPENDENCY_PACKAGES} cap — copying the single artifact. ` +
-            `Use the folder upload tab for a tree this size.`
+            `${MAX_DEPENDENCY_PACKAGES} cap`,
+          "Use the folder upload tab for a tree this size."
         );
         return [];
       }
@@ -708,7 +769,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       // upload the artifact after the user had already pressed Stop.
       if (this.aborted(jobId) || signal.aborted) throw err;
       const message = userMessage(err);
-      this.appendLog(jobId, `Could not resolve dependencies (${message}) — copying the single artifact.`);
+      this.dependencyFallback(jobId, `Could not resolve dependencies (${message})`);
       log.warn("artifactory", `${jobId} dependency resolution failed`, { error: message });
       return [];
     }
@@ -772,28 +833,31 @@ export class RealArtifactoryApi implements ArtifactoryApi {
         mavenPrefix && path.startsWith(`${mavenPrefix}/`) ? path.slice(mavenPrefix.length + 1) : path;
 
       let unrelated = 0;
-      for (const path of loose) {
+      // Sniffing spawns a `tar` or an `unzip` per file, and on the two shapes
+      // this form exists for — a flat folder of jars, a folder of loose
+      // tarballs — that is *every* file. Sequentially, thousands of process
+      // spawns were the job; the same pool the uploads use hides the latency.
+      // Order inside `loose` carries no meaning: uploadFiles dedupes by target
+      // path, and no two loose files share one.
+      await pool(loose, SNIFF_CONCURRENCY, async (path) => {
         const found = classify(target(path), log);
         if (found) {
           // Already a finished artifact — nothing to pack, upload it as it is.
           items.push({ ...found, resolve: async () => join(sourceDir, path) });
-          continue;
+          return;
         }
         // classify() deliberately leaves .tgz alone: the filename can't give the
-        // scope (@babel/core ships as core-7.0.0.tgz), so the manifest inside
-        // decides. Without this a folder of loose tarballs looks unrelated.
+        // scope (@babel/core ships as core-7.0.0.tgz) and can't tell an npm
+        // package from a Helm chart, so the manifest inside decides. Without
+        // this a folder of loose tarballs looks unrelated.
         const identity = path.toLowerCase().endsWith(".tgz")
           ? await readTarballIdentity(join(sourceDir, path))
           : null;
         if (identity) {
-          items.push({
-            path: targetPath(identity.name, identity.version),
-            name: identity.name,
-            version: identity.version,
-            type: "npm",
-            resolve: async () => join(sourceDir, path),
-          });
-          continue;
+          const item = tarballUploadItem(identity, join(sourceDir, path), log);
+          if (item) items.push(item);
+          else unrelated++;
+          return;
         }
         // Same idea one type over: a jar outside a repository layout carries its
         // own coordinates, which is the only thing that makes the flat folder
@@ -805,7 +869,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
           if (!config.artifactory.mavenRepo) {
             log(`ARTIFACTORY_MAVEN_REPO not set — skipping ${basename(path)}`);
             unrelated++;
-            continue;
+            return;
           }
           items.push({
             path: `${config.artifactory.mavenRepo}/${mavenLayoutPath(coords, mavenFilename(coords, path))}`,
@@ -814,10 +878,10 @@ export class RealArtifactoryApi implements ArtifactoryApi {
             type: "maven",
             resolve: async () => join(sourceDir, path),
           });
-          continue;
+          return;
         }
         unrelated++;
-      }
+      });
 
       if (items.length === 0) {
         // Uploading the tree verbatim used to be the fallback here, which
@@ -916,25 +980,76 @@ async function mavenCoordsFromJar(file: string): Promise<MavenCoords | null> {
   }
 }
 
+/** What a `.tgz` turned out to be. npm and Helm both use the extension. */
+type TarballIdentity = { type: "npm" | "helm"; name: string; version: string };
+
 /**
- * Read `package/package.json` straight out of a tarball to get its real identity —
- * the filename alone cannot tell you the scope (`@babel/core` ships as
- * `core-7.0.0.tgz`). Returns null for anything that isn't an npm tarball.
+ * Read a tarball's identity out of the manifest inside it — the filename alone
+ * cannot tell you the scope (`@babel/core` ships as `core-7.0.0.tgz`) and
+ * cannot tell an npm package from a Helm chart at all, since both are gzipped
+ * tars named `<something>-<version>.tgz`.
+ *
+ * npm is tried first because its manifest is at an exact path; Helm's needs a
+ * wildcard, since the directory is the chart's own name. Returns null for
+ * anything that is neither.
  */
-async function readTarballIdentity(file: string): Promise<{ name: string; version: string } | null> {
-  try {
+async function readTarballIdentity(file: string): Promise<TarballIdentity | null> {
+  const read = async (args: string[]) => {
     // Relative to cwd — GNU tar treats a `C:` prefix as a remote host spec.
-    const { stdout } = await execFileAsync("tar", ["-xzOf", basename(file), "package/package.json"], {
+    const { stdout } = await execFileAsync("tar", ["-xzOf", basename(file), ...args], {
       cwd: dirname(file),
       maxBuffer: 4 * 1024 * 1024,
     });
-    const manifest = JSON.parse(stdout);
+    return stdout;
+  };
+
+  try {
+    const manifest = JSON.parse(await read(["package/package.json"]));
     if (typeof manifest.name === "string" && typeof manifest.version === "string") {
-      return { name: manifest.name, version: manifest.version };
+      return { type: "npm", name: manifest.name, version: manifest.version };
     }
   } catch {
-    // Not a tarball, no manifest inside it, or no tar on PATH — fall back to the
-    // flat upload path rather than failing the whole job.
+    // Not an npm tarball. Fall through to the Helm check.
+  }
+
+  try {
+    // --no-wildcards-match-slash keeps `*` inside one segment: without it the
+    // pattern also matches `<chart>/charts/<subchart>/Chart.yaml`, and `-O`
+    // would concatenate a subchart's manifest onto the parent's.
+    const chart = await read(["--wildcards", "--no-wildcards-match-slash", "*/Chart.yaml"]);
+    // A scan, not a YAML parser: these two keys are plain scalars at column 0
+    // in every chart, and `appVersion` cannot match `^version`.
+    const pick = (key: string) =>
+      new RegExp(`^${key}:\\s*['"]?([^'"\\s#]+)`, "m").exec(chart)?.[1] ?? "";
+    const name = pick("name");
+    const version = pick("version");
+    if (name && version) return { type: "helm", name, version };
+  } catch {
+    // Not a tarball, no manifest inside it, or no tar on PATH — the caller falls
+    // back to the flat upload path rather than failing the whole job.
   }
   return null;
+}
+
+/**
+ * The upload item for a sniffed `.tgz`. `null` when the repo for its type is
+ * unset, which is reported the same way `classify` reports a missing type repo.
+ */
+function tarballUploadItem(
+  identity: TarballIdentity,
+  file: string,
+  onSkip: (message: string) => void
+): UploadItem | null {
+  const path =
+    identity.type === "helm"
+      ? helmTargetPath(identity.name, identity.version, onSkip)
+      : targetPath(identity.name, identity.version);
+  if (!path) return null;
+  return {
+    path,
+    name: identity.name,
+    version: identity.version,
+    type: identity.type,
+    resolve: async () => file,
+  };
 }

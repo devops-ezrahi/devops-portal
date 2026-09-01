@@ -60,6 +60,33 @@ const NPM_PROGRESS_RE = /^npm (?:http|timing|sill|verb) /;
  * for.
  */
 export function npmRegistryFromUrl(sourceUrl: string): string | null {
+  return npmUrlParts(sourceUrl)?.registry ?? null;
+}
+
+/**
+ * `{ name, version }` off the same layout — `@octokit/types/-/types-16.0.0.tgz`
+ * is `@octokit/types` at `16.0.0`. The scope lives in the *directory*, so the
+ * filename alone cannot give it.
+ *
+ * The tarball's own `package/package.json` stays the authority
+ * (`readTarballIdentity`); this is what saves the copy when that cannot be read
+ * — a tarball whose root directory is not `package/`, a repacked one, or one a
+ * proxying registry served with its own wrapper. Without it such a URL fell all
+ * the way through to "unrecognised artifact" and was uploaded flat under its
+ * bare filename, losing the scope and the registry layout with it.
+ */
+export function npmIdentityFromUrl(sourceUrl: string): { name: string; version: string } | null {
+  const parts = npmUrlParts(sourceUrl);
+  if (!parts) return null;
+  const stem = parts.filename.replace(/\.tgz$/i, "");
+  // `<basename>-<version>`, where basename is the name with any scope dropped.
+  const basename = parts.name.split("/").pop()!;
+  if (!stem.startsWith(`${basename}-`)) return null;
+  const version = stem.slice(basename.length + 1);
+  return version ? { name: parts.name, version } : null;
+}
+
+function npmUrlParts(sourceUrl: string): { registry: string; name: string; filename: string } | null {
   let url: URL;
   try {
     url = new URL(sourceUrl);
@@ -78,7 +105,11 @@ export function npmRegistryFromUrl(sourceUrl: string): string | null {
   // A scope can only ever be the first of the two name segments.
   const nameSegments = dash >= 2 && segments[dash - 2].startsWith("@") ? 2 : 1;
   const base = segments.slice(0, dash - nameSegments);
-  return base.length > 0 ? `${url.origin}/${base.join("/")}` : url.origin;
+  return {
+    registry: base.length > 0 ? `${url.origin}/${base.join("/")}` : url.origin,
+    name: segments.slice(dash - nameSegments, dash).join("/"),
+    filename: segments[segments.length - 1],
+  };
 }
 
 /**

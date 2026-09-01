@@ -1,9 +1,10 @@
 import { FlaskConical, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { idFromPath, useDeepLink } from "../../deepLink";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { WhiteningJob, WhiteningScenario } from "../../../server/types";
 import { log, error as logError } from "../../log";
-import { cancelJob, getJob, listJobs, simulateJob } from "./api";
+import { cancelJob, getJob, listJobs, resolvePreserve, simulateJob } from "./api";
 import { JobDetail } from "./components/JobDetail";
 import { JobList } from "./components/JobList";
 import { ArchiveDropZone } from "./components/ArchiveDropZone";
@@ -11,6 +12,7 @@ import { ArchiveDropZone } from "./components/ArchiveDropZone";
 // Mirrors WHITENING_SCENARIOS in server/modules/whitening/devSimulation.ts.
 const TEST_SCENARIOS: { value: WhiteningScenario; label: string }[] = [
   { value: "success", label: "Success" },
+  { value: "preserve-conflict", label: "Preserve conflict" },
   { value: "clone-failure", label: "Failure — repo not found" },
   { value: "dependency-failure", label: "Failure — dependency upload" },
   { value: "image-failure", label: "Failure — image push" },
@@ -18,15 +20,21 @@ const TEST_SCENARIOS: { value: WhiteningScenario; label: string }[] = [
 
 export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) {
   const [jobs, setJobs] = useState<WhiteningJob[]>([]);
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  // From the URL on first paint, so /whitening/ART-0007 opens that job.
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(() => idFromPath("whitening"));
   // The list is log-free (server strips it — a finished job's log lives on the
   // volume, not in the server's heap), so the drawer fetches the whole job.
   const [openJob, setOpenJob] = useState<WhiteningJob | null>(null);
   // Admins get everything from the server; the toggle narrows it back client-side,
   // same as the ticketing queue.
-  const [showAll, setShowAll] = useState(true);
+  // Own jobs first: an admin opening the module wants their own run, not a
+  // list where it is buried under everyone else's. The toggle widens it.
+  const [showAll, setShowAll] = useState(false);
   const [testScenario, setTestScenario] = useState<WhiteningScenario>(TEST_SCENARIOS[0].value);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Selecting a job puts it in the URL, so the link can be pasted to someone.
+  useDeepLink("whitening", selectedJobId, setSelectedJobId);
 
   function fetchJobs() {
     listJobs()
@@ -88,6 +96,16 @@ export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleView
     });
   }
 
+  function handleResolvePreserve(job: WhiteningJob, keep: string[]) {
+    log("whitening", "resolving preserve prompt", { job: job.id, keep });
+    resolvePreserve(job.id, keep)
+      .then(fetchJobs)
+      .catch((err: Error) => {
+        logError("whitening", "resolvePreserve failed", err);
+        onError(err.message);
+      });
+  }
+
   const visibleJobs = useMemo(
     () => (isAdmin && !showAll ? jobs.filter((j) => j.submittedBy === user.id) : jobs),
     [jobs, showAll, isAdmin, user.id]
@@ -145,7 +163,11 @@ export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleView
         <div className="content-column">
           {selectedJob ? (
             <section className="detail-panel" aria-label="Job detail">
-              <JobDetail job={selectedJob} onStop={() => handleStop(selectedJob)} />
+              <JobDetail
+                job={selectedJob}
+                onStop={() => handleStop(selectedJob)}
+                onResolvePreserve={(keep) => handleResolvePreserve(selectedJob, keep)}
+              />
             </section>
           ) : (
             <section className="detail-panel art-panel" aria-label="New job">

@@ -176,3 +176,63 @@ describe("JIRA_TICKET_LABEL scoping", () => {
     expect(JSON.parse(createCall![1]!.body as string).fields.labels).toContain("portal");
   });
 });
+
+describe("createTicket issue type", () => {
+  const user: PortalUser = { id: "u-alex", email: "a@e.com", displayName: "Alex", groups: [] };
+
+  it("creates as the configured Jira issue type, not the catalog's display name", async () => {
+    const fetchMock = vi.fn(async (url: string, _options?: RequestInit) => {
+      if (url.includes("/issue/")) return jsonResponse({ key: "DEVOPS-1", fields: {} });
+      return jsonResponse({ key: "DEVOPS-1", issues: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await makeApi("").createTicket(
+      { requestType: "ci-cd-pipeline", priority: "Medium", fields: { title: "t", description: "d" } },
+      user
+    );
+
+    const createCall = fetchMock.mock.calls.find(
+      ([url, options]) => url.endsWith("/issue") && options?.method === "POST"
+    );
+    // "CI/CD Pipeline" is a portal catalog name; Jira answered it with
+    // "Could not find issuetype by id or name" *and* "project is required".
+    expect(JSON.parse(createCall![1]!.body as string).fields.issuetype).toEqual({ name: "Maintenance" });
+  });
+});
+
+describe("comment authorship", () => {
+  const alex: PortalUser = { id: "u-alex", email: "a@e.com", displayName: "Alex", groups: [] };
+
+  it("round-trips the portal author through the body one shared Jira account writes", async () => {
+    const posted: string[] = [];
+    const fetchMock = vi.fn(async (_url: string, options?: RequestInit) => {
+      const body = JSON.parse((options?.body as string) ?? "{}");
+      posted.push(body.body);
+      // What a real Jira echoes back: the service account, every time.
+      return jsonResponse({ id: "1", body: body.body, author: { name: "svc-portal", displayName: "Portal Bot" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const comment = await makeApi("").addComment("DEVOPS-1", alex, "[status] needs input");
+
+    expect(posted[0]).toBe("Alex (via DevOps Portal, u-alex)\n\n[status] needs input");
+    expect(comment.authorName).toBe("Alex");
+    expect(comment.authorId).toBe("u-alex");
+    // The marker is stripped, so the client's own [status] prefix still leads.
+    expect(comment.body).toBe("[status] needs input");
+  });
+
+  it("leaves a comment written in Jira with the author Jira recorded", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({
+        key: "DEVOPS-1",
+        fields: { comment: { comments: [{ id: "2", body: "looking at it", author: { name: "dana", displayName: "Dana" } }] } }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const ticket = await makeApi("").getAdminTicket("DEVOPS-1");
+    expect(ticket!.comments[0]).toMatchObject({ authorName: "Dana", authorId: "dana", body: "looking at it" });
+  });
+});

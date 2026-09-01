@@ -1,4 +1,5 @@
-import type { ArtifactoryJob, ArtifactoryJobStatus } from "../../../../server/types";
+import { jobStatusClass, jobStatusLabel } from "../jobStatus";
+import type { ArtifactoryJob } from "../../../../server/types";
 
 type Props = {
   jobs: ArtifactoryJob[];
@@ -6,26 +7,6 @@ type Props = {
   isAdmin: boolean;
   onSelect: (id: string) => void;
 };
-
-function statusClass(status: ArtifactoryJobStatus): string {
-  switch (status) {
-    case "pending": return "stage stage-submitted";
-    case "in-progress": return "stage stage-in-progress";
-    case "completed": return "stage stage-resolved";
-    case "failed": return "stage stage-waiting-on-customer";
-    case "aborted": return "stage stage-aborted";
-  }
-}
-
-function statusLabel(status: ArtifactoryJobStatus): string {
-  switch (status) {
-    case "pending": return "Pending";
-    case "in-progress": return "In Progress";
-    case "completed": return "Completed";
-    case "failed": return "Failed";
-    case "aborted": return "Aborted";
-  }
-}
 
 function jobSubtitle(job: ArtifactoryJob): string {
   if (job.kind === "url-copy" && job.sourceUrl) {
@@ -49,7 +30,7 @@ export function JobList({ jobs, selectedJobId, isAdmin, onSelect }: Props) {
           className={`ticket-row${selectedJobId === job.id ? " selected" : ""}`}
           onClick={() => onSelect(job.id)}
         >
-          <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
+          <span className={jobStatusClass(job)}>{jobStatusLabel(job)}</span>
           <strong>{job.name ?? (job.kind === "url-copy" ? "URL Copy" : "Folder Upload")}</strong>
           <div className="ticket-row-meta">
             <small>{jobSubtitle(job) || job.id}</small>

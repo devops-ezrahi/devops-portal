@@ -22,6 +22,7 @@ vi.mock("../../config", () => ({
       rpmRepo: "rpm-local",
       pypiRepo: "pypi-local",
       condaRepo: "conda-local",
+      helmRepo: "helm-local",
       npmSourceToken: "",
     },
     git: { token: "" },
@@ -75,6 +76,26 @@ async function npmTarball(name: string, version: string): Promise<Buffer> {
   await writeFile(join(dir, "package", "package.json"), JSON.stringify({ name, version }));
   const file = `${name.split("/").pop()}-${version}.tgz`;
   await execFileAsync("tar", ["-czf", file, "package"], { cwd: dir });
+  return readFile(join(dir, file));
+}
+
+/**
+ * A real Helm chart: `<chart>/Chart.yaml` inside, plus a bundled subchart —
+ * the subchart's own Chart.yaml is what a greedy wildcard would read instead.
+ */
+async function helmChart(name: string, version: string): Promise<Buffer> {
+  const dir = await mkdtemp(join(tmpdir(), "chart-"));
+  await mkdir(join(dir, name, "charts", "common"), { recursive: true });
+  await writeFile(
+    join(dir, name, "Chart.yaml"),
+    `apiVersion: v2\nname: ${name}\ndescription: A chart\ntype: application\nversion: ${version}\nappVersion: "7.2.4"\n`
+  );
+  await writeFile(
+    join(dir, name, "charts", "common", "Chart.yaml"),
+    `apiVersion: v2\nname: common\nversion: 2.20.0\n`
+  );
+  const file = `${name}-${version}.tgz`;
+  await execFileAsync("tar", ["-czf", file, name], { cwd: dir });
   return readFile(join(dir, file));
 }
 
@@ -151,6 +172,45 @@ describe("url copy stores each type where its indexer looks", () => {
     // Byte-identical to what the source served: the integrity hash in a
     // consumer's lockfile is over these bytes.
     expect(uploaded.get("npm-local/@acme/widget/-/widget-2.1.0.tgz")).toEqual(tgz);
+  });
+
+  it("helm: a chart is flat at the repo root, read from its own Chart.yaml", async () => {
+    const tgz = await helmChart("redis", "19.6.1");
+    // The URL says nothing useful — .tgz is npm's extension too, and this one
+    // is not even in a registry layout. The manifest inside is what decides.
+    serveUrls({ "/charts/redis-19.6.1.tgz": tgz });
+    const job = await urlCopy("https://charts.example.com/charts/redis-19.6.1.tgz");
+
+    expect(job.status).toBe("completed");
+    expect([...uploaded.keys()]).toEqual(["helm-local/redis-19.6.1.tgz"]);
+    expect(job.name).toBe("redis@19.6.1");
+  });
+
+  it("npm: a tarball with no readable manifest still keeps the registry layout", async () => {
+    // Not a gzipped tar at all — the sniff can only fail. The URL is a registry
+    // layout, and that is enough to place it: without this it was uploaded flat
+    // as `types-16.0.0.tgz` and lost its scope.
+    serveUrls({
+      "/artifactory/dvps-npm-local/%40octokit/types/-/types-16.0.0.tgz": Buffer.from("not a tarball"),
+    });
+    const job = await urlCopy(
+      "https://art.example.com/artifactory/dvps-npm-local/%40octokit/types/-/types-16.0.0.tgz"
+    );
+
+    expect(job.log.join("\n")).toContain("registry URL");
+    expect(job.status).toBe("completed");
+    expect([...uploaded.keys()]).toEqual(["npm-local/@octokit/types/-/types-16.0.0.tgz"]);
+  });
+
+  it("takes an Artifactory UI link, which is what people copy out of the browser", async () => {
+    const tgz = await npmTarball("@acme/widget", "2.1.0");
+    serveUrls({ "/artifactory/npm-remote/@acme/widget/-/widget-2.1.0.tgz": tgz });
+    const job = await urlCopy(
+      "https://art.example.com/ui/repos/tree/General/npm-remote/@acme/widget/-/widget-2.1.0.tgz"
+    );
+
+    expect(job.status).toBe("completed");
+    expect([...uploaded.keys()]).toEqual(["npm-local/@acme/widget/-/widget-2.1.0.tgz"]);
   });
 
   it("maven: jar lands in its group layout, with the pom beside it", async () => {

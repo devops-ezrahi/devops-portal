@@ -45,8 +45,10 @@ export function UrlCopyForm({ onSubmitted, onError }: Props) {
           onChange={(e) => setSourceUrl(e.target.value)}
         />
         <span className="field-hint">
-          URL of the artifact in the source repository. The package type is detected from the file —
-          .tgz, .jar, .rpm, .whl and .conda each go to their own repo.
+          URL of the artifact in the source repository, or the Artifactory page for it (the
+          <code> /ui/repos/…</code> link from your address bar). The package type is detected from
+          the file &mdash; .jar, .rpm, .whl and .conda each go to their own repo, and a .tgz is
+          read to see whether it is an npm package or a Helm chart.
         </span>
       </div>
 
@@ -63,7 +65,8 @@ export function UrlCopyForm({ onSubmitted, onError }: Props) {
         <span className="field-hint">
           Resolves the full runtime tree for npm, Maven and PyPI and copies every artifact in it
           (PyPI is wheels only). A tree that won&rsquo;t resolve still copies the single artifact and
-          says why in the job log. RPM does resolve dependencies.
+          says why in the job log. RPM, conda and Helm have no resolver &mdash; those copy the one
+          artifact.
         </span>
       </div>
 

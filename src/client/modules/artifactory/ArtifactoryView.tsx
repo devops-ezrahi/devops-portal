@@ -1,5 +1,6 @@
 import { FlaskConical, FolderOpen, Link, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { idFromPath, useDeepLink } from "../../deepLink";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ArtifactoryJob, ArtifactoryScenario } from "../../../server/types";
 import { log, error as logError } from "../../log";
@@ -17,21 +18,29 @@ const TEST_SCENARIOS: { value: ArtifactoryScenario; label: string }[] = [
   { value: "maven", label: "Maven — success" },
   { value: "rpm", label: "RPM — success" },
   { value: "pypi", label: "PyPI — success" },
+  { value: "helm", label: "Helm — success" },
   { value: "partial-failure", label: "npm — one package fails" },
   { value: "total-failure", label: "npm — Artifactory unreachable" },
+  { value: "dependency-fallback", label: "npm — dependencies not resolved" },
 ];
 
 export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) {
   const [activeTab, setActiveTab] = useState<Tab>("url-copy");
   const [jobs, setJobs] = useState<ArtifactoryJob[]>([]);
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  // From the URL on first paint, so /artifactory/ART-0007 opens that job.
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(() => idFromPath("artifactory"));
   // The list is log-free (server strips it — a finished job's log lives on the
   // volume, not in the server's heap), so the drawer fetches the whole job.
   const [openJob, setOpenJob] = useState<ArtifactoryJob | null>(null);
   // Admins get everything from the server; the toggle narrows it back client-side,
   // same as the ticketing queue.
-  const [showAll, setShowAll] = useState(true);
+  // Own jobs first: an admin opening the module wants their own run, not a
+  // list where it is buried under everyone else's. The toggle widens it.
+  const [showAll, setShowAll] = useState(false);
   const [testScenario, setTestScenario] = useState<ArtifactoryScenario>(TEST_SCENARIOS[0].value);
+
+  // Selecting a job puts it in the URL, so the link can be pasted to someone.
+  useDeepLink("artifactory", selectedJobId, setSelectedJobId);
 
   function fetchJobs() {
     listJobs()

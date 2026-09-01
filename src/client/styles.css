@@ -942,6 +942,14 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   color: #ead49f;
 }
 
+/* A job that copied the artifact but not the dependency tree it was asked for.
+   Amber is taken by Failed in the job modules, so purple — same reasoning as
+   in-review above: neither done nor broken. */
+.stage-incomplete {
+  background: #2b2544;
+  color: #c9bdf0;
+}
+
 /* No ticket stage maps here any more — kept because the artifactory and
    whitening job badges reuse it for completed/uploaded. */
 .stage-resolved {
@@ -1531,6 +1539,18 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   animation: fade-up 180ms var(--ease-out) forwards;
 }
 
+/* Amber, not red: the job did what was asked minus one part of it — the same
+   palette the Jenkinsfile import warnings use. */
+.warn-banner {
+  padding: 18px;
+  background: #1c1710;
+  border: 1px solid #4a3a1c;
+  border-radius: 6px;
+  color: #e0b457;
+  margin-bottom: 14px;
+  animation: fade-up 180ms var(--ease-out) forwards;
+}
+
 @media (max-width: 1120px) {
   .app-header {
     align-items: flex-start;
@@ -1881,7 +1901,12 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 .package-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  /* An Artifactory error runs to a couple of hundred characters. Unwrapped it
+     shared the row with the name, and since .package-name is `flex: 1` (basis
+     0) the name is what collapsed — a package called `t y p e s - 1 6 . 0`
+     down the left edge. The error gets its own full-width line instead. */
+  flex-wrap: wrap;
+  gap: 4px 10px;
   padding: 6px 10px;
   border: 1px solid #203238;
   border-radius: 6px;
@@ -1896,6 +1921,7 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 }
 
 .package-error {
+  flex-basis: 100%;
   color: #f0a5a5;
   font-size: 12px;
   word-break: break-word;
@@ -3691,6 +3717,54 @@ code {
   outline: none;
   border-color: #20c7bd;
   box-shadow: 0 0 0 2px rgb(32 199 189 / 15%);
+}
+
+/* The whitening job held on a keep-or-import decision. Amber like the other
+   "valid, but read this" panels, not the red of a failure. */
+.preserve-prompt {
+  padding: 12px 14px;
+  border: 1px solid #4a3a1c;
+  border-radius: 6px;
+  background: #1c1710;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+
+.preserve-prompt p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  color: #e0b457;
+}
+
+.preserve-prompt ul {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.preserve-prompt label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: #b9c8cd;
+}
+
+.preserve-prompt input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+/* Says what the tick means right now — "keep repo" reads as a label, a bare
+   box reads as a question. */
+.preserve-choice {
+  margin-left: auto;
+  color: #6f8088;
 }
 
 .jf-import-warnings {

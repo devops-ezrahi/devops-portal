@@ -1,5 +1,5 @@
 import { execFile } from "child_process";
-import { cp, mkdir, readFile, readdir } from "fs/promises";
+import { mkdir, readFile, readdir } from "fs/promises";
 import { basename, join } from "path";
 import { promisify } from "util";
 import { config } from "../../config";
@@ -152,31 +152,44 @@ export function uniquePackages(
 /**
  * Build `<name>-<version>.tgz` with the `package/` prefix npm expects.
  *
- * Staged via a copy into a directory literally named `package` so the system tar
- * produces the right member paths — GNU tar's `--transform` and bsdtar's `-s`
- * are spelled differently, and the copy costs less than straddling both.
- * Nested node_modules is filtered out, matching what `npm pack` publishes.
+ * GNU tar only: `--transform` renames the members on the way in, so nothing is
+ * copied first. Nested node_modules is excluded, matching what `npm pack`
+ * publishes. (bsdtar spells the same thing `-s`; the image ships GNU tar, and
+ * every other tar call here already assumes it.)
  *
- * ponytail: copy-then-tar is O(size) extra I/O per package; switch to a
- * tar-library stream if packing a large node_modules ever gets too slow.
+ * ponytail: one gzip per package, at tar's default level. Reach for a tar
+ * library only if the spawn itself ever shows up in a profile.
  */
 async function packPackage(pkg: DiscoveredPackage, stageRoot: string, index: number): Promise<string> {
   const stage = join(stageRoot, String(index));
   await mkdir(stage, { recursive: true });
-  await cp(pkg.dir, join(stage, "package"), {
-    recursive: true,
-    filter: (src) => basename(src) !== "node_modules",
-  });
 
   const filename = `${pkg.name.split("/").pop()}-${pkg.version}.tgz`;
   const tgz = join(stage, filename);
   try {
-    // Relative paths run from `cwd`, never absolute ones: GNU tar reads a leading
-    // `C:` as a remote host spec and fails with "Cannot connect to C:".
-    await execFileAsync("tar", ["-czf", filename, "package"], {
-      cwd: stage,
-      maxBuffer: 10 * 1024 * 1024,
-    });
+    // Straight out of the package directory. This used to `cp -r` the whole
+    // tree into `<stage>/package` first, purely so the archive would carry the
+    // `package/` prefix npm expects — which wrote every byte of a
+    // multi-gigabyte node_modules to disk a second time before compressing it.
+    // --transform renames the entries on the way into the archive instead, and
+    // --exclude drops the nested node_modules the copy's `filter` did.
+    await execFileAsync(
+      "tar",
+      [
+        "-czf",
+        tgz,
+        "-C",
+        pkg.dir,
+        "--exclude=./node_modules",
+        // The trailing `S` turns the rewrite off for symlink *targets*: GNU
+        // tar applies a transform to those by default, so `.bin/x -> ./cli.js`
+        // came out pointing at `package/cli.js`, which resolves to nothing.
+        "--transform=s,^\\./,package/,S",
+        "--transform=s,^\\.$,package,S",
+        ".",
+      ],
+      { cwd: stage, maxBuffer: 10 * 1024 * 1024 }
+    );
   } catch (err) {
     const e = err as NodeJS.ErrnoException & { stderr?: string };
     if (e.code === "ENOENT") throw new Error("tar not found — ensure it is on PATH");

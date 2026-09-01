@@ -42,25 +42,27 @@ function renderView(isAdmin: boolean) {
 }
 
 describe("ArtifactoryView job scope", () => {
-  it("shows every submitter's job to an admin, with their name on the row", async () => {
+  // An admin opens on their own jobs, not on everyone's — theirs is the run
+  // they just started, and it was buried in a shared list.
+  it("starts an admin on their own jobs", async () => {
     renderView(true);
-    await waitFor(() => expect(screen.getByText("arg@4.1.5")).toBeInTheDocument());
-    expect(screen.getByText("Alex Morgan")).toBeInTheDocument();
-    expect(screen.getByText("Dev User")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("node_modules (3 packages)")).toBeInTheDocument());
+    expect(screen.queryByText("arg@4.1.5")).not.toBeInTheDocument();
   });
 
   // The button names the list it switches TO — the heading beside it already
   // says which list is on screen. It used to name the current state, so while
   // showing all jobs it read "All jobs" and did the opposite of its label.
-  it("narrows to the admin's own jobs when the toggle is flipped", async () => {
+  it("widens to every submitter's job when the toggle is flipped", async () => {
     renderView(true);
-    await waitFor(() => expect(screen.getByText("arg@4.1.5")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("node_modules (3 packages)")).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole("button", { name: "My jobs" }));
+    fireEvent.click(screen.getByRole("button", { name: "All jobs" }));
 
-    expect(screen.queryByText("arg@4.1.5")).not.toBeInTheDocument();
-    expect(screen.getByText("node_modules (3 packages)")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "All jobs" })).toBeInTheDocument();
+    expect(screen.getByText("arg@4.1.5")).toBeInTheDocument();
+    expect(screen.getByText("Alex Morgan")).toBeInTheDocument();
+    expect(screen.getByText("Dev User")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "My jobs" })).toBeInTheDocument();
   });
 
   it("gives non-admins no toggle at all", async () => {

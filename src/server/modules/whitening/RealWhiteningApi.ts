@@ -94,14 +94,20 @@ async function readPreserve(repoDir: string): Promise<string[]> {
 }
 
 /**
- * Of the deletions currently staged, the ones a preserve pattern covers.
+ * Of the changes currently staged, the ones a preserve pattern covers: `"D"` for
+ * the deletions the wipe staged, `"M"` for paths the pack ships on top of a file
+ * the repo already had — the ones the user is asked about.
  * Globbing is git's (`:(glob)` pathspecs handle `*`, `**`, `?`) rather than a
  * dependency's — the module already shells out to git for everything.
  */
-export async function preservedDeletions(repoDir: string, preserve: string[]): Promise<string[]> {
+export async function preservedChanges(
+  repoDir: string,
+  preserve: string[],
+  filter: "D" | "M"
+): Promise<string[]> {
   const { stdout } = await execFileAsync(
     "git",
-    ["diff", "--cached", "--name-only", "--diff-filter=D", "--", ...preserve.map((p) => `:(glob)${p}`)],
+    ["diff", "--cached", "--name-only", `--diff-filter=${filter}`, "--", ...preserve.map((p) => `:(glob)${p}`)],
     { cwd: repoDir }
   );
   return stdout.split("\n").filter(Boolean);
@@ -114,6 +120,8 @@ export class RealWhiteningApi implements WhiteningApi {
   private steps = new Map<string, string>();
   /** One per running job, so `cancelJob` can stop the work already in flight. */
   private controllers = new Map<string, AbortController>();
+  /** Resolver of the promise a job waiting on a preserve decision is parked on. */
+  private decisions = new Map<string, (keep: string[]) => void>();
 
   /** `dataDir` is a parameter purely so tests can point it at a mkdtemp. */
   constructor(dataDir: string = config.dataDir) {
@@ -259,9 +267,13 @@ export class RealWhiteningApi implements WhiteningApi {
         if (beat.step) this.setStep(jobId, beat.step);
         if (beat.patch) this.patch(jobId, beat.patch);
         if (beat.line) this.appendLog(jobId, beat.line);
+        if (beat.ask) {
+          const keep = await this.askPreserve(jobId, beat.ask);
+          this.appendLog(jobId, `Kept the repository's version of ${keep.length} of ${beat.ask.length} preserved file(s).`);
+        }
       }
     } catch {
-      // Only sleep() rejects here, and only because the job was cancelled.
+      // Only sleep() and askPreserve reject here, and only on a cancelled job.
     } finally {
       this.controllers.delete(jobId);
       this.steps.delete(jobId);
@@ -296,6 +308,58 @@ export class RealWhiteningApi implements WhiteningApi {
     this.appendLog(jobId, `Aborted by ${user.displayName}.`);
     this.controllers.get(jobId)?.abort();
     return job;
+  }
+
+  /**
+   * Hold the run until someone decides which side of each conflicting preserved
+   * file wins. `pendingPreserve` on the job is the whole signal — the status
+   * stays `in-progress`, so a wait cut short by a restart is already swept into
+   * "Interrupted by a server restart" by the job store, and Stop still works
+   * because the job's own signal rejects this.
+   */
+  private askPreserve(jobId: string, files: string[]): Promise<string[]> {
+    this.patch(jobId, { pendingPreserve: files });
+    this.appendLog(
+      jobId,
+      `${files.length} preserved file(s) also ship in this pack — waiting for a keep/import decision.`
+    );
+    const signal = this.controllers.get(jobId)?.signal;
+    return new Promise<string[]>((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new Error("Aborted while waiting for a preserve decision"));
+        return;
+      }
+      this.decisions.set(jobId, resolve);
+      signal?.addEventListener("abort", () => reject(new Error("Aborted while waiting for a preserve decision")), {
+        once: true,
+      });
+    }).finally(() => {
+      this.decisions.delete(jobId);
+      this.patch(jobId, { pendingPreserve: undefined });
+    });
+  }
+
+  async resolvePreserve(
+    jobId: string,
+    keep: string[],
+    user: PortalUser,
+    allUsers = false
+  ): Promise<WhiteningJob | null> {
+    const job = this.jobs.get(jobId);
+    if (!job?.pendingPreserve?.length) return null;
+    if (!allUsers && job.submittedBy !== user.id) {
+      throw new Error("Forbidden: not your job");
+    }
+    // These paths end up on a git command line, so only the ones actually in
+    // question are honoured.
+    const pending = job.pendingPreserve;
+    this.decisions.get(jobId)?.(keep.filter((p) => pending.includes(p)));
+    return job;
+  }
+
+  /** Put the repository's committed version of these paths back over the pack's. */
+  private restoreFromHead(jobId: string, repoDir: string, paths: string[]) {
+    return this.runCli(jobId, "git", ["restore", "--source=HEAD", "--staged", "--worktree", "--", ...paths], repoDir);
   }
 
   private async runCli(jobId: string, bin: string, args: string[], cwd?: string) {
@@ -399,10 +463,22 @@ export class RealWhiteningApi implements WhiteningApi {
     // pack also ships keeps the packed content. Must run before the "no changes"
     // check below, or a PR whose whole diff was those deletions still opens.
     if (preserve.length) {
-      const kept = await preservedDeletions(repoDir, preserve);
+      const kept = await preservedChanges(repoDir, preserve, "D");
       if (kept.length) {
-        await this.runCli(jobId, "git", ["restore", "--source=HEAD", "--staged", "--worktree", "--", ...kept], repoDir);
+        await this.restoreFromHead(jobId, repoDir, kept);
         this.appendLog(jobId, `Kept ${kept.length} file(s) marked preserve in whitening.json.`);
+      }
+
+      // A preserved path the pack *also* ships is a question, not a default: the
+      // job stops here until someone says which side wins, per file.
+      const conflicts = await preservedChanges(repoDir, preserve, "M");
+      if (conflicts.length) {
+        const keep = await this.askPreserve(jobId, conflicts);
+        if (keep.length) await this.restoreFromHead(jobId, repoDir, keep);
+        this.appendLog(
+          jobId,
+          `Kept the repository's version of ${keep.length} of ${conflicts.length} preserved file(s); imported the rest from the pack.`
+        );
       }
     }
 

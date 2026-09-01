@@ -46,14 +46,14 @@ const user: PortalUser = { id: "dev", email: "dev@example.com", displayName: "De
 // Same contract as ArtifactoryView's toggle: the button names the list it
 // switches TO. This one shipped inverted twice, so it's pinned here.
 describe("WhiteningView job scope", () => {
-  it("narrows to the admin's own jobs when the toggle is flipped", async () => {
+  it("starts on the admin's own jobs and widens when the toggle is flipped", async () => {
     render(<WhiteningView user={user} isAdmin refreshKey={0} onError={() => {}} />);
-    await waitFor(() => expect(screen.getByText("payments/checkout")).toBeInTheDocument());
-
-    fireEvent.click(screen.getByRole("button", { name: "My jobs" }));
-
+    await waitFor(() => expect(screen.getByText("devops/portal")).toBeInTheDocument());
     expect(screen.queryByText("payments/checkout")).not.toBeInTheDocument();
-    expect(screen.getByText("devops/portal")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "All jobs" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "All jobs" }));
+
+    expect(screen.getByText("payments/checkout")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "My jobs" })).toBeInTheDocument();
   });
 });

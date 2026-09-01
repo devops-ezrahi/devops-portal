@@ -1,11 +1,69 @@
-import { CircleStop } from "lucide-react";
+import { CircleStop, TriangleAlert } from "lucide-react";
+import { useState } from "react";
 import { classifyLogLine } from "../../../logLines";
 import type { JobLogEntry, WhiteningJob, WhiteningJobStatus } from "../../../../server/types";
 
 type Props = {
   job: WhiteningJob;
   onStop: () => void;
+  /** Answers the preserve prompt with the paths to keep from the repository. */
+  onResolvePreserve: (keep: string[]) => void;
 };
+
+/**
+ * The run is held while this is on screen: each file the pack ships over a
+ * preserved path is a keep-or-import choice. Ticked means keep the repository's
+ * version, which is what putting the path on the preserve list asked for.
+ */
+function PreservePrompt({ files, onResolve }: { files: string[]; onResolve: (keep: string[]) => void }) {
+  const [keep, setKeep] = useState<Set<string>>(() => new Set(files));
+  // The panel only disappears on the next poll, so the button has to stop
+  // asking twice in the meantime.
+  const [sent, setSent] = useState(false);
+
+  return (
+    <div className="preserve-prompt">
+      <p>
+        <TriangleAlert size={16} aria-hidden="true" />
+        {files.length} preserved file(s) also ship in this pack — keep the repository's version, or import the packed
+        one?
+      </p>
+      <ul>
+        {files.map((file) => (
+          <li key={file}>
+            <label>
+              <input
+                type="checkbox"
+                checked={keep.has(file)}
+                disabled={sent}
+                onChange={(e) =>
+                  setKeep((prev) => {
+                    const next = new Set(prev);
+                    if (e.target.checked) next.add(file);
+                    else next.delete(file);
+                    return next;
+                  })
+                }
+              />
+              <code>{file}</code>
+              <span className="preserve-choice">{keep.has(file) ? "keep repo" : "import packed"}</span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <button
+        className="primary"
+        disabled={sent}
+        onClick={() => {
+          setSent(true);
+          onResolve([...keep]);
+        }}
+      >
+        Continue
+      </button>
+    </div>
+  );
+}
 
 /** Consecutive entries sharing a step become one collapsible group, Jenkins-style. */
 function groupByStep(log: JobLogEntry[]): { step: string; lines: string[] }[] {
@@ -47,7 +105,7 @@ function isRunning(status: WhiteningJobStatus): boolean {
   return status === "pending" || status === "in-progress";
 }
 
-export function JobDetail({ job, onStop }: Props) {
+export function JobDetail({ job, onStop, onResolvePreserve }: Props) {
   return (
     <article className="ticket-detail">
       <div className="detail-heading">
@@ -67,6 +125,11 @@ export function JobDetail({ job, onStop }: Props) {
 
       {job.status === "failed" && job.errorMessage && (
         <div className="error-banner">{job.errorMessage}</div>
+      )}
+
+      {/* Keyed on the list, so a second prompt in the same job re-seeds the ticks. */}
+      {job.pendingPreserve && job.pendingPreserve.length > 0 && (
+        <PreservePrompt key={job.pendingPreserve.join("|")} files={job.pendingPreserve} onResolve={onResolvePreserve} />
       )}
 
       <dl className="metadata-list">

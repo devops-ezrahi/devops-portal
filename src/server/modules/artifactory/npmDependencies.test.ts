@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   npmAuthKey,
+  npmIdentityFromUrl,
   npmRegistryFromUrl,
   npmrcContents,
   packageSpec,
@@ -184,5 +185,27 @@ describe("packageSpec", () => {
     expect(packageSpec("", "1.0.0")).toBeNull();
     expect(packageSpec("arg", ">= 1.0.0")).toBeNull();
     expect(packageSpec("arg", "")).toBeNull();
+  });
+});
+
+describe("npmIdentityFromUrl", () => {
+  it("recovers the scope from the directory, which the filename drops", () => {
+    expect(
+      npmIdentityFromUrl("https://art.example.com/artifactory/npm-local/%40octokit/types/-/types-16.0.0.tgz")
+    ).toEqual({ name: "@octokit/types", version: "16.0.0" });
+  });
+
+  it("handles an unscoped package and a version with dashes in it", () => {
+    expect(npmIdentityFromUrl("https://registry.npmjs.org/arg/-/arg-4.1.5-beta.1.tgz")).toEqual({
+      name: "arg",
+      version: "4.1.5-beta.1",
+    });
+  });
+
+  it("is null for anything not in the registry layout", () => {
+    expect(npmIdentityFromUrl("https://github.com/acme/w/archive/v1.0.0.tar.gz")).toBeNull();
+    // Right shape, wrong file: the basename has to match the package name, or
+    // the split into name and version is a guess.
+    expect(npmIdentityFromUrl("https://registry.npmjs.org/arg/-/other-4.1.5.tgz")).toBeNull();
   });
 });

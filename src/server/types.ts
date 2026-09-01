@@ -131,7 +131,7 @@ export type ArtifactoryJobStatus = "pending" | "in-progress" | "completed" | "fa
 export type PackageUploadStatus = "uploaded" | "exists" | "failed";
 
 /** Ecosystem an artifact belongs to — decides which repo it is uploaded to. */
-export type PackageType = "npm" | "maven" | "rpm" | "pypi" | "conda";
+export type PackageType = "npm" | "maven" | "rpm" | "pypi" | "conda" | "helm";
 
 export type PackageUploadResult = {
   /** `arg` for npm, `org.apache.commons:commons-lang3` for Maven. */
@@ -161,6 +161,13 @@ export type ArtifactoryJob = {
   sourceUrl?: string;
   /** url-copy only. Persisted, so a finished job still says deps were asked for. */
   includeDependencies?: boolean;
+  /**
+   * Why the dependency tree was not copied, on a job that asked for one. The
+   * fallback is deliberately not a failed job, so without this the drawer said
+   * "Completed / Dependencies: Included" over a single-artifact copy and only
+   * the log knew better.
+   */
+  dependencyFallback?: string;
   folderName?: string;
   fileCount?: number;
   totalBytes?: number;
@@ -195,7 +202,11 @@ export type FolderUploadInput = {
 };
 
 /** Which scripted run the Test button replays — one per package type, plus two failure modes. */
-export type ArtifactoryScenario = PackageType | "partial-failure" | "total-failure";
+export type ArtifactoryScenario =
+  | PackageType
+  | "partial-failure"
+  | "total-failure"
+  | "dependency-fallback";
 
 export interface ArtifactoryApi {
   submitUrlCopy(input: UrlCopyInput, submitter: PortalUser): Promise<ArtifactoryJob>;
@@ -232,11 +243,21 @@ export type WhiteningJob = {
   version: string;
   prUrl?: string;
   errorMessage?: string;
+  /**
+   * Set while the run is held: paths the target repo's preserve list covers that
+   * the pack also ships. The user answers with the subset to keep.
+   */
+  pendingPreserve?: string[];
   log: JobLogEntry[];
 };
 
 /** Which scripted run the Test button replays — a clean run, or a failure at one of the three stages. */
-export type WhiteningScenario = "success" | "clone-failure" | "dependency-failure" | "image-failure";
+export type WhiteningScenario =
+  | "success"
+  | "preserve-conflict"
+  | "clone-failure"
+  | "dependency-failure"
+  | "image-failure";
 
 export interface WhiteningApi {
   submitUnpack(archive: Buffer, archiveName: string, submitter: PortalUser): Promise<WhiteningJob>;
@@ -246,6 +267,8 @@ export interface WhiteningApi {
   getJob(jobId: string): Promise<WhiteningJob | null>;
   /** `null` when there is no such job; already-finished jobs are left alone. */
   cancelJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<WhiteningJob | null>;
+  /** Answer a job's preserve prompt with the paths to keep from the repo; `null` when nothing is pending. */
+  resolvePreserve(jobId: string, keep: string[], user: PortalUser, allUsers?: boolean): Promise<WhiteningJob | null>;
 }
 
 // ---- AI Module ----
