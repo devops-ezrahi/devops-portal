@@ -368,10 +368,23 @@ docs.
   glob patterns under `preserve`. Not the pack's copy and not
   `repository/config.json`: what survives is the receiving repo's call, so it
   must not depend on what a given pack happened to ship.
-- **`preserve` means "don't delete", nothing more.** Only *deletions* are undone
-  (`--diff-filter=D`), so a preserved path the pack also ships is committed with
-  the packed content as normal. Freezing a path against modification too would
-  silently drop genuine updates.
+- **`preserve` means "don't delete", and "ask before overwriting".** Deletions
+  are undone silently (`--diff-filter=D`). A preserved path the pack *also*
+  ships (`--diff-filter=M` — same helper, `preservedChanges`) is a question
+  instead: the job **holds** there, `pendingPreserve` on the job carries the
+  file list to the drawer, and the user ticks each file to keep the
+  repository's version or leaves it unticked to import the packed one
+  (`POST /api/whitening/jobs/:id/preserve`). Keeping is the same `git restore
+  --source=HEAD` the deletion path uses; importing is doing nothing, since the
+  packed content is already staged. Freezing every modification instead would
+  silently drop genuine updates; overwriting silently is what this replaced.
+- **The wait is not a job status.** `pendingPreserve` sits on an `in-progress`
+  job, so `JobStore.hydrate` already turns a wait cut short by a restart into
+  "Interrupted by a server restart", and Stop still works — the job's own
+  `AbortController` rejects the promise the run is parked on. There is no
+  timeout: a job nobody answers is a job somebody can Stop. The `dev` Test
+  button's **Preserve conflict** scenario replays the prompt offline (a
+  `WhiteningBeat` with `ask`).
 - **Git does the globbing**, via `:(glob)` pathspecs — `*` stops at a directory
   boundary, `**` crosses one. No `minimatch`/`picomatch`: those exist here only
   as dev-only transitives, so importing one breaks the prod image (prod deps
@@ -382,7 +395,9 @@ docs.
   check — otherwise a PR whose entire diff was those deletions still opens.
 - `whitening.json` itself is always preserved implicitly. Without that, the file
   saying "don't delete these" deletes itself on the first PR and the next one
-  finds no list.
+  finds no list. The pack usually ships its own copy, so it is normally the
+  first row of the prompt — deliberately, since replacing the target's preserve
+  list is exactly the kind of overwrite worth a click.
 - A malformed `whitening.json` **fails the job** rather than being ignored:
   quietly protecting nothing deletes the very files it was written to save. A
   pattern matching nothing is fine and silent.

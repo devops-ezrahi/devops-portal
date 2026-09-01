@@ -3699,6 +3699,54 @@ code {
   box-shadow: 0 0 0 2px rgb(32 199 189 / 15%);
 }
 
+/* The whitening job held on a keep-or-import decision. Amber like the other
+   "valid, but read this" panels, not the red of a failure. */
+.preserve-prompt {
+  padding: 12px 14px;
+  border: 1px solid #4a3a1c;
+  border-radius: 6px;
+  background: #1c1710;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+
+.preserve-prompt p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  color: #e0b457;
+}
+
+.preserve-prompt ul {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.preserve-prompt label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: #b9c8cd;
+}
+
+.preserve-prompt input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+/* Says what the tick means right now — "keep repo" reads as a label, a bare
+   box reads as a question. */
+.preserve-choice {
+  margin-left: auto;
+  color: #6f8088;
+}
+
 .jf-import-warnings {
   padding: 10px 12px;
   border: 1px solid #4a3a1c;

@@ -18,10 +18,13 @@ export type WhiteningBeat = {
   step?: string;
   line?: string;
   patch?: Partial<WhiteningJob>;
+  /** Holds the run on the preserve prompt with these paths, exactly as a real run does. */
+  ask?: string[];
 };
 
 export const WHITENING_SCENARIOS: readonly WhiteningScenario[] = [
   "success",
+  "preserve-conflict",
   "clone-failure",
   "dependency-failure",
   "image-failure",
@@ -45,6 +48,20 @@ const CLONE_AND_PR: WhiteningBeat[] = [
   { ms: 900, line: " 34 files changed, 1281 insertions(+), 402 deletions(-)" },
   { ms: 1000, line: "$ git push --force origin HEAD:whitening/billing-api-2.4.0" },
 
+  { ms: 700, step: "Pull request", line: "Opening PR against main ..." },
+  { ms: 900, line: `PR opened: ${PR_URL}`, patch: { prUrl: PR_URL } },
+];
+
+/** The pack ships three files the target repo's preserve list covers. */
+const PRESERVE_CONFLICT: WhiteningBeat[] = [
+  { ms: 800, step: "Clone", line: "Cloning platform/billing-api ..." },
+  { ms: 900, line: "$ git clone --depth 1 https://bitbucket.example.com/scm/platform/billing-api.git repo" },
+  { ms: 600, line: "$ git checkout -b whitening/billing-api-2.4.0" },
+  { ms: 700, step: "Commit & push", line: "$ git add -A" },
+  { ms: 600, line: "Kept 2 file(s) marked preserve in whitening.json." },
+  { ms: 500, ask: ["whitening.json", ".github/workflows/ci.yml", "local.env"] },
+  { ms: 600, line: "$ git commit -m Unpack billing-api-2.4.0.tgz" },
+  { ms: 900, line: "$ git push --force origin HEAD:whitening/billing-api-2.4.0" },
   { ms: 700, step: "Pull request", line: "Opening PR against main ..." },
   { ms: 900, line: `PR opened: ${PR_URL}`, patch: { prUrl: PR_URL } },
 ];
@@ -112,6 +129,7 @@ const IMAGE_FAILURE: WhiteningBeat[] = [
 
 const SCENARIO_BEATS: Record<WhiteningScenario, WhiteningBeat[]> = {
   success: [...PREPARE, ...CLONE_AND_PR, ...DEPENDENCIES, ...IMAGES, FINISH],
+  "preserve-conflict": [...PREPARE, ...PRESERVE_CONFLICT, ...DEPENDENCIES, ...IMAGES, FINISH],
   "clone-failure": [...PREPARE, ...CLONE_FAILURE],
   "dependency-failure": [...PREPARE, ...CLONE_AND_PR, ...DEPENDENCY_FAILURE],
   "image-failure": [...PREPARE, ...CLONE_AND_PR, ...DEPENDENCIES, ...IMAGE_FAILURE],

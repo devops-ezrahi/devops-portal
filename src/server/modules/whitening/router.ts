@@ -66,6 +66,24 @@ export function createWhiteningRouter(api: WhiteningApi): express.Router {
     }
   });
 
+  router.post("/api/whitening/jobs/:id/preserve", async (req, res, next) => {
+    try {
+      const keep = req.body?.keep;
+      if (!Array.isArray(keep) || keep.some((p) => typeof p !== "string")) {
+        res.status(400).json({ error: "keep must be an array of paths" });
+        return;
+      }
+      const job = await api.resolvePreserve(req.params.id, keep, req.user!, isAdmin(req.user!));
+      if (!job) {
+        res.status(404).json({ error: "Job is not waiting for a preserve decision" });
+        return;
+      }
+      res.json({ job });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.get("/api/whitening/jobs", async (req, res, next) => {
     try {
       const jobs = await api.listJobs(req.user!, isAdmin(req.user!));

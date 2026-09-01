@@ -232,11 +232,21 @@ export type WhiteningJob = {
   version: string;
   prUrl?: string;
   errorMessage?: string;
+  /**
+   * Set while the run is held: paths the target repo's preserve list covers that
+   * the pack also ships. The user answers with the subset to keep.
+   */
+  pendingPreserve?: string[];
   log: JobLogEntry[];
 };
 
 /** Which scripted run the Test button replays — a clean run, or a failure at one of the three stages. */
-export type WhiteningScenario = "success" | "clone-failure" | "dependency-failure" | "image-failure";
+export type WhiteningScenario =
+  | "success"
+  | "preserve-conflict"
+  | "clone-failure"
+  | "dependency-failure"
+  | "image-failure";
 
 export interface WhiteningApi {
   submitUnpack(archive: Buffer, archiveName: string, submitter: PortalUser): Promise<WhiteningJob>;
@@ -246,6 +256,8 @@ export interface WhiteningApi {
   getJob(jobId: string): Promise<WhiteningJob | null>;
   /** `null` when there is no such job; already-finished jobs are left alone. */
   cancelJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<WhiteningJob | null>;
+  /** Answer a job's preserve prompt with the paths to keep from the repo; `null` when nothing is pending. */
+  resolvePreserve(jobId: string, keep: string[], user: PortalUser, allUsers?: boolean): Promise<WhiteningJob | null>;
 }
 
 // ---- AI Module ----
