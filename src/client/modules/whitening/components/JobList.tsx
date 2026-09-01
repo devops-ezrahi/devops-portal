@@ -29,7 +29,7 @@ function statusLabel(status: WhiteningJobStatus): string {
 
 export function JobList({ jobs, selectedJobId, isAdmin, onSelect }: Props) {
   if (jobs.length === 0) {
-    return <div className="empty-state">No jobs yet. Drop a packed .tgz above.</div>;
+    return <div className="empty-state">No jobs yet. Drop a pack above.</div>;
   }
 
   return (

@@ -132,6 +132,15 @@ describe("submitUnpack archive formats", () => {
     expect(job.version).toBe("1.2.3");
   });
 
+  // The format is read off the magic bytes, so a pack renamed in transit still
+  // unpacks — the name is never what identifies a pack.
+  it("accepts a .zip pack that arrives under a .tgz name", async () => {
+    const api = new RealWhiteningApi();
+    const job = await api.submitUnpack(await buildArchive("zip"), "pack.tgz", user);
+
+    expect(job.team).toBe("DEVOPS");
+  });
+
   it("rejects an archive that is neither", async () => {
     const api = new RealWhiteningApi();
 

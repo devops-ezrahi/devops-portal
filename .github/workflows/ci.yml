@@ -69,7 +69,7 @@ jobs:
       # writes it into package.json/package-lock.json, commits that back with
       # [skip ci], tags v<version> (X.Y.Z-dev.N on dev) and cuts the GitHub
       # release. Must run before the pack step and in this same workspace:
-      # pack.py reads package.json off disk to name the tgz, and the tag it just
+      # pack.py reads package.json off disk to name the zip, and the tag it just
       # created is where the pack gets uploaded.
       #
       # .releaserc.json floors every commit at patch, so a push always releases.
@@ -135,7 +135,7 @@ jobs:
       # --no-images skips the docker-save tars (~127 MB -> ~1 MB); it used to be
       # `"images": false` in a whitening.json at the repo root, which is gone —
       # the packer defaults to packing them, so the flag has to say it here.
-      # pack.py prints only the .tgz path on stdout and creates
+      # pack.py prints only the .zip path on stdout and creates
       # no tags of its own — it deltas against the release tag before this one.
       # --all-deps turns the delta off and bundles every dependency, which is
       # what a closed network needs when it has no earlier pack to extract this
@@ -150,7 +150,7 @@ jobs:
 
       # Onto the release semantic-release just cut, so a version is one tag and
       # one release. Release asset, not an artifact: downloads as the file
-      # itself (dem-devops-portal-<version>.tgz), no wrapper zip, permanent URL.
+      # itself (devops-portal-<version>.zip), permanent URL.
       # The portal's whitening module reads repository/config.json, not this
       # name. gh is preinstalled.
       # --clobber so a repack replaces the asset already on the tag rather than
