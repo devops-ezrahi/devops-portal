@@ -257,9 +257,11 @@ export class JiraTicketingApi implements TicketingApi {
     const rawStatus = fields.status?.name ?? "";
     const created = fields.created ?? "";
     const updated = fields.updated ?? created;
+    // The portal's own scoping label is not a team, and showing it as one puts
+    // it in the admin's editable teams box.
     const teamGroups = [
       ...(fields.components?.map((component) => component.name ?? "").filter(Boolean) ?? []),
-      ...(fields.labels ?? [])
+      ...(fields.labels ?? []).filter((label) => label !== this.ticketLabel)
     ];
 
     return {
@@ -318,14 +320,19 @@ export class JiraTicketingApi implements TicketingApi {
       }
     }
 
-    const labels = [
-      this.ticketLabel,
-      requestType.ownerTeam,
-      ...requester.groups,
-      ...Object.entries(fields)
-        .filter(([key]) => key !== "title" && key !== "description")
-        .map(([key, value]) => `${key}:${String(value)}`)
-    ];
+    // JIRA_TICKET_LABEL and nothing else. This used to also stamp the owning
+    // team, every one of the requester's groups, and one `key:value` label per
+    // catalog field — a dozen labels of portal bookkeeping on a ticket a human
+    // then has to read in Jira, where labels are a shared, project-wide
+    // namespace. The catalog fields are already in the description, and team
+    // visibility is now something an admin sets deliberately (`teamGroups` in
+    // the admin detail) rather than something inferred from whoever happened to
+    // file the ticket.
+    //
+    // The idempotency key stays: it is a UUID rather than a category, and the
+    // label is the only place the Jira path records it, so without it a
+    // double-submit files two tickets.
+    const labels = [this.ticketLabel];
     if (input.idempotencyKey) {
       labels.push(input.idempotencyKey);
     }
@@ -374,7 +381,41 @@ export class JiraTicketingApi implements TicketingApi {
       created = await this.request<JiraIssue>("/issue", { method: "POST", body: issueBody(false) });
     }
 
-    return this.getAdminTicket(created.key ?? created.id ?? "") as Promise<TicketDetail>;
+    const key = created.key ?? created.id ?? "";
+    await this.addToActiveSprint(key);
+    return this.getAdminTicket(key) as Promise<TicketDetail>;
+  }
+
+  /**
+   * Put a new ticket in the board's active sprint, because that is the last of
+   * the four things `listAdminTickets` filters on — project, JIRA_TICKET_LABEL,
+   * JIRA_MAINTENANCE_ISSUE_TYPE and `sprint = <active>` — and the only one
+   * `createTicket` was not already satisfying. A ticket created outside the
+   * sprint lands in the backlog, where the admin queue's own query cannot see
+   * it: filed successfully, and invisible to the people meant to work it.
+   *
+   * Never throws. The issue exists by the time this runs, so a failure here has
+   * to be a log line and a ticket in the backlog — reporting the create as
+   * failed would be a lie about something the user cannot retry cleanly. No
+   * board configured means the queue has no sprint clause either, so there is
+   * nothing to do.
+   */
+  private async addToActiveSprint(issueKey: string): Promise<void> {
+    if (!this.boardId || !issueKey) return;
+    try {
+      const sprintId = await this.getActiveSprintId();
+      if (sprintId === null) {
+        log.warn("jira", `no active sprint on board ${this.boardId}, ${issueKey} stays in the backlog`);
+        return;
+      }
+      await this.agileRequest<void>(`/sprint/${sprintId}/issue`, {
+        method: "POST",
+        body: JSON.stringify({ issues: [issueKey] })
+      });
+      log.info("jira", `${issueKey} added to sprint ${sprintId}`);
+    } catch (error) {
+      log.warn("jira", `could not add ${issueKey} to the active sprint`, { error: describeError(error) });
+    }
   }
 
   async listTickets(user: PortalUser, filters: TicketFilters): Promise<TicketSummary[]> {
@@ -492,7 +533,10 @@ export class JiraTicketingApi implements TicketingApi {
         : null;
     }
     if (update.teamGroups !== undefined) {
-      fields.labels = update.teamGroups;
+      // labels is a whole-field replace, so the portal's own label has to be put
+      // back or the ticket drops out of scopeClauses and vanishes from every
+      // portal listing the moment an admin edits its teams.
+      fields.labels = [this.ticketLabel, ...update.teamGroups].map(jiraLabel).filter(Boolean);
     }
     if (update.storyPoints !== undefined && this.storyPointsField) {
       fields[this.storyPointsField] = update.storyPoints;

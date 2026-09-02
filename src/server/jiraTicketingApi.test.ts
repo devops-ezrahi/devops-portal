@@ -214,6 +214,7 @@ describe("createTicket files as the person on the page", () => {
 
   function createMock(reject?: (body: any) => boolean) {
     return vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.includes("/board/42/sprint")) return jsonResponse({ values: [{ id: 7, state: "active" }] });
       if (url.endsWith("/issue") && options?.method === "POST") {
         const body = JSON.parse((options.body as string) ?? "{}");
         if (reject?.(body)) return new Response(JSON.stringify({ errors: {} }), { status: 400 });
@@ -236,16 +237,68 @@ describe("createTicket files as the person on the page", () => {
     return JSON.parse(calls[nth]![1]!.body as string).fields;
   }
 
-  it("sets the reporter to the portal user and never sends a label with a space", async () => {
+  // The admin queue filters on project, label, issue type and the board's active
+  // sprint. Create satisfied the first three; a ticket outside the sprint sat in
+  // the backlog where that query could not see it.
+  it("creates everything the admin queue filters on, and puts it in the sprint", async () => {
+    const fetchMock = createMock();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await makeApi("42", "portal").createTicket(input, dana);
+
+    const fields = createdFields(fetchMock);
+    expect(fields.project).toEqual({ key: "DEVOPS" });
+    expect(fields.issuetype).toEqual({ name: "Maintenance" });
+    expect(fields.labels).toContain("portal");
+
+    const sprintCall = fetchMock.mock.calls.find(([url]) => url.includes("/sprint/7/issue"));
+    expect(JSON.parse(sprintCall![1]!.body as string)).toEqual({ issues: ["DEVOPS-9"] });
+  });
+
+  // The issue exists by then, so a backlog ticket beats reporting a failure the
+  // user cannot cleanly retry.
+  it("still returns the ticket when there is no active sprint to add it to", async () => {
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.includes("/board/42/sprint")) return jsonResponse({ values: [] });
+      if (url.endsWith("/issue") && options?.method === "POST") return jsonResponse({ key: "DEVOPS-9" });
+      return jsonResponse({ key: "DEVOPS-9", fields: {} });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const ticket = await makeApi("42", "portal").createTicket(input, dana);
+    expect(ticket.id).toBe("DEVOPS-9");
+  });
+
+  it("sets the reporter to the portal user", async () => {
     const fetchMock = createMock();
     vi.stubGlobal("fetch", fetchMock);
 
     await makeApi("").createTicket(input, dana);
 
-    const fields = createdFields(fetchMock);
-    expect(fields.reporter).toEqual({ name: "u-dana" });
-    expect(fields.labels).toContain("DevOps_Admins");
-    expect(fields.labels.some((l: string) => /\s/.test(l))).toBe(false);
+    expect(createdFields(fetchMock).reporter).toEqual({ name: "u-dana" });
+  });
+
+  // Labels are a shared project-wide namespace in Jira, so the portal stamps
+  // exactly the one it needs to find its own tickets again — not the owning
+  // team, the requester's groups, or a label per catalog field.
+  it("labels a new ticket with JIRA_TICKET_LABEL and the idempotency key, nothing else", async () => {
+    const fetchMock = createMock();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await makeApi("", "portal").createTicket({ ...input, idempotencyKey: "key-1" }, dana);
+
+    expect(createdFields(fetchMock).labels).toEqual(["portal", "key-1"]);
+  });
+
+  // Jira rejects the whole create over one label with a space in it, and a
+  // deployment is free to put one in the env var.
+  it("normalises whitespace out of the configured label", async () => {
+    const fetchMock = createMock();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await makeApi("", "portal tickets").createTicket(input, dana);
+
+    expect(createdFields(fetchMock).labels).toEqual(["portal_tickets"]);
   });
 
   // Jira 400s the whole create when the reporter is not one of its users, or

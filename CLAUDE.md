@@ -397,13 +397,33 @@ work around it rather than pretend otherwise:
   `unknownReporters` set "my tickets" already keeps, so one 400 settles it for
   the process instead of costing every create a doubled round trip. That set is
   also what falls "my tickets" back to `reporter = currentUser()`.
+- **A new ticket is exactly what the admin queue queries for.** `listAdminTickets`
+  filters on four things — `project`, `JIRA_TICKET_LABEL`,
+  `JIRA_MAINTENANCE_ISSUE_TYPE` and `sprint = <the board's active sprint>` — and
+  `createTicket` has to satisfy all four or it files a ticket the people meant to
+  work it cannot see. The first three are fields on the create; the sprint is a
+  second call (`addToActiveSprint`, `POST /rest/agile/1.0/sprint/<id>/issue`),
+  because a new issue lands in the backlog otherwise. It never throws: the issue
+  exists by then, so no active sprint (or a failed move) is a log line and a
+  backlog ticket, not a create reported as failed. No `JIRA_BOARD_ID` means the
+  queue has no sprint clause either, so there is nothing to do.
+- **`JIRA_TICKET_LABEL` is the only label a create places** (plus the idempotency
+  key, a UUID the Jira path records nowhere else — drop it and a double-submit
+  files two tickets). It used to also stamp the owning team, every one of the
+  requester's groups, and one `key:value` per catalog field: a dozen labels of
+  portal bookkeeping in what is a shared, project-wide namespace a human then
+  reads in Jira. The catalog fields are already in the description. **Team
+  visibility is now deliberate, not inferred** — `teamGroups` in the admin
+  detail is what widens a ticket past its reporter, where before it was
+  whichever groups the filer happened to be in.
 - **Labels cannot contain whitespace**, and Jira rejects the *entire* create over
   one that does rather than dropping it — "The label 'DevOps Admins' can't
-  contain spaces". Group names come from the IdP, which on an AD deployment
-  means CNs with spaces in them (`parseGroups` extracts the CN, spaces and all),
-  so this is the common shape and not an edge case. `jiraLabel` normalises every
-  label, including `JIRA_TICKET_LABEL` in the constructor and the idempotency
-  key at both ends — a label written one way and queried another finds nothing.
+  contain spaces". `jiraLabel` normalises every label, including
+  `JIRA_TICKET_LABEL` in the constructor and the idempotency key at both ends —
+  a label written one way and queried another finds nothing. An admin editing
+  `teamGroups` replaces the whole `labels` field, so the portal's own label is
+  put back there too, or the ticket vanishes from every portal listing the
+  moment its teams are edited.
 
 ## Whitening: preserving target-repo files
 
