@@ -103,6 +103,15 @@ describe("pypiIndexFromUrl", () => {
     ).toBe("https://nexus.example.com/repository/pypi-all/simple");
   });
 
+  // The shape Artifactory's own UI links to, and therefore what people paste.
+  it("uses the pypi API endpoint for an Artifactory storage path", () => {
+    expect(
+      pypiIndexFromUrl(
+        "https://artifactory.app.iaf/artifactory/pypi-proxy-idf.cts-cache/hatch-fancy-pypi-readme/-/hatch_fancy_pypi_readme-25.1.0-py3-none-any.whl"
+      )
+    ).toBe("https://artifactory.app.iaf/artifactory/api/pypi/pypi-proxy-idf.cts-cache/simple");
+  });
+
   it("is null for a flat file server with no packages/ segment", () => {
     expect(pypiIndexFromUrl("https://files.example.com/downloads/idna-3.6-py3-none-any.whl")).toBeNull();
   });

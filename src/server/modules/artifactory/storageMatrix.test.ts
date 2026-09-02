@@ -342,6 +342,19 @@ describe("the pom decides the Maven target, not the path", () => {
     expect(job.log.some((l) => l.includes("No sibling pom (404)"))).toBe(true);
   });
 
+  // A pasted .pom has no sibling to fetch — it *is* the pom — so its own bytes
+  // are the authority for both the target path and the dependency resolve.
+  it("url copy: reads a pasted pom's coordinates out of the pom itself", async () => {
+    serveUrls({ "/pub/java/org/foo/bar/1.0/bar-1.0.pom": pom("org.foo", "bar", "1.0") });
+    const job = await urlCopy("https://mirror.example.com/pub/java/org/foo/bar/1.0/bar-1.0.pom", true);
+
+    expect(job.status).toBe("completed");
+    // One upload, not two: the pom is the artifact, not a sibling beside it.
+    expect([...uploaded.keys()]).toEqual(["maven-local/org/foo/bar/1.0/bar-1.0.pom"]);
+    expect(job.name?.startsWith("org.foo:bar")).toBe(true);
+    expect(job.log.some((l) => l.includes("No pom for this artifact"))).toBe(false);
+  });
+
   it("folder upload: strips whatever the tree is nested under", async () => {
     const job = await folderUpload(
       {

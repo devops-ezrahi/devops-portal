@@ -241,7 +241,11 @@ answer from the file rather than guessing at it:
   jar's target too**: both files must land under the same group or neither
   resolves. A 404 is normal and quiet — the copy still completes, from the
   path-derived target as before. Checksum sidecars are not fetched; Artifactory
-  computes its own on PUT.
+  computes its own on PUT. **A pasted `.pom` is the pom** — `mavenPomUrl` returns
+  `null` there because there is no sibling to fetch, so `fetchMavenPom` reads the
+  coordinates out of the file already downloaded as the artifact and returns no
+  second upload item. Otherwise the one artifact that carries its own dependency
+  list was the one reported as having none.
 - **Folder upload** learns the same correction once per drop
   (`mavenTreePrefix`): the first pom whose coordinates line up with where it
   sits says how many folders the tree is nested under, and that prefix comes off
@@ -277,10 +281,24 @@ half-resolved tree is a broken offline install that gives no sign it is broken.
   never configured. `mavenRepoFromUrl` strips `mavenLayoutPath`'s output off the
   end of the URL (the layout *is* the address, so this is exact, not a
   heuristic); `pypiIndexFromUrl` puts the index beside the `packages/` segment,
-  which covers PyPI, Artifactory and Nexus. `null` from either is a log line and
+  which covers PyPI and Nexus. `null` from either is a log line and
   a single-artifact copy, same as `npmRegistryFromUrl`. Credentials come from
   `sourceTokenFor` — a source on the same host as `ARTIFACTORY_URL` reuses
   `ARTIFACTORY_TOKEN`, anything else is anonymous. No new env vars.
+- **Artifactory's storage path is not its registry**, and it is what people paste
+  because it is what its own UI links to. `/artifactory/<repo>/…` serves bytes;
+  npm and pip have to be pointed at `/artifactory/api/npm/<repo>` and
+  `/artifactory/api/pypi/<repo>` or they get the HTML UI back — which npm reports
+  as `Unexpected token '<', "<!DOCTYPE "... is not valid JSON` and pip as no index
+  at all, neither of which names the cause. `artifactoryApiEndpoint` in
+  `packageTypes.ts` does that one rewrite for both, and only for `artifactory`:
+  on Nexus (`/repository/<name>`) the storage path *is* the registry, and a URL
+  already in `api/` form is left alone so it is not wrapped twice.
+- **No `-ntp` on the mvn command line.** It landed in Maven 3.6.1 and an older
+  `mvn` answers it with a usage dump instead of a warning, which fails the whole
+  resolve; runtime pods have been seen on 3.5.3. `MVN_PROGRESS_RE` already keeps
+  the transfer chatter out of the job log, which is all the flag bought. The
+  Dockerfile's own pre-warm dropped it for the same reason.
 - **Maven needs the pom**, so resolution only runs when `fetchMavenPom` found
   one, keyed on the pom's coordinates rather than the URL's.
   `-DoutputDirectory` is deliberately separate from `-Dmaven.repo.local`: only

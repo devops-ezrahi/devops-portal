@@ -407,7 +407,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
         this.appendLog(jobId, `Detected a ${classified.type} artifact.`);
         this.patch(jobId, { name: `${classified.name}@${classified.version}` });
         if (classified.type === "maven") {
-          const pom = await this.fetchMavenPom(jobId, input.sourceUrl, tmpDir, signal);
+          const pom = await this.fetchMavenPom(jobId, input.sourceUrl, tmpDir, signal, tmpFile);
           if (pom) {
             // The pom states the groupId; the URL only implies it. Where the two
             // disagree the URL was read one segment too deep (an unrecognised
@@ -423,7 +423,10 @@ export class RealArtifactoryApi implements ArtifactoryApi {
               items[0] = { ...items[0], path: fixed, name: `${pom.coords.groupId}:${pom.coords.artifactId}` };
               this.patch(jobId, { name: `${pom.coords.groupId}:${pom.coords.artifactId}@${pom.coords.version}` });
             }
-            items.push(pom.item);
+            // Null when the pasted URL was itself the pom — those bytes are
+            // already items[0], and pushing them again is a second download of
+            // the same file to the same path.
+            if (pom.item) items.push(pom.item);
           }
           if (input.includeDependencies) {
             // Root items last: uploadFiles dedupes by path keeping the *last*
@@ -529,9 +532,15 @@ export class RealArtifactoryApi implements ArtifactoryApi {
   }
 
   /**
-   * The `.pom` sibling of a URL-copied Maven artifact, as an upload item, or
-   * `null`. A jar without its pom is unresolvable for anyone consuming the repo,
-   * and the URL copy only ever fetches the one URL that was pasted.
+   * The `.pom` of a URL-copied Maven artifact — its coordinates, plus an upload
+   * item when the pom is a *sibling* we had to fetch ourselves. A jar without its
+   * pom is unresolvable for anyone consuming the repo, and the URL copy only ever
+   * fetches the one URL that was pasted.
+   *
+   * A pasted `.pom` is the pom: its bytes are already on disk as the artifact, so
+   * the coordinates are read out of that file and `item` is `null` — there is
+   * nothing extra to upload. Without this the one artifact that *does* carry its
+   * own dependencies was the one we told the user had none.
    *
    * Missing is normal and quiet: a 404 (or any other failure) must not fail the
    * copy the user actually asked for.
@@ -540,11 +549,22 @@ export class RealArtifactoryApi implements ArtifactoryApi {
     jobId: string,
     sourceUrl: string,
     tmpDir: string,
-    signal: AbortSignal
-  ): Promise<{ item: UploadItem; coords: MavenCoords } | null> {
-    const pomUrl = mavenPomUrl(sourceUrl);
-    if (!pomUrl) return null;
+    signal: AbortSignal,
+    tmpFile: string
+  ): Promise<{ item: UploadItem | null; coords: MavenCoords } | null> {
     if (!config.artifactory.mavenRepo) return null;
+    const pomUrl = mavenPomUrl(sourceUrl);
+    if (!pomUrl) {
+      // Null for two reasons: the URL is already the pom, or the path is too
+      // short to be a Maven layout at all. Only the first has a pom to read.
+      if (!/\.pom$/i.test(new URL(sourceUrl).pathname)) return null;
+      const coords = mavenCoordsFromPom(await readFile(tmpFile, "utf8"));
+      if (!coords) {
+        this.appendLog(jobId, `This pom states no coordinates — copying it alone.`);
+        return null;
+      }
+      return { item: null, coords };
+    }
 
     try {
       const res = await fetch(pomUrl, { signal });
@@ -651,7 +671,8 @@ export class RealArtifactoryApi implements ArtifactoryApi {
         if (!index) {
           this.dependencyFallback(
             jobId,
-            "No Python index could be derived from the URL (no /packages/ in its path)"
+            "No Python index could be derived from the URL — it is neither an " +
+              "Artifactory repository path nor a /packages/ layout"
           );
           return [];
         }

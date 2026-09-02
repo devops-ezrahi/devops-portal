@@ -294,3 +294,32 @@ export function mavenRootDepth(pomPath: string, coords: MavenCoords): number | n
   if (group.some((part, i) => segments[depth + i] !== part)) return null;
   return depth;
 }
+
+/**
+ * The package-manager API endpoint for a URL that points into Artifactory's
+ * *storage* layout, or `null`.
+ *
+ * Artifactory serves the bytes of every repository under `/artifactory/<repo>/…`,
+ * which is what its UI hands out and therefore what people paste. But npm and pip
+ * do not talk to that path — each ecosystem has its own endpoint
+ * (`/artifactory/api/npm/<repo>`, `/artifactory/api/pypi/<repo>`), and a client
+ * pointed at the storage path gets Artifactory's HTML UI back instead of JSON.
+ * That surfaces as npm's `Unexpected token '<', "<!DOCTYPE "... is not valid JSON`
+ * and as "no index here" for pip, neither of which names the real cause.
+ *
+ * Only `artifactory` is rewritten: on Nexus (`/repository/<name>`) the storage
+ * path *is* the registry, and a URL already in `api/` form is returned as-is by
+ * the `api` check so it is not wrapped twice.
+ */
+export function artifactoryApiEndpoint(sourceUrl: string, kind: "npm" | "pypi"): string | null {
+  let url: URL;
+  try {
+    url = new URL(sourceUrl);
+  } catch {
+    return null;
+  }
+  const segments = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+  if (segments[0] !== "artifactory" || segments.length < 2) return null;
+  if (segments[1] === "api") return null;
+  return `${url.origin}/artifactory/api/${kind}/${segments[1]}`;
+}
