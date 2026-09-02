@@ -369,6 +369,12 @@ export class JiraTicketingApi implements TicketingApi {
         }
       });
 
+    // Everything the create could not do, in the words the person who filed it
+    // needs — the ticket exists either way, so this is a note on the response
+    // rather than a failure, and it has to reach the screen and not just the
+    // pod log.
+    const notices: string[] = [];
+
     let created: JiraIssue;
     try {
       created = await this.request<JiraIssue>("/issue", { method: "POST", body: issueBody(impersonate) });
@@ -379,11 +385,18 @@ export class JiraTicketingApi implements TicketingApi {
         error: describeError(error),
       });
       created = await this.request<JiraIssue>("/issue", { method: "POST", body: issueBody(false) });
+      notices.push(
+        `Jira would not accept "${reporterName}" as the reporter, so this was filed as the portal's ` +
+          `service account. Check that account has the "Modify Reporter" permission on the project.`
+      );
     }
 
     const key = created.key ?? created.id ?? "";
-    await this.addToActiveSprint(key);
-    return this.getAdminTicket(key) as Promise<TicketDetail>;
+    const sprintNotice = await this.addToActiveSprint(key);
+    if (sprintNotice) notices.push(sprintNotice);
+
+    const detail = (await this.getAdminTicket(key)) as TicketDetail;
+    return notices.length ? { ...detail, notice: notices.join(" ") } : detail;
   }
 
   /**
@@ -394,27 +407,30 @@ export class JiraTicketingApi implements TicketingApi {
    * sprint lands in the backlog, where the admin queue's own query cannot see
    * it: filed successfully, and invisible to the people meant to work it.
    *
-   * Never throws. The issue exists by the time this runs, so a failure here has
-   * to be a log line and a ticket in the backlog — reporting the create as
-   * failed would be a lie about something the user cannot retry cleanly. No
-   * board configured means the queue has no sprint clause either, so there is
-   * nothing to do.
+   * Never throws; returns the note to show instead. The issue exists by the time
+   * this runs, so a failure here has to be a warning and a ticket in the backlog
+   * — reporting the create as failed would be a lie about something the user
+   * cannot retry cleanly. No board configured means the queue has no sprint
+   * clause either, so there is nothing to do and nothing to say.
    */
-  private async addToActiveSprint(issueKey: string): Promise<void> {
-    if (!this.boardId || !issueKey) return;
+  private async addToActiveSprint(issueKey: string): Promise<string | null> {
+    if (!this.boardId || !issueKey) return null;
+    const backlogged = "It is in the backlog, so it will not show in the admin queue until someone moves it.";
     try {
       const sprintId = await this.getActiveSprintId();
       if (sprintId === null) {
         log.warn("jira", `no active sprint on board ${this.boardId}, ${issueKey} stays in the backlog`);
-        return;
+        return `There is no active sprint on the board. ${backlogged}`;
       }
       await this.agileRequest<void>(`/sprint/${sprintId}/issue`, {
         method: "POST",
         body: JSON.stringify({ issues: [issueKey] })
       });
       log.info("jira", `${issueKey} added to sprint ${sprintId}`);
+      return null;
     } catch (error) {
       log.warn("jira", `could not add ${issueKey} to the active sprint`, { error: describeError(error) });
+      return `This could not be added to the active sprint (${describeError(error)}). ${backlogged}`;
     }
   }
 

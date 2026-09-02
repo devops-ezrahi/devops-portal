@@ -404,9 +404,17 @@ work around it rather than pretend otherwise:
   work it cannot see. The first three are fields on the create; the sprint is a
   second call (`addToActiveSprint`, `POST /rest/agile/1.0/sprint/<id>/issue`),
   because a new issue lands in the backlog otherwise. It never throws: the issue
-  exists by then, so no active sprint (or a failed move) is a log line and a
+  exists by then, so no active sprint (or a failed move) is a warning and a
   backlog ticket, not a create reported as failed. No `JIRA_BOARD_ID` means the
   queue has no sprint clause either, so there is nothing to do.
+- **A create that did less than it was asked to says so on the page**, not only
+  in the pod log. `TicketDetail.notice` carries the reason — Jira refused the
+  reporter, there was no sprint to join — and both detail views render it as the
+  same `.warn-banner` an Artifactory job's `dependencyFallback` uses, for the
+  same reason: the ticket exists, so a failure would be a lie, but a silent
+  difference is one nobody finds until it matters. It is set on the create
+  response only, since it describes the act of creating rather than the ticket,
+  and re-opening the ticket does not show it again.
 - **`JIRA_TICKET_LABEL` is the only label a create places** (plus the idempotency
   key, a UUID the Jira path records nowhere else — drop it and a double-submit
   files two tickets). It used to also stamp the owning team, every one of the

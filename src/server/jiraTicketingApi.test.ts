@@ -257,7 +257,9 @@ describe("createTicket files as the person on the page", () => {
 
   // The issue exists by then, so a backlog ticket beats reporting a failure the
   // user cannot cleanly retry.
-  it("still returns the ticket when there is no active sprint to add it to", async () => {
+  // The ticket exists, so this is a note on the response rather than a failure
+  // — but it has to reach the screen, not just the pod log.
+  it("still returns the ticket when there is no active sprint, and says so", async () => {
     const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
       if (url.includes("/board/42/sprint")) return jsonResponse({ values: [] });
       if (url.endsWith("/issue") && options?.method === "POST") return jsonResponse({ key: "DEVOPS-9" });
@@ -267,6 +269,24 @@ describe("createTicket files as the person on the page", () => {
 
     const ticket = await makeApi("42", "portal").createTicket(input, dana);
     expect(ticket.id).toBe("DEVOPS-9");
+    expect(ticket.notice).toContain("no active sprint");
+    expect(ticket.notice).toContain("backlog");
+  });
+
+  it("says on screen when Jira refused the reporter", async () => {
+    const fetchMock = createMock((body) => Boolean(body.fields.reporter));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const ticket = await makeApi("", "portal").createTicket(input, dana);
+    expect(ticket.notice).toContain("Modify Reporter");
+  });
+
+  it("says nothing when the create did everything it was asked to", async () => {
+    const fetchMock = createMock();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const ticket = await makeApi("42", "portal").createTicket(input, dana);
+    expect(ticket.notice).toBeUndefined();
   });
 
   it("sets the reporter to the portal user", async () => {
