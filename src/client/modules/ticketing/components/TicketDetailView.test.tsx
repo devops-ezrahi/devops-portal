@@ -12,7 +12,7 @@ function ticket(notice?: string): TicketDetail {
     requesterName: "Dana",
     teamGroups: [],
     rawStatus: "To Do",
-    stage: "Received",
+    stage: "Submitted",
     priority: "Medium",
     assigneeId: "",
     assigneeName: "",

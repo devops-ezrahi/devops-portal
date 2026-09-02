@@ -37,7 +37,7 @@ describe("folder-upload route", () => {
       .send(body);
   }
 
-  it("appends the parts in order and hands the job the finished archive", async () => {
+  it("writes each part at its offset and hands the job the finished archive", async () => {
     let received: FolderUploadInput | undefined;
     const api = {
       async submitFolderUpload(input: FolderUploadInput) {
@@ -50,12 +50,22 @@ describe("folder-upload route", () => {
     const first = Buffer.from("PK pretend ");
     const second = Buffer.from("zip");
     const uploadId = await beginUpload(app);
-    await putPart(app, uploadId, 0, first).expect(200);
+
+    // Backwards on purpose: parts travel several at a time, so the tail can land
+    // before the head. The offset each carries is what puts the archive back
+    // together, not the order they arrived in.
     await putPart(app, uploadId, first.length, second).expect(200);
+    await putPart(app, uploadId, 0, first).expect(200);
 
     await request(app)
       .post("/api/artifactory/jobs/folder-upload")
-      .send({ uploadId, folderName: "node_modules", fileCount: 3, totalBytes: 1234 })
+      .send({
+        uploadId,
+        folderName: "node_modules",
+        fileCount: 3,
+        totalBytes: 1234,
+        archiveBytes: first.length + second.length,
+      })
       .expect(201);
 
     // The job is handed a path, never a Buffer: no part of this upload was ever
@@ -68,16 +78,46 @@ describe("folder-upload route", () => {
     await removeTmpDir(dirname(received!.archivePath));
   });
 
-  // Parts are appended, so one that is not next in line would splice itself into
-  // the middle of the archive and surface minutes later as a corrupt zip.
-  it("refuses a part that is not the next one in line", async () => {
+  // The offset is a number off the wire that becomes a file position, so it is
+  // checked rather than trusted. A missing one used to be refused only as a side
+  // effect of the ordering rule this replaces (`Number(undefined)` is `NaN`).
+  it("refuses an offset that is not a whole non-negative number", async () => {
     const app = appWith({} as ArtifactoryApi);
     const uploadId = await beginUpload(app);
 
-    await putPart(app, uploadId, 0, Buffer.from("abc")).expect(200);
-    await putPart(app, uploadId, 99, Buffer.from("def")).expect(409);
+    await request(app)
+      .put(`/api/artifactory/uploads/${uploadId}`)
+      .set("Content-Type", "application/octet-stream")
+      .send(Buffer.from("abc"))
+      .expect(400);
+    await putPart(app, uploadId, -1, Buffer.from("abc")).expect(400);
+    await putPart(app, uploadId, 1.5, Buffer.from("abc")).expect(400);
 
     await removeTmpDir(tmpDirByName(uploadId));
+  });
+
+  // A part that never landed leaves a hole or a short file, which reaches the
+  // job as a corrupt zip minutes later. The client says how big the archive is;
+  // the file says how big it actually is.
+  it("refuses to complete when the archive is short of what was sent", async () => {
+    const submitFolderUpload = vi.fn();
+    const app = appWith({ submitFolderUpload } as unknown as ArtifactoryApi);
+    const uploadId = await beginUpload(app);
+
+    await putPart(app, uploadId, 0, Buffer.from("PK pretend zip")).expect(200);
+
+    await request(app)
+      .post("/api/artifactory/jobs/folder-upload")
+      .send({
+        uploadId,
+        folderName: "node_modules",
+        fileCount: 3,
+        totalBytes: 1234,
+        archiveBytes: 999,
+      })
+      .expect(400);
+
+    expect(submitFolderUpload).not.toHaveBeenCalled();
   });
 
   it("rejects an id that never opened an upload", async () => {
@@ -96,7 +136,7 @@ describe("folder-upload route", () => {
 
     await request(app)
       .post("/api/artifactory/jobs/folder-upload")
-      .send({ uploadId, folderName: "node_modules", fileCount: 0, totalBytes: 0 })
+      .send({ uploadId, folderName: "node_modules", fileCount: 0, totalBytes: 0, archiveBytes: 1 })
       .expect(400);
 
     expect(submitFolderUpload).not.toHaveBeenCalled();

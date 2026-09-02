@@ -165,19 +165,34 @@ A dropped folder is zipped in the tab and **sent in 8 MB parts while it is still
 being zipped** — the two used to run one after the other, so the wait was the
 sum of them and the whole archive had to exist in the browser before a byte
 moved. `POST /api/artifactory/uploads` mints an `art-<uuid>` temp dir, each
-`PUT /api/artifactory/uploads/:id?offset=` appends one part, and
+`PUT /api/artifactory/uploads/:id?offset=` writes one part at that offset, and
 `POST /api/artifactory/jobs/folder-upload` hands the finished file to the job
 exactly as the old single multipart POST did — the job pipeline never learned
 about any of this.
 
 - **The id is the directory name**, so nothing is held in memory between
   requests and an abandoned upload is swept by the existing 24h `art-` sweep.
-  It is a UUID because holding it is what grants the right to append, and it is
-  matched against `UPLOAD_ID` *before* it is joined into a path.
-- **A part that is not next in line is refused**, not written: the offset the
-  client claims must equal the file's current size, or the part would splice
-  itself into the middle of the archive and surface minutes later as a corrupt
-  zip. That is also why only one part is ever in flight.
+  It is a UUID because holding it is what grants the right to write into that
+  upload, and it is matched against `UPLOAD_ID` *before* it is joined into a path.
+- **Each part carries the offset it belongs at and is written there**, not
+  appended, so **up to `MAX_INFLIGHT` (3) are in flight at once** and the order
+  they arrive in does not matter. One at a time was a stop-and-wait protocol: the
+  zip loop halted for a full round trip per part, so compression and the network
+  took turns instead of overlapping — free over localhost, and most of the wait
+  once a cluster router and oauth2-proxy sit in between. Three is also the memory
+  ceiling (`3 × 8 MB`), which is the whole point of streaming this at all. What
+  the ordering rule used to buy is bought once at the end instead: the tab sends
+  the zipped size as `archiveBytes` and `jobs/folder-upload` refuses an archive
+  that is not exactly that long.
+- **The upload says where its own time went.** `zipEntries` returns
+  `readMs`/`zipMs`/`blockedMs` (file I/O, deflate, waiting on the wire), the
+  `accepted` log line carries the split and a `mbPerSec`, and the progress line
+  on the page shows the rate and a `zip% / net%` beside it — prod needs
+  `localStorage.portalDebug` before a console line appears, and a slow upload is
+  reported, not devtooled. This path was tuned three times by guess before that
+  existed; the split is what says whether the next lever is client CPU (one
+  Worker for the whole zip loop — never `AsyncZipDeflate`, which is a Worker per
+  entry) or the network.
 - **The 500 MB cap is enforced by a stream in the pipeline** (`byteLimit`), not
   a `data` listener on the request — destroying the request from a listener
   still lets `pipeline` resolve, and the oversized part was then answered

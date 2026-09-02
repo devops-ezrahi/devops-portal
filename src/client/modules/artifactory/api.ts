@@ -23,7 +23,11 @@ export function beginFolderUpload() {
   return request<{ uploadId: string }>("/api/artifactory/uploads", { method: "POST" });
 }
 
-/** `offset` is where the client believes the server's file ends; a mismatch is a 409. */
+/**
+ * `offset` is where this part belongs in the archive, and the server writes it
+ * there rather than appending — several parts are in flight at once, so they do
+ * not arrive in order. `completeFolderUpload` is what checks the result is whole.
+ */
 export function uploadArchivePart(uploadId: string, offset: number, part: Blob) {
   return request<{ bytes: number }>(`/api/artifactory/uploads/${uploadId}?offset=${offset}`, {
     method: "PUT",
@@ -37,6 +41,8 @@ export function completeFolderUpload(input: {
   folderName: string;
   fileCount: number;
   totalBytes: number;
+  /** The zipped size the tab sent, checked against the file the server ended up with. */
+  archiveBytes: number;
 }) {
   return request<{ job: ArtifactoryJob }>("/api/artifactory/jobs/folder-upload", {
     method: "POST",
