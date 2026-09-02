@@ -241,11 +241,14 @@ answer from the file rather than guessing at it:
   jar's target too**: both files must land under the same group or neither
   resolves. A 404 is normal and quiet — the copy still completes, from the
   path-derived target as before. Checksum sidecars are not fetched; Artifactory
-  computes its own on PUT. **A pasted `.pom` is the pom** — `mavenPomUrl` returns
-  `null` there because there is no sibling to fetch, so `fetchMavenPom` reads the
-  coordinates out of the file already downloaded as the artifact and returns no
-  second upload item. Otherwise the one artifact that carries its own dependency
-  list was the one reported as having none.
+  computes its own on PUT. **The pair travels in both directions**
+  (`fetchMavenSibling`): a pasted jar pulls its pom, and a pasted pom pulls its
+  jar, because a jar without its pom is unresolvable for anyone consuming the
+  repo and a pom without its jar resolves to nothing to run. The pom is the
+  authority either way — pasted, it is already on disk as the artifact and its
+  coordinates are read from there, which is also what lets a pasted pom resolve
+  dependencies at all. A pom-packaging artifact (a BOM, a parent) genuinely has
+  no jar, and that is the same quiet 404 as a jar published without a pom.
 - **Folder upload** learns the same correction once per drop
   (`mavenTreePrefix`): the first pom whose coordinates line up with where it
   sits says how many folders the tree is nested under, and that prefix comes off
@@ -379,9 +382,28 @@ work around it rather than pretend otherwise:
   readable in Jira's own UI, and a comment written *in* Jira carries no stamp
   and keeps the author Jira recorded. The client's own `[status] ` prefix still
   leads the body once the stamp is off, so `isStatusMessage` is unaffected.
-- **Reporter.** Already handled: `unknownReporters` falls "my tickets" back to
-  `reporter = currentUser()` once Jira rejects a portal id it has never heard
-  of, which is who it recorded as the reporter of everything the portal filed.
+  The **admin** half of the thread is stamped by the same helper, for the same
+  reason — without it every reply from the queue came back as the service
+  account. `mapComment` strips the stamp before the client sees the body, so the
+  client's `[status] ` prefix still leads and `isStatusMessage` is unaffected on
+  both sides.
+- **Reporter.** `createTicket` sets `reporter` to the portal user's Jira
+  username (`usernameFor`), so Jira records who actually filed it. Two things
+  can refuse that — the portal identity is not a Jira user (SSO and Jira need
+  not share a directory), or the token's account lacks *Modify Reporter* on the
+  project — and both come back as a 400 that fails the **whole** create. So the
+  reporter is dropped and the create retried once: filing as the service account
+  is a worse ticket, but a ticket. The rejection is remembered in the same
+  `unknownReporters` set "my tickets" already keeps, so one 400 settles it for
+  the process instead of costing every create a doubled round trip. That set is
+  also what falls "my tickets" back to `reporter = currentUser()`.
+- **Labels cannot contain whitespace**, and Jira rejects the *entire* create over
+  one that does rather than dropping it — "The label 'DevOps Admins' can't
+  contain spaces". Group names come from the IdP, which on an AD deployment
+  means CNs with spaces in them (`parseGroups` extracts the CN, spaces and all),
+  so this is the common shape and not an edge case. `jiraLabel` normalises every
+  label, including `JIRA_TICKET_LABEL` in the constructor and the idempotency
+  key at both ends — a label written one way and queried another finds nothing.
 
 ## Whitening: preserving target-repo files
 

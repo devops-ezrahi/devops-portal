@@ -355,6 +355,32 @@ describe("the pom decides the Maven target, not the path", () => {
     expect(job.log.some((l) => l.includes("No pom for this artifact"))).toBe(false);
   });
 
+  // The pair travels together in both directions: a jar alone is unresolvable
+  // and a pom alone resolves to nothing to run.
+  it("url copy: a pasted pom brings its jar", async () => {
+    serveUrls({
+      "/pub/java/org/foo/bar/1.0/bar-1.0.pom": pom("org.foo", "bar", "1.0"),
+      "/pub/java/org/foo/bar/1.0/bar-1.0.jar": Buffer.from("JAR"),
+    });
+    const job = await urlCopy("https://mirror.example.com/pub/java/org/foo/bar/1.0/bar-1.0.pom");
+
+    expect(job.status).toBe("completed");
+    expect([...uploaded.keys()].sort()).toEqual([
+      "maven-local/org/foo/bar/1.0/bar-1.0.jar",
+      "maven-local/org/foo/bar/1.0/bar-1.0.pom",
+    ]);
+  });
+
+  // A BOM or a parent pom has no jar at all, and that is the same 404 as a jar
+  // published without one — quiet, and the copy still completes.
+  it("url copy: a pasted pom with no jar beside it still completes", async () => {
+    serveUrls({ "/pub/java/org/foo/bar/1.0/bar-1.0.pom": pom("org.foo", "bar", "1.0") });
+    const job = await urlCopy("https://mirror.example.com/pub/java/org/foo/bar/1.0/bar-1.0.pom");
+
+    expect(job.status).toBe("completed");
+    expect([...uploaded.keys()]).toEqual(["maven-local/org/foo/bar/1.0/bar-1.0.pom"]);
+  });
+
   it("folder upload: strips whatever the tree is nested under", async () => {
     const job = await folderUpload(
       {

@@ -38,7 +38,7 @@ import {
   helmTargetPath,
   mavenCoordsFromPom,
   mavenLayoutPath,
-  mavenPomUrl,
+  mavenSiblingUrl,
   mavenRootDepth,
   urlArtifactPath,
 } from "./packageTypes";
@@ -407,7 +407,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
         this.appendLog(jobId, `Detected a ${classified.type} artifact.`);
         this.patch(jobId, { name: `${classified.name}@${classified.version}` });
         if (classified.type === "maven") {
-          const pom = await this.fetchMavenPom(jobId, input.sourceUrl, tmpDir, signal, tmpFile);
+          const pom = await this.fetchMavenSibling(jobId, input.sourceUrl, tmpDir, signal, tmpFile);
           if (pom) {
             // The pom states the groupId; the URL only implies it. Where the two
             // disagree the URL was read one segment too deep (an unrecognised
@@ -423,9 +423,8 @@ export class RealArtifactoryApi implements ArtifactoryApi {
               items[0] = { ...items[0], path: fixed, name: `${pom.coords.groupId}:${pom.coords.artifactId}` };
               this.patch(jobId, { name: `${pom.coords.groupId}:${pom.coords.artifactId}@${pom.coords.version}` });
             }
-            // Null when the pasted URL was itself the pom — those bytes are
-            // already items[0], and pushing them again is a second download of
-            // the same file to the same path.
+            // Null when the sibling 404s — a jar published without its pom, or
+            // a pom-packaging artifact that has no jar to go and get.
             if (pom.item) items.push(pom.item);
           }
           if (input.includeDependencies) {
@@ -532,20 +531,24 @@ export class RealArtifactoryApi implements ArtifactoryApi {
   }
 
   /**
-   * The `.pom` of a URL-copied Maven artifact — its coordinates, plus an upload
-   * item when the pom is a *sibling* we had to fetch ourselves. A jar without its
-   * pom is unresolvable for anyone consuming the repo, and the URL copy only ever
-   * fetches the one URL that was pasted.
+   * The other half of a Maven pair — its coordinates, plus the sibling as an
+   * upload item when there was one to fetch. A URL copy only ever downloads the
+   * one URL that was pasted, and neither half is much use alone: a jar without
+   * its pom is unresolvable for anyone consuming the repo, and a pom without its
+   * jar resolves to nothing to run. So a pasted jar pulls its pom and a pasted
+   * pom pulls its jar.
    *
-   * A pasted `.pom` is the pom: its bytes are already on disk as the artifact, so
-   * the coordinates are read out of that file and `item` is `null` — there is
-   * nothing extra to upload. Without this the one artifact that *does* carry its
-   * own dependencies was the one we told the user had none.
+   * The pom is the authority either way. Pasted, it is already on disk as the
+   * artifact and its coordinates are read from there; fetched, they come from the
+   * copy we just downloaded. Artifactory answers a pom deployed off its own
+   * coordinates with a 409, so a path guessed from the URL is not good enough
+   * once the real answer is readable.
    *
    * Missing is normal and quiet: a 404 (or any other failure) must not fail the
-   * copy the user actually asked for.
+   * copy the user actually asked for. A pom-packaging artifact — a BOM or a
+   * parent — genuinely has no jar, and that is the same 404.
    */
-  private async fetchMavenPom(
+  private async fetchMavenSibling(
     jobId: string,
     sourceUrl: string,
     tmpDir: string,
@@ -553,43 +556,29 @@ export class RealArtifactoryApi implements ArtifactoryApi {
     tmpFile: string
   ): Promise<{ item: UploadItem | null; coords: MavenCoords } | null> {
     if (!config.artifactory.mavenRepo) return null;
-    const pomUrl = mavenPomUrl(sourceUrl);
-    if (!pomUrl) {
-      // Null for two reasons: the URL is already the pom, or the path is too
-      // short to be a Maven layout at all. Only the first has a pom to read.
-      if (!/\.pom$/i.test(new URL(sourceUrl).pathname)) return null;
-      const coords = mavenCoordsFromPom(await readFile(tmpFile, "utf8"));
-      if (!coords) {
-        this.appendLog(jobId, `This pom states no coordinates — copying it alone.`);
-        return null;
-      }
-      return { item: null, coords };
-    }
 
     try {
-      const res = await fetch(pomUrl, { signal });
-      if (!res.ok || !res.body) {
-        this.appendLog(jobId, `No sibling pom (${res.status}) — copying the artifact alone.`);
-        return null;
-      }
-      const filename = safeRelativePath(basename(new URL(pomUrl).pathname));
-      const file = join(tmpDir, filename);
-      await pipeline(
-        Readable.fromWeb(res.body as unknown as WebReadableStream<Uint8Array>),
-        createWriteStream(file),
-        { signal }
-      );
+      // Which half we were handed decides which half we go and get.
+      const pasted = basename(new URL(sourceUrl).pathname);
+      const wanted = /\.pom$/i.test(pasted) ? "jar" : "pom";
+      const siblingUrl = mavenSiblingUrl(sourceUrl, wanted);
+      // Null means the URL is not in a Maven layout at all — three segments of
+      // group/artifact/version are what names the sibling.
+      if (!siblingUrl) return null;
+      const sibling = await this.fetchSiblingFile(jobId, siblingUrl, tmpDir, signal, wanted);
 
-      // The pom's own coordinates decide where it goes: Artifactory answers a
-      // pom deployed anywhere else with a 409, so a path guessed off the URL is
-      // not good enough once the real answer is on disk.
-      const coords = mavenCoordsFromPom(await readFile(file, "utf8"));
+      const pomFile = wanted === "jar" ? tmpFile : sibling;
+      if (!pomFile) return null;
+      const coords = mavenCoordsFromPom(await readFile(pomFile, "utf8"));
       if (!coords) {
-        this.appendLog(jobId, `The sibling pom states no coordinates — copying the artifact alone.`);
+        this.appendLog(jobId, `The pom states no coordinates — copying the artifact alone.`);
         return null;
       }
+      if (!sibling) return { coords, item: null };
+
+      const filename = basename(sibling);
       const path = `${config.artifactory.mavenRepo}/${mavenLayoutPath(coords, filename)}`;
-      this.appendLog(jobId, `Also copying its pom: ${path}`);
+      this.appendLog(jobId, `Also copying its ${wanted}: ${path}`);
       return {
         coords,
         item: {
@@ -597,15 +586,37 @@ export class RealArtifactoryApi implements ArtifactoryApi {
           name: `${coords.groupId}:${coords.artifactId}`,
           version: coords.version,
           type: "maven",
-          resolve: async () => file,
+          resolve: async () => sibling,
         },
       };
     } catch (err) {
-      // A Stop is the caller's business; anything else is just "no pom".
+      // A Stop is the caller's business; anything else is just "no sibling".
       if (this.aborted(jobId)) throw err;
-      this.appendLog(jobId, `Sibling pom not fetched (${userMessage(err)}) — copying the artifact alone.`);
+      this.appendLog(jobId, `Sibling not fetched (${userMessage(err)}) — copying the artifact alone.`);
       return null;
     }
+  }
+
+  /** One sibling download into `tmpDir`, or `null` — a 404 here is routine. */
+  private async fetchSiblingFile(
+    jobId: string,
+    url: string,
+    tmpDir: string,
+    signal: AbortSignal,
+    noun: string
+  ): Promise<string | null> {
+    const res = await fetch(url, { signal });
+    if (!res.ok || !res.body) {
+      this.appendLog(jobId, `No sibling ${noun} (${res.status}).`);
+      return null;
+    }
+    const file = join(tmpDir, safeRelativePath(basename(new URL(url).pathname)));
+    await pipeline(
+      Readable.fromWeb(res.body as unknown as WebReadableStream<Uint8Array>),
+      createWriteStream(file),
+      { signal }
+    );
+    return file;
   }
 
   /**

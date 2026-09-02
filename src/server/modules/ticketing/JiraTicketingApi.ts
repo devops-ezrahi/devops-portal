@@ -105,6 +105,18 @@ function readPortalAuthor(body: string): { displayName: string; id: string; body
   return m ? { displayName: m[1], id: m[2], body: m[3] } : null;
 }
 
+/**
+ * Jira labels cannot contain whitespace, and it rejects the *whole* create with
+ * a 400 — "The label 'DevOps Admins' can't contain spaces" — rather than
+ * dropping the one bad label. Group names arrive from the IdP, which on an AD
+ * deployment means a CN like `DevOps Admins`, so this is the common shape and
+ * not an edge case. Every label goes through here, including the ones that are
+ * later matched on in JQL, or a ticket is filed under a name no query finds.
+ */
+function jiraLabel(value: string): string {
+  return value.trim().replace(/\s+/g, "_");
+}
+
 function quoteJql(value: string) {
   return `"${value.replace(/["\\]/g, "\\$&")}"`;
 }
@@ -132,7 +144,9 @@ export class JiraTicketingApi implements TicketingApi {
     this.boardId = config.boardId;
     this.maintenanceIssueType = config.maintenanceIssueType;
     this.storyPointsField = config.storyPointsField ?? "";
-    this.ticketLabel = config.ticketLabel ?? "";
+    // Sanitised here, once: it is both written as a label and matched on in
+    // scopeClauses, and the two have to agree.
+    this.ticketLabel = jiraLabel(config.ticketLabel ?? "");
   }
 
   // Scopes every listing to one label so the portal can share a Jira project
@@ -298,7 +312,7 @@ export class JiraTicketingApi implements TicketingApi {
     const fields = validateRequestFields(input.requestType, input.fields);
 
     if (input.idempotencyKey) {
-      const existing = await this.search(`labels = ${quoteJql(input.idempotencyKey)}`);
+      const existing = await this.search(`labels = ${quoteJql(jiraLabel(input.idempotencyKey))}`);
       if (existing[0]) {
         return this.getAdminTicket(existing[0].key ?? existing[0].id ?? "") as Promise<TicketDetail>;
       }
@@ -310,17 +324,29 @@ export class JiraTicketingApi implements TicketingApi {
       ...requester.groups,
       ...Object.entries(fields)
         .filter(([key]) => key !== "title" && key !== "description")
-        .map(([key, value]) => `${key}:${String(value).replace(/\s+/g, "_")}`)
+        .map(([key, value]) => `${key}:${String(value)}`)
     ];
     if (input.idempotencyKey) {
       labels.push(input.idempotencyKey);
     }
 
-    const created = await this.request<JiraIssue>("/issue", {
-      method: "POST",
-      body: JSON.stringify({
+    // The person on the page is who filed this, and Jira will record that if the
+    // JIRA_TOKEN account is allowed to say so. Two ways it may not be: the portal
+    // identity is not a Jira user at all (SSO and Jira need not share a
+    // directory), or the service account lacks "Modify Reporter" on the project.
+    // Both come back as a 400 that fails the *whole* create, so the reporter is
+    // dropped and the create retried once — filing as the service account is a
+    // worse ticket, but a ticket. `unknownReporters` is the same set listTickets
+    // already keeps, so one rejection settles it for the process rather than
+    // costing every create a doubled round trip.
+    const reporterName = this.jiraUser(requester).id;
+    const impersonate = Boolean(reporterName) && !this.unknownReporters.has(reporterName);
+
+    const issueBody = (withReporter: boolean) =>
+      JSON.stringify({
         fields: {
           project: { key: this.projectKey },
+          ...(withReporter ? { reporter: { name: reporterName } } : {}),
           // The issue type is a *Jira* fact, not a portal one. It used to be
           // the catalog's display name ("CI/CD Pipeline"), which no Jira
           // instance has, and Jira answers an unresolvable issuetype with
@@ -332,10 +358,21 @@ export class JiraTicketingApi implements TicketingApi {
           priority: { name: input.priority },
           summary: fields.title ?? requestType.name,
           description: fields.description ?? "",
-          labels: labels.filter(Boolean)
+          labels: labels.map(jiraLabel).filter(Boolean)
         }
-      })
-    });
+      });
+
+    let created: JiraIssue;
+    try {
+      created = await this.request<JiraIssue>("/issue", { method: "POST", body: issueBody(impersonate) });
+    } catch (error) {
+      if (!impersonate) throw error;
+      this.unknownReporters.add(reporterName);
+      log.warn("jira", `could not file as reporter "${reporterName}", filing as the JIRA_TOKEN account`, {
+        error: describeError(error),
+      });
+      created = await this.request<JiraIssue>("/issue", { method: "POST", body: issueBody(false) });
+    }
 
     return this.getAdminTicket(created.key ?? created.id ?? "") as Promise<TicketDetail>;
   }
@@ -478,7 +515,14 @@ export class JiraTicketingApi implements TicketingApi {
   async addAdminComment(ticketId: string, admin: PortalUser, body: string): Promise<TicketComment> {
     const comment = await this.request<JiraComment>(`/issue/${encodeURIComponent(ticketId)}/comment`, {
       method: "POST",
-      body: JSON.stringify({ body, author: { name: admin.id, displayName: admin.displayName } })
+      // Stamped exactly as addComment does, and for the same reason: one shared
+      // token writes every portal comment, so without this every admin reply in
+      // the thread comes back as the JIRA_TOKEN account. mapComment strips the
+      // stamp again, so the client's own `[status] ` prefix still leads the body.
+      body: JSON.stringify({
+        body: stampPortalAuthor(admin, body),
+        author: { name: admin.id, displayName: admin.displayName }
+      })
     });
     return this.mapComment(comment);
   }

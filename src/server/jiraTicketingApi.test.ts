@@ -201,6 +201,67 @@ describe("createTicket issue type", () => {
   });
 });
 
+describe("createTicket files as the person on the page", () => {
+  // An AD groups claim is a DN, so parseGroups hands back CNs with spaces in
+  // them. Jira rejects the whole create over one such label, so nothing at all
+  // got filed on those deployments.
+  const dana: PortalUser = {
+    id: "u-dana",
+    email: "d@e.com",
+    displayName: "Dana",
+    groups: ["DevOps Admins", "platform"],
+  };
+
+  function createMock(reject?: (body: any) => boolean) {
+    return vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.endsWith("/issue") && options?.method === "POST") {
+        const body = JSON.parse((options.body as string) ?? "{}");
+        if (reject?.(body)) return new Response(JSON.stringify({ errors: {} }), { status: 400 });
+        return jsonResponse({ key: "DEVOPS-9" });
+      }
+      return jsonResponse({ key: "DEVOPS-9", fields: {} });
+    });
+  }
+
+  const input = {
+    requestType: "ci-cd-pipeline",
+    fields: { title: "T", description: "D" },
+    priority: "Medium" as const,
+  };
+
+  function createdFields(fetchMock: ReturnType<typeof vi.fn>, nth = 0) {
+    const calls = fetchMock.mock.calls.filter(
+      ([url, options]) => url.endsWith("/issue") && options?.method === "POST"
+    );
+    return JSON.parse(calls[nth]![1]!.body as string).fields;
+  }
+
+  it("sets the reporter to the portal user and never sends a label with a space", async () => {
+    const fetchMock = createMock();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await makeApi("").createTicket(input, dana);
+
+    const fields = createdFields(fetchMock);
+    expect(fields.reporter).toEqual({ name: "u-dana" });
+    expect(fields.labels).toContain("DevOps_Admins");
+    expect(fields.labels.some((l: string) => /\s/.test(l))).toBe(false);
+  });
+
+  // Jira 400s the whole create when the reporter is not one of its users, or
+  // when the token's account may not set the field. A ticket filed as the
+  // service account is worse than one filed as Dana, and better than none.
+  it("retries without the reporter when Jira refuses it", async () => {
+    const fetchMock = createMock((body) => Boolean(body.fields.reporter));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const ticket = await makeApi("").createTicket(input, dana);
+
+    expect(ticket.id).toBe("DEVOPS-9");
+    expect(createdFields(fetchMock, 1).reporter).toBeUndefined();
+  });
+});
+
 describe("comment authorship", () => {
   const alex: PortalUser = { id: "u-alex", email: "a@e.com", displayName: "Alex", groups: [] };
 
@@ -221,6 +282,24 @@ describe("comment authorship", () => {
     expect(comment.authorId).toBe("u-alex");
     // The marker is stripped, so the client's own [status] prefix still leads.
     expect(comment.body).toBe("[status] needs input");
+  });
+
+  // The admin half of the same thread went out unstamped, so every reply came
+  // back as the service account — one person talking to themselves again.
+  it("stamps an admin reply with the admin who wrote it", async () => {
+    const posted: string[] = [];
+    const fetchMock = vi.fn(async (_url: string, options?: RequestInit) => {
+      const body = JSON.parse((options?.body as string) ?? "{}");
+      posted.push(body.body);
+      return jsonResponse({ id: "1", body: body.body, author: { name: "svc-portal", displayName: "Portal Bot" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const comment = await makeApi("").addAdminComment("DEVOPS-1", alex, "[status] on it");
+
+    expect(posted[0]).toBe("Alex (via DevOps Portal, u-alex)\n\n[status] on it");
+    expect(comment.authorName).toBe("Alex");
+    expect(comment.body).toBe("[status] on it");
   });
 
   it("leaves a comment written in Jira with the author Jira recorded", async () => {
