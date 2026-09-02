@@ -1,5 +1,5 @@
 import { createWriteStream } from "fs";
-import { stat } from "fs/promises";
+import { stat, writeFile } from "fs/promises";
 import { join } from "path";
 import { Transform } from "stream";
 import { pipeline } from "stream/promises";
@@ -57,6 +57,9 @@ const folderUploadSchema = z.object({
   folderName: z.string().trim().min(1),
   fileCount: z.number().int().nonnegative(),
   totalBytes: z.number().int().nonnegative(),
+  /** What the client says it sent. Parts land out of order, so this is the only
+   *  thing that says the archive on disk is the whole archive. */
+  archiveBytes: z.number().int().positive(),
 });
 
 export function createArtifactoryRouter(api: ArtifactoryApi): express.Router {
@@ -74,15 +77,20 @@ export function createArtifactoryRouter(api: ArtifactoryApi): express.Router {
 
   /**
    * The three halves of a folder upload. The client zips and sends at the same
-   * time — a part goes out while the next files are still being compressed —
-   * because the two used to run one after the other and the user waited for the
-   * sum. Parts are appended in order to one file in a temp dir named by the id
-   * handed out here; `jobs/folder-upload` then hands that file to the job
-   * exactly as the single multipart POST used to.
+   * time — several parts go out while the next files are still being compressed
+   * — because the two used to run one after the other and the user waited for
+   * the sum. Each part carries the offset it belongs at and is written there, in
+   * one file in a temp dir named by the id handed out here; `jobs/folder-upload`
+   * then hands that file to the job exactly as the single multipart POST used to.
+   *
+   * The archive file is created empty right here, because a positional write
+   * opens it `r+` and that needs the file to already exist.
    */
   router.post("/api/artifactory/uploads", async (_req, res, next) => {
     try {
-      res.status(201).json({ uploadId: await createNamedTmpDir("art-") });
+      const uploadId = await createNamedTmpDir("art-");
+      await writeFile(join(tmpDirByName(uploadId), ARCHIVE_NAME), "");
+      res.status(201).json({ uploadId });
     } catch (err) {
       next(err);
     }
@@ -104,28 +112,43 @@ export function createArtifactoryRouter(api: ArtifactoryApi): express.Router {
         return;
       }
 
-      // Parts are appended, so one arriving out of order would splice itself
-      // into the middle of the archive and only show up as a corrupt zip
-      // minutes later. The client says where it thinks it is; the file says
-      // where it actually is, and a mismatch is refused rather than written.
-      const written = await stat(archivePath).then((s) => s.size, () => 0);
-      if (Number(req.query.offset) !== written) {
-        res.status(409).json({ error: `Upload is at ${written} bytes, not ${req.query.offset}` });
+      // The client sends parts several at a time, so they do not arrive in the
+      // order they were cut and there is no "next" one to compare against. Each
+      // says where it belongs and is written there. The offset is checked here
+      // rather than trusted: it is a number from the wire that becomes a file
+      // position, and `NaN` used to be refused only as a side effect of the
+      // equality check this replaces.
+      const offset = Number(req.query.offset);
+      if (!Number.isSafeInteger(offset) || offset < 0) {
+        res.status(400).json({ error: `Bad offset: ${req.query.offset}` });
         return;
       }
 
-      // Counted as it streams, so a folder that runs over is stopped partway
-      // rather than after the client has sent all of it.
-      const out = createWriteStream(archivePath, { flags: "a" });
-      await pipeline(req, byteLimit(MAX_ARCHIVE_BYTES, written), out);
-
-      res.json({ bytes: written + out.bytesWritten });
-    } catch (err) {
-      await removeTmpDir(dir);
-      if (err instanceof UploadTooLargeError) {
+      // Refused before a byte is written when the client is honest about the
+      // size; `byteLimit` in the pipeline is what catches a missing or lying
+      // Content-Length, and is the guard that has to be a stream (see above).
+      const declared = Number(req.headers["content-length"]);
+      if (Number.isFinite(declared) && offset + declared > MAX_ARCHIVE_BYTES) {
+        await removeTmpDir(dir);
         res.status(413).json({ error: "Upload is too large — the limit is 500 MB." });
         return;
       }
+
+      const out = createWriteStream(archivePath, { flags: "r+", start: offset });
+      await pipeline(req, byteLimit(MAX_ARCHIVE_BYTES, offset), out);
+
+      res.json({ bytes: out.bytesWritten });
+    } catch (err) {
+      if (err instanceof UploadTooLargeError) {
+        // Deliberate: the upload can never complete, so the dir is dead weight.
+        await removeTmpDir(dir);
+        res.status(413).json({ error: "Upload is too large — the limit is 500 MB." });
+        return;
+      }
+      // Anything else is a dropped socket on *one* part, and with several in
+      // flight, throwing the dir away would forfeit every byte the others wrote
+      // over a blip only this part needs to retry. The 24h sweep still collects
+      // an upload that is genuinely abandoned.
       next(err);
     }
   });
@@ -140,9 +163,25 @@ export function createArtifactoryRouter(api: ArtifactoryApi): express.Router {
       dir = tmpDirByName(input.uploadId);
       const archivePath = join(dir, ARCHIVE_NAME);
 
-      if (!(await stat(archivePath).then((s) => s.size > 0, () => false))) {
+      // Parts are written at their offsets, so a lost tail leaves a short file
+      // rather than an obviously broken one. This is what the old "refuse a part
+      // that is not next in line" rule bought, done once at the end instead of
+      // per part.
+      //
+      // ponytail: catches a short archive, not a hole in the middle of one —
+      // every part is awaited before this call, so a hole cannot get here, and
+      // `unzip` in runFolderUpload fails loudly if one ever does.
+      const size = await stat(archivePath).then((s) => s.size, () => 0);
+      if (size === 0) {
         await removeTmpDir(dir);
         res.status(400).json({ error: "No archive was uploaded" });
+        return;
+      }
+      if (size !== input.archiveBytes) {
+        await removeTmpDir(dir);
+        res.status(400).json({
+          error: `Upload is incomplete — ${size} bytes arrived of ${input.archiveBytes}.`,
+        });
         return;
       }
 

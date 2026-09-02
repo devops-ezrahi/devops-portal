@@ -47,6 +47,11 @@ export function TicketDetailView({
         <h2>{ticket.title}</h2>
       </div>
 
+      {/* A create that succeeded but did less than it was asked to. Not a
+          failure — the ticket is right there — so it reads as a warning, the
+          same shape an Artifactory job's dependencyFallback uses. */}
+      {ticket.notice && <div className="warn-banner">{ticket.notice}</div>}
+
       <p className="description-text">{ticket.description}</p>
 
       <section>

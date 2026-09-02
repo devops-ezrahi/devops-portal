@@ -1,6 +1,6 @@
 import { cp, mkdir, readdir, writeFile } from "fs/promises";
 import { join, relative } from "path";
-import { classify, mavenLayoutPath } from "./packageTypes";
+import { artifactoryApiEndpoint, classify, mavenLayoutPath } from "./packageTypes";
 import type { MavenCoords } from "./packageTypes";
 import type { UploadItem } from "./npmPackages";
 import { runTool, toolVersion } from "./runTool";
@@ -71,12 +71,19 @@ export function mavenRepoFromUrl(
 /**
  * The PEP 503 simple index a wheel or sdist URL was served from.
  *
- * Every repository that serves Python packages puts the files under a
+ * Most repositories that serve Python packages put the files under a
  * `packages/` segment and the index beside it — PyPI itself
  * (`files.pythonhosted.org`, whose index lives on another host entirely),
  * Artifactory (`…/api/pypi/<repo>/packages/…`) and Nexus
- * (`…/repository/<name>/packages/…`). `null` for anything else, e.g. a release
- * asset on a flat file server, where there is no index to resolve against.
+ * (`…/repository/<name>/packages/…`).
+ *
+ * Artifactory's *storage* path is the exception, and it is the one people paste,
+ * because it is what its UI links to: `/artifactory/<repo>/<name>/-/<file>.whl`
+ * has no `packages/` anywhere in it. The repo name is still right there, and its
+ * index is a fixed endpoint away — see `artifactoryApiEndpoint`.
+ *
+ * `null` for anything else, e.g. a release asset on a flat file server, where
+ * there is no index to resolve against.
  */
 export function pypiIndexFromUrl(sourceUrl: string): string | null {
   let url: URL;
@@ -92,7 +99,13 @@ export function pypiIndexFromUrl(sourceUrl: string): string | null {
 
   const segments = decodeURIComponent(url.pathname).split("/").filter(Boolean);
   const at = segments.indexOf("packages");
-  if (at < 0) return null;
+  if (at < 0) {
+    // An Artifactory pypi repo browsed through its storage path has no
+    // `packages/` in it at all (`/artifactory/<repo>/<name>/-/<file>.whl`), but
+    // the repo name is right there and its index is a fixed endpoint away.
+    const api = artifactoryApiEndpoint(sourceUrl, "pypi");
+    return api ? `${api}/simple` : null;
+  }
   const base = segments.slice(0, at);
   return `${url.origin}${base.length ? `/${base.join("/")}` : ""}/simple`;
 }
@@ -256,7 +269,9 @@ export async function resolveMavenDependencies(opts: {
     bin: "mvn",
     args: [
       "-B",
-      "-ntp",
+      // No -ntp: it landed in Maven 3.6.1 and an older mvn dies on it with a
+      // usage dump rather than a warning. MVN_PROGRESS_RE already keeps the
+      // transfer chatter out of the job log, which is all -ntp bought.
       "-s",
       join(opts.root, "settings.xml"),
       `-Dmaven.repo.local=${localRepo}`,

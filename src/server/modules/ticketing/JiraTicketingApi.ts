@@ -105,6 +105,18 @@ function readPortalAuthor(body: string): { displayName: string; id: string; body
   return m ? { displayName: m[1], id: m[2], body: m[3] } : null;
 }
 
+/**
+ * Jira labels cannot contain whitespace, and it rejects the *whole* create with
+ * a 400 — "The label 'DevOps Admins' can't contain spaces" — rather than
+ * dropping the one bad label. Group names arrive from the IdP, which on an AD
+ * deployment means a CN like `DevOps Admins`, so this is the common shape and
+ * not an edge case. Every label goes through here, including the ones that are
+ * later matched on in JQL, or a ticket is filed under a name no query finds.
+ */
+function jiraLabel(value: string): string {
+  return value.trim().replace(/\s+/g, "_");
+}
+
 function quoteJql(value: string) {
   return `"${value.replace(/["\\]/g, "\\$&")}"`;
 }
@@ -132,7 +144,9 @@ export class JiraTicketingApi implements TicketingApi {
     this.boardId = config.boardId;
     this.maintenanceIssueType = config.maintenanceIssueType;
     this.storyPointsField = config.storyPointsField ?? "";
-    this.ticketLabel = config.ticketLabel ?? "";
+    // Sanitised here, once: it is both written as a label and matched on in
+    // scopeClauses, and the two have to agree.
+    this.ticketLabel = jiraLabel(config.ticketLabel ?? "");
   }
 
   // Scopes every listing to one label so the portal can share a Jira project
@@ -243,9 +257,11 @@ export class JiraTicketingApi implements TicketingApi {
     const rawStatus = fields.status?.name ?? "";
     const created = fields.created ?? "";
     const updated = fields.updated ?? created;
+    // The portal's own scoping label is not a team, and showing it as one puts
+    // it in the admin's editable teams box.
     const teamGroups = [
       ...(fields.components?.map((component) => component.name ?? "").filter(Boolean) ?? []),
-      ...(fields.labels ?? [])
+      ...(fields.labels ?? []).filter((label) => label !== this.ticketLabel)
     ];
 
     return {
@@ -298,29 +314,46 @@ export class JiraTicketingApi implements TicketingApi {
     const fields = validateRequestFields(input.requestType, input.fields);
 
     if (input.idempotencyKey) {
-      const existing = await this.search(`labels = ${quoteJql(input.idempotencyKey)}`);
+      const existing = await this.search(`labels = ${quoteJql(jiraLabel(input.idempotencyKey))}`);
       if (existing[0]) {
         return this.getAdminTicket(existing[0].key ?? existing[0].id ?? "") as Promise<TicketDetail>;
       }
     }
 
-    const labels = [
-      this.ticketLabel,
-      requestType.ownerTeam,
-      ...requester.groups,
-      ...Object.entries(fields)
-        .filter(([key]) => key !== "title" && key !== "description")
-        .map(([key, value]) => `${key}:${String(value).replace(/\s+/g, "_")}`)
-    ];
+    // JIRA_TICKET_LABEL and nothing else. This used to also stamp the owning
+    // team, every one of the requester's groups, and one `key:value` label per
+    // catalog field — a dozen labels of portal bookkeeping on a ticket a human
+    // then has to read in Jira, where labels are a shared, project-wide
+    // namespace. The catalog fields are already in the description, and team
+    // visibility is now something an admin sets deliberately (`teamGroups` in
+    // the admin detail) rather than something inferred from whoever happened to
+    // file the ticket.
+    //
+    // The idempotency key stays: it is a UUID rather than a category, and the
+    // label is the only place the Jira path records it, so without it a
+    // double-submit files two tickets.
+    const labels = [this.ticketLabel];
     if (input.idempotencyKey) {
       labels.push(input.idempotencyKey);
     }
 
-    const created = await this.request<JiraIssue>("/issue", {
-      method: "POST",
-      body: JSON.stringify({
+    // The person on the page is who filed this, and Jira will record that if the
+    // JIRA_TOKEN account is allowed to say so. Two ways it may not be: the portal
+    // identity is not a Jira user at all (SSO and Jira need not share a
+    // directory), or the service account lacks "Modify Reporter" on the project.
+    // Both come back as a 400 that fails the *whole* create, so the reporter is
+    // dropped and the create retried once — filing as the service account is a
+    // worse ticket, but a ticket. `unknownReporters` is the same set listTickets
+    // already keeps, so one rejection settles it for the process rather than
+    // costing every create a doubled round trip.
+    const reporterName = this.jiraUser(requester).id;
+    const impersonate = Boolean(reporterName) && !this.unknownReporters.has(reporterName);
+
+    const issueBody = (withReporter: boolean) =>
+      JSON.stringify({
         fields: {
           project: { key: this.projectKey },
+          ...(withReporter ? { reporter: { name: reporterName } } : {}),
           // The issue type is a *Jira* fact, not a portal one. It used to be
           // the catalog's display name ("CI/CD Pipeline"), which no Jira
           // instance has, and Jira answers an unresolvable issuetype with
@@ -332,12 +365,73 @@ export class JiraTicketingApi implements TicketingApi {
           priority: { name: input.priority },
           summary: fields.title ?? requestType.name,
           description: fields.description ?? "",
-          labels: labels.filter(Boolean)
+          labels: labels.map(jiraLabel).filter(Boolean)
         }
-      })
-    });
+      });
 
-    return this.getAdminTicket(created.key ?? created.id ?? "") as Promise<TicketDetail>;
+    // Everything the create could not do, in the words the person who filed it
+    // needs — the ticket exists either way, so this is a note on the response
+    // rather than a failure, and it has to reach the screen and not just the
+    // pod log.
+    const notices: string[] = [];
+
+    let created: JiraIssue;
+    try {
+      created = await this.request<JiraIssue>("/issue", { method: "POST", body: issueBody(impersonate) });
+    } catch (error) {
+      if (!impersonate) throw error;
+      this.unknownReporters.add(reporterName);
+      log.warn("jira", `could not file as reporter "${reporterName}", filing as the JIRA_TOKEN account`, {
+        error: describeError(error),
+      });
+      created = await this.request<JiraIssue>("/issue", { method: "POST", body: issueBody(false) });
+      notices.push(
+        `Jira would not accept "${reporterName}" as the reporter, so this was filed as the portal's ` +
+          `service account. Check that account has the "Modify Reporter" permission on the project.`
+      );
+    }
+
+    const key = created.key ?? created.id ?? "";
+    const sprintNotice = await this.addToActiveSprint(key);
+    if (sprintNotice) notices.push(sprintNotice);
+
+    const detail = (await this.getAdminTicket(key)) as TicketDetail;
+    return notices.length ? { ...detail, notice: notices.join(" ") } : detail;
+  }
+
+  /**
+   * Put a new ticket in the board's active sprint, because that is the last of
+   * the four things `listAdminTickets` filters on — project, JIRA_TICKET_LABEL,
+   * JIRA_MAINTENANCE_ISSUE_TYPE and `sprint = <active>` — and the only one
+   * `createTicket` was not already satisfying. A ticket created outside the
+   * sprint lands in the backlog, where the admin queue's own query cannot see
+   * it: filed successfully, and invisible to the people meant to work it.
+   *
+   * Never throws; returns the note to show instead. The issue exists by the time
+   * this runs, so a failure here has to be a warning and a ticket in the backlog
+   * — reporting the create as failed would be a lie about something the user
+   * cannot retry cleanly. No board configured means the queue has no sprint
+   * clause either, so there is nothing to do and nothing to say.
+   */
+  private async addToActiveSprint(issueKey: string): Promise<string | null> {
+    if (!this.boardId || !issueKey) return null;
+    const backlogged = "It is in the backlog, so it will not show in the admin queue until someone moves it.";
+    try {
+      const sprintId = await this.getActiveSprintId();
+      if (sprintId === null) {
+        log.warn("jira", `no active sprint on board ${this.boardId}, ${issueKey} stays in the backlog`);
+        return `There is no active sprint on the board. ${backlogged}`;
+      }
+      await this.agileRequest<void>(`/sprint/${sprintId}/issue`, {
+        method: "POST",
+        body: JSON.stringify({ issues: [issueKey] })
+      });
+      log.info("jira", `${issueKey} added to sprint ${sprintId}`);
+      return null;
+    } catch (error) {
+      log.warn("jira", `could not add ${issueKey} to the active sprint`, { error: describeError(error) });
+      return `This could not be added to the active sprint (${describeError(error)}). ${backlogged}`;
+    }
   }
 
   async listTickets(user: PortalUser, filters: TicketFilters): Promise<TicketSummary[]> {
@@ -455,7 +549,10 @@ export class JiraTicketingApi implements TicketingApi {
         : null;
     }
     if (update.teamGroups !== undefined) {
-      fields.labels = update.teamGroups;
+      // labels is a whole-field replace, so the portal's own label has to be put
+      // back or the ticket drops out of scopeClauses and vanishes from every
+      // portal listing the moment an admin edits its teams.
+      fields.labels = [this.ticketLabel, ...update.teamGroups].map(jiraLabel).filter(Boolean);
     }
     if (update.storyPoints !== undefined && this.storyPointsField) {
       fields[this.storyPointsField] = update.storyPoints;
@@ -478,7 +575,14 @@ export class JiraTicketingApi implements TicketingApi {
   async addAdminComment(ticketId: string, admin: PortalUser, body: string): Promise<TicketComment> {
     const comment = await this.request<JiraComment>(`/issue/${encodeURIComponent(ticketId)}/comment`, {
       method: "POST",
-      body: JSON.stringify({ body, author: { name: admin.id, displayName: admin.displayName } })
+      // Stamped exactly as addComment does, and for the same reason: one shared
+      // token writes every portal comment, so without this every admin reply in
+      // the thread comes back as the JIRA_TOKEN account. mapComment strips the
+      // stamp again, so the client's own `[status] ` prefix still leads the body.
+      body: JSON.stringify({
+        body: stampPortalAuthor(admin, body),
+        author: { name: admin.id, displayName: admin.displayName }
+      })
     });
     return this.mapComment(comment);
   }

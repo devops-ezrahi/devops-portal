@@ -165,19 +165,34 @@ A dropped folder is zipped in the tab and **sent in 8 MB parts while it is still
 being zipped** — the two used to run one after the other, so the wait was the
 sum of them and the whole archive had to exist in the browser before a byte
 moved. `POST /api/artifactory/uploads` mints an `art-<uuid>` temp dir, each
-`PUT /api/artifactory/uploads/:id?offset=` appends one part, and
+`PUT /api/artifactory/uploads/:id?offset=` writes one part at that offset, and
 `POST /api/artifactory/jobs/folder-upload` hands the finished file to the job
 exactly as the old single multipart POST did — the job pipeline never learned
 about any of this.
 
 - **The id is the directory name**, so nothing is held in memory between
   requests and an abandoned upload is swept by the existing 24h `art-` sweep.
-  It is a UUID because holding it is what grants the right to append, and it is
-  matched against `UPLOAD_ID` *before* it is joined into a path.
-- **A part that is not next in line is refused**, not written: the offset the
-  client claims must equal the file's current size, or the part would splice
-  itself into the middle of the archive and surface minutes later as a corrupt
-  zip. That is also why only one part is ever in flight.
+  It is a UUID because holding it is what grants the right to write into that
+  upload, and it is matched against `UPLOAD_ID` *before* it is joined into a path.
+- **Each part carries the offset it belongs at and is written there**, not
+  appended, so **up to `MAX_INFLIGHT` (3) are in flight at once** and the order
+  they arrive in does not matter. One at a time was a stop-and-wait protocol: the
+  zip loop halted for a full round trip per part, so compression and the network
+  took turns instead of overlapping — free over localhost, and most of the wait
+  once a cluster router and oauth2-proxy sit in between. Three is also the memory
+  ceiling (`3 × 8 MB`), which is the whole point of streaming this at all. What
+  the ordering rule used to buy is bought once at the end instead: the tab sends
+  the zipped size as `archiveBytes` and `jobs/folder-upload` refuses an archive
+  that is not exactly that long.
+- **The upload says where its own time went.** `zipEntries` returns
+  `readMs`/`zipMs`/`blockedMs` (file I/O, deflate, waiting on the wire), the
+  `accepted` log line carries the split and a `mbPerSec`, and the progress line
+  on the page shows the rate and a `zip% / net%` beside it — prod needs
+  `localStorage.portalDebug` before a console line appears, and a slow upload is
+  reported, not devtooled. This path was tuned three times by guess before that
+  existed; the split is what says whether the next lever is client CPU (one
+  Worker for the whole zip loop — never `AsyncZipDeflate`, which is a Worker per
+  entry) or the network.
 - **The 500 MB cap is enforced by a stream in the pipeline** (`byteLimit`), not
   a `data` listener on the request — destroying the request from a listener
   still lets `pipeline` resolve, and the oversized part was then answered
@@ -241,7 +256,14 @@ answer from the file rather than guessing at it:
   jar's target too**: both files must land under the same group or neither
   resolves. A 404 is normal and quiet — the copy still completes, from the
   path-derived target as before. Checksum sidecars are not fetched; Artifactory
-  computes its own on PUT.
+  computes its own on PUT. **The pair travels in both directions**
+  (`fetchMavenSibling`): a pasted jar pulls its pom, and a pasted pom pulls its
+  jar, because a jar without its pom is unresolvable for anyone consuming the
+  repo and a pom without its jar resolves to nothing to run. The pom is the
+  authority either way — pasted, it is already on disk as the artifact and its
+  coordinates are read from there, which is also what lets a pasted pom resolve
+  dependencies at all. A pom-packaging artifact (a BOM, a parent) genuinely has
+  no jar, and that is the same quiet 404 as a jar published without a pom.
 - **Folder upload** learns the same correction once per drop
   (`mavenTreePrefix`): the first pom whose coordinates line up with where it
   sits says how many folders the tree is nested under, and that prefix comes off
@@ -277,10 +299,24 @@ half-resolved tree is a broken offline install that gives no sign it is broken.
   never configured. `mavenRepoFromUrl` strips `mavenLayoutPath`'s output off the
   end of the URL (the layout *is* the address, so this is exact, not a
   heuristic); `pypiIndexFromUrl` puts the index beside the `packages/` segment,
-  which covers PyPI, Artifactory and Nexus. `null` from either is a log line and
+  which covers PyPI and Nexus. `null` from either is a log line and
   a single-artifact copy, same as `npmRegistryFromUrl`. Credentials come from
   `sourceTokenFor` — a source on the same host as `ARTIFACTORY_URL` reuses
   `ARTIFACTORY_TOKEN`, anything else is anonymous. No new env vars.
+- **Artifactory's storage path is not its registry**, and it is what people paste
+  because it is what its own UI links to. `/artifactory/<repo>/…` serves bytes;
+  npm and pip have to be pointed at `/artifactory/api/npm/<repo>` and
+  `/artifactory/api/pypi/<repo>` or they get the HTML UI back — which npm reports
+  as `Unexpected token '<', "<!DOCTYPE "... is not valid JSON` and pip as no index
+  at all, neither of which names the cause. `artifactoryApiEndpoint` in
+  `packageTypes.ts` does that one rewrite for both, and only for `artifactory`:
+  on Nexus (`/repository/<name>`) the storage path *is* the registry, and a URL
+  already in `api/` form is left alone so it is not wrapped twice.
+- **No `-ntp` on the mvn command line.** It landed in Maven 3.6.1 and an older
+  `mvn` answers it with a usage dump instead of a warning, which fails the whole
+  resolve; runtime pods have been seen on 3.5.3. `MVN_PROGRESS_RE` already keeps
+  the transfer chatter out of the job log, which is all the flag bought. The
+  Dockerfile's own pre-warm dropped it for the same reason.
 - **Maven needs the pom**, so resolution only runs when `fetchMavenPom` found
   one, keyed on the pom's coordinates rather than the URL's.
   `-DoutputDirectory` is deliberately separate from `-Dmaven.repo.local`: only
@@ -361,9 +397,56 @@ work around it rather than pretend otherwise:
   readable in Jira's own UI, and a comment written *in* Jira carries no stamp
   and keeps the author Jira recorded. The client's own `[status] ` prefix still
   leads the body once the stamp is off, so `isStatusMessage` is unaffected.
-- **Reporter.** Already handled: `unknownReporters` falls "my tickets" back to
-  `reporter = currentUser()` once Jira rejects a portal id it has never heard
-  of, which is who it recorded as the reporter of everything the portal filed.
+  The **admin** half of the thread is stamped by the same helper, for the same
+  reason — without it every reply from the queue came back as the service
+  account. `mapComment` strips the stamp before the client sees the body, so the
+  client's `[status] ` prefix still leads and `isStatusMessage` is unaffected on
+  both sides.
+- **Reporter.** `createTicket` sets `reporter` to the portal user's Jira
+  username (`usernameFor`), so Jira records who actually filed it. Two things
+  can refuse that — the portal identity is not a Jira user (SSO and Jira need
+  not share a directory), or the token's account lacks *Modify Reporter* on the
+  project — and both come back as a 400 that fails the **whole** create. So the
+  reporter is dropped and the create retried once: filing as the service account
+  is a worse ticket, but a ticket. The rejection is remembered in the same
+  `unknownReporters` set "my tickets" already keeps, so one 400 settles it for
+  the process instead of costing every create a doubled round trip. That set is
+  also what falls "my tickets" back to `reporter = currentUser()`.
+- **A new ticket is exactly what the admin queue queries for.** `listAdminTickets`
+  filters on four things — `project`, `JIRA_TICKET_LABEL`,
+  `JIRA_MAINTENANCE_ISSUE_TYPE` and `sprint = <the board's active sprint>` — and
+  `createTicket` has to satisfy all four or it files a ticket the people meant to
+  work it cannot see. The first three are fields on the create; the sprint is a
+  second call (`addToActiveSprint`, `POST /rest/agile/1.0/sprint/<id>/issue`),
+  because a new issue lands in the backlog otherwise. It never throws: the issue
+  exists by then, so no active sprint (or a failed move) is a warning and a
+  backlog ticket, not a create reported as failed. No `JIRA_BOARD_ID` means the
+  queue has no sprint clause either, so there is nothing to do.
+- **A create that did less than it was asked to says so on the page**, not only
+  in the pod log. `TicketDetail.notice` carries the reason — Jira refused the
+  reporter, there was no sprint to join — and both detail views render it as the
+  same `.warn-banner` an Artifactory job's `dependencyFallback` uses, for the
+  same reason: the ticket exists, so a failure would be a lie, but a silent
+  difference is one nobody finds until it matters. It is set on the create
+  response only, since it describes the act of creating rather than the ticket,
+  and re-opening the ticket does not show it again.
+- **`JIRA_TICKET_LABEL` is the only label a create places** (plus the idempotency
+  key, a UUID the Jira path records nowhere else — drop it and a double-submit
+  files two tickets). It used to also stamp the owning team, every one of the
+  requester's groups, and one `key:value` per catalog field: a dozen labels of
+  portal bookkeeping in what is a shared, project-wide namespace a human then
+  reads in Jira. The catalog fields are already in the description. **Team
+  visibility is now deliberate, not inferred** — `teamGroups` in the admin
+  detail is what widens a ticket past its reporter, where before it was
+  whichever groups the filer happened to be in.
+- **Labels cannot contain whitespace**, and Jira rejects the *entire* create over
+  one that does rather than dropping it — "The label 'DevOps Admins' can't
+  contain spaces". `jiraLabel` normalises every label, including
+  `JIRA_TICKET_LABEL` in the constructor and the idempotency key at both ends —
+  a label written one way and queried another finds nothing. An admin editing
+  `teamGroups` replaces the whole `labels` field, so the portal's own label is
+  put back there too, or the ticket vanishes from every portal listing the
+  moment its teams are edited.
 
 ## Whitening: preserving target-repo files
 

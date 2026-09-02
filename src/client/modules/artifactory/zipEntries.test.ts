@@ -17,16 +17,23 @@ function entry(path: string, text: string): FileEntry {
 
 /**
  * The archive is never assembled in the tab — it goes out as parts as it is
- * produced. Joining them back up is what the server does by appending them, so
- * doing the same here is what makes the assertions below about a whole zip
- * meaningful.
+ * produced, several at a time and therefore not necessarily in order. Placing
+ * them by the offset each carries is exactly what the server does, so doing the
+ * same here is what makes the assertions below about a whole zip meaningful.
+ *
+ * The parts are also resolved backwards, which is the shape a real run takes
+ * whenever an earlier request is the slower one: if `zipEntries` derived a
+ * part's position from anything but the offset it hands out, this scrambles the
+ * archive and the unzip below fails.
  */
 async function zipToBlob(entries: FileEntry[], onProgress: (done: number) => void = () => {}) {
-  const parts: Blob[] = [];
-  await zipEntries(entries, onProgress, async (part) => {
-    parts.push(part);
+  const parts: { at: number; blob: Blob }[] = [];
+  await zipEntries(entries, onProgress, async (blob, at) => {
+    parts.unshift({ at, blob });
+    await Promise.resolve();
   });
-  return new Blob(parts);
+  parts.sort((a, b) => a.at - b.at);
+  return new Blob(parts.map((p) => p.blob));
 }
 
 // The zip is built one file at a time to keep a node_modules-sized folder out of

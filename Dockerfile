@@ -58,7 +58,9 @@ RUN apt-get update \
 # mirror does not proxy plugins. resolveMavenDependencies copies this per job
 # rather than using it in place, so two concurrent jobs never share a writable
 # local repo.
-RUN mvn -B -ntp -Dmaven.repo.local=/opt/m2 \
+# No -ntp: it landed in Maven 3.6.1, and an older mvn dies on it with a usage
+# dump. This base pins a newer one, but the runtime pods have been seen on 3.5.3.
+RUN mvn -B -Dmaven.repo.local=/opt/m2 \
       org.apache.maven.plugins:maven-dependency-plugin:3.6.1:help
 
 # AI module's engine. Installed globally, invoked as a child process

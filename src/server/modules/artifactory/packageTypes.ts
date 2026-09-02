@@ -210,25 +210,31 @@ export function urlArtifactPath(sourceUrl: string): string {
 }
 
 /**
- * The `<artifactId>-<version>.pom` beside a Maven artifact URL, or `null` when
- * the URL already points at that pom. A jar on its own is unresolvable — the pom
- * is what carries the transitive dependencies — and a URL copy fetches only the
- * URL that was pasted.
+ * The `<artifactId>-<version>.<ext>` beside a Maven artifact URL, or `null` when
+ * the URL already points at that file. A URL copy fetches only the URL that was
+ * pasted, and neither half of the pair is much use alone: a jar without its pom
+ * is unresolvable for anyone consuming the repo, and a pom without its jar
+ * resolves to nothing to run.
  *
  * The name comes from the layout, not from swapping the extension, so a
  * classifier build (`bar-1.0-sources.jar`) still asks for `bar-1.0.pom`. Any
  * query string on the source URL (a token) is kept.
  */
-export function mavenPomUrl(sourceUrl: string): string | null {
+export function mavenSiblingUrl(sourceUrl: string, ext: "pom" | "jar"): string | null {
   const url = new URL(sourceUrl);
   const segments = url.pathname.split("/").filter(Boolean);
   if (segments.length < 4) return null;
   const [artifactId, version] = segments.slice(-3, -1);
-  const pom = `${artifactId}-${version}.pom`;
-  if (segments[segments.length - 1] === pom) return null;
-  segments[segments.length - 1] = pom;
+  const sibling = `${artifactId}-${version}.${ext}`;
+  if (segments[segments.length - 1] === sibling) return null;
+  segments[segments.length - 1] = sibling;
   url.pathname = `/${segments.join("/")}`;
   return url.toString();
+}
+
+/** The pom half of that pair, which is the one that decides the target path. */
+export function mavenPomUrl(sourceUrl: string): string | null {
+  return mavenSiblingUrl(sourceUrl, "pom");
 }
 
 /** Maven coordinates, as read out of a pom. */
@@ -293,4 +299,33 @@ export function mavenRootDepth(pomPath: string, coords: MavenCoords): number | n
   if (segments[segments.length - 2] !== coords.version) return null;
   if (group.some((part, i) => segments[depth + i] !== part)) return null;
   return depth;
+}
+
+/**
+ * The package-manager API endpoint for a URL that points into Artifactory's
+ * *storage* layout, or `null`.
+ *
+ * Artifactory serves the bytes of every repository under `/artifactory/<repo>/…`,
+ * which is what its UI hands out and therefore what people paste. But npm and pip
+ * do not talk to that path — each ecosystem has its own endpoint
+ * (`/artifactory/api/npm/<repo>`, `/artifactory/api/pypi/<repo>`), and a client
+ * pointed at the storage path gets Artifactory's HTML UI back instead of JSON.
+ * That surfaces as npm's `Unexpected token '<', "<!DOCTYPE "... is not valid JSON`
+ * and as "no index here" for pip, neither of which names the real cause.
+ *
+ * Only `artifactory` is rewritten: on Nexus (`/repository/<name>`) the storage
+ * path *is* the registry, and a URL already in `api/` form is returned as-is by
+ * the `api` check so it is not wrapped twice.
+ */
+export function artifactoryApiEndpoint(sourceUrl: string, kind: "npm" | "pypi"): string | null {
+  let url: URL;
+  try {
+    url = new URL(sourceUrl);
+  } catch {
+    return null;
+  }
+  const segments = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+  if (segments[0] !== "artifactory" || segments.length < 2) return null;
+  if (segments[1] === "api") return null;
+  return `${url.origin}/artifactory/api/${kind}/${segments[1]}`;
 }

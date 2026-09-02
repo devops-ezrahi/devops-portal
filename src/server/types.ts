@@ -60,6 +60,15 @@ export type TicketSummary = {
 export type TicketDetail = TicketSummary & {
   description: string;
   comments: TicketComment[];
+  /**
+   * Set only on the response to a create that succeeded but did less than it
+   * was asked to — the reporter Jira refused, a sprint it could not join. The
+   * same idea as an Artifactory job's `dependencyFallback`: the ticket exists,
+   * so failing the request would be a lie, but the difference has to be visible
+   * without reading the pod log. Transient by design — it describes the act of
+   * creating, not the ticket, so re-opening the ticket does not show it again.
+   */
+  notice?: string;
 };
 
 export type RequestFieldDefinition = {

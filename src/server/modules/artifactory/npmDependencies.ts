@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
+import { artifactoryApiEndpoint } from "./packageTypes";
 import { discoverPackages } from "./npmPackages";
 import type { DiscoveredPackage } from "./npmPackages";
 import { runTool, toolVersion } from "./runTool";
@@ -60,7 +61,11 @@ const NPM_PROGRESS_RE = /^npm (?:http|timing|sill|verb) /;
  * for.
  */
 export function npmRegistryFromUrl(sourceUrl: string): string | null {
-  return npmUrlParts(sourceUrl)?.registry ?? null;
+  const registry = npmUrlParts(sourceUrl)?.registry;
+  if (!registry) return null;
+  // `/artifactory/<repo>` is where Artifactory serves the *bytes*; npm has to be
+  // pointed at `/artifactory/api/npm/<repo>` or it gets the HTML UI back.
+  return artifactoryApiEndpoint(registry, "npm") ?? registry;
 }
 
 /**
