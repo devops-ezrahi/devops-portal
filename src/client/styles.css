@@ -681,13 +681,19 @@ textarea::placeholder {
   color: #6f8088;
 }
 
+/* The ring hugs the control instead of floating 2px off it. An offset outline
+   plus a 5px halo read as two separate borders drawn around the element — worse
+   the more rounded the control is, since the outline's corners no longer follow
+   its own. At offset 0 the outline lands on the border itself, so the control's
+   own edge is what lights up, and one soft glow sits outside it. */
 input:focus,
 select:focus,
 textarea:focus,
 button:focus-visible {
-  outline: 2px solid rgb(32 199 189 / 75%);
-  outline-offset: 2px;
-  box-shadow: 0 0 0 5px rgb(32 199 189 / 10%);
+  outline: 1px solid #20c7bd;
+  outline-offset: 0;
+  border-color: #20c7bd;
+  box-shadow: 0 0 0 3px rgb(32 199 189 / 16%);
 }
 
 /* A clicked checkbox keeps the ring until you click elsewhere, which reads as a

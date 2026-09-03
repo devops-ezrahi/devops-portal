@@ -244,7 +244,12 @@ export function AdminTicketingView({
       <div className="workspace-grid">
         <div className="ticket-column">
           <div className="ticket-list-header">
-            <h2>{showAll ? "All Tickets" : "My Tickets"}</h2>
+            {/* The heading carries the filter in full — it is left-anchored, so a
+                longer word grows rightwards into empty space. The button beside it is
+                right-anchored, so its label has to keep the same width across both
+                states or it leaps sideways on every switch; "Mine & Unassigned" against
+                "All tickets" moved it 84px. Same pair as every other module. */}
+            <h2>{showAll ? "All Tickets" : "Mine & Unassigned"}</h2>
             <button
               className="ghost-button"
               onClick={() => {
@@ -252,7 +257,7 @@ export function AdminTicketingView({
                 setShowAll((v) => !v);
               }}
             >
-              {showAll ? "Mine & Unassigned" : "All tickets"}
+              {showAll ? "My tickets" : "All tickets"}
             </button>
           </div>
           <section className="ticket-list-panel" aria-label="Admin tickets">

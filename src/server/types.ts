@@ -218,7 +218,8 @@ export type ArtifactoryScenario =
   | "dependency-fallback";
 
 export interface ArtifactoryApi {
-  submitUrlCopy(input: UrlCopyInput, submitter: PortalUser): Promise<ArtifactoryJob>;
+  /** `allowMultiple` lets a folder URL holding more than one package through — admin only. */
+  submitUrlCopy(input: UrlCopyInput, submitter: PortalUser, allowMultiple?: boolean): Promise<ArtifactoryJob>;
   submitFolderUpload(input: FolderUploadInput, submitter: PortalUser): Promise<ArtifactoryJob>;
   /** Dev-only scripted run — the routers only expose it when SSO is off. */
   simulate(submitter: PortalUser, scenario?: ArtifactoryScenario): Promise<ArtifactoryJob>;

@@ -14,7 +14,8 @@ import { JobStore } from "../../jobStore";
 import { log, userMessage } from "../../log";
 import { redactSecrets } from "../../redact";
 import { createTmpDir, removeTmpDir } from "../../tmp";
-import { webUrl } from "./artifactoryRest";
+import { listSourceFolder, sourceHeaders, webUrl } from "./artifactoryRest";
+import type { SourceFile } from "./artifactoryRest";
 import { artifactorySimulation, simulatedArtifactoryJob } from "./devSimulation";
 import {
   MAX_DEPENDENCY_PACKAGES,
@@ -70,6 +71,18 @@ const execFileAsync = promisify(execFile);
  * huge drop still crawls.
  */
 const SNIFF_CONCURRENCY = 16;
+
+/**
+ * Files downloaded at once when a folder URL is copied, and the ceiling on how
+ * many a folder may hold.
+ *
+ * ponytail: both are round numbers, not measurements. The cap exists so a URL
+ * one segment too high (a repo root, a whole groupId) fails saying so instead of
+ * quietly pulling a repository through the pod — raise it if a real package
+ * folder ever hits it.
+ */
+const FOLDER_DOWNLOAD_CONCURRENCY = 6;
+const MAX_FOLDER_FILES = 500;
 
 function nowIso() {
   return new Date().toISOString();
@@ -192,7 +205,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
     return controller.signal;
   }
 
-  async submitUrlCopy(input: UrlCopyInput, submitter: PortalUser): Promise<ArtifactoryJob> {
+  async submitUrlCopy(input: UrlCopyInput, submitter: PortalUser, allowMultiple = false): Promise<ArtifactoryJob> {
     // People paste what Artifactory's own UI put in their address bar — which
     // serves a web page, not the artifact. Normalised once here rather than at
     // the fetch, so the job records the URL everything downstream actually
@@ -217,7 +230,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       deps: !!input.includeDependencies,
       jobs: this.jobs.all().length,
     });
-    void this.runUrlCopy(job.id, input);
+    void this.runUrlCopy(job.id, input, allowMultiple);
     return job;
   }
 
@@ -336,11 +349,23 @@ export class RealArtifactoryApi implements ArtifactoryApi {
     );
   }
 
-  private async runUrlCopy(jobId: string, input: UrlCopyInput) {
+  private async runUrlCopy(jobId: string, input: UrlCopyInput, allowMultiple: boolean) {
     const signal = this.start(jobId);
     const tmpDir = await createTmpDir("art-");
     try {
       this.patch(jobId, { status: "in-progress" });
+
+      // A pasted URL may name a folder rather than a file. Artifactory serves a
+      // folder as an HTML browse page, so fetching one "succeeds" and writes
+      // that page to disk under the folder's own name — asking first is the only
+      // way to tell. `null` is the ordinary answer: a file, or a source with no
+      // storage API, both of which take the single-artifact path below unchanged.
+      const folder = await listSourceFolder(input.sourceUrl, signal);
+      if (folder) {
+        this.finish(jobId, await this.copySourceFolder(jobId, input, folder, tmpDir, signal, allowMultiple));
+        return;
+      }
+
       this.appendLog(jobId, `Fetching ${input.sourceUrl} ...`);
 
       const res = await fetch(input.sourceUrl, { signal });
@@ -807,6 +832,212 @@ export class RealArtifactoryApi implements ArtifactoryApi {
     }
   }
 
+
+  /**
+   * Copy a whole folder named by a URL: download every file it holds, then hand
+   * the tree to the same `collectItems` a dropped folder goes through. Nothing
+   * about routing is re-decided here — a folder that arrives over HTTP has to
+   * land in exactly the places the same folder dropped on the Upload tab would.
+   *
+   * The point of the shape is that a package is rarely one file. A Maven package
+   * is a pom *and* a jar (and its classifiers and checksums), and neither half is
+   * useful alone; an npm package folder is a tree. Pasting the folder is what a
+   * person means when they say "copy this package", and it used to fetch the
+   * folder's HTML browse page and upload that.
+   *
+   * `allowMultiple` is the admin bit. One package is what anyone can copy — the
+   * folder is then just the package's own address. A folder holding several is a
+   * bulk copy into shared repositories, which is an admin action; for everyone
+   * else it fails naming what it found, rather than uploading more than was
+   * meant.
+   */
+  private async copySourceFolder(
+    jobId: string,
+    input: UrlCopyInput,
+    files: SourceFile[],
+    tmpDir: string,
+    signal: AbortSignal,
+    allowMultiple: boolean
+  ): Promise<PackageUploadResult[]> {
+    const folderName = basename(new URL(input.sourceUrl).pathname.replace(/\/+$/, "")) || input.sourceUrl;
+    if (files.length === 0) {
+      throw new Error(`${input.sourceUrl} is a folder, and it is empty — nothing was copied.`);
+    }
+    if (files.length > MAX_FOLDER_FILES) {
+      throw new Error(
+        `${folderName} holds ${files.length} files, over the ${MAX_FOLDER_FILES} a folder copy takes. ` +
+          `Paste the URL of the package folder itself rather than a folder above it.`
+      );
+    }
+
+    this.appendLog(jobId, `${folderName} is a folder — fetching ${files.length} file(s) ...`);
+    const sourceDir = join(tmpDir, "source");
+    const headers = sourceHeaders(input.sourceUrl);
+    let fetched = 0;
+    await pool(files, FOLDER_DOWNLOAD_CONCURRENCY, async (file) => {
+      const dest = join(sourceDir, safeRelativePath(file.repoPath));
+      await mkdir(dirname(dest), { recursive: true });
+      const res = await fetch(file.url, { headers, signal });
+      if (!res.ok || !res.body) {
+        throw new Error(`${file.repoPath} responded with ${res.status} ${res.statusText}`);
+      }
+      // Streamed for the same reason the single-file copy is: a folder of jars
+      // is routinely hundreds of MB and none of it needs to be in the heap.
+      await pipeline(
+        Readable.fromWeb(res.body as unknown as WebReadableStream<Uint8Array>),
+        createWriteStream(dest),
+        { signal }
+      );
+      fetched++;
+    });
+    this.appendLog(jobId, `Fetched ${fetched} file(s).`);
+
+    const { items, unique, unrelated, looseCount } = await this.collectItems(
+      jobId,
+      sourceDir,
+      join(tmpDir, "stage")
+    );
+    if (items.length === 0) {
+      throw new Error(
+        `No recognised packages in ${folderName} — ` +
+          `${looseCount} file(s) matched no known package type. Nothing was uploaded.`
+      );
+    }
+
+    // One package spread over several files (a pom and its jar, a chart and its
+    // provenance) is one entry here — which is exactly what makes "is this one
+    // package?" answerable at all.
+    const distinct = [...new Set(items.map((item) => `${item.name}@${item.version}`))];
+    if (distinct.length > 1 && !allowMultiple) {
+      throw new Error(
+        `${folderName} holds ${distinct.length} packages (${distinct.slice(0, 3).join(", ")}` +
+          `${distinct.length > 3 ? ", ..." : ""}) — copying a folder of more than one package is an ` +
+          `admin action. Paste the URL of a single package's folder, or use the Upload tab.`
+      );
+    }
+
+    if (input.includeDependencies) {
+      // Not a resolver failure: a folder copy already copies everything the
+      // folder holds, and there is no single artifact to resolve a tree from.
+      this.dependencyFallback(
+        jobId,
+        "A folder copy takes what the folder holds",
+        "Paste a single artifact's URL to resolve its dependency tree."
+      );
+    }
+
+    this.patch(jobId, { name: distinct.length === 1 ? distinct[0] : jobName(unique, folderName) });
+    const counts = new Map<string, number>();
+    for (const item of items) counts.set(item.type, (counts.get(item.type) ?? 0) + 1);
+    this.appendLog(
+      jobId,
+      `Found ${distinct.length} package(s) — ${[...counts].map(([type, n]) => `${n} ${type} file(s)`).join(", ")}.`
+    );
+    if (unrelated > 0) this.appendLog(jobId, `${unrelated} unrelated file(s) skipped.`);
+
+    return uploadFiles(
+      items,
+      (line) => this.appendLog(jobId, line),
+      (done, total) => this.patch(jobId, { progress: { done, total } }),
+      signal
+    );
+  }
+
+  /**
+   * Turn a directory of files into the upload items they route to — npm packages
+   * packed from their folders, everything else classified where it stands.
+   *
+   * Shared by the two entry points that both arrive at "a tree on disk": a
+   * dropped folder, unzipped, and a folder URL, downloaded. Only the source
+   * differs, and every rule below (the Maven root prefix, the tarball sniff, the
+   * coordinates inside a bare jar, the duplicate-package fold) has to hold for
+   * both or one entry point silently uploads to a path nothing resolves from.
+   */
+  private async collectItems(jobId: string, sourceDir: string, stageDir: string) {
+    const relPaths = await listFilesRecursive(sourceDir);
+
+    const log = (line: string) => this.appendLog(jobId, line);
+    const packages = await discoverPackages(sourceDir, log);
+
+    // A file inside a discovered npm package ships in that package's tarball —
+    // a .jar under node_modules/foo/ is not a Maven dependency.
+    const packageDirs = packages
+      .map((p) => relative(sourceDir, p.dir).replace(/\\/g, "/"))
+      .filter(Boolean);
+    const loose = relPaths.filter(
+      (p) => !packageDirs.some((d) => p === d || p.startsWith(`${d}/`))
+    );
+
+    // Every copy of a package covers its own files above; only one of them is
+    // worth uploading.
+    const unique = uniquePackages(packages, log);
+    const items: UploadItem[] = npmUploadItems(unique, stageDir);
+
+    // Everything below is classified by filename except Maven, which is
+    // classified by where the file sits — so the folders above the tree have
+    // to come off first.
+    const mavenPrefix = await mavenTreePrefix(sourceDir, loose);
+    if (mavenPrefix) {
+      this.appendLog(jobId, `Maven repository root: ${mavenPrefix}/ — stripped from the target paths.`);
+    }
+    const target = (path: string) =>
+      mavenPrefix && path.startsWith(`${mavenPrefix}/`) ? path.slice(mavenPrefix.length + 1) : path;
+
+    let unrelated = 0;
+    // Sniffing spawns a `tar` or an `unzip` per file, and on the two shapes
+    // this form exists for — a flat folder of jars, a folder of loose
+    // tarballs — that is *every* file. Sequentially, thousands of process
+    // spawns were the job; the same pool the uploads use hides the latency.
+    // Order inside `loose` carries no meaning: uploadFiles dedupes by target
+    // path, and no two loose files share one.
+    await pool(loose, SNIFF_CONCURRENCY, async (path) => {
+      const found = classify(target(path), log);
+      if (found) {
+        // Already a finished artifact — nothing to pack, upload it as it is.
+        items.push({ ...found, resolve: async () => join(sourceDir, path) });
+        return;
+      }
+      // classify() deliberately leaves .tgz alone: the filename can't give the
+      // scope (@babel/core ships as core-7.0.0.tgz) and can't tell an npm
+      // package from a Helm chart, so the manifest inside decides. Without
+      // this a folder of loose tarballs looks unrelated.
+      const identity = path.toLowerCase().endsWith(".tgz")
+        ? await readTarballIdentity(join(sourceDir, path))
+        : null;
+      if (identity) {
+        const item = tarballUploadItem(identity, join(sourceDir, path), log);
+        if (item) items.push(item);
+        else unrelated++;
+        return;
+      }
+      // Same idea one type over: a jar outside a repository layout carries its
+      // own coordinates, which is the only thing that makes the flat folder
+      // `mvn dependency:copy-dependencies` writes uploadable.
+      const coords = path.toLowerCase().endsWith(".jar")
+        ? await mavenCoordsFromJar(join(sourceDir, path))
+        : null;
+      if (coords) {
+        if (!config.artifactory.mavenRepo) {
+          log(`ARTIFACTORY_MAVEN_REPO not set — skipping ${basename(path)}`);
+          unrelated++;
+          return;
+        }
+        items.push({
+          path: `${config.artifactory.mavenRepo}/${mavenLayoutPath(coords, mavenFilename(coords, path))}`,
+          name: `${coords.groupId}:${coords.artifactId}`,
+          version: coords.version,
+          type: "maven",
+          resolve: async () => join(sourceDir, path),
+        });
+        return;
+      }
+      unrelated++;
+    });
+
+
+    return { items, unique, unrelated, looseCount: loose.length };
+  }
+
   private async runFolderUpload(jobId: string, input: FolderUploadInput) {
     const signal = this.start(jobId);
     // the upload landed in a dir of its own, part by part; the job owns it now,
@@ -835,93 +1066,18 @@ export class RealArtifactoryApi implements ArtifactoryApi {
           throw new Error("Could not extract the uploaded folder archive");
         }
       }
-      const relPaths = await listFilesRecursive(sourceDir);
-
-      const log = (line: string) => this.appendLog(jobId, line);
-      const packages = await discoverPackages(sourceDir, log);
-
-      // A file inside a discovered npm package ships in that package's tarball —
-      // a .jar under node_modules/foo/ is not a Maven dependency.
-      const packageDirs = packages
-        .map((p) => relative(sourceDir, p.dir).replace(/\\/g, "/"))
-        .filter(Boolean);
-      const loose = relPaths.filter(
-        (p) => !packageDirs.some((d) => p === d || p.startsWith(`${d}/`))
+      const { items, unique, unrelated, looseCount } = await this.collectItems(
+        jobId,
+        sourceDir,
+        join(tmpDir, "stage")
       );
-
-      // Every copy of a package covers its own files above; only one of them is
-      // worth uploading.
-      const unique = uniquePackages(packages, log);
-      const items: UploadItem[] = npmUploadItems(unique, join(tmpDir, "stage"));
-
-      // Everything below is classified by filename except Maven, which is
-      // classified by where the file sits — so the folders above the tree have
-      // to come off first.
-      const mavenPrefix = await mavenTreePrefix(sourceDir, loose);
-      if (mavenPrefix) {
-        this.appendLog(jobId, `Maven repository root: ${mavenPrefix}/ — stripped from the target paths.`);
-      }
-      const target = (path: string) =>
-        mavenPrefix && path.startsWith(`${mavenPrefix}/`) ? path.slice(mavenPrefix.length + 1) : path;
-
-      let unrelated = 0;
-      // Sniffing spawns a `tar` or an `unzip` per file, and on the two shapes
-      // this form exists for — a flat folder of jars, a folder of loose
-      // tarballs — that is *every* file. Sequentially, thousands of process
-      // spawns were the job; the same pool the uploads use hides the latency.
-      // Order inside `loose` carries no meaning: uploadFiles dedupes by target
-      // path, and no two loose files share one.
-      await pool(loose, SNIFF_CONCURRENCY, async (path) => {
-        const found = classify(target(path), log);
-        if (found) {
-          // Already a finished artifact — nothing to pack, upload it as it is.
-          items.push({ ...found, resolve: async () => join(sourceDir, path) });
-          return;
-        }
-        // classify() deliberately leaves .tgz alone: the filename can't give the
-        // scope (@babel/core ships as core-7.0.0.tgz) and can't tell an npm
-        // package from a Helm chart, so the manifest inside decides. Without
-        // this a folder of loose tarballs looks unrelated.
-        const identity = path.toLowerCase().endsWith(".tgz")
-          ? await readTarballIdentity(join(sourceDir, path))
-          : null;
-        if (identity) {
-          const item = tarballUploadItem(identity, join(sourceDir, path), log);
-          if (item) items.push(item);
-          else unrelated++;
-          return;
-        }
-        // Same idea one type over: a jar outside a repository layout carries its
-        // own coordinates, which is the only thing that makes the flat folder
-        // `mvn dependency:copy-dependencies` writes uploadable.
-        const coords = path.toLowerCase().endsWith(".jar")
-          ? await mavenCoordsFromJar(join(sourceDir, path))
-          : null;
-        if (coords) {
-          if (!config.artifactory.mavenRepo) {
-            log(`ARTIFACTORY_MAVEN_REPO not set — skipping ${basename(path)}`);
-            unrelated++;
-            return;
-          }
-          items.push({
-            path: `${config.artifactory.mavenRepo}/${mavenLayoutPath(coords, mavenFilename(coords, path))}`,
-            name: `${coords.groupId}:${coords.artifactId}`,
-            version: coords.version,
-            type: "maven",
-            resolve: async () => join(sourceDir, path),
-          });
-          return;
-        }
-        unrelated++;
-      });
-
       if (items.length === 0) {
         // Uploading the tree verbatim used to be the fallback here, which
         // quietly published a junk folder into the npm repo under its own name.
         // Failing is the honest answer: nothing in the drop was a package.
         throw new Error(
           `No recognised packages in ${input.folderName} — ` +
-            `${loose.length} file(s) matched no known package type. Nothing was uploaded.`
+            `${looseCount} file(s) matched no known package type. Nothing was uploaded.`
         );
       }
 
@@ -938,7 +1094,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
 
       const results = await uploadFiles(
         items,
-        log,
+        (line) => this.appendLog(jobId, line),
         (done, total) => this.patch(jobId, { progress: { done, total } }),
         signal
       );

@@ -39,6 +39,10 @@ vi.mock("./artifactoryRest", () => ({
   },
   webUrl: (path: string) => `https://art.example.com/ui/repos/tree/General/${path}`,
   nativeUrl: (path: string) => `https://art.example.com/ui/native/${path}`,
+  // Every URL copy asks this first; null is "the URL names a file", which is
+  // what every case here is.
+  listSourceFolder: async () => null,
+  sourceHeaders: () => ({}),
 }));
 
 const { RealArtifactoryApi } = await import("./RealArtifactoryApi");

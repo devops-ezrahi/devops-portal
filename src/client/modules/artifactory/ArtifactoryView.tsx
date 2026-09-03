@@ -220,7 +220,7 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
                   and progress bar — which read as "switching tabs stops the
                   run" even though nothing was ever cancelled. */}
               <div className="tab-panel" hidden={activeTab !== "url-copy"}>
-                <UrlCopyForm onSubmitted={handleSubmitted} onError={onError} />
+                <UrlCopyForm isAdmin={isAdmin} onSubmitted={handleSubmitted} onError={onError} />
               </div>
               <div className="tab-panel" hidden={activeTab !== "folder-upload"}>
                 <FolderUploadForm onSubmitted={handleSubmitted} onError={onError} />

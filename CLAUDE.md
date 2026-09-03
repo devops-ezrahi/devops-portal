@@ -203,6 +203,40 @@ about any of this.
   and is what this would be on a Chrome-only intranet: it needs HTTP/2, which
   `npm run dev` does not serve, and Firefox does not implement it at all.
 
+## Artifactory: a pasted URL may name a folder
+
+A package is rarely one file — a Maven package is a pom *and* a jar (plus its
+classifiers and checksums), and neither half is useful alone — so the folder is
+what people paste when they mean "copy this package". Artifactory serves a
+folder's bytes as an HTML browse page, so fetching one *succeeds* and the copy
+used to publish that page under the folder's own name.
+
+- **`listSourceFolder` asks before fetching.** `api/storage/<repo>/<path>?list`
+  lists a folder's children and refuses a file, so a non-OK response *is* the
+  "this is a file" answer — there is no status code on the download path that
+  says "that was a directory". `null` (a file, or a source with no storage API)
+  takes the single-artifact path unchanged, so nothing about the old shape
+  moved. Only `/artifactory/<repo>/…` URLs are asked, and never a bare repo
+  root: `deep=1` on one would walk the whole repository.
+- **The files are downloaded into a tree and handed to `collectItems`**, the
+  same routine a dropped folder goes through — Maven root prefix, tarball
+  sniff, coordinates inside a bare jar, duplicate-package fold. That extraction
+  is the point: a folder arriving over HTTP has to land exactly where the same
+  folder dropped on the Upload tab would, and two copies of that routing is two
+  places for it to drift.
+- **One package is anyone's copy; several is an admin's.** `distinct` counts
+  `name@version` across the collected items, so a pom and its jar are one
+  package, not two. More than one is a bulk copy into shared repositories, so
+  it needs `allowMultiple` — `isAdmin`, passed as a third argument to
+  `submitUrlCopy` the way `cancelJob` already takes it. A non-admin's job fails
+  naming what it found rather than uploading more than was meant.
+- **Include dependencies is a `dependencyFallback`, not a failure.** A folder
+  copy already takes everything the folder holds, and there is no single
+  artifact to resolve a tree from — so the drawer says so over the same amber
+  banner, and the copy completes.
+- `MAX_FOLDER_FILES` (500) exists so a URL one segment too high fails saying so
+  instead of quietly pulling a repository through the pod.
+
 ## Artifactory: where each package type is stored
 
 Every type has one layout its own Artifactory indexer looks in, and putting a

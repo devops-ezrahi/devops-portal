@@ -9,7 +9,9 @@ const config = {
 
 vi.mock("../../config", () => ({ config }));
 
-const { exists, listImages, serviceUrl, webUrl, nativeUrl } = await import("./artifactoryRest");
+const { exists, listImages, listSourceFolder, serviceUrl, webUrl, nativeUrl } = await import(
+  "./artifactoryRest"
+);
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -155,5 +157,67 @@ describe("listImages", () => {
   it("returns null when the response has no results array", async () => {
     stubAql({ errors: [{ status: 400 }] });
     expect(await listImages("docker-local")).toBeNull();
+  });
+});
+
+describe("listSourceFolder", () => {
+  /** Answer the storage API with `body`, and record what was asked. */
+  function stubStorage(body: unknown, ok = true) {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        calls.push(String(url));
+        return new Response(ok ? JSON.stringify(body) : "not a folder", { status: ok ? 200 : 400 });
+      })
+    );
+    return calls;
+  }
+
+  it("lists a folder's files as download URLs plus repo-relative paths", async () => {
+    const calls = stubStorage({
+      files: [
+        { uri: "/commons-lang3-3.12.0.jar", folder: false },
+        { uri: "/commons-lang3-3.12.0.pom", folder: false },
+        { uri: "/nested", folder: true },
+      ],
+    });
+    const found = await listSourceFolder(
+      "https://art.example.com/artifactory/maven-remote/org/apache/commons/commons-lang3/3.12.0"
+    );
+    expect(calls[0]).toBe(
+      "https://art.example.com/artifactory/api/storage/maven-remote/org/apache/commons/" +
+        "commons-lang3/3.12.0?list&deep=1&listFolders=0"
+    );
+    // The repo name is not part of the path `classify` reads the group off — an
+    // extra leading segment there is a groupId of `maven-remote.org.apache...`.
+    expect(found).toEqual([
+      {
+        url:
+          "https://art.example.com/artifactory/maven-remote/org/apache/commons/commons-lang3/" +
+          "3.12.0/commons-lang3-3.12.0.jar",
+        repoPath: "org/apache/commons/commons-lang3/3.12.0/commons-lang3-3.12.0.jar",
+      },
+      {
+        url:
+          "https://art.example.com/artifactory/maven-remote/org/apache/commons/commons-lang3/" +
+          "3.12.0/commons-lang3-3.12.0.pom",
+        repoPath: "org/apache/commons/commons-lang3/3.12.0/commons-lang3-3.12.0.pom",
+      },
+    ]);
+  });
+
+  it("returns null for a file — a refused listing is the only signal there is", async () => {
+    stubStorage({}, false);
+    expect(
+      await listSourceFolder("https://art.example.com/artifactory/maven-remote/a/b-1.0.jar")
+    ).toBeNull();
+  });
+
+  it("never walks a bare repo root, and never asks a non-Artifactory source", async () => {
+    const calls = stubStorage({ files: [] });
+    expect(await listSourceFolder("https://art.example.com/artifactory/maven-remote")).toBeNull();
+    expect(await listSourceFolder("https://repo1.maven.org/maven2/org/foo/1.0")).toBeNull();
+    expect(calls).toEqual([]);
   });
 });

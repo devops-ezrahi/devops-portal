@@ -5,11 +5,12 @@ import { submitUrlCopy } from "../api";
 import type { ArtifactoryJob } from "../../../../server/types";
 
 type Props = {
+  isAdmin: boolean;
   onSubmitted: (job: ArtifactoryJob) => void;
   onError: (msg: string) => void;
 };
 
-export function UrlCopyForm({ onSubmitted, onError }: Props) {
+export function UrlCopyForm({ isAdmin, onSubmitted, onError }: Props) {
   const [sourceUrl, setSourceUrl] = useState("");
   const [includeDependencies, setIncludeDependencies] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -49,6 +50,13 @@ export function UrlCopyForm({ onSubmitted, onError }: Props) {
           <code> /ui/repos/…</code> link from your address bar). The package type is detected from
           the file &mdash; .jar, .rpm, .whl and .conda each go to their own repo, and a .tgz is
           read to see whether it is an npm package or a Helm chart.
+        </span>
+        <span className="field-hint">
+          A <strong>folder</strong> works too: its contents are read and copied as the package they
+          make up, so a Maven package&rsquo;s pom and jar travel together.
+          {isAdmin
+            ? " A folder holding several packages copies all of them."
+            : " A folder holding more than one package is an admin copy — paste one package's folder."}
         </span>
       </div>
 

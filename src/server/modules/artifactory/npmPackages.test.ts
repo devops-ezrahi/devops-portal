@@ -22,6 +22,10 @@ vi.mock("./artifactoryRest", () => ({
   upload: (path: string, localFile: string) => uploadMock(path, localFile),
   webUrl: (path: string) => path,
   nativeUrl: (path: string) => path,
+  // Every URL copy asks this first; null is "the URL names a file", which is
+  // what every case here is.
+  listSourceFolder: async () => null,
+  sourceHeaders: () => ({}),
 }));
 
 const { discoverPackages, pool, targetPath, uniquePackages, uploadFiles } = await import("./npmPackages");

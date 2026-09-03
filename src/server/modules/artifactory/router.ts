@@ -68,7 +68,7 @@ export function createArtifactoryRouter(api: ArtifactoryApi): express.Router {
   router.post("/api/artifactory/jobs/url-copy", async (req, res, next) => {
     try {
       const input = urlCopySchema.parse(req.body);
-      const job = await api.submitUrlCopy(input, req.user!);
+      const job = await api.submitUrlCopy(input, req.user!, isAdmin(req.user!));
       res.status(201).json({ job });
     } catch (err) {
       next(err);
