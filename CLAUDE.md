@@ -828,6 +828,31 @@ across namespaces is repeated per namespace instead.
   file claims would be overwritten by it. `withoutClaimed` in `tree.ts` keeps
   those in each release's own override file instead — where they are last and
   actually win. This is the one place the layout's ordering has a trap in it.
+- **Three features are `req` and sit above the categories**: release identity,
+  workload type and image. They are always open and carry no checkbox — the
+  same call the Jenkinsfile builder makes about `title` and `image`/`node`. They
+  stay *off* until a field is typed into, so `buildValues` is untouched and an
+  untouched namespace override still writes nothing: "required" describes what
+  is on screen, not what is emitted. That also keeps the layering honest —
+  a required feature that emitted its default into every override file would
+  push `workload.type: deployment` over a base that says `statefulset`.
+- **A field the chart already answers is on an add list, not on screen.** An
+  open feature shows `primaryFields(spec)` — the fields marked `req`, or its
+  first one, skipping a leading `enabled` since that is the feature's own
+  checkbox said twice — plus any field holding a value that is **not** its own
+  `def`. The rest are `+ name` chips under an "Optional:" label. The last part
+  is what makes it work: `defaultValues` writes every `def` into the state the
+  moment a feature is switched on, so "has a value" alone would show
+  `service.enabled`, `service.type`, `route.tls.termination` and the rest of
+  the chart's own answers on every card. Marking `req` in the catalog is how a
+  feature says more than one field is a real decision (`image.tag`, the four
+  `resources` fields, `hpa` min *and* max, `service.ports`, `ingress.hosts`).
+- **The repositories box names both repos, not two branches.** Collapsed it
+  reads `CHART universal-chart@main → VALUES microservices-values@main`; open,
+  each half is introduced by a line saying what its four fields do — the chart
+  is read-only and renders a release, the values repo is what you push to and
+  what the root Application watches. "Repositories · chart main · values main"
+  named neither.
 - **The catalog is transcribed by hand** into `client/modules/argocd/catalog.ts`,
   one `FeatureSpec` per section of the chart's own `ui/studio.html`, plus pod
   metadata and sidecars/initContainers, which that file never covered. **When

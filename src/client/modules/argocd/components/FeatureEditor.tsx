@@ -1,14 +1,26 @@
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { useState } from "react";
-import { CATEGORIES, FEATURES, defaultValues } from "../catalog";
+import { CATEGORIES, FEATURES, defaultValues, primaryFields } from "../catalog";
 import { FeatureField } from "./FeatureField";
-import type { FeatureState } from "../catalog";
+import type { FeatureSpec, FeatureState, FieldSpec } from "../catalog";
+
+/** The features a release is not a release without — pinned above the categories. */
+const REQUIRED = FEATURES.filter((f) => f.req);
+const OPTIONAL = FEATURES.filter((f) => !f.req);
+
+/** Whether a field holds anything worth showing on screen without being asked for. */
+function hasValue(value: unknown): boolean {
+  if (value === undefined || value === null || value === "") return false;
+  if (Array.isArray(value)) return value.some((row) => Object.values(row ?? {}).some(hasValue));
+  return true;
+}
 
 /**
- * Every chart feature is on screen, always, in catalog order — the ones in use
- * expanded, the rest as one-line rows you tick to add, so switching one on
- * expands it in place rather than reshuffling the list. Same rule the
- * Jenkinsfile builder follows for a step's arguments.
+ * Every chart feature is reachable, but only what you have to decide is on
+ * screen: the required features are pinned open at the top, the rest are
+ * one-line rows you tick to add, and inside an open feature the fields the
+ * chart already defaults sit on an add list until they hold something. Same
+ * rule the Jenkinsfile builder follows for a step's arguments.
  */
 export function FeatureEditor({
   features,
@@ -28,13 +40,13 @@ export function FeatureEditor({
   /**
    * A category opens when it holds something, so a namespace override lands on
    * the two sections it actually uses rather than on forty-five collapsed ones
-   * — and the generated files stay within reach of the form. Core is open on a
-   * release nothing is set on yet, because that is where you start.
+   * — and the generated files stay within reach of the form. Nothing is open on
+   * a release nothing is set on yet, because the required block above is where
+   * you start.
    */
-  const [open, setOpen] = useState<Set<string>>(() => {
-    const used = new Set(FEATURES.filter((f) => features[f.id]?.on).map((f) => f.cat));
-    return used.size ? used : new Set(["core"]);
-  });
+  const [open, setOpen] = useState<Set<string>>(
+    () => new Set(OPTIONAL.filter((f) => features[f.id]?.on).map((f) => f.cat))
+  );
 
   function toggleCategory(id: string) {
     setOpen((prev) => {
@@ -56,8 +68,21 @@ export function FeatureEditor({
 
   return (
     <div className="ag-features">
+      <section className="ag-category" aria-label="Required">
+        <h4 className="ag-category-name ag-required-head">Required</h4>
+        {REQUIRED.map((spec) => (
+          <div className="ag-feature on ag-feature-required" key={spec.id}>
+            <div className="ag-feature-head">
+              <span className="ag-feature-name">{spec.name}</span>
+              <span className="ag-feature-blurb">{spec.blurb}</span>
+            </div>
+            <FeatureBody spec={spec} state={features[spec.id]} onField={setField} />
+          </div>
+        ))}
+      </section>
+
       {CATEGORIES.map((cat) => {
-        const specs = FEATURES.filter((f) => f.cat === cat.id);
+        const specs = OPTIONAL.filter((f) => f.cat === cat.id);
         if (!specs.length) return null;
         const count = specs.filter((spec) => features[spec.id]?.on).length;
         const shown = open.has(cat.id);
@@ -78,23 +103,7 @@ export function FeatureEditor({
                     <span className="ag-feature-name">{spec.name}</span>
                     <span className="ag-feature-blurb">{spec.blurb}</span>
                   </label>
-                  {on && (
-                    <div className="ag-feature-body">
-                      {spec.fields.map((field) => (
-                        <FeatureField
-                          key={field.key}
-                          spec={field}
-                          value={state?.v?.[field.key]}
-                          onChange={(value) => setField(spec.id, field.key, value)}
-                        />
-                      ))}
-                      {spec.notes?.map((note) => (
-                        <p className="ag-note" key={note}>
-                          {note}
-                        </p>
-                      ))}
-                    </div>
-                  )}
+                  {on && <FeatureBody spec={spec} state={state} onField={setField} />}
                 </div>
               );
             })}
@@ -119,6 +128,68 @@ export function FeatureEditor({
         />
         {extraError && <p className="ag-error">{extraError}</p>}
       </section>
+    </div>
+  );
+}
+
+/**
+ * One feature's fields. A field is on screen when it is primary or already
+ * holds something; the rest are chips you press to add, so switching a feature
+ * on shows the two decisions it needs rather than eleven inputs the chart has
+ * already answered for you.
+ */
+function FeatureBody({
+  spec,
+  state,
+  onField,
+}: {
+  spec: FeatureSpec;
+  state: FeatureState | undefined;
+  onField: (id: string, key: string, value: unknown) => void;
+}) {
+  // Local, and keyed by field: pressing "add" is a request to see the field,
+  // not a value, so it must not be written into the document.
+  const [added, setAdded] = useState<Set<string>>(new Set());
+  const primary = new Set(primaryFields(spec).map((f) => f.key));
+  // A field still sitting on its own default is not "filled in" — it is the
+  // chart's answer, not anyone's decision, so it stays on the add list even
+  // though `defaultValues` put it in the state when the feature was switched on.
+  const isShown = (f: FieldSpec) => {
+    const value = state?.v?.[f.key];
+    return primary.has(f.key) || added.has(f.key) || (hasValue(value) && value !== f.def);
+  };
+  const rest = spec.fields.filter((f) => !isShown(f));
+
+  return (
+    <div className="ag-feature-body">
+      {spec.fields.filter(isShown).map((field) => (
+        <FeatureField
+          key={field.key}
+          spec={field}
+          value={state?.v?.[field.key]}
+          onChange={(value) => onField(spec.id, field.key, value)}
+        />
+      ))}
+      {rest.length > 0 && (
+        <div className="ag-more">
+          <span className="ag-more-label">Optional:</span>
+          {rest.map((field) => (
+            <button
+              type="button"
+              className="ag-more-chip"
+              key={field.key}
+              onClick={() => setAdded((prev) => new Set(prev).add(field.key))}
+            >
+              <Plus size={12} aria-hidden="true" /> {field.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {spec.notes?.map((note) => (
+        <p className="ag-note" key={note}>
+          {note}
+        </p>
+      ))}
     </div>
   );
 }

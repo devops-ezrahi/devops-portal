@@ -62,9 +62,28 @@ describe("ArgocdView", () => {
   it("pre-fills a new tree from the configured repositories", async () => {
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: /Repositories/ }));
+    // The collapsed summary names both repos, so the reader can tell which
+    // branch belongs to which without opening the box.
+    const toggle = screen.getByRole("button", { name: /Chart.*universal-chart.*Values.*values/s });
+    fireEvent.click(toggle);
     expect(screen.getByDisplayValue(defaults.chartRepoUrl)).toBeInTheDocument();
     expect(screen.getByDisplayValue(defaults.valuesRepoUrl)).toBeInTheDocument();
+  });
+
+  it("shows the required features without a tick, and defaulted fields only on request", async () => {
+    view();
+    await waitFor(() => expect(listTrees).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: /Release/ }));
+
+    // Workload and image are on screen before any category is opened, and there
+    // is nothing to untick them with.
+    expect(screen.getByLabelText("workload.type")).toBeInTheDocument();
+    expect(feature("Image & pull secrets").querySelector("input[type=checkbox]")).toBeNull();
+
+    // pullPolicy is one the chart already answers, so it waits on the add list.
+    expect(screen.queryByLabelText("image.pullPolicy")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /image\.pullPolicy/ }));
+    expect(screen.getByLabelText("image.pullPolicy")).toBeInTheDocument();
   });
 
   it("generates the tree from what is typed, and saves it once", async () => {
@@ -74,7 +93,6 @@ describe("ArgocdView", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Release/ }));
     fireEvent.change(screen.getByLabelText("Release name"), { target: { value: "api-gateway" } });
-    fireEvent.click(feature("Image & pull secrets").querySelector("input[type=checkbox]")!);
     fireEvent.change(screen.getByLabelText("image.repository"), { target: { value: "nginx" } });
 
     expect(screen.getByLabelText("base/api-gateway.yaml")).toBeInTheDocument();
@@ -92,13 +110,11 @@ describe("ArgocdView", () => {
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /Release/ }));
     fireEvent.change(screen.getByLabelText("Release name"), { target: { value: "api-gateway" } });
-    fireEvent.click(feature("Image & pull secrets").querySelector("input[type=checkbox]")!);
     fireEvent.change(screen.getByLabelText("image.tag"), { target: { value: "1.0.0" } });
 
     fireEvent.click(screen.getByRole("button", { name: /Namespace/ }));
     fireEvent.change(screen.getByLabelText("Namespace name"), { target: { value: "shop-web" } });
     // The namespace layer starts empty — it holds overrides, not a copy.
-    fireEvent.click(feature("Image & pull secrets").querySelector("input[type=checkbox]")!);
     fireEvent.change(screen.getByLabelText("image.tag"), { target: { value: "1.4.2" } });
 
     fireEvent.click(screen.getByLabelText("shop-web/values/api-gateway.yaml"));
@@ -114,11 +130,10 @@ describe("ArgocdView", () => {
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /Release/ }));
-    fireEvent.click(feature("Workload type").querySelector("input[type=checkbox]")!);
-    // A workload with no image is what the chart's own schema refuses.
+    // A workload with no image is what the chart's own schema refuses, and the
+    // workload defaults to a Deployment whether or not anything was typed.
     expect(await screen.findByText(/No image.repository/)).toBeInTheDocument();
 
-    fireEvent.click(feature("Image & pull secrets").querySelector("input[type=checkbox]")!);
     fireEvent.change(screen.getByLabelText("image.repository"), { target: { value: "nginx" } });
     await waitFor(() => expect(screen.queryByText(/No image.repository/)).not.toBeInTheDocument());
   });

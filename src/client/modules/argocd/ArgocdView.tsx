@@ -1,5 +1,16 @@
 import { zipSync, strToU8 } from "fflate";
-import { Check, FileUp, Pencil, Plus, Trash2, TriangleAlert, X } from "lucide-react";
+import {
+  ArrowRight,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  FileUp,
+  Pencil,
+  Plus,
+  Trash2,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ArgocdTree } from "../../../server/types";
@@ -33,6 +44,10 @@ type SaveState = "idle" | "saving" | "saved" | "error";
  * after it is added, and an unnamed one has to be selectable to be named.
  */
 const BASE = -1;
+
+/** A git URL as the name people call it: the last path segment, without `.git`. */
+const repoName = (url: string): string =>
+  url.trim().replace(/\/+$/, "").split("/").pop()?.replace(/\.git$/, "") || "not set";
 
 export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) {
   const [trees, setTrees] = useState<ArgocdTree[]>([]);
@@ -372,56 +387,98 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
             </div>
 
             <div className="ag-section">
-              <button type="button" className="ghost-button ag-repo-toggle" onClick={() => setRepoOpen((v) => !v)}>
-                Repositories · chart {draft.chart.revision} · values {draft.values.revision}
+              {/* Two repos, and which is which is the whole thing to understand
+                  here: one holds the chart that renders a release, the other is
+                  where this tree's files are committed and what ArgoCD watches.
+                  "Repositories · chart main · values main" named neither. */}
+              <button
+                type="button"
+                className="ag-repo-toggle"
+                aria-expanded={repoOpen}
+                onClick={() => setRepoOpen((v) => !v)}
+              >
+                {repoOpen ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
+                <span className="ag-repo-summary">
+                  <span className="ag-repo-pair">
+                    <span className="ag-repo-role">Chart</span>
+                    <span className="ag-repo-ref">
+                      {repoName(draft.chart.repoUrl)}
+                      <span className="ag-repo-rev">@{draft.chart.revision || "?"}</span>
+                    </span>
+                  </span>
+                  <span className="ag-repo-arrow" aria-hidden="true">
+                    <ArrowRight size={13} />
+                  </span>
+                  <span className="ag-repo-pair">
+                    <span className="ag-repo-role">Values</span>
+                    <span className="ag-repo-ref">
+                      {repoName(draft.values.repoUrl)}
+                      <span className="ag-repo-rev">@{draft.values.revision || "?"}</span>
+                    </span>
+                  </span>
+                </span>
               </button>
               {repoOpen && (
                 <div className="ag-repo">
+                  <p className="ag-repo-note">
+                    <strong>Chart</strong> — the universal chart every release in this tree renders. Read-only;
+                    nothing here is committed to it.
+                  </p>
                   <label>
-                    <span>Chart repo</span>
+                    <span>Chart repo URL</span>
                     <input
                       value={draft.chart.repoUrl}
+                      placeholder="https://github.com/devops-ezrahi/universal-chart.git"
                       onChange={(e) => setDraft((p) => ({ ...p, chart: { ...p.chart, repoUrl: e.target.value } }))}
                     />
                   </label>
                   <label>
-                    <span>Chart path</span>
+                    <span>Branch or tag</span>
+                    <input
+                      value={draft.chart.revision}
+                      placeholder="main"
+                      onChange={(e) => setDraft((p) => ({ ...p, chart: { ...p.chart, revision: e.target.value } }))}
+                    />
+                  </label>
+                  <label>
+                    <span>Chart path in that repo</span>
                     <input
                       value={draft.chart.path}
+                      placeholder="."
                       onChange={(e) => setDraft((p) => ({ ...p, chart: { ...p.chart, path: e.target.value } }))}
                     />
                   </label>
                   <label>
-                    <span>AppSet chart path</span>
+                    <span>Fan-out chart path</span>
                     <input
                       placeholder="ms-applicationSet"
                       value={draft.chart.appsetPath}
                       onChange={(e) => setDraft((p) => ({ ...p, chart: { ...p.chart, appsetPath: e.target.value } }))}
                     />
                   </label>
+
+                  <p className="ag-repo-note">
+                    <strong>Values</strong> — where the files below are committed, and the repo the root Application
+                    watches. This is the one you push to.
+                  </p>
                   <label>
-                    <span>Chart revision</span>
-                    <input
-                      value={draft.chart.revision}
-                      onChange={(e) => setDraft((p) => ({ ...p, chart: { ...p.chart, revision: e.target.value } }))}
-                    />
-                  </label>
-                  <label>
-                    <span>Values repo</span>
+                    <span>Values repo URL</span>
                     <input
                       value={draft.values.repoUrl}
+                      placeholder="https://git.example.com/gitops/microservices-values.git"
                       onChange={(e) => setDraft((p) => ({ ...p, values: { ...p.values, repoUrl: e.target.value } }))}
                     />
                   </label>
                   <label>
-                    <span>Values revision</span>
+                    <span>Branch</span>
                     <input
                       value={draft.values.revision}
+                      placeholder="main"
                       onChange={(e) => setDraft((p) => ({ ...p, values: { ...p.values, revision: e.target.value } }))}
                     />
                   </label>
                   <label>
-                    <span>Values path</span>
+                    <span>Subdirectory for this tree</span>
                     <input
                       placeholder="(repo root)"
                       value={draft.values.path}
@@ -429,9 +486,10 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                     />
                   </label>
                   <label>
-                    <span>Root app name</span>
+                    <span>Root Application name</span>
                     <input
                       value={draft.rootAppName}
+                      placeholder="platform-root"
                       onChange={(e) => setDraft((p) => ({ ...p, rootAppName: e.target.value }))}
                     />
                   </label>

@@ -4007,6 +4007,15 @@ input.jf-title {
   color-scheme: dark;
 }
 
+/* The popup a select opens is drawn by the platform, and `color-scheme: dark`
+   is what repaints it on Windows and macOS. GTK/Chromium ignores that for the
+   option rows themselves, so they are painted here too — otherwise the open
+   list is black text on the page's near-black. */
+.ag-editor select option {
+  background: #0d1316;
+  color: #f4f7f8;
+}
+
 .ag-editor input[type="checkbox"] {
   width: auto;
   min-height: 0;
@@ -4028,12 +4037,74 @@ input.jf-title {
 
 /* ---- repositories ---- */
 
+/* Two repos with different jobs, so the summary names both rather than
+   reporting two branch names and leaving the reader to work out whose. */
+.ag-repo-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #223037;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: #0f1519;
+  color: #7f9199;
+  text-align: left;
+}
+
+.ag-repo-toggle:hover { border-color: #2a3940; color: #b9c6cc }
+
+.ag-repo-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.ag-repo-pair {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+
+.ag-repo-role {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7f9199;
+}
+
+.ag-repo-ref {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #f2f6f7;
+  overflow-wrap: anywhere;
+}
+
+.ag-repo-rev { color: #9fe4dc }
+
+.ag-repo-arrow { display: inline-flex; color: #4a5a62 }
+
 .ag-repo {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 12px;
   margin-top: 12px;
 }
+
+/* Each half of the box says what its four fields are for before they start. */
+.ag-repo-note {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: #8ea0a8;
+}
+
+.ag-repo-note strong { color: #f2f6f7 }
 
 .ag-repo label {
   display: grid;
@@ -4151,6 +4222,61 @@ input.jf-title {
 }
 
 .ag-feature.on { border-color: #20c7bd66 }
+
+/* The three a release cannot be built without. Pinned above the categories,
+   always open, no checkbox — so the first thing on screen is the workload and
+   the image, not forty-five collapsed sections. */
+.ag-required-head {
+  display: block;
+  margin: 0 0 8px;
+  padding: 4px 2px;
+  border-bottom: 1px solid #1b262c;
+  color: #9fe4dc;
+}
+
+.ag-feature-required {
+  border-color: #20c7bd66;
+  background: #101a1d;
+}
+
+/* Nothing to tick, so the name starts at the edge instead of in the checkbox's
+   column, and the blurb follows it. */
+.ag-feature-required .ag-feature-head { grid-template-columns: 1fr }
+.ag-feature-required .ag-feature-blurb { grid-column: 1 }
+
+/* Everything the chart already answers for you, one press away. */
+.ag-more {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ag-more-label {
+  font-size: 12px;
+  color: #6f8088;
+  margin-right: 2px;
+}
+
+.ag-more-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px dashed #2a3940;
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: none;
+  color: #8ea0a8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ag-more-chip:hover {
+  border-style: solid;
+  border-color: #20c7bd66;
+  color: #d7fbf8;
+}
 
 .ag-feature-head {
   display: grid;

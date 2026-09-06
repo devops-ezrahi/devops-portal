@@ -49,6 +49,12 @@ export type FieldSpec = {
   /** The label on a `rows` field's add button, e.g. "Add variable". */
   addLabel?: string;
   def?: unknown;
+  /**
+   * Shown whenever the feature is open. Everything else is on the "add" list
+   * until it holds a value — a field the chart already has a default for is
+   * noise until someone means to change it. `primaryFields` is the rule.
+   */
+  req?: true;
 };
 
 export type FeatureSpec = {
@@ -58,6 +64,14 @@ export type FeatureSpec = {
   /** The top-level `values.yaml` keys this feature owns — drives key order and import routing. */
   keys: string[];
   blurb: string;
+  /**
+   * A release is not a release without it. Pinned above the categories, always
+   * open, no checkbox to untick — the same call the Jenkinsfile builder makes
+   * about `title` and `image`/`node`. It stays off (and emits nothing) until a
+   * field is typed into, so an untouched namespace override still writes
+   * nothing: "required" is about what is on screen, not about what is emitted.
+   */
+  req?: true;
   /** Cluster-scoped objects: only one release in a cluster may own them. */
   cluster?: boolean;
   fields: FieldSpec[];
@@ -176,6 +190,7 @@ const F = (spec: FeatureSpec): FeatureSpec => {
 F({
   id: "identity",
   cat: "core",
+  req: true,
   name: "Release identity",
   keys: ["nameOverride", "fullnameOverride", "commonLabels", "commonAnnotations"],
   blurb: "The name every object in the release is built from, plus labels and annotations stamped onto all of them.",
@@ -206,6 +221,7 @@ F({
 F({
   id: "workload",
   cat: "core",
+  req: true,
   name: "Workload type",
   keys: ["workload"],
   blurb: "Pick one. This decides which object carries your pods — or that the release owns no pods at all.",
@@ -220,12 +236,13 @@ F({
 F({
   id: "image",
   cat: "core",
+  req: true,
   name: "Image & pull secrets",
   keys: ["image", "imagePullSecrets"],
   blurb: "Where the container comes from. A digest pins harder than a tag and wins over it when both are set.",
   fields: [
-    S("repository", "image.repository", { path: "image.repository", placeholder: "registry.example.com/team/backend" }),
-    S("tag", "image.tag", { path: "image.tag", placeholder: "2.3.1", hint: "Leave empty to fall back to Chart.appVersion." }),
+    S("repository", "image.repository", { req: true, path: "image.repository", placeholder: "registry.example.com/team/backend" }),
+    S("tag", "image.tag", { req: true, path: "image.tag", placeholder: "2.3.1", hint: "Leave empty to fall back to Chart.appVersion." }),
     S("digest", "image.digest", { path: "image.digest", placeholder: "sha256:abc123…", hint: "Wins over tag." }),
     SE("pullPolicy", "image.pullPolicy", ["", "Always", "IfNotPresent", "Never"], { path: "image.pullPolicy" }),
     TX("pullSecrets", "imagePullSecrets", { placeholder: "my-registry-pull-secret", hint: "One secret name per line." }),
@@ -455,10 +472,10 @@ F({
   keys: ["resources"],
   blurb: "Requests are what the scheduler reserves. Exceeding the memory limit is an OOMKill, not a throttle.",
   fields: [
-    S("rcpu", "requests.cpu", { path: "resources.requests.cpu", placeholder: "200m" }),
-    S("rmem", "requests.memory", { path: "resources.requests.memory", placeholder: "256Mi" }),
-    S("lcpu", "limits.cpu", { path: "resources.limits.cpu", placeholder: "1000m" }),
-    S("lmem", "limits.memory", { path: "resources.limits.memory", placeholder: "1Gi" }),
+    S("rcpu", "requests.cpu", { req: true, path: "resources.requests.cpu", placeholder: "200m" }),
+    S("rmem", "requests.memory", { req: true, path: "resources.requests.memory", placeholder: "256Mi" }),
+    S("lcpu", "limits.cpu", { req: true, path: "resources.limits.cpu", placeholder: "1000m" }),
+    S("lmem", "limits.memory", { req: true, path: "resources.limits.memory", placeholder: "1Gi" }),
     S("gpu", "nvidia.com/gpu", { placeholder: "1", hint: "Set on both requests and limits. Needs the device plugin on the cluster." }),
   ],
   emit: (v) => {
@@ -846,7 +863,7 @@ F({
     B("enabled", "enabled", { def: true, path: "service.enabled" }),
     SE("type", "type", ["ClusterIP", "NodePort", "LoadBalancer", "ExternalName"], { def: "ClusterIP", path: "service.type" }),
     S("name", "name", { path: "service.name", hint: "Render the Service under a real name instead of the release fullname." }),
-    TX("ports", "ports", { placeholder: "http=80:http\nmetrics=9091:metrics", hint: "name=port:targetPort, one per line. targetPort may be a container port name." }),
+    TX("ports", "ports", { req: true, placeholder: "http=80:http\nmetrics=9091:metrics", hint: "name=port:targetPort, one per line. targetPort may be a container port name." }),
     S("clusterIP", "clusterIP", { path: "service.clusterIP", placeholder: "None" }),
     S("externalName", "externalName", { path: "service.externalName", placeholder: "my.database.example.com" }),
     SE("sessionAffinity", "sessionAffinity", ["", "None", "ClientIP"], { path: "service.sessionAffinity" }),
@@ -955,7 +972,7 @@ F({
         { key: "pathType", label: "pathType", kind: "select", options: ["Prefix", "Exact", "ImplementationSpecific"] },
         { key: "portName", label: "portName", placeholder: "http" },
       ],
-      { addLabel: "Add path" }
+      { req: true, addLabel: "Add path" }
     ),
     RW(
       "tls",
@@ -1022,7 +1039,7 @@ F({
   blurb: "The OpenShift equivalent of an Ingress. Leave host empty and the router assigns one.",
   fields: [
     B("enabled", "enabled", { def: true, path: "route.enabled" }),
-    S("host", "host", { path: "route.host", placeholder: "myapp.apps.cluster.example.com" }),
+    S("host", "host", { req: true, path: "route.host", placeholder: "myapp.apps.cluster.example.com" }),
     S("path", "path", { path: "route.path", placeholder: "/" }),
     S("targetPort", "targetPort", { path: "route.targetPort", placeholder: "http" }),
     SE("termination", "tls.termination", ["edge", "passthrough", "reencrypt"], { def: "edge", path: "route.tls.termination" }),
@@ -1289,7 +1306,9 @@ F({
   name: "Checksums",
   keys: ["checksums"],
   blurb: "Opt-in: hash the ConfigMaps and Secrets into a pod annotation so a config change rolls the pods.",
-  fields: [B("enabled", "checksums.enabled", { path: "checksums.enabled" })],
+  // Ticking the feature is the whole decision, so the field carries the value
+  // switching it on means — without the default it emitted `enabled: false`.
+  fields: [B("enabled", "checksums.enabled", { def: true, path: "checksums.enabled" })],
   emit: (v) => ({ checksums: { enabled: !!v.enabled } }),
   notes: [
     "Enable when the app reads config only at startup. Leave off for databases and StatefulSets, for apps that hot-reload, and anywhere Stakater Reloader is already running — otherwise you get a double restart.",
@@ -1446,8 +1465,8 @@ F({
   blurb: "Scale pod count on CPU, memory or a custom metric. When HPA is on, replicaCount stops being the source of truth.",
   fields: [
     B("enabled", "enabled", { def: true, path: "hpa.enabled" }),
-    N("minReplicas", "minReplicas", { placeholder: "2", path: "hpa.minReplicas" }),
-    N("maxReplicas", "maxReplicas", { placeholder: "20", path: "hpa.maxReplicas" }),
+    N("minReplicas", "minReplicas", { req: true, placeholder: "2", path: "hpa.minReplicas" }),
+    N("maxReplicas", "maxReplicas", { req: true, placeholder: "20", path: "hpa.maxReplicas" }),
     N("cpu", "CPU target %", { placeholder: "70" }),
     S("mem", "Memory averageValue", { placeholder: "512Mi" }),
     YA("metrics", "Extra metrics", { placeholder: "- type: Pods\n  pods:\n    metric:\n      name: queue_messages_pending" }),
@@ -1515,7 +1534,7 @@ F({
   blurb: "How much of this app a node drain is allowed to take down at once. Set one, not both.",
   fields: [
     B("enabled", "enabled", { def: true, path: "pdb.enabled" }),
-    S("minAvailable", "minAvailable", { path: "pdb.minAvailable", placeholder: "2  or  50%" }),
+    S("minAvailable", "minAvailable", { req: true, path: "pdb.minAvailable", placeholder: "2  or  50%" }),
     S("maxUnavailable", "maxUnavailable", { path: "pdb.maxUnavailable", placeholder: "1" }),
   ],
   emit: (v) => {
@@ -1695,7 +1714,7 @@ F({
   blurb: "The pod's identity in the cluster — and, through annotations, in the cloud account behind it.",
   fields: [
     B("create", "create", { def: true, path: "serviceAccount.create" }),
-    S("name", "name", { path: "serviceAccount.name", placeholder: "myapp-sa" }),
+    S("name", "name", { req: true, path: "serviceAccount.name", placeholder: "myapp-sa" }),
     B("automountServiceAccountToken", "automountServiceAccountToken", { def: true }),
     KV("annotations", "annotations"),
     KV("labels", "labels"),
@@ -1822,7 +1841,7 @@ F({
     B("enabled", "enabled", { def: true, path: "serviceMonitor.enabled" }),
     S("namespace", "namespace", { path: "serviceMonitor.namespace", placeholder: "monitoring" }),
     KV("labels", "labels"),
-    S("port", "port", { path: "serviceMonitor.port", placeholder: "metrics" }),
+    S("port", "port", { req: true, path: "serviceMonitor.port", placeholder: "metrics" }),
     S("path", "path", { path: "serviceMonitor.path", placeholder: "/metrics" }),
     S("interval", "interval", { path: "serviceMonitor.interval", placeholder: "30s" }),
     S("scrapeTimeout", "scrapeTimeout", { path: "serviceMonitor.scrapeTimeout", placeholder: "10s" }),
@@ -1949,6 +1968,24 @@ export function defaultValues(id: string): FieldValues {
   });
   return v;
 }
+
+/**
+ * The fields an open feature shows before you ask for more: the ones marked
+ * `req`, or — since the catalog lists a feature's fields in the chart's own
+ * order, which puts the identifying one first — its first field.
+ *
+ * Everything else is reachable but out of the way, because a field the chart
+ * already defaults is not a decision anyone has to make. `hasValue` in
+ * `FeatureEditor` is the other half: a field that *holds* something is always
+ * shown, whether it was typed here or arrived through an import.
+ */
+export const primaryFields = (spec: FeatureSpec): FieldSpec[] => {
+  const marked = spec.fields.filter((f) => f.req);
+  if (marked.length) return marked;
+  // A leading `enabled` is the feature's own checkbox said a second time — the
+  // tick beside the name is what turns the feature on.
+  return spec.fields.filter((f) => f.key !== "enabled").slice(0, 1);
+};
 
 /** Catalog order, so two documents with the same values produce byte-identical files. */
 export function orderKeys(doc: Values): Values {

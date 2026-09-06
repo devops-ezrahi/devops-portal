@@ -31,6 +31,9 @@ export function FeatureField({
   );
 }
 
+/** Rows a textarea needs for `text`, plus one to show there is room to type. */
+const lineCount = (text: unknown): number => String(text ?? "").split("\n").length + 1;
+
 function Control({
   spec,
   id,
@@ -58,8 +61,11 @@ function Control({
         />
       );
     case "select":
+      // A select with nothing set shows the chart's own default rather than a
+      // blank box. The value stays absent from the document, which is right —
+      // the chart applies that default itself.
       return (
-        <select id={id} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)}>
+        <select id={id} value={String(value ?? spec.def ?? "")} onChange={(e) => onChange(e.target.value)}>
           {(spec.options ?? []).map((opt) => (
             <option key={opt} value={opt}>
               {opt === "" ? "—" : opt}
@@ -73,8 +79,9 @@ function Control({
         <textarea
           id={id}
           className="ag-textarea"
-          // Grows with its content: a dragged height only fights the next keystroke.
-          rows={Math.max(3, String(value ?? "").split("\n").length + 1)}
+          // Grows with its content — and with the placeholder, or a four-line
+          // example sits clipped in a three-row box before anything is typed.
+          rows={Math.max(3, lineCount(value), lineCount(spec.placeholder))}
           value={String(value ?? "")}
           placeholder={spec.placeholder}
           spellCheck={false}
@@ -178,7 +185,7 @@ function ObjectRows({ spec, rows, onChange }: { spec: FieldSpec; rows: Values[];
               ) : col.kind === "text" ? (
                 <textarea
                   className="ag-textarea"
-                  rows={Math.max(2, String(row[col.key] ?? "").split("\n").length + 1)}
+                  rows={Math.max(2, lineCount(row[col.key]), lineCount(col.placeholder))}
                   value={String(row[col.key] ?? "")}
                   placeholder={col.placeholder}
                   spellCheck={false}
