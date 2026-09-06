@@ -4274,6 +4274,15 @@ input.jf-title {
 
 .ag-file-note { font-size: 11px; color: #7f9199 }
 
+/* The global `code` rule paints a chip background, which turns a whole file
+   into a striped block. The preview is one plain document. */
+.ag-file-body code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
 .ag-file-body {
   margin: 0;
   padding: 12px;
@@ -4288,4 +4297,81 @@ input.jf-title {
 
 @media (max-width: 900px) {
   .ag-preview-body { grid-template-columns: 1fr }
+}
+
+/* ---- ArgoCD builder: import, problems ---- */
+
+.ag-scope-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ag-problems {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.ag-problems li {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  border-left: 2px solid;
+  border-radius: 0 6px 6px 0;
+  padding: 7px 10px;
+  font-size: 12.5px;
+}
+
+.ag-problems li.bad {
+  border-color: #ff8d95;
+  background: rgba(255, 141, 149, 0.08);
+  color: #ffc9cd;
+}
+
+.ag-problems li.warn {
+  border-color: #e0aa54;
+  background: rgba(224, 170, 84, 0.08);
+  color: #f0d7a8;
+}
+
+.ag-import-modal {
+  width: min(760px, 92vw);
+  display: grid;
+  gap: 12px;
+}
+
+.ag-import-text {
+  width: 100%;
+  border: 1px solid #2a3940;
+  border-radius: 6px;
+  padding: 10px;
+  background: #0d1316;
+  color: #f4f7f8;
+  color-scheme: dark;
+}
+
+.ag-import-warnings {
+  border: 1px solid #e0aa5466;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(224, 170, 84, 0.08);
+  font-size: 12.5px;
+}
+
+.ag-import-warnings p {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  font-weight: 700;
+}
+
+.ag-import-warnings ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
 }

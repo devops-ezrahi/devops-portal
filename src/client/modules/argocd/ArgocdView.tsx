@@ -1,17 +1,23 @@
 import { zipSync, strToU8 } from "fflate";
-import { Check, Pencil, Plus, Trash2, TriangleAlert, X } from "lucide-react";
+import { Check, FileUp, Pencil, Plus, Trash2, TriangleAlert, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ArgocdTree } from "../../../server/types";
 import { log, error as logError } from "../../log";
 import { createTree, deleteTree, listTrees, updateTree, type TreeDefaults } from "./api";
-import { extraValuesError } from "./build";
+import { buildValues, extraValuesError, parseValues } from "./build";
+import { checkValues } from "./checks";
+import { BY_ID } from "./catalog";
+import { deepMerge } from "./values";
 import { buildTree } from "./tree";
 import { isEmptyTree, newNamespace, newRelease, newTree, toInput, type DraftTree } from "./document";
 import { FeatureEditor } from "./components/FeatureEditor";
 import { FilePreview } from "./components/FilePreview";
+import { ImportDialog } from "./components/ImportDialog";
 import { TreeList } from "./components/TreeList";
 import type { FeatureState } from "./catalog";
+import type { ImportResult } from "./import";
+import { toYaml } from "./yaml";
 
 /** The tree the Refresh button (and a page reload) reopens. */
 const LAST_OPENED_KEY = "argocd.lastOpened";
@@ -33,6 +39,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   const [showAll, setShowAll] = useState(true);
   const [naming, setNaming] = useState(false);
   const [repoOpen, setRepoOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   /** The id the next write should PUT to. A ref, because the write queue reads it after an await. */
   const idRef = useRef("");
@@ -73,6 +80,30 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   const features = (layer === BASE ? release?.features : nsEntry?.features) ?? {};
   const extraValues = (layer === BASE ? release?.extraValues : nsEntry?.extraValues) ?? "";
   const extraError = extraValuesError(extraValues);
+  const scopeLabel = layer === BASE ? "base" : layer || "this namespace";
+  /**
+   * The checks run on the document that is actually deployed for this scope —
+   * base alone, or base with the namespace's overrides merged over it — and on
+   * the *parsed* form of it, so a raw block and extra values are checked
+   * exactly like a value typed into a field.
+   */
+  const problems = useMemo(() => {
+    if (!release) return [];
+    const base = buildValues(release.features, release.extraValues);
+    const effective = layer === BASE ? base : deepMerge(base, buildValues(features, extraValues));
+    const found = checkValues(parseValues(toYaml(effective)) ?? {});
+    // Cluster-scoped objects belong to one release in the cluster, so a tree
+    // that fans the same release out over several namespaces owns them twice.
+    const clusterFeatures = Object.entries(release.features)
+      .filter(([id, state]) => state.on && BY_ID[id]?.cluster)
+      .map(([id]) => BY_ID[id].name);
+    if (clusterFeatures.length && draft.namespaces.length > 1)
+      found.push({
+        level: "warn",
+        text: `${clusterFeatures.join(", ")} are cluster-scoped, and this tree deploys ${release.name || "this release"} into ${draft.namespaces.length} namespaces — every one of them would own the same object.`,
+      });
+    return found;
+  }, [release, features, extraValues, layer, draft.namespaces.length]);
 
   function handleOpen(tree: ArgocdTree) {
     log("argocd", "opening tree", tree.id);
@@ -137,6 +168,16 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         }),
       };
     });
+  }
+
+  function handleImport(result: ImportResult, name: string) {
+    log("argocd", "imported values", { warnings: result.warnings.length });
+    patchScope(() => ({ features: result.features, extraValues: result.extraValues }));
+    // A file that names itself names the release too, but only when there is
+    // nothing to overwrite.
+    if (layer === BASE && name && release && !release.name.trim())
+      setDraft((prev) => ({ ...prev, releases: prev.releases.map((r) => (r.id === release.id ? { ...r, name } : r)) }));
+    setImportOpen(false);
   }
 
   function addRelease() {
@@ -475,6 +516,12 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   </button>
                 </div>
 
+                <div className="ag-scope-actions">
+                  <button type="button" className="ghost-button" onClick={() => setImportOpen(true)}>
+                    <FileUp size={16} aria-hidden="true" /> Import values
+                  </button>
+                </div>
+
                 <p className="ag-scope-note">
                   {layer === BASE
                     ? "Environment-agnostic values, shared by every namespace that runs this release."
@@ -483,7 +530,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
 
                 <FeatureEditor
                   features={features}
-                  scopeLabel={layer === BASE ? "the base file" : `${layer}'s override file`}
+                  scopeLabel={layer === BASE ? "the base file" : `${scopeLabel}'s override file`}
                   extraValues={extraValues}
                   extraError={extraError}
                   onChange={setFeatures}
@@ -493,11 +540,24 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
             )}
 
             <div className="ag-section">
+              {problems.length > 0 && (
+                <ul className="ag-problems">
+                  {problems.map((p) => (
+                    <li key={p.text} className={p.level}>
+                      <TriangleAlert size={14} aria-hidden="true" /> {p.text}
+                    </li>
+                  ))}
+                </ul>
+              )}
               <FilePreview files={files} onDownload={handleDownload} />
             </div>
           </section>
         </div>
       </div>
+
+      {importOpen && release && (
+        <ImportDialog scopeLabel={scopeLabel} onImport={handleImport} onClose={() => setImportOpen(false)} />
+      )}
     </>
   );
 }

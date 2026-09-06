@@ -65,7 +65,7 @@ export type FeatureSpec = {
   /** Feature state -> a values fragment. Pure; `null` means "contributes nothing". */
   emit: (v: FieldValues) => Values | null;
   /** Values fragment -> feature state. Only needed where `path` cannot say it (rows, kv, lists). */
-  load?: (doc: Values) => FieldValues | null;
+  load?: (doc: Values) => FieldValues;
 };
 
 export type FieldValues = Record<string, unknown>;

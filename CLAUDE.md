@@ -32,6 +32,7 @@ src/
       whitening/      # router.ts + RealWhiteningApi.ts + devSimulation.ts
       ai/             # router.ts + RealAiApi.ts (clones a registered repo, asks opencode CLI)
       jenkinsfile/    # router.ts + PipelineStore.ts (saved pipeline documents, no jobs)
+      argocd/         # router.ts + TreeStore.ts (saved GitOps trees, no jobs)
   client/
     App.tsx           # thin shell: loads /api/me, renders nav, mounts active module View
     api.ts            # cross-cutting fetch helpers only (request, getMe, getPortalConfig, demo users)
@@ -99,6 +100,8 @@ Key variables (see `.env.example`):
 | `GIT_URL` / `GIT_TOKEN`                                      | —               | Bitbucket Server base URL + HTTP access token; required for the Whitening module to open pull requests. The AI module reuses the same token to authenticate `git clone` for registered `ai-*` project repos (unset = clone stays unauthenticated, so public repos still work) |
 | `GIT_USERNAME`                                               | —               | Empty (default) puts the token alone in the clone URL; set it only if Bitbucket wants `username:token` basic auth           |
 | `JENKINS_IMAGES_PATH`                                        | —               | Artifactory storage path whose child folders name the agent images the Jenkinsfile builder's `image` field suggests (e.g. `docker-local/jenkins-agents`). One AQL search per hour per pod returns the names *and* each image's `SCREAMING_CASE` Docker labels (`JDK=17`), which are shown beside the name. Unset, or unreachable, = the field is plain free text exactly as before. |
+| `ARGOCD_CHART_REPO_URL` / `_CHART_PATH` / `_CHART_REVISION`   | universal-chart repo, `.`, `main` | Where the universal chart lives — the first source of every ApplicationSet the ArgoCD builder generates. |
+| `ARGOCD_VALUES_REPO_URL` / `_VALUES_REVISION`                | —               | Where a generated tree is committed — the `$values` ref source, and the repo the root app watches. All five only *pre-fill* a new tree; each document keeps its own copy and can point elsewhere, unlike `JENKINS_SHARED_LIBRARY`. Defaults match `convert_to_universal_chart.py`'s own CLI defaults, so a tree built here lands where the converter's would. |
 | `JIRA_URL` / `JIRA_TOKEN` / `JIRA_PROJECT_KEY`               | —               | All three required to activate `JiraTicketingApi` (Jira Data Center, Bearer PAT); otherwise `InMemoryTicketingApi` fallback |
 | `JIRA_STORY_POINTS_FIELD`                                    | —               | Custom-field id holding story points (e.g. `customfield_10016`) — instance-specific; unset = points stay portal-only and are not synced to Jira |
 | `JIRA_MAINTENANCE_ISSUE_TYPE`                                | `Maintenance`   | The Jira issue type the portal **creates** tickets as, and the one `listAdminTickets` filters the admin queue on — deliberately one var, since creating anything else files tickets the queue then cannot see. It is a Jira fact: the request catalog's display name ("CI/CD Pipeline") is not an issue type any instance has, and Jira answers an unresolvable one with *both* `Could not find issuetype` and a red-herring `project is required`. |
@@ -767,6 +770,73 @@ no external system — the only server-side state is saved pipeline documents.
   stamped on.
 - The saved list uses the portal's standard `.ticket-row` shape, same as every
   other module. Editing a pipeline is opening it; there is nothing else to do to it.
+
+## ArgoCD: the universal-chart GitOps builder
+
+The ArgoCD module is to [`universal-chart`](https://github.com/devops-ezrahi/universal-chart)
+what the Jenkinsfile builder is to the shared library: a catalog-driven visual
+builder whose output is generated files, saved as documents, previewed live,
+copied or downloaded. It runs no jobs, holds no credentials and never touches
+git — you paste the result into your values repo.
+
+A saved **tree** holds N releases x M namespaces and generates the layout
+`gitops-factory`'s `convert_to_universal_chart.py` already writes, so a tree
+authored here and one converted there land in the same repo and are read by the
+same ApplicationSet:
+
+```
+defaults.yaml                    # computed: what every release shares
+base/<release>.yaml              # environment-agnostic, the full catalog
+<ns>/defaults.yaml               # computed: what this namespace's releases share
+<ns>/values/<release>.yaml       # only what differs — applied last, so it wins
+<ns>/releases/<release>.yaml     # `release: <slug>` pointer, the AppSet's {{release}}
+<ns>/<ns>-applicationset.yaml    # git *files* generator + the $values ref source
+root-application.yaml            # app-of-apps: the one object applied by hand
+```
+
+- **The merge/diff logic is carried over, not reinvented.** `values.ts`'s
+  `deepMerge` / `commonSubtree` / `subtractDefaults` come from
+  `gitops-factory/ui/core-logic.test.js` — which exists so this logic cannot
+  drift from the converter's `deep_merge` / `common_subtree` /
+  `subtract_defaults`. That file's own assertions came across with it into
+  `values.test.ts`. **Change one side and change the other**, or a tree the
+  portal writes and a tree the converter writes stop layering the same way.
+- **Every layer file is written, empty ones included.** A `valueFiles` entry
+  that does not exist fails the whole render, so an empty layer is `{}` with a
+  header comment rather than an absent file.
+- **A shared namespace override does not always belong in `<ns>/defaults.yaml`.**
+  Namespace defaults merge *below* `base/<release>.yaml`, so a path any base
+  file claims would be overwritten by it. `withoutClaimed` in `tree.ts` keeps
+  those in each release's own override file instead — where they are last and
+  actually win. This is the one place the layout's ordering has a trap in it.
+- **The catalog is transcribed by hand** into `client/modules/argocd/catalog.ts`,
+  one `FeatureSpec` per section of the chart's own `ui/studio.html`, plus pod
+  metadata and sidecars/initContainers, which that file never covered. **When
+  the chart gains or renames a value, update this file** — nothing reads the
+  chart repo at runtime, so there is no clone step and no way for a network
+  failure to leave the builder empty. Same call, same reasons, as
+  `jenkinsfile/catalog.ts`.
+- **Writing YAML is hand-rolled, reading it is not.** `yaml.ts` is ported from
+  the chart's own emitter (stable key order, block scalars, `{}` for the empty
+  ones); parsing goes through the `yaml` package, because a hand-rolled parser
+  is the kind of 85%-correct thing that fails silently — on values that are
+  about to be deployed.
+- **Import keeps what it cannot show.** `import.ts` reloads each feature through
+  its `load` (or generically, from each field's `path`), then re-emits and
+  subtracts: whatever the re-emit fails to reproduce goes into `extraValues`
+  — merged last, so it wins — and is named in the warnings the dialog shows
+  before anything is replaced. `jenkinsfile/parse.ts`'s rule, and the
+  round-trip is what `import.test.ts` pins.
+- **`checks.ts` runs on the merged document, not on catalog state**, so a value
+  that arrived through `extraValues` or an import is checked exactly like one
+  typed into a field. It is the cookbook's cross-checks, ported from
+  `studio.html`'s `checks()`: ingress and route both on, HPA on a DaemonSet,
+  HPA against `replicaCount`, a mount with no volume, `pdb.minAvailable` equal
+  to the replica count, and so on.
+- Trees live one JSON file per tree under `<DATA_DIR>/argocd`, ids `AG-0001`,
+  via `TreeStore` — `PipelineStore` in miniature. **These are user documents, so
+  `DELETE` really deletes.** Autosave, minted names and the ownership rules are
+  the Jenkinsfile builder's, unchanged.
 
 ## Job lists: scope and links
 
