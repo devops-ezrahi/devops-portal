@@ -33,6 +33,20 @@ vi.mock("../../config", () => ({
 /** Every PUT this run made: repo-relative path -> the bytes uploaded. */
 const uploaded = new Map<string, Buffer>();
 
+// Resolving for real spawns `mvn`, which reaches for the source repository over
+// the network. A dev box usually has no maven, so the resolve answered "not
+// installed" and this file passed by accident; a CI runner ships with maven, so
+// the same test spent its whole timeout on DNS for mirror.example.com. `null` is
+// that same "not installed" answer, now stated rather than inherited from the
+// host — which is what keeps the job named after the coordinates the pom
+// declares. Only the resolvers are stubbed: the URL helpers beside them derive
+// the repository root this file asserts on.
+vi.mock("./toolDependencies", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./toolDependencies")>()),
+  resolveMavenDependencies: async () => null,
+  resolvePypiDependencies: async () => null,
+}));
+
 vi.mock("./artifactoryRest", () => ({
   exists: async () => false,
   listExisting: async () => null,
