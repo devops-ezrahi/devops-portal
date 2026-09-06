@@ -1,6 +1,6 @@
 {
   "name": "devops-customer-portal",
-  "version": "1.0.0-dev.21",
+  "version": "1.0.0-dev.22",
   "private": true,
   "type": "module",
   "scripts": {
