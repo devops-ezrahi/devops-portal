@@ -21,6 +21,7 @@ export function newTree(defaults?: TreeDefaults): DraftTree {
     chart: {
       repoUrl: defaults?.chartRepoUrl ?? "",
       path: defaults?.chartPath ?? ".",
+      appsetPath: defaults?.appsetChartPath ?? "ms-applicationSet",
       revision: defaults?.chartRevision ?? "main",
     },
     values: { repoUrl: defaults?.valuesRepoUrl ?? "", revision: defaults?.valuesRevision ?? "main", path: "" },

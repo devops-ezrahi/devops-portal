@@ -14,6 +14,7 @@ const { ArgocdView } = await import("./ArgocdView");
 const defaults = {
   chartRepoUrl: "https://github.com/devops-ezrahi/universal-chart.git",
   chartPath: ".",
+  appsetChartPath: "ms-applicationSet",
   chartRevision: "main",
   valuesRepoUrl: "https://git.example.com/gitops/values.git",
   valuesRevision: "main",
@@ -22,7 +23,7 @@ const defaults = {
 const saved = (over: Partial<ArgocdTree> = {}): ArgocdTree => ({
   id: "AG-0001",
   name: "Dev User #1",
-  chart: { repoUrl: defaults.chartRepoUrl, path: ".", revision: "main" },
+  chart: { repoUrl: defaults.chartRepoUrl, path: ".", appsetPath: "ms-applicationSet", revision: "main" },
   values: { repoUrl: defaults.valuesRepoUrl, revision: "main", path: "" },
   rootAppName: "platform-root",
   releases: [],

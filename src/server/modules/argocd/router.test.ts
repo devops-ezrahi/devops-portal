@@ -19,7 +19,12 @@ const admin = { "x-user-id": "u-root", "x-user-name": "Root", "x-user-groups": "
 
 /** No name: the server mints one from the author. */
 const body = {
-  chart: { repoUrl: "https://github.com/devops-ezrahi/universal-chart.git", path: ".", revision: "main" },
+  chart: {
+    repoUrl: "https://github.com/devops-ezrahi/universal-chart.git",
+    path: ".",
+    appsetPath: "ms-applicationSet",
+    revision: "main",
+  },
   values: { repoUrl: "https://git.example.com/gitops/values.git", revision: "main", path: "" },
   rootAppName: "platform-root",
   releases: [{ id: "r1", name: "api-gateway", features: { image: { on: true, v: { repository: "nginx" } } } }],

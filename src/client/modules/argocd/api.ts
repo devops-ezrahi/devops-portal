@@ -11,6 +11,7 @@ export type TreeInput = Pick<ArgocdTree, "name" | "chart" | "values" | "rootAppN
 export type TreeDefaults = {
   chartRepoUrl: string;
   chartPath: string;
+  appsetChartPath: string;
   chartRevision: string;
   valuesRepoUrl: string;
   valuesRevision: string;

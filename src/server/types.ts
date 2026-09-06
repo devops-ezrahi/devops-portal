@@ -446,8 +446,13 @@ export type ArgocdTree = {
   id: string;
   /** Assigned by the server as `<author> #<n>`, exactly like a pipeline's. */
   name: string;
-  /** Where the universal chart itself lives — the ApplicationSet's first source. */
-  chart: { repoUrl: string; path: string; revision: string };
+  /**
+   * Where the universal chart lives. `path` is the chart each release renders;
+   * `appsetPath` is the `ms-applicationSet` chart in the same repo that the root
+   * ApplicationSet deploys once per namespace, and which owns the per-release
+   * fan-out and the three-file value layering.
+   */
+  chart: { repoUrl: string; path: string; appsetPath: string; revision: string };
   /** Where this generated tree is committed — the `$values` ref source. */
   values: { repoUrl: string; revision: string; path: string };
   /** The app-of-apps' name; `platform-root` unless someone renames it. */

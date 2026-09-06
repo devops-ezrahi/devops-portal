@@ -21,6 +21,7 @@ const treeBody = z.object({
   chart: z.object({
     repoUrl: z.string().trim().max(300),
     path: z.string().trim().max(200),
+    appsetPath: z.string().trim().max(200),
     revision: z.string().trim().max(100),
   }),
   values: z.object({

@@ -392,6 +392,14 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                     />
                   </label>
                   <label>
+                    <span>AppSet chart path</span>
+                    <input
+                      placeholder="ms-applicationSet"
+                      value={draft.chart.appsetPath}
+                      onChange={(e) => setDraft((p) => ({ ...p, chart: { ...p.chart, appsetPath: e.target.value } }))}
+                    />
+                  </label>
+                  <label>
                     <span>Chart revision</span>
                     <input
                       value={draft.chart.revision}

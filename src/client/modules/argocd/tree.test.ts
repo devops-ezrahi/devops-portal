@@ -9,7 +9,12 @@ function tree(overrides: Partial<ArgocdTree> = {}): ArgocdTree {
   return {
     id: "AG-0001",
     name: "Test tree",
-    chart: { repoUrl: "https://github.com/devops-ezrahi/universal-chart.git", path: ".", revision: "main" },
+    chart: {
+      repoUrl: "https://github.com/devops-ezrahi/universal-chart.git",
+      path: ".",
+      appsetPath: "ms-applicationSet",
+      revision: "main",
+    },
     values: { repoUrl: "https://git.example.com/gitops/values.git", revision: "main", path: "" },
     rootAppName: "platform-root",
     releases: [
@@ -55,27 +60,26 @@ const at = (files: ReturnType<typeof buildTree>, path: string) => files.find((f)
 const doc = (files: ReturnType<typeof buildTree>, path: string) => parseYaml(at(files, path).text) as Record<string, any>;
 
 describe("buildTree", () => {
-  it("writes the gitops-factory layout", () => {
+  it("writes the gitops-factory layout: base/, per-namespace values, and the two root files", () => {
     expect(buildTree(tree()).map((f) => f.path)).toEqual([
-      "defaults.yaml",
       "base/api-gateway.yaml",
       "base/storefront.yaml",
       "shop-web/defaults.yaml",
       "shop-web/values/api-gateway.yaml",
-      "shop-web/releases/api-gateway.yaml",
       "shop-web/values/storefront.yaml",
-      "shop-web/releases/storefront.yaml",
-      "shop-web/shop-web-applicationset.yaml",
+      "root-applicationSet.yaml",
       "root-application.yaml",
     ]);
   });
 
-  it("promotes what every release shares into defaults.yaml and takes it out of the base files", () => {
-    const files = buildTree(tree());
-    expect(doc(files, "defaults.yaml")).toEqual({ workload: { type: "deployment" }, replicaCount: 2 });
-    expect(doc(files, "base/api-gateway.yaml")).toEqual({
+  it("writes a base file whole — no tree-root defaults layer applies it back", () => {
+    // A global defaults.yaml would be subtracted from every base file and then
+    // read by nobody: the chart's chain starts at <ns>/defaults.yaml.
+    expect(doc(buildTree(tree()), "base/api-gateway.yaml")).toEqual({
       nameOverride: "api-gateway",
+      workload: { type: "deployment" },
       image: { repository: "registry/api-gateway", tag: "1.0.0" },
+      replicaCount: 2,
     });
   });
 
@@ -111,50 +115,63 @@ describe("buildTree", () => {
     expect(doc(files, "shop-web/values/api-gateway.yaml")).toEqual({ image: { tag: "7.7.7" } });
   });
 
-
   it("puts every release in every namespace's fan-out, overridden or not", () => {
-    // A namespace runs the whole tree; an entry only carries overrides. Leaving
-    // a release out of releases/ would drop it from the ApplicationSet.
+    // A namespace runs the whole tree; an entry only carries overrides. The
+    // ApplicationSet globs <ns>/values/*.yaml, so a release without a file there
+    // is a release that does not deploy.
     const files = buildTree(
       tree({ namespaces: [{ name: "shop-web", releases: [{ release: "r1", features: { image: on({ tag: "1.4.2" }) } }] }] })
     );
-    expect(at(files, "shop-web/releases/storefront.yaml").text).toBe("release: storefront\n");
     expect(doc(files, "shop-web/values/storefront.yaml")).toEqual({});
   });
 
-  it("wires the ApplicationSet to the pointer files and the four layers, in order", () => {
-    const set = doc(buildTree(tree()), "shop-web/shop-web-applicationset.yaml");
+  it("deploys the ms-applicationSet chart once per namespace directory", () => {
+    const set = doc(buildTree(tree()), "root-applicationSet.yaml");
     expect(set.kind).toBe("ApplicationSet");
-    expect(set.spec.generators[0].git.files).toEqual([{ path: "shop-web/releases/*.yaml" }]);
-    expect(set.spec.template.spec.sources[0].helm.valueFiles).toEqual([
-      "$values/defaults.yaml",
-      "$values/shop-web/defaults.yaml",
-      "$values/base/{{release}}.yaml",
-      "$values/shop-web/values/{{release}}.yaml",
+    expect(set.metadata.name).toBe("platform-root-set");
+    // Every top-level directory is a namespace except the ones that hold values
+    // or reports.
+    expect(set.spec.generators[0].git.directories).toEqual([
+      { path: "*" },
+      { path: "base", exclude: true },
+      { path: "cluster-shared", exclude: true },
+      { path: "ERRORS_ANALYSIS", exclude: true },
+      { path: "report", exclude: true },
     ]);
-    expect(set.spec.template.spec.sources[1]).toEqual({
-      repoURL: "https://git.example.com/gitops/values.git",
-      targetRevision: "main",
-      ref: "values",
+
+    const source = set.spec.template.spec.sources[0];
+    expect(source.path).toBe("ms-applicationSet");
+    // originPath is absent: this tree is the values repo's root.
+    expect(Object.fromEntries(source.helm.parameters.map((p: any) => [p.name, p.value]))).toEqual({
+      namespace: "{{path.basename}}",
+      originRepoURL: "https://git.example.com/gitops/values.git",
+      originBranch: "main",
+      project: "default",
+      destinationServer: "https://kubernetes.default.svc",
+      chartRepoURL: "https://github.com/devops-ezrahi/universal-chart.git",
+      chartRevision: "main",
+      chartPath: ".",
     });
-    expect(set.spec.template.spec.destination.namespace).toBe("shop-web");
   });
 
   it("prefixes every reference when the tree lives in a subdirectory of the values repo", () => {
     const files = buildTree(tree({ values: { repoUrl: "https://git/values.git", revision: "main", path: "apps" } }));
-    const set = doc(files, "shop-web/shop-web-applicationset.yaml");
-    expect(set.spec.generators[0].git.files).toEqual([{ path: "apps/shop-web/releases/*.yaml" }]);
-    expect(set.spec.template.spec.sources[0].helm.valueFiles[0]).toBe("$values/apps/defaults.yaml");
+    const set = doc(files, "root-applicationSet.yaml");
+    expect(set.spec.generators[0].git.directories[0]).toEqual({ path: "apps/*" });
+    expect(set.spec.generators[0].git.directories[1]).toEqual({ path: "apps/base", exclude: true });
+    // The chart builds the $Values/ refs itself, so the subpath goes in as a
+    // parameter — and only when there is one, since the chart already defaults
+    // it to the repo root.
+    const params = Object.fromEntries(set.spec.template.spec.sources[0].helm.parameters.map((p: any) => [p.name, p.value]));
+    expect(params.originPath).toBe("apps");
     expect(doc(files, "root-application.yaml").spec.source.path).toBe("apps");
   });
 
   it("does not prune from the root app, and cannot mistake a values file for a manifest", () => {
     const root = doc(buildTree(tree()), "root-application.yaml");
     expect(root.spec.syncPolicy.automated.prune).toBe(false);
-    expect(root.spec.source.directory.exclude).toBe("{base/*,*/values/*,*/releases/*}");
-  });
-
-  it("names the pointer file's content, which is what {{release}} resolves to", () => {
-    expect(at(buildTree(tree()), "shop-web/releases/api-gateway.yaml").text).toBe("release: api-gateway\n");
+    // Named outright with recursion off: a glob would also match a release
+    // called `web-application` down in <ns>/values/.
+    expect(root.spec.source.directory).toEqual({ recurse: false, include: "root-applicationSet.yaml" });
   });
 });

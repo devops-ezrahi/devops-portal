@@ -100,7 +100,8 @@ Key variables (see `.env.example`):
 | `GIT_URL` / `GIT_TOKEN`                                      | —               | Bitbucket Server base URL + HTTP access token; required for the Whitening module to open pull requests. The AI module reuses the same token to authenticate `git clone` for registered `ai-*` project repos (unset = clone stays unauthenticated, so public repos still work) |
 | `GIT_USERNAME`                                               | —               | Empty (default) puts the token alone in the clone URL; set it only if Bitbucket wants `username:token` basic auth           |
 | `JENKINS_IMAGES_PATH`                                        | —               | Artifactory storage path whose child folders name the agent images the Jenkinsfile builder's `image` field suggests (e.g. `docker-local/jenkins-agents`). One AQL search per hour per pod returns the names *and* each image's `SCREAMING_CASE` Docker labels (`JDK=17`), which are shown beside the name. Unset, or unreachable, = the field is plain free text exactly as before. |
-| `ARGOCD_CHART_REPO_URL` / `_CHART_PATH` / `_CHART_REVISION`   | universal-chart repo, `.`, `main` | Where the universal chart lives — the first source of every ApplicationSet the ArgoCD builder generates. |
+| `ARGOCD_CHART_REPO_URL` / `_CHART_PATH` / `_CHART_REVISION`   | universal-chart repo, `.`, `main` | Where the universal chart lives — what each generated release renders. |
+| `ARGOCD_APPSET_CHART_PATH`                                   | `ms-applicationSet` | The second chart in that same repo. The generated `root-applicationSet.yaml` deploys it once per namespace directory, and it owns the per-release fan-out over `<ns>/values/*.yaml` plus the three-file layering (`<ns>/defaults.yaml` → `base/<file>` → `<ns>/values/<file>`). Keeping that in the chart is why a generated tree carries no per-namespace ApplicationSet of its own. |
 | `ARGOCD_VALUES_REPO_URL` / `_VALUES_REVISION`                | —               | Where a generated tree is committed — the `$values` ref source, and the repo the root app watches. All five only *pre-fill* a new tree; each document keeps its own copy and can point elsewhere, unlike `JENKINS_SHARED_LIBRARY`. Defaults match `convert_to_universal_chart.py`'s own CLI defaults, so a tree built here lands where the converter's would. |
 | `JIRA_URL` / `JIRA_TOKEN` / `JIRA_PROJECT_KEY`               | —               | All three required to activate `JiraTicketingApi` (Jira Data Center, Bearer PAT); otherwise `InMemoryTicketingApi` fallback |
 | `JIRA_STORY_POINTS_FIELD`                                    | —               | Custom-field id holding story points (e.g. `customfield_10016`) — instance-specific; unset = points stay portal-only and are not synced to Jira |
@@ -782,17 +783,35 @@ git — you paste the result into your values repo.
 A saved **tree** holds N releases x M namespaces and generates the layout
 `gitops-factory`'s `convert_to_universal_chart.py` already writes, so a tree
 authored here and one converted there land in the same repo and are read by the
-same ApplicationSet:
+same wiring:
 
 ```
-defaults.yaml                    # computed: what every release shares
 base/<release>.yaml              # environment-agnostic, the full catalog
 <ns>/defaults.yaml               # computed: what this namespace's releases share
 <ns>/values/<release>.yaml       # only what differs — applied last, so it wins
-<ns>/releases/<release>.yaml     # `release: <slug>` pointer, the AppSet's {{release}}
-<ns>/<ns>-applicationset.yaml    # git *files* generator + the $values ref source
+root-applicationSet.yaml         # one Application per namespace directory
 root-application.yaml            # app-of-apps: the one object applied by hand
 ```
+
+**The deployment wiring is two files plus a chart**, and the per-namespace half
+is no longer generated at all:
+
+```
+kubectl apply -f root-application.yaml      once, by hand
+  root-applicationSet.yaml                  one App per namespace directory
+    ms-applicationSet chart                 one AppSet per namespace
+      one Application per <ns>/values/*.yaml
+```
+
+Adding a namespace is adding a directory; adding a release is adding a file.
+The fan-out globs `<ns>/values/*.yaml` directly, so there are no
+`<ns>/releases/*.yaml` pointer files and no per-namespace ApplicationSet in the
+tree; the three-file layering (`<ns>/defaults.yaml` → `base/<file>` →
+`<ns>/values/<file>`) lives in the `ms-applicationSet` chart, versioned
+alongside the universal chart it applies. There is no tree-root
+`defaults.yaml` either — no layer in that chain reads one, and subtracting
+against a layer nobody applies silently drops the value, so whatever is common
+across namespaces is repeated per namespace instead.
 
 - **The merge/diff logic is carried over, not reinvented.** `values.ts`'s
   `deepMerge` / `commonSubtree` / `subtractDefaults` come from
@@ -834,9 +853,9 @@ root-application.yaml            # app-of-apps: the one object applied by hand
   HPA against `replicaCount`, a mount with no volume, `pdb.minAvailable` equal
   to the replica count, and so on.
 - **A namespace runs every release in the tree**; a namespace entry only carries
-  what it *overrides*. So the pointer and values files are written for all of
-  them, empty ones included — a release missing from `<ns>/releases/` is a
-  release the ApplicationSet never fans out to.
+  what it *overrides*. So a values file is written for all of them, empty ones
+  included — `<ns>/values/` **is** the fan-out, so a release with no file there
+  is a release that does not deploy.
 - **The preview is the directory listing the values repo will hold**, folders
   and all, and the catalog's categories collapse to the ones a layer actually
   uses. Both exist for the same reason: a namespace override touches two

@@ -174,6 +174,10 @@ export const config = {
     // CLI defaults, so a tree built here lands where the converter's would.
     chartRepoUrl: (requireEnv("ARGOCD_CHART_REPO_URL") ?? "https://github.com/devops-ezrahi/universal-chart.git").trim(),
     chartPath: (requireEnv("ARGOCD_CHART_PATH") ?? ".").trim(),
+    // The second chart in the same repo: one ApplicationSet per namespace,
+    // deployed by the tree's root ApplicationSet. Same default as the
+    // converter's --appset-chart-path.
+    appsetChartPath: (requireEnv("ARGOCD_APPSET_CHART_PATH") ?? "ms-applicationSet").trim(),
     chartRevision: (requireEnv("ARGOCD_CHART_REVISION") ?? "main").trim(),
     valuesRepoUrl: (requireEnv("ARGOCD_VALUES_REPO_URL") ?? "https://git.example.com/gitops/microservices-values.git").trim(),
     valuesRevision: (requireEnv("ARGOCD_VALUES_REVISION") ?? "main").trim(),
