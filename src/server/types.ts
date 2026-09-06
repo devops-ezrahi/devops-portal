@@ -407,3 +407,55 @@ export type JenkinsfilePipeline = {
   createdAt: string;
   updatedAt: string;
 };
+
+/**
+ * ArgoCD / universal-chart builder — one saved document is a whole GitOps tree.
+ *
+ * A tree holds N releases (microservices) x M namespaces. `features` is the
+ * builder's catalog state, keyed by feature id, and is deliberately `unknown`
+ * inside: the shape of a feature's fields is the chart's business, described by
+ * the client's catalog, and pinning it here would mean editing the server every
+ * time `values.yaml` grows a key — the same reason a Jenkinsfile stage's `args`
+ * stays open.
+ */
+export type ArgocdFeatureState = { on: boolean; v: Record<string, unknown> };
+
+/** The environment-agnostic values for one release — what `base/<release>.yaml` is built from. */
+export type ArgocdRelease = {
+  /** Stable across renames, so the editor's tabs and React keys survive one. */
+  id: string;
+  /** The release-slug: the file name under `base/` and the ApplicationSet's `{{release}}`. */
+  name: string;
+  features: Record<string, ArgocdFeatureState>;
+  /** Raw YAML merged last — the escape hatch, and where an import's leftovers land. */
+  extraValues?: string;
+};
+
+/** One namespace's overrides: only what differs from the release's base. */
+export type ArgocdNamespace = {
+  name: string;
+  releases: {
+    /** The release id (not the name) this overrides. */
+    release: string;
+    features: Record<string, ArgocdFeatureState>;
+    extraValues?: string;
+  }[];
+};
+
+export type ArgocdTree = {
+  id: string;
+  /** Assigned by the server as `<author> #<n>`, exactly like a pipeline's. */
+  name: string;
+  /** Where the universal chart itself lives — the ApplicationSet's first source. */
+  chart: { repoUrl: string; path: string; revision: string };
+  /** Where this generated tree is committed — the `$values` ref source. */
+  values: { repoUrl: string; revision: string; path: string };
+  /** The app-of-apps' name; `platform-root` unless someone renames it. */
+  rootAppName: string;
+  releases: ArgocdRelease[];
+  namespaces: ArgocdNamespace[];
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+};

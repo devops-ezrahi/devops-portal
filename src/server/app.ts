@@ -8,6 +8,7 @@ import { RealArtifactoryApi } from "./modules/artifactory/RealArtifactoryApi";
 import { createArtifactoryRouter } from "./modules/artifactory/router";
 import { RealAiApi } from "./modules/ai/RealAiApi";
 import { createAiRouter } from "./modules/ai/router";
+import { createArgocdRouter } from "./modules/argocd/router";
 import { createJenkinsfileRouter } from "./modules/jenkinsfile/router";
 import { InMemoryTicketingApi } from "./modules/ticketing/InMemoryTicketingApi";
 import { JiraTicketingApi } from "./modules/ticketing/JiraTicketingApi";
@@ -120,6 +121,7 @@ export function createApp(
   // One implementation and no config to select on, so the router owns its store
   // rather than taking an injected API like the four above.
   app.use(createJenkinsfileRouter());
+  app.use(createArgocdRouter());
 
   app.use((error: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
     const where = { id: req.id, user: req.user?.id ?? "-", route: `${req.method} ${req.originalUrl}` };

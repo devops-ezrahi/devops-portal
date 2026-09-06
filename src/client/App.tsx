@@ -10,6 +10,7 @@ import { log, warn, error as logError } from "./log";
 import { AccessDeniedScreen } from "./AccessDeniedScreen";
 import { ErrorScreen } from "./ErrorScreen";
 import { LoginScreen } from "./LoginScreen";
+import { argocdModule } from "./modules/argocd";
 import { artifactoryModule } from "./modules/artifactory";
 import { jenkinsfileModule } from "./modules/jenkinsfile";
 import { ticketingModule } from "./modules/ticketing";
@@ -23,7 +24,7 @@ import { version } from "../../package.json";
 
 // AI is off for now — add `aiModule` (./modules/ai) back to this array to
 // bring the tab back. The server keeps serving /api/ai/*; nothing calls it.
-const modules: PortalModule[] = [ticketingModule, artifactoryModule, whiteningModule, jenkinsfileModule];
+const modules: PortalModule[] = [ticketingModule, artifactoryModule, whiteningModule, jenkinsfileModule, argocdModule];
 
 function slugFor(mod: PortalModule) {
   return mod.userNav.label.toLowerCase();

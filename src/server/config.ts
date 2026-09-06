@@ -165,6 +165,19 @@ export const config = {
     // Unset = the builder's image field stays plain free text.
     imagesPath: (requireEnv("JENKINS_IMAGES_PATH") ?? "").replace(/^\/+|\/+$/g, ""),
   },
+  argocd: {
+    // Where the universal chart lives, and where the generated tree gets
+    // committed. Both are deployment facts, so they pre-fill a new tree rather
+    // than being typed out every time — but unlike the Jenkins shared library
+    // they stay editable per document, since one portal may publish into more
+    // than one values repo. Defaults match convert_to_universal_chart.py's own
+    // CLI defaults, so a tree built here lands where the converter's would.
+    chartRepoUrl: (requireEnv("ARGOCD_CHART_REPO_URL") ?? "https://github.com/devops-ezrahi/universal-chart.git").trim(),
+    chartPath: (requireEnv("ARGOCD_CHART_PATH") ?? ".").trim(),
+    chartRevision: (requireEnv("ARGOCD_CHART_REVISION") ?? "main").trim(),
+    valuesRepoUrl: (requireEnv("ARGOCD_VALUES_REPO_URL") ?? "https://git.example.com/gitops/microservices-values.git").trim(),
+    valuesRevision: (requireEnv("ARGOCD_VALUES_REVISION") ?? "main").trim(),
+  },
   jira: {
     baseUrl: jiraUrl ?? "",
     token: jiraToken ?? "",
