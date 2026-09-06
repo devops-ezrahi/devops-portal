@@ -833,6 +833,15 @@ root-application.yaml            # app-of-apps: the one object applied by hand
   `studio.html`'s `checks()`: ingress and route both on, HPA on a DaemonSet,
   HPA against `replicaCount`, a mount with no volume, `pdb.minAvailable` equal
   to the replica count, and so on.
+- **A namespace runs every release in the tree**; a namespace entry only carries
+  what it *overrides*. So the pointer and values files are written for all of
+  them, empty ones included — a release missing from `<ns>/releases/` is a
+  release the ApplicationSet never fans out to.
+- **The preview is the directory listing the values repo will hold**, folders
+  and all, and the catalog's categories collapse to the ones a layer actually
+  uses. Both exist for the same reason: a namespace override touches two
+  sections and four files, and neither should mean scrolling past forty-five
+  collapsed cards to find them.
 - Trees live one JSON file per tree under `<DATA_DIR>/argocd`, ids `AG-0001`,
   via `TreeStore` — `PipelineStore` in miniature. **These are user documents, so
   `DELETE` really deletes.** Autosave, minted names and the ownership rules are

@@ -17,8 +17,11 @@ export function FeatureField({
   onChange: (value: unknown) => void;
 }) {
   const id = `ag-field-${spec.key}`;
+  // A list, a map or a block of YAML gets the whole width of the feature; only
+  // the one-line fields sit in the column grid beside each other.
+  const wide = spec.kind === "rows" || spec.kind === "kv" || spec.kind === "text" || spec.kind === "yaml";
   return (
-    <div className="ag-field">
+    <div className={`ag-field${wide ? " ag-field-wide" : ""}`}>
       <label className="ag-field-label" htmlFor={id}>
         {spec.label}
       </label>
@@ -126,6 +129,13 @@ function KvRows({ rows, onChange }: { rows: KvPair[]; onChange: (rows: KvPair[])
   );
 }
 
+/** What an entry calls itself: its own name if it has one, else its position. */
+function entryTitle(spec: FieldSpec, row: Values, index: number): string {
+  const named = spec.cols?.find((c) => c.key === "name" || c.key === "host" || c.key === "secretName");
+  const value = named ? String(row[named.key] ?? "").trim() : "";
+  return value || `${spec.label} ${index + 1}`;
+}
+
 /** A list of maps is a list of boxes — three bare inputs say nothing about which is which. */
 function ObjectRows({ spec, rows, onChange }: { spec: FieldSpec; rows: Values[]; onChange: (rows: Values[]) => void }) {
   const cols = spec.cols ?? [];
@@ -136,7 +146,9 @@ function ObjectRows({ spec, rows, onChange }: { spec: FieldSpec; rows: Values[];
       {shown.map((row, i) => (
         <div className="ag-entry" key={i}>
           <div className="ag-entry-head">
-            <span className="ag-entry-title">{spec.label} {i + 1}</span>
+            {/* An entry names itself once it has a name — a column of
+                "Variables 1, Variables 2" says nothing about which is which. */}
+            <span className="ag-entry-title">{entryTitle(spec, row, i)}</span>
             <button
               type="button"
               className="icon-button"

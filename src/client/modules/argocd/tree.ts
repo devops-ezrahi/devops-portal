@@ -148,9 +148,15 @@ export function buildTree(tree: ArgocdTree): GeneratedFile[] {
 
   // ---- namespace layers -------------------------------------------------
   namespaces.forEach((ns) => {
-    const entries = ns.releases.filter((e) => base.has(e.release));
+    // A namespace runs every release in the tree; an entry only carries what it
+    // overrides. So the pointer and values files are written for all of them —
+    // a release with nothing to override still has to be in the fan-out, and
+    // the ApplicationSet reads `<ns>/releases/*.yaml` to find it.
     const fragments = new Map<string, Values>();
-    entries.forEach((e) => fragments.set(e.release, buildValues(e.features, e.extraValues)));
+    releases.forEach((r) => {
+      const entry = ns.releases.find((e) => e.release === r.id);
+      fragments.set(r.id, entry ? buildValues(entry.features, entry.extraValues) : {});
+    });
 
     // Shared across this namespace's releases AND not claimed by any base file
     // — see `withoutClaimed`: base merges after namespace defaults, so a
@@ -169,10 +175,9 @@ export function buildTree(tree: ArgocdTree): GeneratedFile[] {
       )
     );
 
-    entries.forEach((e) => {
-      const release = releases.find((r) => r.id === e.release)!;
-      const below = deepMerge(deepMerge(globalDefaults, nsDefaults), base.get(e.release) ?? {});
-      const doc = subtractDefaults(fragments.get(e.release) ?? {}, below);
+    releases.forEach((release) => {
+      const below = deepMerge(deepMerge(globalDefaults, nsDefaults), base.get(release.id) ?? {});
+      const doc = subtractDefaults(fragments.get(release.id) ?? {}, below);
       files.push(
         valuesFile(
           `${ns.name}/values/${slug(release.name)}.yaml`,

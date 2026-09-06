@@ -27,15 +27,19 @@ const AUTOSAVE_MS = 800;
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
-/** Which layer the form is editing: the release's base, or one namespace's overrides. */
-const BASE = "";
+/**
+ * Which layer the form is editing: the release's base, or one namespace's
+ * overrides. It is the namespace's *index*, not its name — a namespace is named
+ * after it is added, and an unnamed one has to be selectable to be named.
+ */
+const BASE = -1;
 
 export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) {
   const [trees, setTrees] = useState<ArgocdTree[]>([]);
   const [defaults, setDefaults] = useState<TreeDefaults | undefined>();
   const [draft, setDraft] = useState<DraftTree>(() => newTree());
   const [releaseId, setReleaseId] = useState("");
-  const [layer, setLayer] = useState<string>(BASE);
+  const [layer, setLayer] = useState<number>(BASE);
   const [showAll, setShowAll] = useState(true);
   const [naming, setNaming] = useState(false);
   const [repoOpen, setRepoOpen] = useState(false);
@@ -75,12 +79,12 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   );
   const files = useMemo(() => buildTree(draft), [draft]);
   const release = draft.releases.find((r) => r.id === releaseId) ?? draft.releases[0];
-  const nsEntry =
-    layer === BASE ? undefined : draft.namespaces.find((n) => n.name === layer)?.releases.find((e) => e.release === release?.id);
+  const namespace = layer === BASE ? undefined : draft.namespaces[layer];
+  const nsEntry = namespace?.releases.find((e) => e.release === release?.id);
   const features = (layer === BASE ? release?.features : nsEntry?.features) ?? {};
   const extraValues = (layer === BASE ? release?.extraValues : nsEntry?.extraValues) ?? "";
   const extraError = extraValuesError(extraValues);
-  const scopeLabel = layer === BASE ? "base" : layer || "this namespace";
+  const scopeLabel = layer === BASE ? "base" : namespace?.name.trim() || "this namespace";
   /**
    * The checks run on the document that is actually deployed for this scope —
    * base alone, or base with the namespace's overrides merged over it — and on
@@ -151,8 +155,8 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       }
       return {
         ...prev,
-        namespaces: prev.namespaces.map((ns) => {
-          if (ns.name !== layer) return ns;
+        namespaces: prev.namespaces.map((ns, i) => {
+          if (i !== layer) return ns;
           const existing = ns.releases.find((e) => e.release === release.id);
           // A namespace entry is created the moment something is typed into it,
           // not when the namespace is added — an untouched namespace deploys the
@@ -199,18 +203,21 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   }
 
   function addNamespace() {
+    // Selected straight away: a namespace is named after it is added, and the
+    // name field only exists on the layer that is open.
     setDraft((prev) => ({ ...prev, namespaces: [...prev.namespaces, newNamespace("")] }));
+    setLayer(draft.namespaces.length);
   }
 
   function renameNamespace(index: number, name: string) {
     setDraft((prev) => ({ ...prev, namespaces: prev.namespaces.map((ns, i) => (i === index ? { ...ns, name } : ns)) }));
-    setLayer((current) => (current === draft.namespaces[index]?.name ? name : current));
   }
 
   function removeNamespace(index: number) {
-    const removed = draft.namespaces[index]?.name;
     setDraft((prev) => ({ ...prev, namespaces: prev.namespaces.filter((_, i) => i !== index) }));
-    if (layer === removed) setLayer(BASE);
+    // Indexes below the removed one shift up, so anything at or after it would
+    // now be pointing at a different namespace.
+    setLayer((current) => (current === index || current > index ? BASE : current));
   }
 
   /**
@@ -484,13 +491,13 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                     <span className="ag-tab-group" key={i}>
                       <button
                         role="tab"
-                        aria-selected={layer === ns.name}
-                        className={`ag-tab${layer === ns.name ? " selected" : ""}`}
-                        onClick={() => setLayer(ns.name)}
+                        aria-selected={layer === i}
+                        className={`ag-tab${layer === i ? " selected" : ""}`}
+                        onClick={() => setLayer(i)}
                       >
                         {ns.name.trim() || "unnamed"}
                       </button>
-                      {layer === ns.name && (
+                      {layer === i && (
                         <>
                           <input
                             aria-label="Namespace name"
@@ -525,10 +532,13 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 <p className="ag-scope-note">
                   {layer === BASE
                     ? "Environment-agnostic values, shared by every namespace that runs this release."
-                    : `Only what differs in ${layer || "this namespace"} — anything identical to base is left out of the file.`}
+                    : `Only what differs in ${scopeLabel} — anything identical to base is left out of the file.`}
                 </p>
 
                 <FeatureEditor
+                  // Remounted per scope, so which categories are open is
+                  // decided by what that layer actually holds.
+                  key={`${release.id}:${layer}`}
                   features={features}
                   scopeLabel={layer === BASE ? "the base file" : `${scopeLabel}'s override file`}
                   extraValues={extraValues}

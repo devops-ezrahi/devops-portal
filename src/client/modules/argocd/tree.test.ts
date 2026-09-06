@@ -111,6 +111,17 @@ describe("buildTree", () => {
     expect(doc(files, "shop-web/values/api-gateway.yaml")).toEqual({ image: { tag: "7.7.7" } });
   });
 
+
+  it("puts every release in every namespace's fan-out, overridden or not", () => {
+    // A namespace runs the whole tree; an entry only carries overrides. Leaving
+    // a release out of releases/ would drop it from the ApplicationSet.
+    const files = buildTree(
+      tree({ namespaces: [{ name: "shop-web", releases: [{ release: "r1", features: { image: on({ tag: "1.4.2" }) } }] }] })
+    );
+    expect(at(files, "shop-web/releases/storefront.yaml").text).toBe("release: storefront\n");
+    expect(doc(files, "shop-web/values/storefront.yaml")).toEqual({});
+  });
+
   it("wires the ApplicationSet to the pointer files and the four layers, in order", () => {
     const set = doc(buildTree(tree()), "shop-web/shop-web-applicationset.yaml");
     expect(set.kind).toBe("ApplicationSet");

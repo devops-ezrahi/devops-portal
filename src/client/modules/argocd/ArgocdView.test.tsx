@@ -76,7 +76,7 @@ describe("ArgocdView", () => {
     fireEvent.click(feature("Image & pull secrets").querySelector("input[type=checkbox]")!);
     fireEvent.change(screen.getByLabelText("image.repository"), { target: { value: "nginx" } });
 
-    expect(screen.getByText("base/api-gateway.yaml")).toBeInTheDocument();
+    expect(screen.getByLabelText("base/api-gateway.yaml")).toBeInTheDocument();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
@@ -100,12 +100,12 @@ describe("ArgocdView", () => {
     fireEvent.click(feature("Image & pull secrets").querySelector("input[type=checkbox]")!);
     fireEvent.change(screen.getByLabelText("image.tag"), { target: { value: "1.4.2" } });
 
-    fireEvent.click(screen.getByText("shop-web/values/api-gateway.yaml"));
+    fireEvent.click(screen.getByLabelText("shop-web/values/api-gateway.yaml"));
     const shown = document.querySelector(".ag-file-body")!.textContent!;
     expect(shown).toContain("tag: 1.4.2");
     expect(shown).not.toContain("1.0.0");
 
-    fireEvent.click(screen.getByText("base/api-gateway.yaml"));
+    fireEvent.click(screen.getByLabelText("base/api-gateway.yaml"));
     expect(document.querySelector(".ag-file-body")!.textContent).toContain("tag: 1.0.0");
   });
 

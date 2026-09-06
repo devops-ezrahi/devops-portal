@@ -1,3 +1,5 @@
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { useState } from "react";
 import { CATEGORIES, FEATURES, defaultValues } from "../catalog";
 import { FeatureField } from "./FeatureField";
 import type { FeatureState } from "../catalog";
@@ -23,6 +25,25 @@ export function FeatureEditor({
   onChange: (features: Record<string, FeatureState>) => void;
   onExtraChange: (text: string) => void;
 }) {
+  /**
+   * A category opens when it holds something, so a namespace override lands on
+   * the two sections it actually uses rather than on forty-five collapsed ones
+   * — and the generated files stay within reach of the form. Core is open on a
+   * release nothing is set on yet, because that is where you start.
+   */
+  const [open, setOpen] = useState<Set<string>>(() => {
+    const used = new Set(FEATURES.filter((f) => features[f.id]?.on).map((f) => f.cat));
+    return used.size ? used : new Set(["core"]);
+  });
+
+  function toggleCategory(id: string) {
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }
+
   function toggle(id: string, on: boolean) {
     const existing = features[id];
     onChange({ ...features, [id]: { on, v: existing?.v ?? defaultValues(id) } });
@@ -38,10 +59,16 @@ export function FeatureEditor({
       {CATEGORIES.map((cat) => {
         const specs = FEATURES.filter((f) => f.cat === cat.id);
         if (!specs.length) return null;
+        const count = specs.filter((spec) => features[spec.id]?.on).length;
+        const shown = open.has(cat.id);
         return (
           <section className="ag-category" key={cat.id} aria-label={cat.name}>
-            <h4 className="ag-category-name">{cat.name}</h4>
-            {specs.map((spec) => {
+            <button type="button" className="ag-category-head" aria-expanded={shown} onClick={() => toggleCategory(cat.id)}>
+              {shown ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
+              <span className="ag-category-name">{cat.name}</span>
+              {count > 0 && <span className="ag-category-count">{count} on</span>}
+            </button>
+            {shown && specs.map((spec) => {
               const state = features[spec.id];
               const on = !!state?.on;
               return (

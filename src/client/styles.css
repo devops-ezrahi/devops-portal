@@ -4107,12 +4107,39 @@ input.jf-title {
   margin-top: 14px;
 }
 
+.ag-category-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+  padding: 4px 2px;
+  border: 0;
+  border-bottom: 1px solid #1b262c;
+  background: none;
+  cursor: pointer;
+  color: #7f9199;
+}
+
+.ag-category-head:hover { color: #b9c6cc }
+
 .ag-category-name {
-  margin: 0 0 8px;
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #7f9199;
+  font-weight: 700;
+}
+
+.ag-category-count {
+  margin-left: auto;
+  border-radius: 999px;
+  padding: 1px 8px;
+  background: rgba(32, 199, 189, 0.12);
+  color: #9fe4dc;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .ag-feature {
@@ -4153,7 +4180,12 @@ input.jf-title {
   margin-top: 12px;
 }
 
-.ag-field { display: grid; gap: 4px }
+.ag-field { display: grid; gap: 4px; min-width: 0 }
+
+/* A list, a map or a block of YAML is never a column in the field grid — it
+   needs the width, and a one-column list beside an empty half-panel is what
+   made these read as broken. */
+.ag-field-wide { grid-column: 1 / -1 }
 
 .ag-field-label {
   font-size: 13px;
@@ -4187,21 +4219,35 @@ input.jf-title {
 .ag-entry {
   border: 1px solid #223037;
   border-radius: 8px;
-  padding: 10px;
+  padding: 10px 12px 12px;
+  background: #0c1216;
   display: grid;
-  gap: 8px;
+  /* The fields sit side by side across the box; only the header spans it. */
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px 12px;
+  align-items: start;
 }
 
 .ag-entry-head {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid #1b262c;
+  padding-bottom: 6px;
 }
 
+/* A textarea inside an entry (a manifest, a policy body, a command) is the one
+   thing that wants the whole row. */
+.ag-entry-field:has(textarea) { grid-column: 1 / -1 }
+
 .ag-entry-title {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 12px;
-  font-weight: 800;
-  color: #b9c6cc;
+  font-weight: 700;
+  color: #9fe4dc;
+  overflow-wrap: anywhere;
 }
 
 .ag-entry-field {
@@ -4209,7 +4255,23 @@ input.jf-title {
   gap: 4px;
   font-size: 12.5px;
   color: #b9c6cc;
+  min-width: 0;
 }
+
+/* A checkbox reads as a checkbox: the box first, its words beside it, on one
+   line — not a label stranded above an empty-looking square. */
+.ag-entry-field:has(input[type="checkbox"]),
+.ag-field:has(> input[type="checkbox"]) {
+  display: flex;
+  flex-direction: row-reverse;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  align-self: end;
+  min-height: 36px;
+}
+
+.ag-field:has(> input[type="checkbox"]) .ag-field-label { font-weight: 700 }
 
 .ag-add { justify-self: start }
 
@@ -4231,48 +4293,80 @@ input.jf-title {
 
 .ag-preview-body {
   display: grid;
-  grid-template-columns: minmax(180px, 260px) 1fr;
+  grid-template-columns: minmax(220px, 300px) 1fr;
   gap: 12px;
   min-width: 0;
 }
 
-.ag-file-list {
+.ag-file-list,
+.ag-file-children {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 4px;
+  gap: 2px;
   align-content: start;
-  max-height: 520px;
-  overflow: auto;
 }
 
-.ag-file {
+.ag-file-list {
+  max-height: 520px;
+  overflow: auto;
+  border: 1px solid #1b262c;
+  border-radius: 8px;
+  padding: 6px 4px;
+  background: #0c1216;
+}
+
+.ag-file,
+.ag-folder {
   width: 100%;
-  display: grid;
-  gap: 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   text-align: left;
   border: 1px solid transparent;
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 5px 8px;
   background: none;
   color: #b9c6cc;
   cursor: pointer;
+  font-size: 12.5px;
 }
+
+.ag-file:hover,
+.ag-folder:hover { background: rgba(159, 228, 220, 0.06) }
+
+.ag-folder-name {
+  font-weight: 700;
+  color: #cfe0e5;
+}
+
+.ag-file svg,
+.ag-folder svg { flex: 0 0 auto; color: #6f8088 }
 
 .ag-file.selected {
   border-color: #20c7bd66;
-  background: rgba(32, 199, 189, 0.08);
+  background: rgba(32, 199, 189, 0.1);
   color: #d7fbf8;
 }
 
-.ag-file-path {
+.ag-file.selected svg { color: #20c7bd }
+
+.ag-file-name {
   font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 12px;
-  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
-.ag-file-note { font-size: 11px; color: #7f9199 }
+/* What the file is for, beside its path above the file itself. */
+.ag-file-note {
+  font-family: var(--sans, inherit);
+  font-size: 11.5px;
+  color: #7f9199;
+}
+
+/* A file has no chevron, so it needs the space one would have taken to line up
+   with the folders around it. */
+.ag-file-gutter { width: 13px; flex: 0 0 auto }
 
 /* The global `code` rule paints a chip background, which turns a whole file
    into a striped block. The preview is one plain document. */
@@ -4281,6 +4375,21 @@ input.jf-title {
   padding: 0;
   font-size: inherit;
   color: inherit;
+}
+
+.ag-file-pane {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  align-content: start;
+}
+
+.ag-file-path {
+  margin: 0;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  color: #9fe4dc;
+  overflow-wrap: anywhere;
 }
 
 .ag-file-body {
