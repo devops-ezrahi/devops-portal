@@ -146,7 +146,7 @@ function ObjectRows({ spec, rows, onChange }: { spec: FieldSpec; rows: Values[];
               <X size={15} aria-hidden="true" />
             </button>
           </div>
-          {cols.map((col) => (
+          {cols.filter((col) => !col.when || col.when(row)).map((col) => (
             <label className="ag-entry-field" key={col.key}>
               <span>{col.label}</span>
               {col.kind === "select" ? (
@@ -163,6 +163,15 @@ function ObjectRows({ spec, rows, onChange }: { spec: FieldSpec; rows: Values[];
                   checked={!!row[col.key]}
                   onChange={(e) => set(i, { [col.key]: e.target.checked })}
                 />
+              ) : col.kind === "text" ? (
+                <textarea
+                  className="ag-textarea"
+                  rows={Math.max(2, String(row[col.key] ?? "").split("\n").length + 1)}
+                  value={String(row[col.key] ?? "")}
+                  placeholder={col.placeholder}
+                  spellCheck={false}
+                  onChange={(e) => set(i, { [col.key]: e.target.value })}
+                />
               ) : (
                 <input
                   type={col.kind === "number" ? "number" : "text"}
@@ -176,7 +185,7 @@ function ObjectRows({ spec, rows, onChange }: { spec: FieldSpec; rows: Values[];
         </div>
       ))}
       <button type="button" className="ghost-button ag-add" onClick={() => onChange([...shown, {}])}>
-        <Plus size={15} aria-hidden="true" /> Add
+        <Plus size={15} aria-hidden="true" /> {spec.addLabel ?? "Add"}
       </button>
     </div>
   );
