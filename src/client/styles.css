@@ -4299,7 +4299,11 @@ input.jf-title {
   margin-top: 12px;
 }
 
-.ag-field { display: grid; gap: 4px; min-width: 0 }
+/* `align-content: start` because the fields in a row are stretched to the
+   tallest of them: without it, a field with no hint under it has its two rows
+   stretched to fill that height — a taller input, sitting lower than the one
+   beside it. */
+.ag-field { display: grid; gap: 4px; min-width: 0; align-content: start }
 
 /* A list, a map or a block of YAML is never a column in the field grid — it
    needs the width, and a one-column list beside an empty half-panel is what
