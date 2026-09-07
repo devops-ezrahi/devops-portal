@@ -359,11 +359,11 @@ F({
       "items",
       "Variables",
       [
-        { key: "name", label: "Name", placeholder: "LOG_LEVEL" },
+        { key: "name", label: "name", placeholder: "LOG_LEVEL" },
         { key: "kind", label: "Source", kind: "select", options: ["value", "secretKeyRef", "configMapKeyRef", "fieldRef", "resourceFieldRef"] },
-        { key: "value", label: "Value", placeholder: "debug", when: (r) => (r.kind || "value") === "value" },
+        { key: "value", label: "value", placeholder: "debug", when: (r) => (r.kind || "value") === "value" },
         { key: "ref", label: "Secret / ConfigMap name", placeholder: "db-secret", when: (r) => r.kind === "secretKeyRef" || r.kind === "configMapKeyRef" },
-        { key: "key", label: "Key", placeholder: "password", when: (r) => r.kind === "secretKeyRef" || r.kind === "configMapKeyRef" },
+        { key: "key", label: "key", placeholder: "password", when: (r) => r.kind === "secretKeyRef" || r.kind === "configMapKeyRef" },
         { key: "fieldPath", label: "fieldPath", placeholder: "metadata.name", when: (r) => r.kind === "fieldRef" },
         { key: "resource", label: "resource", placeholder: "limits.memory", when: (r) => r.kind === "resourceFieldRef" },
       ],
@@ -404,7 +404,7 @@ F({
       "items",
       "Sources",
       [
-        { key: "name", label: "ConfigMap / Secret name", placeholder: "backend-config" },
+        { key: "name", label: "name", placeholder: "backend-config" },
         { key: "type", label: "Kind", kind: "select", options: ["configMapRef", "secretRef"] },
         { key: "optional", label: "optional", kind: "boolean" },
       ],
@@ -438,10 +438,10 @@ F({
       "items",
       "Ports",
       [
-        { key: "name", label: "Name", placeholder: "http" },
+        { key: "name", label: "name", placeholder: "http" },
         { key: "port", label: "containerPort", kind: "number", placeholder: "8080" },
-        { key: "protocol", label: "Protocol", kind: "select", options: ["", "TCP", "UDP", "SCTP"] },
-        { key: "unnamed", label: "unnamed (render with no name)", kind: "boolean" },
+        { key: "protocol", label: "protocol", kind: "select", options: ["", "TCP", "UDP", "SCTP"] },
+        { key: "unnamed", label: "unnamed", kind: "boolean" },
       ],
       { addLabel: "Add port" }
     ),
@@ -514,7 +514,7 @@ F({
         { key: "kind", label: "Type", kind: "select", options: ["httpGet", "tcpSocket", "exec", "grpc"] },
         { key: "path", label: "path", placeholder: "/healthz", when: (r) => (r.kind || "httpGet") === "httpGet" },
         { key: "port", label: "port", placeholder: "http", when: (r) => (r.kind || "httpGet") !== "exec" },
-        { key: "svc", label: "grpc service", placeholder: "liveness", when: (r) => r.kind === "grpc" },
+        { key: "svc", label: "grpc.service", placeholder: "liveness", when: (r) => r.kind === "grpc" },
         { key: "command", label: "command", kind: "text", placeholder: "/bin/sh\n-c\npg_isready -U postgres", when: (r) => r.kind === "exec" },
         { key: "initialDelaySeconds", label: "initialDelaySeconds", kind: "number", placeholder: "10" },
         { key: "periodSeconds", label: "periodSeconds", kind: "number", placeholder: "10" },
@@ -628,7 +628,7 @@ F({
       "items",
       "Volumes",
       [
-        { key: "name", label: "Name", placeholder: "nginx-conf" },
+        { key: "name", label: "name", placeholder: "nginx-conf" },
         { key: "kind", label: "Type", kind: "select", options: ["configMap", "secret", "emptyDir", "emptyDir (memory)", "persistentVolumeClaim", "hostPath", "nfs", "custom"] },
         { key: "src", label: "Source name", placeholder: "nginx-config", when: (r) => ["configMap", "secret", "persistentVolumeClaim"].includes(String(r.kind || "configMap")) },
         { key: "defaultMode", label: "defaultMode", placeholder: "0644", when: (r) => ["configMap", "secret"].includes(String(r.kind || "configMap")) },
@@ -669,7 +669,7 @@ F({
       "items",
       "Mounts",
       [
-        { key: "name", label: "Volume name", placeholder: "nginx-conf" },
+        { key: "name", label: "name", placeholder: "nginx-conf" },
         { key: "mountPath", label: "mountPath", placeholder: "/etc/nginx/conf.d" },
         { key: "subPath", label: "subPath", placeholder: "nginx.conf" },
         { key: "readOnly", label: "readOnly", kind: "boolean" },
@@ -707,12 +707,12 @@ F({
       "items",
       "Claims",
       [
-        { key: "name", label: "Name", placeholder: "app-data" },
+        { key: "name", label: "name", placeholder: "app-data" },
         { key: "size", label: "size", placeholder: "50Gi" },
         { key: "accessMode", label: "accessMode", kind: "select", options: ACCESS },
         { key: "storageClassName", label: "storageClassName", placeholder: "fast-ssd" },
         { key: "volumeMode", label: "volumeMode", kind: "select", options: ["", "Filesystem", "Block"] },
-        { key: "volumeName", label: "volumeName (bind to one PV)" },
+        { key: "volumeName", label: "volumeName" },
       ],
       { addLabel: "Add PVC" }
     ),
@@ -744,7 +744,7 @@ F({
       "items",
       "Templates",
       [
-        { key: "name", label: "Name", placeholder: "data" },
+        { key: "name", label: "name", placeholder: "data" },
         { key: "size", label: "size", placeholder: "100Gi" },
         { key: "accessMode", label: "accessMode", kind: "select", options: ACCESS },
         { key: "storageClassName", label: "storageClassName", placeholder: "fast-ssd" },
@@ -782,7 +782,7 @@ F({
       "items",
       "Volumes",
       [
-        { key: "name", label: "Name", placeholder: "local-ssd-node1" },
+        { key: "name", label: "name", placeholder: "local-ssd-node1" },
         { key: "capacity", label: "capacity", placeholder: "200Gi" },
         { key: "accessMode", label: "accessMode", kind: "select", options: ACCESS },
         { key: "reclaimPolicy", label: "reclaimPolicy", kind: "select", options: ["", "Retain", "Delete", "Recycle"] },
@@ -823,12 +823,12 @@ F({
       "items",
       "Classes",
       [
-        { key: "name", label: "Name", placeholder: "fast-ssd" },
+        { key: "name", label: "name", placeholder: "fast-ssd" },
         { key: "provisioner", label: "provisioner", placeholder: "ebs.csi.aws.com" },
         { key: "reclaimPolicy", label: "reclaimPolicy", kind: "select", options: ["", "Delete", "Retain"] },
         { key: "volumeBindingMode", label: "volumeBindingMode", kind: "select", options: ["", "Immediate", "WaitForFirstConsumer"] },
         { key: "allowVolumeExpansion", label: "allowVolumeExpansion", kind: "boolean" },
-        { key: "parameters", label: "parameters (key=value per line)", kind: "text", placeholder: "type=gp3\niops=16000" },
+        { key: "parameters", label: "parameters", kind: "text", placeholder: "type=gp3\niops=16000" },
       ],
       { addLabel: "Add class" }
     ),
@@ -924,12 +924,12 @@ F({
       "items",
       "Services",
       [
-        { key: "name", label: "Name", placeholder: "admin" },
+        { key: "name", label: "name", placeholder: "admin" },
         { key: "type", label: "type", kind: "select", options: ["", "ClusterIP", "NodePort", "LoadBalancer"] },
         { key: "ports", label: "ports", kind: "text", placeholder: "admin-http=8081:8081" },
         { key: "clusterIP", label: "clusterIP", placeholder: "None" },
         { key: "publishNotReadyAddresses", label: "publishNotReadyAddresses", kind: "boolean" },
-        { key: "selector", label: "selector (key=value per line)", kind: "text", placeholder: "app=legacy-app" },
+        { key: "selector", label: "selector", kind: "text", placeholder: "app=legacy-app" },
       ],
       { addLabel: "Add Service" }
     ),
@@ -979,7 +979,7 @@ F({
       "TLS",
       [
         { key: "secretName", label: "secretName", placeholder: "api-tls" },
-        { key: "hosts", label: "hosts (comma separated)", placeholder: "api.example.com" },
+        { key: "hosts", label: "hosts", placeholder: "api.example.com, admin.example.com" },
       ],
       { addLabel: "Add TLS entry" }
     ),
@@ -1089,7 +1089,7 @@ F({
       "items",
       "Routes",
       [
-        { key: "name", label: "Name", placeholder: "admin-console" },
+        { key: "name", label: "name", placeholder: "admin-console" },
         { key: "host", label: "host", placeholder: "admin.apps.cluster.example.com" },
         { key: "path", label: "path" },
         { key: "targetPort", label: "targetPort", placeholder: "admin-http" },
@@ -1127,7 +1127,7 @@ F({
       "items",
       "Policies",
       [
-        { key: "name", label: "Name", placeholder: "backend-allow-from-frontend" },
+        { key: "name", label: "name", placeholder: "backend-allow-from-frontend" },
         { key: "body", label: "Policy spec", kind: "text", placeholder: "podSelector:\n  matchLabels:\n    app.kubernetes.io/name: backend\npolicyTypes: [Ingress]" },
       ],
       { addLabel: "Add policy" }
@@ -1152,10 +1152,10 @@ F({
       "items",
       "ConfigMaps",
       [
-        { key: "name", label: "Name", placeholder: "app-config" },
-        { key: "data", label: "data (key=value per line)", kind: "text", placeholder: "LOG_LEVEL=info\nMAX_CONNECTIONS=100" },
-        { key: "fileName", label: "file key", placeholder: "nginx.conf" },
-        { key: "fileBody", label: "file contents", kind: "text", placeholder: "server {\n  listen 80;\n}" },
+        { key: "name", label: "name", placeholder: "app-config" },
+        { key: "data", label: "data", kind: "text", placeholder: "LOG_LEVEL=info\nMAX_CONNECTIONS=100" },
+        { key: "fileName", label: "File key", placeholder: "nginx.conf" },
+        { key: "fileBody", label: "File contents", kind: "text", placeholder: "server {\n  listen 80;\n}" },
       ],
       { addLabel: "Add ConfigMap" }
     ),
@@ -1185,10 +1185,10 @@ F({
       "items",
       "Secrets",
       [
-        { key: "name", label: "Name", placeholder: "db-secret" },
-        { key: "type", label: "type", placeholder: "Opaque | kubernetes.io/tls | kubernetes.io/dockerconfigjson" },
-        { key: "stringData", label: "stringData (key=value per line)", kind: "text", placeholder: "DB_PASSWORD=super-secret" },
-        { key: "data", label: "data (key=base64 per line)", kind: "text" },
+        { key: "name", label: "name", placeholder: "db-secret" },
+        { key: "type", label: "type", placeholder: "Opaque" },
+        { key: "stringData", label: "stringData", kind: "text", placeholder: "DB_PASSWORD=super-secret" },
+        { key: "data", label: "data", kind: "text", placeholder: "DB_PASSWORD=c3VwZXItc2VjcmV0" },
       ],
       { addLabel: "Add Secret" }
     ),
@@ -1222,7 +1222,7 @@ F({
       "items",
       "Stores",
       [
-        { key: "name", label: "Name", placeholder: "vault-backend" },
+        { key: "name", label: "name", placeholder: "vault-backend" },
         { key: "scope", label: "Scope", kind: "select", options: ["SecretStore", "ClusterSecretStore"] },
         { key: "body", label: "provider", kind: "text", placeholder: "vault:\n  server: https://vault.example.com:8200\n  path: secret" },
       ],
@@ -1264,12 +1264,12 @@ F({
       "items",
       "ExternalSecrets",
       [
-        { key: "name", label: "Name", placeholder: "db-credentials" },
+        { key: "name", label: "name", placeholder: "db-credentials" },
         { key: "store", label: "secretStoreRef.name", placeholder: "vault-backend" },
         { key: "storeKind", label: "secretStoreRef.kind", kind: "select", options: ["SecretStore", "ClusterSecretStore"] },
         { key: "refreshInterval", label: "refreshInterval", placeholder: "1h" },
-        { key: "target", label: "target.name (defaults to the map key)" },
-        { key: "data", label: "data — secretKey=remoteKey#property per line", kind: "text", placeholder: "password=secret/data/myapp/db#password" },
+        { key: "target", label: "target.name" },
+        { key: "data", label: "data", kind: "text", placeholder: "password=secret/data/myapp/db#password" },
         { key: "dataFrom", label: "dataFrom.extract.key", placeholder: "secret/data/myapp/all" },
       ],
       { addLabel: "Add ExternalSecret" }
@@ -1296,6 +1296,7 @@ F({
       }),
     }),
   notes: [
+    "target.name defaults to the map key — set it only when the Secret should be named something other than the ExternalSecret.",
     'ESO will not adopt a Secret it did not create unless that Secret carries reconcile.external-secrets.io/managed: "true". Migrating an existing Secret means labelling it first, or the ExternalSecret sits in error while the stale copy stays put.',
   ],
 });
@@ -1345,7 +1346,7 @@ F({
       "items",
       "CronJobs",
       [
-        { key: "name", label: "Name", placeholder: "db-backup" },
+        { key: "name", label: "name", placeholder: "db-backup" },
         { key: "schedule", label: "schedule", placeholder: "0 2 * * *" },
         { key: "concurrencyPolicy", label: "concurrencyPolicy", kind: "select", options: ["", "Allow", "Forbid", "Replace"] },
         { key: "suspend", label: "suspend", kind: "boolean" },
@@ -1359,7 +1360,7 @@ F({
         { key: "containerName", label: "jobTemplate.containerName" },
         { key: "serviceAccountName", label: "jobTemplate.serviceAccountName", placeholder: "backup-sa" },
         { key: "command", label: "jobTemplate.command", kind: "text", placeholder: "/bin/sh\n-c\npg_dump $DATABASE_URL | gzip > /backup/dump.sql.gz" },
-        { key: "env", label: "jobTemplate.env — NAME=value or NAME@secret:name/key", kind: "text", placeholder: "DATABASE_URL@secret:db-secret/DATABASE_URL" },
+        { key: "env", label: "jobTemplate.env", kind: "text", placeholder: "DATABASE_URL@secret:db-secret/DATABASE_URL" },
         { key: "imageRepo", label: "jobTemplate.image.repository" },
         { key: "imageTag", label: "jobTemplate.image.tag" },
         { key: "imagePull", label: "jobTemplate.image.pullPolicy", kind: "select", options: ["", "Always", "IfNotPresent", "Never"] },
@@ -1411,7 +1412,7 @@ F({
       "items",
       "Jobs",
       [
-        { key: "name", label: "Name", placeholder: "db-migrate" },
+        { key: "name", label: "name", placeholder: "db-migrate" },
         { key: "restartPolicy", label: "restartPolicy", kind: "select", options: ["", "Never", "OnFailure"] },
         { key: "backoffLimit", label: "backoffLimit", kind: "number", placeholder: "1" },
         { key: "activeDeadlineSeconds", label: "activeDeadlineSeconds", kind: "number", placeholder: "600" },
@@ -1422,7 +1423,7 @@ F({
         { key: "env", label: "env", kind: "text", placeholder: "DATABASE_URL@secret:db-secret/DATABASE_URL" },
         { key: "imageRepo", label: "image.repository" },
         { key: "imageTag", label: "image.tag" },
-        { key: "hook", label: "argocd hook", kind: "select", options: ["", "PreSync", "Sync", "PostSync", "SyncFail", "Skip"] },
+        { key: "hook", label: "ArgoCD hook", kind: "select", options: ["", "PreSync", "Sync", "PostSync", "SyncFail", "Skip"] },
         { key: "hookDelete", label: "hook-delete-policy", kind: "select", options: ["", "BeforeHookCreation", "HookSucceeded", "HookFailed"] },
       ],
       { addLabel: "Add Job" }
@@ -1661,7 +1662,7 @@ F({
       "items",
       "SCCs",
       [
-        { key: "name", label: "Name", placeholder: "restricted-custom" },
+        { key: "name", label: "name", placeholder: "restricted-custom" },
         { key: "body", label: "SCC body", kind: "text", placeholder: "allowPrivilegedContainer: false\nrunAsUser:\n  type: MustRunAsRange" },
       ],
       { addLabel: "Add SCC" }
@@ -1761,7 +1762,7 @@ F({
       "roles",
       "Roles",
       [
-        { key: "name", label: "Name", placeholder: "myapp-role" },
+        { key: "name", label: "name", placeholder: "myapp-role" },
         { key: "rules", label: "rules", kind: "text", placeholder: '- apiGroups: [""]\n  resources: ["configmaps"]\n  verbs: ["get", "list"]' },
       ],
       { addLabel: "Add Role" }
@@ -1770,9 +1771,9 @@ F({
       "roleBindings",
       "RoleBindings",
       [
-        { key: "name", label: "Name", placeholder: "myapp-rolebinding" },
+        { key: "name", label: "name", placeholder: "myapp-rolebinding" },
         { key: "roleRef", label: "roleRef", placeholder: "myapp-role" },
-        { key: "subjects", label: "subjects — Kind=name[:namespace] per line", kind: "text", placeholder: "ServiceAccount=myapp-sa" },
+        { key: "subjects", label: "subjects", kind: "text", placeholder: "ServiceAccount=myapp-sa" },
       ],
       { addLabel: "Add RoleBinding" }
     ),
@@ -1780,7 +1781,7 @@ F({
       "clusterRoles",
       "ClusterRoles",
       [
-        { key: "name", label: "Name", placeholder: "myapp-cluster-reader" },
+        { key: "name", label: "name", placeholder: "myapp-cluster-reader" },
         { key: "rules", label: "rules", kind: "text", placeholder: '- apiGroups: [""]\n  resources: ["nodes"]\n  verbs: ["get", "list"]' },
       ],
       { addLabel: "Add ClusterRole" }
@@ -1789,7 +1790,7 @@ F({
       "clusterRoleBindings",
       "ClusterRoleBindings",
       [
-        { key: "name", label: "Name", placeholder: "myapp-cluster-rb" },
+        { key: "name", label: "name", placeholder: "myapp-cluster-rb" },
         { key: "roleRef", label: "roleRef", placeholder: "myapp-cluster-reader" },
         { key: "subjects", label: "subjects", kind: "text", placeholder: "ServiceAccount=myapp-sa:myapp-dev" },
       ],
@@ -1884,7 +1885,7 @@ F({
       "items",
       "Manifests",
       [
-        { key: "label", label: "What is it? (comment only)", placeholder: "PrometheusRule" },
+        { key: "label", label: "Comment", placeholder: "PrometheusRule" },
         { key: "body", label: "Manifest", kind: "text", placeholder: "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: {{ .Release.Name }}-flags" },
       ],
       { addLabel: "Add manifest" }
@@ -1929,7 +1930,7 @@ F({
       "sidecars",
       "Sidecars",
       [
-        { key: "name", label: "Name", placeholder: "log-shipper" },
+        { key: "name", label: "name", placeholder: "log-shipper" },
         { key: "body", label: "Container spec", kind: "text", placeholder: "image: fluentbit:2.0\nresources:\n  requests:\n    cpu: 50m" },
       ],
       { addLabel: "Add sidecar" }
@@ -1938,7 +1939,7 @@ F({
       "initContainers",
       "Init containers",
       [
-        { key: "name", label: "Name", placeholder: "init-db" },
+        { key: "name", label: "name", placeholder: "init-db" },
         { key: "body", label: "Container spec", kind: "text", placeholder: 'image: busybox:1.36\ncommand: ["sh", "-c", "until nc -z db 5432; do sleep 2; done"]' },
       ],
       { addLabel: "Add init container" }

@@ -554,40 +554,44 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                     Base
                   </button>
                   {draft.namespaces.map((ns, i) => (
-                    <span className="ag-tab-group" key={i}>
-                      <button
-                        role="tab"
-                        aria-selected={layer === i}
-                        className={`ag-tab${layer === i ? " selected" : ""}`}
-                        onClick={() => setLayer(i)}
-                      >
-                        {ns.name.trim() || "unnamed"}
-                      </button>
-                      {layer === i && (
-                        <>
-                          <input
-                            aria-label="Namespace name"
-                            className="ag-ns-name"
-                            value={ns.name}
-                            placeholder="shop-web"
-                            onChange={(e) => renameNamespace(i, e.target.value)}
-                          />
-                          <button
-                            type="button"
-                            className="icon-button"
-                            aria-label="Remove this namespace"
-                            onClick={() => removeNamespace(i)}
-                          >
-                            <X size={15} aria-hidden="true" />
-                          </button>
-                        </>
-                      )}
-                    </span>
+                    <button
+                      key={i}
+                      role="tab"
+                      aria-selected={layer === i}
+                      className={`ag-tab${layer === i ? " selected" : ""}`}
+                      onClick={() => setLayer(i)}
+                    >
+                      {ns.name.trim() || "unnamed"}
+                    </button>
                   ))}
                   <button type="button" className="ghost-button ag-add" onClick={addNamespace}>
                     <Plus size={15} aria-hidden="true" /> Namespace
                   </button>
                 </div>
+
+                {/* Named and removed exactly where a release is, under its own
+                    strip — an input sitting inside the pills renamed a tab from
+                    beside a pill already showing that name. */}
+                {namespace && (
+                  <div className="ag-scope-head">
+                    <label className="ag-name-field">
+                      <span>Namespace name</span>
+                      <input
+                        value={namespace.name}
+                        placeholder="shop-web"
+                        onChange={(e) => renameNamespace(layer, e.target.value)}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label="Remove this namespace"
+                      onClick={() => removeNamespace(layer)}
+                    >
+                      <X size={16} aria-hidden="true" />
+                    </button>
+                  </div>
+                )}
 
                 <div className="ag-scope-actions">
                   <button type="button" className="ghost-button" onClick={() => setImportOpen(true)}>

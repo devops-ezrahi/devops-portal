@@ -4123,12 +4123,6 @@ input.jf-title {
   gap: 6px;
 }
 
-.ag-tab-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
 .ag-tab {
   border: 1px solid #2a3940;
   border-radius: 999px;
@@ -4146,8 +4140,6 @@ input.jf-title {
   background: rgba(32, 199, 189, 0.12);
 }
 
-.ag-ns-name { max-width: 180px }
-
 .ag-scope-head {
   display: flex;
   align-items: flex-end;
@@ -4159,6 +4151,7 @@ input.jf-title {
   display: grid;
   gap: 4px;
   flex: 1;
+  max-width: 340px;
   font-size: 13px;
   font-weight: 700;
   color: #f2f6f7;

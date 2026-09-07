@@ -140,7 +140,9 @@ function KvRows({ rows, onChange }: { rows: KvPair[]; onChange: (rows: KvPair[])
 function entryTitle(spec: FieldSpec, row: Values, index: number): string {
   const named = spec.cols?.find((c) => c.key === "name" || c.key === "host" || c.key === "secretName");
   const value = named ? String(row[named.key] ?? "").trim() : "";
-  return value || `${spec.label} ${index + 1}`;
+  // Just the position when it has no name yet: the field's label sits directly
+  // above the box, so repeating it inside reads as a third name for one thing.
+  return value || `#${index + 1}`;
 }
 
 /** A list of maps is a list of boxes — three bare inputs say nothing about which is which. */
