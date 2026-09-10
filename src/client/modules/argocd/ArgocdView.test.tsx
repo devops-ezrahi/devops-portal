@@ -6,8 +6,10 @@ const listTrees = vi.fn();
 const createTree = vi.fn();
 const updateTree = vi.fn();
 const deleteTree = vi.fn();
+const pullValues = vi.fn();
+const pushTree = vi.fn();
 
-vi.mock("./api", () => ({ listTrees, createTree, updateTree, deleteTree }));
+vi.mock("./api", () => ({ listTrees, createTree, updateTree, deleteTree, pullValues, pushTree }));
 
 const { ArgocdView } = await import("./ArgocdView");
 
@@ -53,7 +55,7 @@ const feature = (name: string) =>
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
-  listTrees.mockResolvedValue({ trees: [], defaults });
+  listTrees.mockResolvedValue({ trees: [], defaults, gitEnabled: true });
   createTree.mockImplementation((input) => Promise.resolve({ tree: { ...saved(), ...input } }));
   updateTree.mockImplementation((id, input) => Promise.resolve({ tree: { ...saved(), ...input, id } }));
 });
@@ -62,12 +64,16 @@ describe("ArgocdView", () => {
   it("pre-fills a new tree from the configured repositories", async () => {
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
-    // The collapsed summary names both repos, so the reader can tell which
-    // branch belongs to which without opening the box.
-    const toggle = screen.getByRole("button", { name: /Chart.*universal-chart.*Values.*values/s });
-    fireEvent.click(toggle);
-    expect(screen.getByDisplayValue(defaults.chartRepoUrl)).toBeInTheDocument();
+    // The values repo is the panel — it is where a commit goes — and opening it
+    // shows the destination fields.
+    fireEvent.click(screen.getByRole("button", { name: /Values.*values.*@main/s }));
     expect(screen.getByDisplayValue(defaults.valuesRepoUrl)).toBeInTheDocument();
+
+    // The chart is one line with a pencil, not an equal half of a disclosure:
+    // it is set once per organisation and read forever.
+    expect(screen.queryByDisplayValue(defaults.chartRepoUrl)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Change the chart/ }));
+    expect(screen.getByDisplayValue(defaults.chartRepoUrl)).toBeInTheDocument();
   });
 
   it("shows the required features without a tick, and defaulted fields only on request", async () => {
@@ -153,7 +159,7 @@ describe("ArgocdView", () => {
       ],
       namespaces: [{ name: "prod", releases: [{ release: "r1", features: { route: { on: true, v: { host: "shop.example.com" } } } }] }],
     });
-    listTrees.mockResolvedValue({ trees: [tree], defaults });
+    listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
     view();
     fireEvent.click(await screen.findByText("Dev User #1"));
 
@@ -171,9 +177,85 @@ describe("ArgocdView", () => {
     expect(route).toHaveAttribute("title", expect.stringContaining("prod"));
   });
 
+  it("connects a repository, reads the chart out of it, and commits back", async () => {
+    // A minimal values repo: one release, and the root ApplicationSet that
+    // records which chart renders it.
+    const files = [
+      {
+        path: "base/checkout.yaml",
+        text: ["image:", "  repository: ghcr.io/shop/checkout", "  tag: 3.0.0", ""].join("\n"),
+      },
+      {
+        path: "root-applicationSet.yaml",
+        text: [
+          "apiVersion: argoproj.io/v1alpha1",
+          "kind: ApplicationSet",
+          "metadata:",
+          "  name: shop-root-set",
+          "spec:",
+          "  generators:",
+          "    - git:",
+          "        repoURL: https://github.com/org/values.git",
+          "        revision: main",
+          "  template:",
+          "    spec:",
+          "      sources:",
+          "        - repoURL: https://github.com/org/universal-chart.git",
+          "          targetRevision: v2.1.0",
+          "          path: ms-applicationSet",
+          "",
+        ].join("\n"),
+      },
+    ];
+    // The server rewrote the SSH URL it was given before cloning, and hands
+    // back the one that actually worked.
+    pullValues.mockResolvedValue({ files, repoUrl: "https://github.com/org/values.git" });
+    pushTree.mockResolvedValue({ branch: "portal/argocd-ag-0001", changed: true, prUrl: "https://github.com/org/values/pull/7" });
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    view();
+    await waitFor(() => expect(listTrees).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: /New/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Connect a repository/ }));
+    fireEvent.change(screen.getByLabelText(/Repository URL/), {
+      target: { value: "git@github.com:org/values.git" },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    });
+
+    // What was pasted is SSH; what is sent is the https form, because the
+    // portal authenticates with a token rather than a key.
+    expect(pullValues).toHaveBeenCalledWith("https://github.com/org/values.git", "main", "");
+
+    // The release came out of base/, and the chart came out of the root
+    // ApplicationSet — nobody typed either.
+    const card = within(screen.getByLabelText("Releases")).getByRole("button", { name: /checkout/ });
+    expect(card).toHaveTextContent("ghcr.io/shop/checkout:3.0.0");
+    expect(screen.getByText(/universal-chart/)).toHaveTextContent("@v2.1.0");
+
+    // Committing waits for the autosave that mints the id — the push writes the
+    // stored tree, so it cannot run before there is one.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Commit/ }));
+    });
+    expect(pushTree).toHaveBeenCalledTimes(1);
+    expect(pushTree.mock.calls[0][0]).toBe("AG-0001");
+    expect(pushTree.mock.calls[0][1].map((f: { path: string }) => f.path)).toContain("base/checkout.yaml");
+    expect(await screen.findByText(/Open the pull request/)).toHaveAttribute(
+      "href",
+      "https://github.com/org/values/pull/7"
+    );
+    vi.useRealTimers();
+  });
+
   it("opens the tree the list row names", async () => {
     const tree = saved({ releases: [{ id: "r1", name: "storefront", features: {} }] });
-    listTrees.mockResolvedValue({ trees: [tree], defaults });
+    listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
     view();
     fireEvent.click(await screen.findByText("Dev User #1"));
     expect(screen.getByLabelText("Release name")).toHaveValue("storefront");

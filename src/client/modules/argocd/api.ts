@@ -40,7 +40,9 @@ export function deleteTree(id: string) {
 
 /** Read an existing tree out of a values repo. Reversing it is `importTree`'s job. */
 export function pullValues(repoUrl: string, revision: string, path: string) {
-  return request<{ files: RepoFile[] }>("/api/argocd/pull", {
+  // `repoUrl` comes back because the server may have rewritten it — an SSH URL
+  // is normalised to its https form before anything is cloned.
+  return request<{ files: RepoFile[]; repoUrl: string }>("/api/argocd/pull", {
     method: "POST",
     body: JSON.stringify({ repoUrl, revision, path }),
   });

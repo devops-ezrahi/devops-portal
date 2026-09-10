@@ -1,6 +1,5 @@
 import { zipSync, strToU8 } from "fflate";
 import {
-  ArrowRight,
   Check,
   ChevronDown,
   ChevronRight,
@@ -15,7 +14,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ArgocdTree } from "../../../server/types";
 import { log, error as logError } from "../../log";
-import { createTree, deleteTree, listTrees, updateTree, type TreeDefaults } from "./api";
+import { createTree, deleteTree, listTrees, pullValues, pushTree, updateTree, type TreeDefaults } from "./api";
 import { buildValues, extraValuesError, parseValues } from "./build";
 import { checkValues } from "./checks";
 import { BY_ID } from "./catalog";
@@ -26,11 +25,15 @@ import { addedKinds, resourcesOf } from "./resources";
 import { FeatureEditor } from "./components/FeatureEditor";
 import { FilePreview } from "./components/FilePreview";
 import { ImportDialog } from "./components/ImportDialog";
+import { ChartLine } from "./components/ChartLine";
 import { LayerGrid, type LayerCard } from "./components/LayerGrid";
+import { NewTreeDialog } from "./components/NewTreeDialog";
+import { RepoPanel, type PushState } from "./components/RepoPanel";
 import { ReleaseGrid, type ReleaseCard } from "./components/ReleaseGrid";
 import { TreeList } from "./components/TreeList";
 import type { FeatureState } from "./catalog";
 import type { ImportResult } from "./import";
+import { importTree, type TreeImport } from "./importTree";
 import { toYaml } from "./yaml";
 
 /** The tree the Refresh button (and a page reload) reopens. */
@@ -48,10 +51,6 @@ type SaveState = "idle" | "saving" | "saved" | "error";
  */
 const BASE = -1;
 
-/** A git URL as the name people call it: the last path segment, without `.git`. */
-const repoName = (url: string): string =>
-  url.trim().replace(/\/+$/, "").split("/").pop()?.replace(/\.git$/, "") || "not set";
-
 export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) {
   const [trees, setTrees] = useState<ArgocdTree[]>([]);
   const [defaults, setDefaults] = useState<TreeDefaults | undefined>();
@@ -62,6 +61,10 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   const [naming, setNaming] = useState(false);
   const [repoOpen, setRepoOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [newOpen, setNewOpen] = useState(false);
+  const [gitEnabled, setGitEnabled] = useState(false);
+  const [pulling, setPulling] = useState(false);
+  const [push, setPush] = useState<PushState>({ kind: "idle" });
   const [saveState, setSaveState] = useState<SaveState>("idle");
   /** The id the next write should PUT to. A ref, because the write queue reads it after an await. */
   const idRef = useRef("");
@@ -77,6 +80,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         log("argocd", `trees loaded: ${result.trees.length}`);
         setTrees(result.trees);
         setDefaults(result.defaults);
+        setGitEnabled(result.gitEnabled);
         // Reopen whatever was last open, so Refresh lands back where you were —
         // but never over a tree already opened by hand while this was in flight.
         const last = result.trees.find((t) => t.id === localStorage.getItem(LAST_OPENED_KEY));
@@ -191,10 +195,13 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     idRef.current = tree.id;
     persisted.current = JSON.stringify(toInput(tree));
     setSaveState("idle");
+    setPush({ kind: "idle" });
   }
 
-  function handleNew() {
+  function handleScratch() {
     log("argocd", "new tree");
+    setNewOpen(false);
+    setPush({ kind: "idle" });
     setDraft(newTree(defaults));
     setReleaseId("");
     setLayer(BASE);
@@ -202,6 +209,100 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     persisted.current = "";
     setSaveState("idle");
     localStorage.removeItem(LAST_OPENED_KEY);
+  }
+
+  /**
+   * A repository the dialog just read. The tree it returns is the repo's own —
+   * releases, namespaces, and the chart, which `importTree` recovers from
+   * `root-applicationSet.yaml` rather than asking anybody to retype.
+   *
+   * Where to commit back to is the connection that was actually made, not the
+   * one the root app records: the two normally agree, and when they do not, the
+   * repo that was just cloned is the one this tree came out of.
+   */
+  function handleConnect(imported: TreeImport, repoUrl: string, revision: string, path: string) {
+    log("argocd", "connected a repository", {
+      repoUrl,
+      releases: imported.releases.length,
+      namespaces: imported.namespaces.length,
+      warnings: imported.warnings.length,
+    });
+    setNewOpen(false);
+    setPush({ kind: "idle" });
+    const base = newTree(defaults);
+    setDraft({
+      ...base,
+      ...(imported.chart ? { chart: imported.chart } : {}),
+      ...(imported.rootAppName ? { rootAppName: imported.rootAppName } : {}),
+      values: { repoUrl, revision, path },
+      releases: imported.releases,
+      namespaces: imported.namespaces,
+    });
+    setReleaseId(imported.releases[0]?.id ?? "");
+    setLayer(BASE);
+    idRef.current = "";
+    persisted.current = "";
+    setSaveState("idle");
+    localStorage.removeItem(LAST_OPENED_KEY);
+    if (imported.warnings.length)
+      onError(`Imported with ${imported.warnings.length} warning(s). First: ${imported.warnings[0]}`);
+  }
+
+  /** Re-read the connected repo, replacing this tree's contents with what is in it. */
+  async function handlePull() {
+    setPulling(true);
+    try {
+      const result = await pullValues(draft.values.repoUrl, draft.values.revision, draft.values.path ?? "");
+      const imported = importTree(result.files);
+      log("argocd", "pulled", { releases: imported.releases.length, warnings: imported.warnings.length });
+      // The repo replaces what this tree holds, but not which repo it is: the
+      // connection is the user's, and a pull must not be able to redirect where
+      // the next commit lands.
+      setDraft((prev) => ({
+        ...prev,
+        ...(imported.chart ? { chart: imported.chart } : {}),
+        releases: imported.releases,
+        namespaces: imported.namespaces,
+      }));
+      setReleaseId(imported.releases[0]?.id ?? "");
+      setLayer(BASE);
+      if (imported.warnings.length)
+        onError(`Pulled with ${imported.warnings.length} warning(s). First: ${imported.warnings[0]}`);
+    } catch (err) {
+      logError("argocd", "pull failed", err);
+      onError(err instanceof Error ? err.message : "Could not read that repository");
+    } finally {
+      setPulling(false);
+    }
+  }
+
+  /**
+   * Commit the generated files and open a pull request.
+   *
+   * The server pushes the *stored* tree's files to the *stored* tree's repo, so
+   * anything still sitting in the autosave debounce has to land first —
+   * otherwise the commit describes the tree as it was one keystroke ago. It
+   * goes through the same queue rather than around it, so it cannot race the
+   * write that is already scheduled.
+   */
+  async function handleCommit() {
+    setPush({ kind: "busy" });
+    try {
+      const input = toInput(draft);
+      queue.current = queue.current.then(() => write(input, JSON.stringify(input)));
+      await queue.current;
+      const id = idRef.current;
+      if (!id) throw new Error("This tree has not been saved yet — try again in a moment.");
+      const result = await pushTree(
+        id,
+        files.map((f) => ({ path: f.path, text: f.text }))
+      );
+      log("argocd", "pushed", { id, branch: result.branch, changed: result.changed });
+      setPush({ kind: "done", ...result });
+    } catch (err) {
+      logError("argocd", "push failed", err);
+      setPush({ kind: "error", message: err instanceof Error ? err.message : "Could not commit to that repository" });
+    }
   }
 
   /** Write the edited feature map back into whichever layer is on screen. */
@@ -344,7 +445,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       await deleteTree(id);
       log("argocd", "deleted", id);
       setTrees((prev) => prev.filter((t) => t.id !== id));
-      handleNew();
+      handleScratch();
     } catch (err) {
       logError("argocd", "delete failed", err);
       onError(err instanceof Error ? err.message : "Failed to delete");
@@ -380,7 +481,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
               <Trash2 size={18} aria-hidden="true" /> Delete
             </button>
           )}
-          <button type="button" className="primary" onClick={handleNew}>
+          <button type="button" className="primary" onClick={() => setNewOpen(true)}>
             <Plus size={18} aria-hidden="true" /> New
           </button>
         </div>
@@ -442,117 +543,32 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
               </button>
             </div>
 
-            <div className="ag-section">
-              {/* Two repos, and which is which is the whole thing to understand
-                  here: one holds the chart that renders a release, the other is
-                  where this tree's files are committed and what ArgoCD watches.
-                  "Repositories · chart main · values main" named neither. */}
-              <button
-                type="button"
-                className="ag-repo-toggle"
-                aria-expanded={repoOpen}
-                onClick={() => setRepoOpen((v) => !v)}
-              >
-                {repoOpen ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
-                <span className="ag-repo-summary">
-                  <span className="ag-repo-pair">
-                    <span className="ag-repo-role">Chart</span>
-                    <span className="ag-repo-ref">
-                      {repoName(draft.chart.repoUrl)}
-                      <span className="ag-repo-rev">@{draft.chart.revision || "?"}</span>
-                    </span>
-                  </span>
-                  <span className="ag-repo-arrow" aria-hidden="true">
-                    <ArrowRight size={13} />
-                  </span>
-                  <span className="ag-repo-pair">
-                    <span className="ag-repo-role">Values</span>
-                    <span className="ag-repo-ref">
-                      {repoName(draft.values.repoUrl)}
-                      <span className="ag-repo-rev">@{draft.values.revision || "?"}</span>
-                    </span>
-                  </span>
-                </span>
-              </button>
-              {repoOpen && (
-                <div className="ag-repo">
-                  <p className="ag-repo-note">
-                    <strong>Chart</strong> — the universal chart every release in this tree renders. Read-only;
-                    nothing here is committed to it.
-                  </p>
-                  <label>
-                    <span>Chart repo URL</span>
-                    <input
-                      value={draft.chart.repoUrl}
-                      placeholder="https://github.com/devops-ezrahi/universal-chart.git"
-                      onChange={(e) => setDraft((p) => ({ ...p, chart: { ...p.chart, repoUrl: e.target.value } }))}
-                    />
-                  </label>
-                  <label>
-                    <span>Branch or tag</span>
-                    <input
-                      value={draft.chart.revision}
-                      placeholder="main"
-                      onChange={(e) => setDraft((p) => ({ ...p, chart: { ...p.chart, revision: e.target.value } }))}
-                    />
-                  </label>
-                  <label>
-                    <span>Chart path in that repo</span>
-                    <input
-                      value={draft.chart.path}
-                      placeholder="."
-                      onChange={(e) => setDraft((p) => ({ ...p, chart: { ...p.chart, path: e.target.value } }))}
-                    />
-                  </label>
-                  <label>
-                    <span>Fan-out chart path</span>
-                    <input
-                      placeholder="ms-applicationSet"
-                      value={draft.chart.appsetPath}
-                      onChange={(e) => setDraft((p) => ({ ...p, chart: { ...p.chart, appsetPath: e.target.value } }))}
-                    />
-                  </label>
-
-                  <p className="ag-repo-note">
-                    <strong>Values</strong> — where the files below are committed, and the repo the root Application
-                    watches. This is the one you push to.
-                  </p>
-                  <label>
-                    <span>Values repo URL</span>
-                    <input
-                      value={draft.values.repoUrl}
-                      placeholder="https://git.example.com/gitops/microservices-values.git"
-                      onChange={(e) => setDraft((p) => ({ ...p, values: { ...p.values, repoUrl: e.target.value } }))}
-                    />
-                  </label>
-                  <label>
-                    <span>Branch</span>
-                    <input
-                      value={draft.values.revision}
-                      placeholder="main"
-                      onChange={(e) => setDraft((p) => ({ ...p, values: { ...p.values, revision: e.target.value } }))}
-                    />
-                  </label>
-                  <label>
-                    <span>Subdirectory for this tree</span>
-                    <input
-                      placeholder="(repo root)"
-                      value={draft.values.path}
-                      onChange={(e) => setDraft((p) => ({ ...p, values: { ...p.values, path: e.target.value } }))}
-                    />
-                  </label>
-                  <label>
-                    <span>Root Application name</span>
-                    <input
-                      value={draft.rootAppName}
-                      placeholder="platform-root"
-                      onChange={(e) => setDraft((p) => ({ ...p, rootAppName: e.target.value }))}
-                    />
-                  </label>
-                </div>
-              )}
+            <div className="ag-section ag-wiring">
+              {/* The values repo is this tree's destination — what a commit
+                  writes to and what ArgoCD watches — so it is the panel, with
+                  its buttons on the row that names it. The chart is a
+                  deployment fact set once per organisation, so it is one line
+                  under it. They used to share a disclosure as equals, which
+                  made the rarely-touched one as loud as the live one. */}
+              <RepoPanel
+                tree={draft}
+                open={repoOpen}
+                onToggle={() => setRepoOpen((v) => !v)}
+                onChange={(values) => setDraft((p) => ({ ...p, values }))}
+                onPull={() => void handlePull()}
+                onCommit={() => void handleCommit()}
+                pulling={pulling}
+                push={push}
+                gitEnabled={gitEnabled}
+                saved={!!draft.id}
+                releaseCount={draft.releases.length}
+              />
+              <ChartLine
+                tree={draft}
+                onChange={(chart) => setDraft((p) => ({ ...p, chart }))}
+                onRootAppName={(rootAppName) => setDraft((p) => ({ ...p, rootAppName }))}
+              />
             </div>
-
             <div className="ag-section">
               <ReleaseGrid cards={releaseCards} selectedId={release?.id} onSelect={setReleaseId} onAdd={addRelease} />
 
@@ -665,6 +681,10 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
 
       {importOpen && release && (
         <ImportDialog scopeLabel={scopeLabel} onImport={handleImport} onClose={() => setImportOpen(false)} />
+      )}
+
+      {newOpen && (
+        <NewTreeDialog onScratch={handleScratch} onConnect={handleConnect} onClose={() => setNewOpen(false)} />
       )}
     </>
   );

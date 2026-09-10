@@ -2,6 +2,7 @@ import express from "express";
 import { z } from "zod";
 import { isAdmin } from "../../auth";
 import { config } from "../../config";
+import { normalizeRepoUrl } from "../../gitUrl";
 import { log } from "../../log";
 import { TreeStore } from "./TreeStore";
 import { pullValuesTree, pushValuesTree } from "./valuesGit";
@@ -21,13 +22,17 @@ const treeBody = z.object({
   // one on create, so a tree always has a name even if nothing is typed.
   name: z.string().trim().max(80).optional(),
   chart: z.object({
-    repoUrl: z.string().trim().max(300),
+    // Normalised at rest rather than only in the dialog: a tree can reach this
+    // through an import or a hand-edited field too, and `safeRepoUrl` refuses
+    // everything but http(s) — so an SSH URL stored verbatim is a tree whose
+    // push fails later, with the reason three screens away.
+    repoUrl: z.string().trim().max(300).transform(normalizeRepoUrl),
     path: z.string().trim().max(200),
     appsetPath: z.string().trim().max(200),
     revision: z.string().trim().max(100),
   }),
   values: z.object({
-    repoUrl: z.string().trim().max(300),
+    repoUrl: z.string().trim().max(300).transform(normalizeRepoUrl),
     revision: z.string().trim().max(100),
     path: z.string().trim().max(200),
   }),
@@ -66,7 +71,10 @@ const treeBody = z.object({
  * no `:id` to hang off.
  */
 const pullBody = z.object({
-  repoUrl: z.string().trim().max(300).refine(safeRepoUrl, "Only http(s) git URLs can be cloned"),
+  // `transform` runs before `refine`, so the SSH form is rewritten and *then*
+  // checked — which is what lets someone paste the URL their git host showed
+  // them without the portal needing an SSH key.
+  repoUrl: z.string().trim().max(300).transform(normalizeRepoUrl).refine(safeRepoUrl, "Only http(s) git URLs can be cloned"),
   revision: z.string().trim().max(100).refine(safeRef, "Not a branch or tag name"),
   path: z.string().trim().max(200).refine(safeDirPath, "Not a path inside the repository"),
 });
@@ -232,7 +240,9 @@ export function createArgocdRouter(store: TreeStore = new TreeStore()): express.
         res.status(404).json({ error: `No YAML files under ${path || "the repository root"} on ${revision}` });
         return;
       }
-      res.json({ files });
+      // `repoUrl` is echoed because it may not be the one that was sent — an
+      // SSH URL was rewritten above, and the tree should record what cloned.
+      res.json({ files, repoUrl });
     } catch (err) {
       next(err);
     }

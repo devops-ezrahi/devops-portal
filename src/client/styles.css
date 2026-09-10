@@ -4039,6 +4039,167 @@ input.jf-title {
 
 /* Two repos with different jobs, so the summary names both rather than
    reporting two branch names and leaving the reader to work out whose. */
+/* ---- the repository panel, and the chart line under it ----
+   The values repo is the tree's destination and carries the two git buttons;
+   the chart is one quiet line, because it is set once and read forever. */
+
+.ag-wiring {
+  display: grid;
+  gap: 8px;
+}
+
+.ag-repo-panel {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #2a3940;
+  border-radius: 9px;
+  background: #0b1114;
+}
+
+.ag-repo-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ag-repo-bar .ag-repo-toggle {
+  flex: 1;
+  min-width: 200px;
+  border: none;
+  background: none;
+  padding: 0;
+}
+
+.ag-repo-bar .ag-repo-toggle:hover { border: none }
+
+.ag-repo-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.ag-repo-sub {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: #6f8088;
+}
+
+.ag-push-result {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: #9fe4dc;
+}
+
+.ag-push-result code {
+  font-size: 11.5px;
+  color: #d7fbf8;
+}
+
+.ag-push-result a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #20c7bd;
+}
+
+.ag-push-result.quiet { color: #8ea0a8 }
+.ag-push-result.warn  { color: #f0c674 }
+.ag-push-result.error { color: #ff8d95 }
+
+.ag-chart-line {
+  display: grid;
+  gap: 8px;
+}
+
+.ag-chart-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-left: 12px;
+  font-size: 12px;
+  color: #6f8088;
+}
+
+.ag-chart-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ag-chart-ref {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #b9c6cc;
+}
+
+.ag-chart-paths {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+}
+
+/* The pencil earns its 38px box only on hover, the way `.jf-title-row` does —
+   a permanent bordered button next to one quiet line reads as stuck to it. */
+.ag-chart-summary .edit-toggle {
+  width: auto;
+  min-width: 0;
+  height: auto;
+  padding: 2px;
+  border-color: transparent;
+  background: none;
+  color: #4a5a62;
+}
+
+.ag-chart-summary:hover .edit-toggle,
+.ag-chart-summary .edit-toggle[aria-expanded="true"] { color: #b9c6cc }
+
+/* ---- the New tree dialog ---- */
+
+.ag-new-modal .ag-new-choices {
+  display: grid;
+  gap: 10px;
+  padding: 16px 20px 20px;
+}
+
+.ag-new-choice {
+  display: grid;
+  gap: 5px;
+  justify-items: start;
+  text-align: left;
+  padding: 14px 16px;
+  border: 1px dashed #2a3940;
+  border-radius: 9px;
+  background: #0d1316;
+  color: #b9c6cc;
+  cursor: pointer;
+}
+
+.ag-new-choice:hover { border-color: #20c7bd; background: rgba(32, 199, 189, 0.07) }
+.ag-new-choice svg { color: #20c7bd }
+.ag-new-choice strong { font-size: 14px; color: #f2f6f7 }
+.ag-new-choice small { font-size: 12px; color: #8ea0a8; line-height: 1.5 }
+
+.ag-new-error {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: #ff8d95;
+}
+
+.ag-new-modal code {
+  font-size: 11.5px;
+  color: #9fe4dc;
+  overflow-wrap: anywhere;
+}
+
 .ag-repo-toggle {
   width: 100%;
   display: flex;
