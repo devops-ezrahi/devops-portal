@@ -5,6 +5,7 @@ import { platform, tmpdir } from "os";
 import { dirname, join } from "path";
 import { promisify } from "util";
 import { config } from "../../config";
+import { authenticatedRepoUrl } from "../../git";
 import { log, userMessage } from "../../log";
 import { JobStore, writeJsonAtomic } from "../../jobStore";
 import { redactSecrets } from "../../redact";
@@ -62,24 +63,13 @@ function providerOf(model: string): string {
  * SSH-auth'd repoUrl still clones. Only applied once, at clone time: `git
  * fetch origin` on later questions reuses the credentialed origin already
  * stored in the clone's own .git/config.
+ *
+ * The body moved to `src/server/git.ts` when the ArgoCD module needed the same
+ * rewrite; it is re-exported here because this is the name its callers and its
+ * own test use. Importing *from* this file instead would have run the
+ * `writeOpencodePolicy()` below on every ArgoCD request.
  */
-export function authenticatedRepoUrl(repoUrl: string): string {
-  if (!config.git.enabled) return repoUrl;
-  let u: URL;
-  try {
-    u = new URL(repoUrl);
-  } catch {
-    return repoUrl;
-  }
-  if (u.protocol !== "http:" && u.protocol !== "https:") return repoUrl;
-  if (config.git.username) {
-    u.username = config.git.username;
-    u.password = config.git.token;
-  } else {
-    u.username = config.git.token;
-  }
-  return u.toString();
-}
+export { authenticatedRepoUrl };
 
 /**
  * Written once per process; opencode reads it via OPENCODE_CONFIG.

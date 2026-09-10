@@ -10,6 +10,7 @@ export function redactSecrets(line: string): string {
     config.artifactory.token,
     config.artifactory.npmSourceToken,
     config.ai.apiKey,
+    config.argocd.valuesToken,
   ]) {
     if (secret) out = out.split(secret).join("***");
   }

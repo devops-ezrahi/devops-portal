@@ -53,7 +53,7 @@ const ROOT_APPSET_FILE_NAME = "root-applicationSet.yaml";
  * and are excluded here anyway so a portal tree committed alongside one keeps
  * the same root ApplicationSet.
  */
-const NON_NAMESPACE_DIRS = ["base", "cluster-shared", "ERRORS_ANALYSIS", "report"];
+export const NON_NAMESPACE_DIRS = ["base", "cluster-shared", "ERRORS_ANALYSIS", "report"];
 
 /** `<values path>/<rest>`, honouring a tree folded into a subdirectory of a bigger repo. */
 function repoPath(valuesPath: string, rest: string): string {

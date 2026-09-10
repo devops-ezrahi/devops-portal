@@ -4,6 +4,8 @@ import { isAdmin } from "../../auth";
 import { config } from "../../config";
 import { log } from "../../log";
 import { TreeStore } from "./TreeStore";
+import { pullValuesTree, pushValuesTree } from "./valuesGit";
+import { safeDirPath, safeRef, safeRepoUrl, safeTreePath } from "./valuesRepo";
 import type { ArgocdTree } from "../../types";
 
 /**
@@ -58,6 +60,44 @@ const treeBody = z.object({
     .max(50),
 });
 
+/**
+ * Where to read a tree from. Not scoped to a saved tree: a draft with only a
+ * repo URL typed into it is never written (`isEmptyTree`), so a first pull has
+ * no `:id` to hang off.
+ */
+const pullBody = z.object({
+  repoUrl: z.string().trim().max(300).refine(safeRepoUrl, "Only http(s) git URLs can be cloned"),
+  revision: z.string().trim().max(100).refine(safeRef, "Not a branch or tag name"),
+  path: z.string().trim().max(200).refine(safeDirPath, "Not a path inside the repository"),
+});
+
+/**
+ * The files to commit.
+ *
+ * They are generated in the browser, because `buildTree` and the 2 000-line
+ * catalog it depends on live there and what the preview shows must be what gets
+ * committed. That makes this body a trust boundary onto a git worktree the
+ * server then runs commands in — hence `safeTreePath` per file, and the
+ * `resolve()` containment check again at the write site.
+ *
+ * The *destination* is deliberately absent: repo, revision and path are read
+ * from the stored record after the ownership check, never from the request.
+ */
+const pushBody = z.object({
+  files: z
+    .array(
+      z.object({
+        path: z.string().min(1).max(200).refine(safeTreePath, "Unsafe file path"),
+        text: z.string().max(256_000),
+      })
+    )
+    .min(1)
+    .max(500)
+    .refine((f) => f.reduce((n, x) => n + x.text.length, 0) <= 2 * 1024 * 1024, "Tree is larger than 2 MB"),
+  branch: z.string().trim().max(100).refine(safeRef, "Not a branch name").optional(),
+  message: z.string().trim().min(1).max(200).optional(),
+});
+
 export function createArgocdRouter(store: TreeStore = new TreeStore()): express.Router {
   const router = express.Router();
 
@@ -94,6 +134,9 @@ export function createArgocdRouter(store: TreeStore = new TreeStore()): express.
       // Rides along on the list the view already fetches, rather than a second
       // endpoint — these only pre-fill a new tree, they do not constrain one.
       defaults: config.argocd,
+      // So the two git buttons render disabled with a reason, instead of
+      // failing on click. Same trick as `defaults`: no second request.
+      gitEnabled: !!(config.argocd.valuesToken || config.git.enabled),
     });
   });
 
@@ -172,6 +215,54 @@ export function createArgocdRouter(store: TreeStore = new TreeStore()): express.
       await store.remove(existing.id);
       log.info("argocd", `deleted ${existing.id}`, { name: existing.name });
       res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * Read an existing values tree out of git. The reversal back into releases and
+   * namespaces happens in the browser, where `importValues` and the catalog are.
+   */
+  router.post("/api/argocd/pull", async (req, res, next) => {
+    try {
+      const { repoUrl, revision, path } = pullBody.parse(req.body);
+      const files = await pullValuesTree(repoUrl, revision, path);
+      if (!files.length) {
+        res.status(404).json({ error: `No YAML files under ${path || "the repository root"} on ${revision}` });
+        return;
+      }
+      res.json({ files });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /** Commit the generated tree onto this tree's own branch and open a PR. */
+  router.post("/api/argocd/trees/:id/push", async (req, res, next) => {
+    try {
+      const tree = store.get(req.params.id);
+      if (!tree) {
+        res.status(404).json({ error: "Tree not found" });
+        return;
+      }
+      if (!mine(tree, req)) {
+        res.status(403).json({ error: "Forbidden — that tree belongs to someone else" });
+        return;
+      }
+      const body = pushBody.parse(req.body);
+      if (!safeRepoUrl(tree.values.repoUrl) || !safeRef(tree.values.revision) || !safeDirPath(tree.values.path ?? "")) {
+        res.status(400).json({ error: "This tree's values repository, revision or path is not something git can be pointed at." });
+        return;
+      }
+      const result = await pushValuesTree({
+        tree,
+        files: body.files,
+        branch: body.branch || `portal/argocd-${tree.id.toLowerCase()}`,
+        message: body.message || `Update ${tree.name} GitOps tree`,
+        authorName: req.user!.displayName,
+      });
+      res.json(result);
     } catch (err) {
       next(err);
     }

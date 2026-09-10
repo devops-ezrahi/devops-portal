@@ -17,10 +17,13 @@ export type TreeDefaults = {
   valuesRevision: string;
 };
 
+/** One file of a values repo, in both directions. */
+export type RepoFile = { path: string; text: string };
+
 export function listTrees() {
   // `defaults` rides along rather than needing its own endpoint — the builder
   // needs it before it can offer a new tree.
-  return request<{ trees: ArgocdTree[]; defaults: TreeDefaults }>("/api/argocd/trees");
+  return request<{ trees: ArgocdTree[]; defaults: TreeDefaults; gitEnabled: boolean }>("/api/argocd/trees");
 }
 
 export function createTree(input: TreeInput) {
@@ -33,4 +36,23 @@ export function updateTree(id: string, input: TreeInput) {
 
 export function deleteTree(id: string) {
   return request<{ ok: true }>(`/api/argocd/trees/${id}`, { method: "DELETE" });
+}
+
+/** Read an existing tree out of a values repo. Reversing it is `importTree`'s job. */
+export function pullValues(repoUrl: string, revision: string, path: string) {
+  return request<{ files: RepoFile[] }>("/api/argocd/pull", {
+    method: "POST",
+    body: JSON.stringify({ repoUrl, revision, path }),
+  });
+}
+
+/**
+ * Commit the generated files onto this tree's branch and open a PR. The
+ * destination is the *stored* tree's, so a push always follows a save.
+ */
+export function pushTree(id: string, files: RepoFile[], branch?: string, message?: string) {
+  return request<{ branch: string; changed: boolean; prUrl: string; note?: string }>(
+    `/api/argocd/trees/${id}/push`,
+    { method: "POST", body: JSON.stringify({ files, branch, message }) }
+  );
 }

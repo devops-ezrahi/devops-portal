@@ -181,6 +181,12 @@ export const config = {
     chartRevision: (requireEnv("ARGOCD_CHART_REVISION") ?? "main").trim(),
     valuesRepoUrl: (requireEnv("ARGOCD_VALUES_REPO_URL") ?? "https://git.example.com/gitops/microservices-values.git").trim(),
     valuesRevision: (requireEnv("ARGOCD_VALUES_REVISION") ?? "main").trim(),
+    // Credential for the values repo, used only by the module's pull and push.
+    // Separate from GIT_TOKEN because that one is the Bitbucket credential and
+    // the values repo is usually somewhere else — and `values.repoUrl` is a
+    // field the user can edit, so a token is only ever sent to the host it was
+    // issued for. See `valuesTokenFor`.
+    valuesToken: (requireEnv("ARGOCD_VALUES_TOKEN") ?? "").trim(),
   },
   jira: {
     baseUrl: jiraUrl ?? "",

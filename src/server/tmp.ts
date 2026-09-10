@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 /** Prefixes this app owns under the OS temp dir. Only these are ever swept. */
-const JOB_PREFIXES = ["art-", "wht-"];
+const JOB_PREFIXES = ["art-", "wht-", "ag-"];
 
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
