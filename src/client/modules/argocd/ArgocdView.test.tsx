@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArgocdTree } from "../../../server/types";
 
@@ -136,6 +136,39 @@ describe("ArgocdView", () => {
 
     fireEvent.change(screen.getByLabelText("image.repository"), { target: { value: "nginx" } });
     await waitFor(() => expect(screen.queryByText(/No image.repository/)).not.toBeInTheDocument());
+  });
+
+  it("says on the card what each release deploys, and what only a namespace adds", async () => {
+    const tree = saved({
+      releases: [
+        {
+          id: "r1",
+          name: "storefront",
+          features: {
+            image: { on: true, v: { repository: "ghcr.io/shop/storefront", tag: "2.1.0" } },
+            service: { on: true, v: {} },
+            configmaps: { on: true, v: { items: [{ name: "app-config", data: "LOG_LEVEL=info" }] } },
+          },
+        },
+      ],
+      namespaces: [{ name: "prod", releases: [{ release: "r1", features: { route: { on: true, v: { host: "shop.example.com" } } } }] }],
+    });
+    listTrees.mockResolvedValue({ trees: [tree], defaults });
+    view();
+    fireEvent.click(await screen.findByText("Dev User #1"));
+
+    // Scoped to the grid: the file preview lists a `storefront.yaml` per layer.
+    const card = within(screen.getByLabelText("Releases")).getByRole("button", { name: /storefront/ });
+    expect(card).toHaveTextContent("ghcr.io/shop/storefront:2.1.0");
+    // The workload nobody typed: the chart defaults to a Deployment.
+    ["Deployment", "Service", "ConfigMap"].forEach((kind) => expect(card).toHaveTextContent(kind));
+    expect(card).toHaveTextContent("overridden in 1 of 1 namespaces");
+
+    // The Route exists only in prod, so it is on the card as an override —
+    // dashed, and naming the namespace that adds it.
+    const route = [...card.querySelectorAll(".ag-chip")].find((c) => c.textContent === "Route")!;
+    expect(route).toHaveClass("added");
+    expect(route).toHaveAttribute("title", expect.stringContaining("prod"));
   });
 
   it("opens the tree the list row names", async () => {

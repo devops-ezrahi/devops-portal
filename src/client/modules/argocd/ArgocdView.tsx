@@ -19,12 +19,15 @@ import { createTree, deleteTree, listTrees, updateTree, type TreeDefaults } from
 import { buildValues, extraValuesError, parseValues } from "./build";
 import { checkValues } from "./checks";
 import { BY_ID } from "./catalog";
-import { deepMerge } from "./values";
+import { deepMerge, obj } from "./values";
 import { buildTree } from "./tree";
 import { isEmptyTree, newNamespace, newRelease, newTree, toInput, type DraftTree } from "./document";
+import { addedKinds, resourcesOf } from "./resources";
 import { FeatureEditor } from "./components/FeatureEditor";
 import { FilePreview } from "./components/FilePreview";
 import { ImportDialog } from "./components/ImportDialog";
+import { LayerGrid, type LayerCard } from "./components/LayerGrid";
+import { ReleaseGrid, type ReleaseCard } from "./components/ReleaseGrid";
 import { TreeList } from "./components/TreeList";
 import type { FeatureState } from "./catalog";
 import type { ImportResult } from "./import";
@@ -100,6 +103,59 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   const extraValues = (layer === BASE ? release?.extraValues : nsEntry?.extraValues) ?? "";
   const extraError = extraValuesError(extraValues);
   const scopeLabel = layer === BASE ? "base" : namespace?.name.trim() || "this namespace";
+
+  /**
+   * What each release rectangle says. Every figure on it comes from the *built*
+   * document rather than from catalog state — a feature can be switched on and
+   * still emit nothing, and an imported value has no feature state at all.
+   * `resources.ts` carries that argument in full.
+   */
+  const releaseCards = useMemo<ReleaseCard[]>(
+    () =>
+      draft.releases.map((r) => {
+        const base = buildValues(r.features, r.extraValues);
+        const resources = resourcesOf(base);
+        const image = obj(base.image);
+        // Which namespaces add an object the base does not have. The card draws
+        // those chips dashed rather than counting them as the release's own.
+        const extras = new Map<string, string[]>();
+        let overridden = 0;
+        draft.namespaces.forEach((ns) => {
+          const entry = ns.releases.find((e) => e.release === r.id);
+          const override = entry ? buildValues(entry.features, entry.extraValues) : {};
+          // An entry exists from the first keystroke in that layer; an empty
+          // one writes an empty file and overrides nothing.
+          if (!Object.keys(override).length) return;
+          overridden += 1;
+          const nsName = ns.name.trim() || "unnamed";
+          addedKinds(resources, resourcesOf(deepMerge(base, override))).forEach((kind) =>
+            extras.set(kind, [...(extras.get(kind) ?? []), nsName])
+          );
+        });
+        return {
+          id: r.id,
+          name: r.name,
+          image: [image.repository, image.tag].filter(Boolean).join(":"),
+          resources,
+          extras: [...extras].map(([kind, namespaces]) => ({ kind, namespaces })),
+          overrides: { count: overridden, total: draft.namespaces.length },
+        };
+      }),
+    [draft.releases, draft.namespaces]
+  );
+
+  const layerCards = useMemo<LayerCard[]>(
+    () =>
+      draft.namespaces.map((ns) => {
+        const overriding = ns.releases.filter((e) => Object.keys(buildValues(e.features, e.extraValues)).length);
+        return {
+          name: ns.name,
+          overrides: overriding.length,
+          overridesSelected: !!release && overriding.some((e) => e.release === release.id),
+        };
+      }),
+    [draft.namespaces, release?.id]
+  );
   /**
    * The checks run on the document that is actually deployed for this scope —
    * base alone, or base with the namespace's overrides merged over it — and on
@@ -498,22 +554,11 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
             </div>
 
             <div className="ag-section">
-              <div className="ag-tabs" role="tablist" aria-label="Releases">
-                {draft.releases.map((r) => (
-                  <button
-                    key={r.id}
-                    role="tab"
-                    aria-selected={r.id === release?.id}
-                    className={`ag-tab${r.id === release?.id ? " selected" : ""}`}
-                    onClick={() => setReleaseId(r.id)}
-                  >
-                    {r.name.trim() || "unnamed"}
-                  </button>
-                ))}
-                <button type="button" className="ghost-button ag-add" onClick={addRelease}>
-                  <Plus size={15} aria-hidden="true" /> Release
-                </button>
-              </div>
+              <ReleaseGrid cards={releaseCards} selectedId={release?.id} onSelect={setReleaseId} onAdd={addRelease} />
+
+              {releaseCards.some((c) => c.extras.length) && (
+                <p className="ag-scope-note">A dashed chip is an object only a namespace override adds.</p>
+              )}
 
               {release && (
                 <div className="ag-scope-head">
@@ -544,30 +589,13 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
 
             {release && (
               <div className="ag-section">
-                <div className="ag-tabs" role="tablist" aria-label="Layers">
-                  <button
-                    role="tab"
-                    aria-selected={layer === BASE}
-                    className={`ag-tab${layer === BASE ? " selected" : ""}`}
-                    onClick={() => setLayer(BASE)}
-                  >
-                    Base
-                  </button>
-                  {draft.namespaces.map((ns, i) => (
-                    <button
-                      key={i}
-                      role="tab"
-                      aria-selected={layer === i}
-                      className={`ag-tab${layer === i ? " selected" : ""}`}
-                      onClick={() => setLayer(i)}
-                    >
-                      {ns.name.trim() || "unnamed"}
-                    </button>
-                  ))}
-                  <button type="button" className="ghost-button ag-add" onClick={addNamespace}>
-                    <Plus size={15} aria-hidden="true" /> Namespace
-                  </button>
-                </div>
+                <LayerGrid
+                  layer={layer}
+                  namespaces={layerCards}
+                  releaseCount={draft.releases.length}
+                  onSelect={setLayer}
+                  onAdd={addNamespace}
+                />
 
                 {/* Named and removed exactly where a release is, under its own
                     strip — an input sitting inside the pills renamed a tab from

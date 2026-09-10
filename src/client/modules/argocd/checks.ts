@@ -1,4 +1,4 @@
-import { isRecord } from "./catalog";
+import { enabled, list, obj, present } from "./values";
 import type { Values } from "./values";
 
 /**
@@ -11,12 +11,6 @@ import type { Values } from "./values";
  * then misbehaves at runtime, which is the harder half to find.
  */
 export type Problem = { level: "bad" | "warn"; text: string };
-
-const obj = (v: unknown): Values => (isRecord(v) ? v : {});
-/** Configured, and not turned off. An absent key is not "enabled by default" here: these checks only speak about what this document actually says. */
-const enabled = (v: unknown): boolean => isRecord(v) && Object.keys(v).length > 0 && v.enabled !== false;
-const present = (v: unknown): boolean => isRecord(v) && Object.keys(v).length > 0;
-const list = (v: unknown): Values[] => (Array.isArray(v) ? (v as Values[]) : []);
 
 /** Whether the HPA scales on a CPU utilisation target — the one that needs a request. */
 function hasCpuTarget(hpa: Values): boolean {

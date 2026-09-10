@@ -18,6 +18,25 @@ export type Values = Record<string, unknown>;
 export const isPlainObject = (v: unknown): v is Values =>
   v !== null && typeof v === "object" && !Array.isArray(v);
 
+/* Readers over a built document. Shared by `checks.ts` and `resources.ts`,
+   which both answer questions about a merged values doc rather than about
+   catalog state. */
+
+/** A branch of the document, or an empty one — so `obj(doc.x).y` never throws. */
+export const obj = (v: unknown): Values => (isPlainObject(v) ? v : {});
+
+/**
+ * Configured, and not turned off. An absent key is not "enabled by default"
+ * here: this only speaks about what the document actually says.
+ */
+export const enabled = (v: unknown): boolean =>
+  isPlainObject(v) && Object.keys(v).length > 0 && v.enabled !== false;
+
+/** Written, whatever it says. */
+export const present = (v: unknown): boolean => isPlainObject(v) && Object.keys(v).length > 0;
+
+export const list = (v: unknown): Values[] => (Array.isArray(v) ? (v as Values[]) : []);
+
 export function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (isPlainObject(a) && isPlainObject(b)) {

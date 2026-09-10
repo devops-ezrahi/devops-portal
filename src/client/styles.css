@@ -4116,29 +4116,123 @@ input.jf-title {
 
 /* ---- release / layer tabs ---- */
 
-.ag-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
+/* ---- release / layer cards ----
+   One rectangle per release, so what a microservice deploys is legible before
+   it is selected. The layer strip below is the same card at half the size. */
+
+.ag-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  gap: 10px;
+  align-items: stretch;
 }
 
-.ag-tab {
+.ag-layer-grid {
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+}
+
+.ag-card {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 11px 12px;
   border: 1px solid #2a3940;
-  border-radius: 999px;
-  padding: 5px 12px;
+  border-radius: 9px;
   background: #0d1316;
   color: #b9c6cc;
-  font-size: 12.5px;
-  font-weight: 700;
+  text-align: left;
   cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
 }
 
-.ag-tab.selected {
+.ag-card:hover { border-color: #3a4c55 }
+
+.ag-card.selected {
   border-color: #20c7bd;
-  color: #d7fbf8;
   background: rgba(32, 199, 189, 0.12);
 }
+
+.ag-card-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #f2f6f7;
+  overflow-wrap: anywhere;
+}
+
+.ag-card-image {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: #8ea0a8;
+  overflow-wrap: anywhere;
+}
+
+.ag-card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 1px;
+}
+
+.ag-card-foot {
+  font-size: 11px;
+  color: #6f8088;
+}
+
+/* A namespace override of the open release, marked on the namespace tile. */
+.ag-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #20c7bd;
+  flex: 0 0 auto;
+}
+
+.ag-chip {
+  border: 1px solid #2a3940;
+  border-radius: 5px;
+  padding: 2px 6px;
+  background: #111a1e;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: #9fb0b8;
+  white-space: nowrap;
+}
+
+.ag-chip b { color: #d7fbf8; font-weight: 700 }
+
+/* The workload is what the release *is*; the rest is what it brings with it. */
+.ag-chip.workload {
+  border-color: #20c7bd66;
+  background: rgba(32, 199, 189, 0.1);
+  color: #9fe4dc;
+}
+
+/* Only a namespace override creates this one — see the note under the grid.
+   The border is lighter than a plain chip's, not darker: a 1px dash at #2a3940
+   reads as a solid line, which is the whole distinction. */
+.ag-chip.added {
+  border: 1px dashed #465a64;
+  background: none;
+  color: #7d8e96;
+}
+
+.ag-add-card {
+  align-content: center;
+  justify-content: center;
+  grid-auto-flow: column;
+  gap: 6px;
+  border-style: dashed;
+  color: #8ea0a8;
+  font-size: 12.5px;
+  font-weight: 700;
+  min-height: 54px;
+}
+
+.ag-add-card:hover { color: #d7fbf8 }
 
 .ag-scope-head {
   display: flex;
