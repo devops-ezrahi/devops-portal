@@ -293,6 +293,75 @@ describe("ArgocdView", () => {
     expect(imageCard.querySelector(".ag-dot")).not.toBeNull();
   });
 
+  it("says what the override light means, and takes the override back out", async () => {
+    const tree = saved({
+      releases: [{ id: "r1", name: "storefront", features: { image: { on: true, v: { repository: "nginx", tag: "1.0.0" } } } }],
+      namespaces: [{ name: "prod", releases: [{ release: "r1", features: { image: { on: true, v: { tag: "2.0.0" } } } }] }],
+    });
+    listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
+    view();
+    fireEvent.click(await screen.findByText("Dev User #1"));
+    fireEvent.click(within(screen.getByLabelText("Layers")).getByRole("button", { name: /prod/ }));
+
+    const card = feature("Image & pull secrets");
+    // The light is the button — the explanation and the way out hang off it.
+    fireEvent.click(within(card).getByRole("button", { name: /What is the override on Image & pull secrets/ }));
+    expect(within(card).getByText(/deploys its own value instead of the base one/)).toBeInTheDocument();
+
+    fireEvent.mouseDown(within(card).getByRole("button", { name: "Remove override" }));
+
+    // The light goes out, and prod's file no longer carries the tag.
+    expect(feature("Image & pull secrets").querySelector(".ag-dot")).toBeNull();
+    fireEvent.click(screen.getByLabelText("prod/values/storefront.yaml"));
+    expect(document.querySelector(".ag-file-body")!.textContent).not.toContain("2.0.0");
+  });
+
+  it("never offers `enabled` as an optional field — ticking the feature is what sets it", async () => {
+    view();
+    await waitFor(() => expect(listTrees).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
+    fireEvent.change(screen.getByLabelText("Microservice name"), { target: { value: "api-gateway" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /Networking/ }));
+    fireEvent.click(within(feature("Service")).getByRole("checkbox"));
+
+    expect(within(feature("Service")).queryByRole("button", { name: /enabled/ })).toBeNull();
+    expect(within(feature("Service")).getByRole("checkbox")).toBeChecked();
+    fireEvent.click(screen.getByLabelText("base/api-gateway.yaml"));
+    expect(document.querySelector(".ag-file-body")!.textContent).toContain("enabled: true");
+  });
+
+  it("clears a stale `enabled: false` when the feature is ticked back on", async () => {
+    // An imported document can carry one, and a feature switched on while it
+    // sits underneath renders nothing at all.
+    const tree = saved({
+      releases: [
+        {
+          id: "r1",
+          name: "storefront",
+          features: { service: { on: true, v: { enabled: false, ports: "http=80:http" } } },
+        },
+      ],
+    });
+    listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
+    view();
+    fireEvent.click(await screen.findByText("Dev User #1"));
+
+    const tick = () => within(feature("Service")).getAllByRole("checkbox")[0] as HTMLInputElement;
+    // The false itself stays on screen — an invisible one is worse than a wrong one.
+    expect(within(feature("Service")).getByLabelText("enabled")).not.toBeChecked();
+    fireEvent.click(tick());
+    fireEvent.click(tick());
+
+    // Back to the chart's own answer, so the field drops off the card entirely
+    // — and the file says what the tick means.
+    expect(within(feature("Service")).queryByLabelText("enabled")).toBeNull();
+    fireEvent.click(screen.getByLabelText("base/storefront.yaml"));
+    const yaml = document.querySelector(".ag-file-body")!.textContent!;
+    expect(yaml).toContain("enabled: true");
+    expect(yaml).not.toContain("enabled: false");
+  });
+
   it("offers to move a value every namespace repeats down into the base", async () => {
     const pinned = { on: true, v: { tag: "9.9.9" } };
     const tree = saved({

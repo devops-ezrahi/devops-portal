@@ -18,20 +18,42 @@ import { useId, useState, type ReactNode } from "react";
  * one gives: a native tooltip cannot be opened by touch and vanishes while you
  * are reading it.
  */
-export function Help({ label, children }: { label: string; children: ReactNode }) {
+export function Help({
+  label,
+  children,
+  trigger,
+  interactive,
+}: {
+  label: string;
+  children: ReactNode;
+  /** Replaces the `?` glyph — the override light is the same popover on a different button. */
+  trigger?: ReactNode;
+  /** The popover holds a control, so it has to be reachable with the mouse. */
+  interactive?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const id = useId();
 
   return (
-    <span className="help" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+    // Focus is handled on the wrapper, not the button: React's onFocus/onBlur
+    // are focusin/focusout, so a popover holding a control stays open while
+    // focus moves into it instead of closing under the press.
+    <span
+      className="help"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onBlur={(e) => {
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+        setOpen(false);
+      }}
+    >
       <button
         type="button"
-        className="help-toggle"
+        className={`help-toggle${interactive ? " interactive" : ""}`}
         aria-label={`What is ${label}?`}
         aria-expanded={open}
         aria-describedby={open ? id : undefined}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
         onClick={(e) => {
           // These two are load-bearing: a `?` often sits inside a <label> whose
           // control is a checkbox, or inside a card that is itself a button.
@@ -41,10 +63,10 @@ export function Help({ label, children }: { label: string; children: ReactNode }
           setOpen((v) => !v);
         }}
       >
-        <HelpCircle size={13} aria-hidden="true" />
+        {trigger ?? <HelpCircle size={13} aria-hidden="true" />}
       </button>
       {open && (
-        <span className="help-body" id={id} role="tooltip">
+        <span className={`help-body${interactive ? " interactive" : ""}`} id={id} role="tooltip">
           {children}
         </span>
       )}

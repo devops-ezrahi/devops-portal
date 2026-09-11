@@ -2797,6 +2797,19 @@ code {
   pointer-events: none;
 }
 
+/* A popover holding a button has to be reachable, and the 6px it hangs below
+   its trigger is a gap the pointer would leave the whole thing through — so it
+   bridges that gap with a pseudo-element rather than sitting flush against it. */
+.help-body.interactive { pointer-events: auto }
+.help-body.interactive::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 0;
+  right: 0;
+  height: 6px;
+}
+
 /* Near the right edge a left-anchored popover runs off the panel. */
 .help-body.right { left: auto; right: -8px }
 
@@ -4442,12 +4455,26 @@ input.jf-title {
 }
 
 /* A namespace override of the open release, marked on the namespace tile. */
+/* Orange, not the teal accent: teal is "selected", and an override is not a
+   state you chose so much as one you are carrying. */
 .ag-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #20c7bd;
+  background: #e2883c;
+  box-shadow: 0 0 0 3px rgba(226, 136, 60, 0.16);
   flex: 0 0 auto;
+}
+
+.help-toggle.interactive {
+  color: inherit;
+  cursor: pointer;
+}
+
+.ag-override-remove {
+  margin-top: 8px;
+  padding: 3px 9px;
+  font-size: 11px;
 }
 
 .ag-chip {

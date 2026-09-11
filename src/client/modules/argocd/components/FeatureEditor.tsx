@@ -87,8 +87,22 @@ export function FeatureEditor({
   }
 
   function toggle(id: string, on: boolean) {
-    const existing = features[id];
-    onChange({ ...features, [id]: { on, v: existing?.v ?? defaultValues(id) } });
+    const v = features[id]?.v ?? defaultValues(id);
+    // Ticking a feature on *is* `enabled: true`. A `false` left underneath from
+    // an import or an earlier edit would otherwise emit a Service that renders
+    // nothing — which is the opposite of what the tick just asked for.
+    onChange({ ...features, [id]: { on, v: on && "enabled" in v ? { ...v, enabled: true } : v } });
+  }
+
+  /**
+   * Drop a feature out of this layer entirely, so the microservice falls back
+   * to whatever base says. Not `on: false` — that is "off here", which in an
+   * override file is a different statement from "not overridden here".
+   */
+  function removeOverride(id: string) {
+    const next = { ...features };
+    delete next[id];
+    onChange(next);
   }
 
   function setField(id: string, key: string, value: unknown) {
@@ -105,7 +119,9 @@ export function FeatureEditor({
             <div className="ag-feature-head">
               <span className="ag-feature-name">{spec.name}</span>
               <FeatureHelp spec={spec} />
-              {overriding?.has(spec.id) && <i className="ag-dot" title="Overrides the base file" />}
+              {overriding?.has(spec.id) && (
+                <OverrideLight name={spec.name} onRemove={() => removeOverride(spec.id)} />
+              )}
             </div>
             <FeatureBody spec={spec} state={features[spec.id]} onField={setField} />
           </div>
@@ -143,7 +159,9 @@ export function FeatureEditor({
                       <span className="ag-feature-name">{spec.name}</span>
                     </label>
                     <FeatureHelp spec={spec} />
-                    {overriding?.has(spec.id) && <i className="ag-dot" title="Overrides the base file" />}
+                    {overriding?.has(spec.id) && (
+                      <OverrideLight name={spec.name} onRemove={() => removeOverride(spec.id)} />
+                    )}
                   </div>
                   {on && <FeatureBody spec={spec} state={state} onField={setField} />}
                 </div>
@@ -176,6 +194,29 @@ export function FeatureEditor({
         {extraError && <p className="ag-error">{extraError}</p>}
       </section>
     </div>
+  );
+}
+
+/**
+ * The orange light on a feature that differs from base — and, behind it, what
+ * that means plus the way out. An override is a line someone has to keep in
+ * step with base forever, so the popover says to drop it if it is not earning
+ * that, and does it in one press.
+ */
+function OverrideLight({ name, onRemove }: { name: string; onRemove: () => void }) {
+  return (
+    <Help label={`the override on ${name}`} interactive trigger={<i className="ag-dot" aria-hidden="true" />}>
+      <p>
+        <strong>{name}</strong> is set differently here, so this namespace deploys its own value instead of the base
+        one.
+      </p>
+      <p>Every override is a second copy to keep in step. Drop it unless this namespace really needs to differ.</p>
+      {/* Both, and it is idempotent: the press closes the popover by removing
+          the light it hangs off, so the click half often never arrives. */}
+      <button type="button" className="ghost-button ag-override-remove" onMouseDown={onRemove} onClick={onRemove}>
+        Remove override
+      </button>
+    </Help>
   );
 }
 
@@ -222,9 +263,17 @@ function FeatureBody({
   // though `defaultValues` put it in the state when the feature was switched on.
   const isShown = (f: FieldSpec) => {
     const value = state?.v?.[f.key];
-    return primary.has(f.key) || added.has(f.key) || (hasValue(value) && value !== f.def);
+    if (primary.has(f.key) || added.has(f.key)) return true;
+    // An unticked box is only "filled in" when it contradicts a default that is
+    // `true` — an import writes every key it reads, so plain `false` on a field
+    // that defaults to off is the absence of a decision, not one.
+    if (value === false) return f.def === true;
+    return hasValue(value) && value !== f.def;
   };
-  const rest = spec.fields.filter((f) => !isShown(f));
+  // `enabled` is never offered: ticking the feature is what switches it on, and
+  // its emit writes `enabled: true` regardless. It still *shows* when it holds
+  // `false` — an imported document saying so must not become an invisible value.
+  const rest = spec.fields.filter((f) => !isShown(f) && f.key !== "enabled");
 
   return (
     <div className="ag-feature-body">

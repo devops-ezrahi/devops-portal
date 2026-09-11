@@ -823,6 +823,25 @@ across namespaces is repeated per namespace instead.
 - **Every layer file is written, empty ones included.** A `valueFiles` entry
   that does not exist fails the whole render, so an empty layer is `{}` with a
   header comment rather than an absent file.
+- **An override carries an orange light, and the light is the way out of it.**
+  Teal means "selected"; an override is not a state anyone chose so much as one
+  they are carrying, so it gets its own colour. The light is a `Help` trigger —
+  the popover says what overriding costs (a second copy of that value, kept in
+  step with base forever) and holds a **Remove override** button that deletes
+  the feature from the layer. Not `on: false`: in an override file "off here"
+  and "not overridden here" are different statements. This is the per-feature
+  half of what `findPromotions` does for a whole tree.
+- **`enabled` is never on a feature's add list.** Ticking the feature *is*
+  `enabled: true` — every such emit writes `enabled: v.enabled !== false` — so
+  offering it as an optional field said the same thing twice and read as though
+  a ticked Service might still be off. Ticking a feature on also clears a stale
+  `false` underneath it, which an import can leave behind and which would
+  otherwise render nothing at all. It still *shows* when it holds `false`, for
+  the same reason: an invisible value that silently disables an object is worse
+  than a redundant checkbox. A plain `false` on a field whose default is off is
+  the absence of a decision (an import writes every key it reads), so that one
+  stays on the add list.
+
 - **A shared namespace override does not always belong in `<ns>/defaults.yaml`.**
   Namespace defaults merge *below* `base/<release>.yaml`, so a path any base
   file claims would be overwritten by it. `withoutClaimed` in `tree.ts` keeps
