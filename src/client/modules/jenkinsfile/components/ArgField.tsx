@@ -1,5 +1,6 @@
-import { HelpCircle, Plus, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { createContext, useContext, useLayoutEffect, useRef, useState } from "react";
+import { Help } from "../../../Help";
 import { KIND_LABEL, type ArgSpec, type ObjectField } from "../catalog";
 import { closureOf, pairsOf, type MapPairs } from "../pipeline";
 import type { PickableImage } from "../api";
@@ -50,7 +51,13 @@ export function ArgField({ spec, value, stepDefault, idPrefix, required, stashNa
   return (
     <div className={`form-field jf-arg${spec.kind === "boolean" ? " jf-arg-inline" : ""}`}>
       <div className="jf-arg-head">
+        {/* The `?` sits beside the label, never inside it: a label wrapping a
+            button names the button too, and on a boolean argument a press on it
+            would toggle the checkbox. */}
         <label htmlFor={composite ? undefined : id}>{spec.label ?? spec.name}</label>
+        <Help label={spec.label ?? spec.name}>
+          <p>{spec.hint}</p>
+        </Help>
         <span className="jf-kind">
           {spec.kind === "commands" ? (closureOf(value) === null ? "list" : "groovy") : KIND_LABEL[spec.kind]}
         </span>
@@ -138,8 +145,6 @@ export function ArgField({ spec, value, stepDefault, idPrefix, required, stashNa
           onDropArg={onRemove}
         />
       )}
-
-      <span className="field-hint">{spec.hint}</span>
     </div>
   );
 }
@@ -393,29 +398,6 @@ function FixedKeys({
   );
 }
 
-/**
- * `?` beside a field name: the one-line hint is always on screen, the longer
- * story is behind this. A button rather than a `title=` tooltip, because a
- * tooltip cannot be opened by touch and vanishes while you read it.
- */
-function FieldHelp({ label, description }: { label: string; description: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <span className="jf-help">
-      <button
-        type="button"
-        className="jf-help-toggle"
-        aria-expanded={open}
-        aria-label={`What is ${label}?`}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <HelpCircle size={13} aria-hidden="true" />
-      </button>
-      {open && <span className="jf-help-body">{description}</span>}
-    </span>
-  );
-}
-
 function MapRows({
   spec,
   pairs,
@@ -521,7 +503,10 @@ function ObjectRows({
               <span className="jf-entry-label">
                 <label htmlFor={`${spec.name}-${i}-${field.name}`}>{field.name}</label>
                 {field.required && <span className="jf-required">required</span>}
-                {field.description && <FieldHelp label={field.name} description={field.description} />}
+                <Help label={field.name}>
+                  <p>{field.hint}</p>
+                  {field.description && <p>{field.description}</p>}
+                </Help>
               </span>
               <input
                 id={`${spec.name}-${i}-${field.name}`}
@@ -533,7 +518,6 @@ function ObjectRows({
                   onChange(rows.map((r, m) => (m === i ? { ...r, [field.name]: e.target.value } : r)))
                 }
               />
-              <span className="field-hint">{field.hint}</span>
             </div>
           ))}
         </div>

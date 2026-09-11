@@ -1,5 +1,6 @@
 import { AlertTriangle, ChevronRight, GripVertical, Minimize2, Pencil, Plus, X } from "lucide-react";
 import { useState } from "react";
+import { Help } from "../../../Help";
 import { COMMON_ARG_NAMES, KIND_LABEL, pinsRuntime, RUNTIME_ARG_NAMES, stepSpec, type ArgSpec, type StepSpec } from "../catalog";
 import { emptyValue, stageLabel } from "../pipeline";
 import { ArgField } from "./ArgField";
@@ -93,9 +94,13 @@ export function StageCard({
           <ChevronRight className={`jf-group-chevron${open ? " open" : ""}`} size={15} aria-hidden="true" />
           <span className="jf-stage-text">
             <strong>{label}</strong>
-            <small>{spec ? spec.description : `${stage.step} — not in the shared library`}</small>
+            <small>{stage.step}</small>
           </span>
         </button>
+        {/* Outside the toggle, not inside it: a button cannot hold a button. */}
+        <Help label={`the ${stage.step} step`}>
+          <p>{spec ? spec.description : `${stage.step} — not in the shared library.`}</p>
+        </Help>
         {errors.length > 0 && (
           <AlertTriangle
             className="jf-stage-warn"
@@ -335,17 +340,25 @@ function ArgGroup({
 
   return (
     <section className="jf-group">
-      <button type="button" className="jf-group-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        <ChevronRight className={`jf-group-chevron${open ? " open" : ""}`} size={14} aria-hidden="true" />
-        <span className="jf-group-title">{title}</span>
-        <span className="jf-group-count">
-          {inUse ? `${inUse} of ${args.length} set` : `${args.length} available`}
-        </span>
-      </button>
+      {/* The `?` is a row-mate of the head button, not a child of it: a button
+          cannot hold a button. */}
+      <div className="jf-group-head-row">
+        <button type="button" className="jf-group-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          <ChevronRight className={`jf-group-chevron${open ? " open" : ""}`} size={14} aria-hidden="true" />
+          <span className="jf-group-title">{title}</span>
+          <span className="jf-group-count">
+            {inUse ? `${inUse} of ${args.length} set` : `${args.length} available`}
+          </span>
+        </button>
+        {subtitle && (
+          <Help label={title.toLowerCase()}>
+            <p>{subtitle}</p>
+          </Help>
+        )}
+      </div>
 
       {open && (
         <div className="jf-arg-list">
-          {subtitle && <p className="jf-note">{subtitle}</p>}
           <ArgFields
             args={args}
             stage={stage}

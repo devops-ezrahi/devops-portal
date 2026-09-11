@@ -2740,15 +2740,9 @@ code {
   font-weight: 700;
 }
 
-.jf-entry-field .field-hint {
-  margin: 0;
-}
-
-/* ---- The ? beside an entry field ---- */
-
 /* ---- the shared `?` (src/client/Help.tsx) ----
-   The portal-wide version of what the Jenkinsfile builder's `.jf-help` does
-   for one field. Same shape, opened by hover as well as by press. */
+   The one `?` in the portal: every module's field explanations live behind it
+   rather than under the field as a sentence. Opened by hover, press or focus. */
 
 .help {
   position: relative;
@@ -2816,46 +2810,6 @@ code {
 .help-body p { margin: 0 }
 .help-body p + p { margin-top: 6px }
 .help-body code { font-size: 11px; color: #9fe4dc }
-
-.jf-help {
-  position: relative;
-  display: inline-flex;
-}
-
-.jf-help-toggle {
-  display: inline-flex;
-  padding: 1px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: #6f8088;
-  cursor: pointer;
-  transition: color 140ms var(--ease-out);
-}
-
-.jf-help-toggle:hover,
-.jf-help-toggle[aria-expanded="true"] {
-  color: #20c7bd;
-}
-
-.jf-help-body {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: -8px;
-  z-index: 15;
-  width: max-content;
-  max-width: min(340px, 70vw);
-  padding: 8px 10px;
-  border: 1px solid #2a3940;
-  border-radius: 7px;
-  background: #0c1215;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
-  color: #cfd8dc;
-  font-size: 11.5px;
-  font-weight: 400;
-  line-height: 1.55;
-  white-space: normal;
-}
 
 /* ---- Autosave state ---- */
 
@@ -2942,7 +2896,8 @@ code {
 
 .jf-card-head {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  /* grip, index, the toggle, its `?`, the problem marker, the actions. */
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: 8px;
   padding: 9px 8px 9px 6px;
@@ -3209,7 +3164,18 @@ code {
   border: 1px solid #1c262b;
   border-radius: 10px;
   background: #0e1417;
-  overflow: hidden;
+  /* No `overflow: hidden` — it would clip the `?` popover in the head row. The
+     head rounds its own corners instead. */
+}
+
+.jf-group-head-row {
+  display: flex;
+  border-radius: 9px 9px 0 0;
+  align-items: center;
+  gap: 8px;
+  padding-right: 12px;
+  border-bottom: 1px solid #1c262b;
+  background: #111a1e;
 }
 
 .jf-group-head {
@@ -3219,8 +3185,7 @@ code {
   width: 100%;
   padding: 9px 12px;
   border: 0;
-  border-bottom: 1px solid #1c262b;
-  background: #111a1e;
+  background: transparent;
   color: #cfd8dc;
   cursor: pointer;
   text-align: left;

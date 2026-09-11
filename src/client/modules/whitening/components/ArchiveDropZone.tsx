@@ -1,5 +1,6 @@
 import { FileArchive, Upload, X } from "lucide-react";
 import { useState } from "react";
+import { Help } from "../../../Help";
 import { log, warn, error as logError } from "../../../log";
 import { submitUnpack } from "../api";
 import type { WhiteningJob } from "../../../../server/types";
@@ -66,8 +67,14 @@ export function ArchiveDropZone({ onSubmitted, onError }: Props) {
           onDrop={handleDrop}
         >
           <FileArchive size={36} aria-hidden="true" />
-          <span>Drop a packed .tgz or .zip here</span>
-          <small>from the whitening packer — must contain repository/config.json</small>
+          <span>
+            Drop a packed .tgz or .zip here{" "}
+            <Help label="the archive">
+              <p>
+                A pack from the whitening packer — it must contain <code>repository/config.json</code>.
+              </p>
+            </Help>
+          </span>
         </div>
       ) : (
         <div className="folder-preview">

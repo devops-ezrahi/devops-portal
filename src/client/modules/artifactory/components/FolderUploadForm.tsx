@@ -1,6 +1,7 @@
 import { Zip, ZipDeflate, ZipPassThrough } from "fflate";
 import { FolderOpen, Upload, X } from "lucide-react";
 import { useState } from "react";
+import { Help } from "../../../Help";
 import { log, warn, error as logError } from "../../../log";
 import { beginFolderUpload, completeFolderUpload, uploadArchivePart, type FileEntry } from "../api";
 import type { ArtifactoryJob } from "../../../../server/types";
@@ -385,11 +386,18 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
             <span>Scanning folder...</span>
           ) : (
             <>
-              <span>Drop a folder or files here</span>
-              <small>
-                node_modules, a ~/.m2/repository tree or a flat folder of jars, or any number of
-                .tgz / .jar / .whl / .rpm / .conda files
-              </small>
+              <span>
+                Drop a folder or files here{" "}
+                <Help label="what can be dropped">
+                  <p>
+                    A <code>node_modules</code>, a <code>~/.m2/repository</code> tree or a flat folder of jars.
+                  </p>
+                  <p>
+                    Or any number of loose <code>.tgz</code> / <code>.jar</code> / <code>.whl</code> /{" "}
+                    <code>.rpm</code> / <code>.conda</code> files.
+                  </p>
+                </Help>
+              </span>
               <label className="ghost-button file-picker">
                 Choose files
                 <input type="file" multiple onChange={handlePicked} />

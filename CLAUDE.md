@@ -691,12 +691,12 @@ no external system — the only server-side state is saved pipeline documents.
   `sonar`". The step's-own/from-genStage split into two groups only applies to
   steps that actually wrap `genStage`.
 - **A list of maps is a list of boxes.** `secrets`, `additionalRepos` and
-  `customPVC` render one bordered entry per element, each field labelled, with a
-  one-line hint and the longer story behind a `?` — three bare inputs reading
+  `customPVC` render one bordered entry per element, each field labelled and
+  explained by the `?` beside its name — three bare inputs reading
   `secret/team/service`, `token`, `SERVICE_TOKEN` say nothing about which is
-  which. `ObjectField` carries `hint` and `description` for that. The `?` is a
-  button, not a `title=` tooltip: a tooltip cannot be opened by touch and
-  vanishes while you read it.
+  which. `ObjectField` carries `hint` and `description` for that; both go in the
+  one popover. This module's own `FieldHelp`/`.jf-help` is gone — the portal has
+  one `?`, see **Shared UI conventions**.
 - **Removing the last entry removes the argument.** Both `MapRows` and
   `ObjectRows` render one placeholder row when the value is empty, so without
   this the `×` on a single row appeared to do nothing — `onChange([])` just
@@ -949,6 +949,21 @@ per-module choices:
   200-character Artifactory error won, and since `.package-name` is `flex: 1`
   (basis 0) with `word-break: break-all`, its min-content is *one character* —
   the name came out as a vertical column of letters down the left edge.
+- **One `?`, and it is where every field explanation lives.**
+  `src/client/Help.tsx` is the only one — a popover that opens on hover, press
+  *and* focus, so it works by touch and by keyboard, which is what a `title=`
+  tooltip does not. A field gets a label and a `?`, never a sentence underneath:
+  forty-five true sentences stacked up read as a wall to scroll past rather than
+  as help. It flips to `.help-body.right` near the window edge, so a `?` at the
+  right of a wide row (a stage card's header) still opens inside the panel.
+  Two things stay on screen: text that *is* the content (an empty state, the
+  copy on a choice card, a drop zone's own line) and anything that reports a
+  problem or a live value — a parameter no stage reads, a job's progress count.
+  A **browse list stays inline too**: the Jenkinsfile builder's click-to-add
+  argument rows keep their hints, because that is what you read to choose, and
+  a `?` inside a row that is itself a button would be a button inside a button.
+  That last rule is why the `?` sits *beside* a label rather than inside it, and
+  why `Help`'s own click handler calls `preventDefault`/`stopPropagation`.
 - **The topbar is `<h1>` then actions, primary last.** "New" is
   `className="primary"` with `<Plus size={18} />` in every module — Tickets,
   Artifactory ("New Job"), Whitening, AI ("New chat") and Jenkinsfile. Secondary
