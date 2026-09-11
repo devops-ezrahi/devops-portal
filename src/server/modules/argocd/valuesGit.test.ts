@@ -9,7 +9,7 @@ import type { ArgocdTree } from "../../types";
 // Not GitHub, so the PR step is skipped and the note explains why — which lets
 // the whole clone -> write -> commit -> push chain run for real against a bare
 // repo on disk, with no network and nothing stubbed.
-vi.mock("./github", async () => ({
+vi.mock("../../github", async () => ({
   githubRepo: () => null,
   openPullRequest: async () => "https://github.com/o/r/pull/1",
 }));

@@ -2,9 +2,12 @@ import express from "express";
 import { z } from "zod";
 import { isAdmin } from "../../auth";
 import { config } from "../../config";
+import { normalizeRepoUrl } from "../../gitUrl";
 import { log } from "../../log";
+import { safeFilePath, safeRef, safeRepoUrl } from "../../repoGuards";
 import { pickableImages } from "./images";
 import { PipelineStore } from "./PipelineStore";
+import { pullJenkinsfile, pushJenkinsfile } from "./repoGit";
 import type { JenkinsfilePipeline } from "../../types";
 
 /**
@@ -35,6 +38,18 @@ const pipelineBody = z.object({
     )
     .max(50)
     .default([]),
+  // Absent until a repository is connected. Normalised at rest rather than only
+  // in the dialog: a pipeline can reach this through a hand-edited field too,
+  // and `safeRepoUrl` refuses everything but http(s) — so an SSH URL stored
+  // verbatim is a pipeline whose push fails later, with the reason three
+  // screens away.
+  repo: z
+    .object({
+      repoUrl: z.string().trim().max(300).transform(normalizeRepoUrl),
+      revision: z.string().trim().max(100),
+      path: z.string().trim().max(200),
+    })
+    .optional(),
   stages: z
     .array(
       z.object({
@@ -45,6 +60,48 @@ const pipelineBody = z.object({
       })
     )
     .max(100),
+});
+
+/**
+ * Where to read a Jenkinsfile from. Not scoped to a saved pipeline: connecting
+ * a repository is how a pipeline *starts*, so a first pull has no `:id` to hang
+ * off.
+ */
+const pullBody = z.object({
+  // `transform` runs before `refine`, so the SSH form is rewritten and *then*
+  // checked — which is what lets someone paste the URL their git host showed
+  // them without the portal needing an SSH key.
+  repoUrl: z
+    .string()
+    .trim()
+    .max(300)
+    .transform(normalizeRepoUrl)
+    .refine(safeRepoUrl, "Only http(s) git URLs can be cloned"),
+  revision: z.string().trim().max(100).refine(safeRef, "Not a branch or tag name"),
+  // Empty means "find it" — which is the normal case, and the reason this
+  // module searches the clone where the ArgoCD one simply reads a directory.
+  path: z
+    .string()
+    .trim()
+    .max(200)
+    .refine((p) => !p || safeFilePath(p), "Not a path inside the repository"),
+});
+
+/**
+ * The file to commit.
+ *
+ * It is generated in the browser, because `toGroovy` and the catalog it depends
+ * on live there and what the preview shows must be what gets committed. That
+ * makes this body a trust boundary onto a git worktree the server then runs
+ * commands in — hence the `resolve()` containment check at the write site.
+ *
+ * The *destination* is deliberately absent: repo, revision and path are read
+ * from the stored record after the ownership check, never from the request.
+ */
+const pushBody = z.object({
+  text: z.string().min(1).max(256_000),
+  branch: z.string().trim().max(100).refine(safeRef, "Not a branch name").optional(),
+  message: z.string().trim().min(1).max(200).optional(),
 });
 
 export function createJenkinsfileRouter(store: PipelineStore = new PipelineStore()): express.Router {
@@ -87,6 +144,9 @@ export function createJenkinsfileRouter(store: PipelineStore = new PipelineStore
       // Rides along on the list the view already fetches, rather than a second
       // endpoint or a field on the public /api/config.
       sharedLibrary: config.jenkinsfile.sharedLibrary,
+      // So the two git buttons render disabled with a reason, instead of
+      // failing on click. Same trick as `sharedLibrary`: no second request.
+      gitEnabled: config.git.enabled,
     });
   });
 
@@ -151,6 +211,9 @@ export function createJenkinsfileRouter(store: PipelineStore = new PipelineStore
         ...existing,
         ...body,
         name: body.name?.trim() || existing.name,
+        // A body that says nothing about the repository leaves the connection
+        // alone — losing it would silently turn Commit into a dead button.
+        repo: body.repo ?? existing.repo,
         updatedAt: new Date().toISOString(),
       });
       log.info("jenkinsfile", `updated ${pipeline.id}`, { name: pipeline.name, stages: pipeline.stages.length });
@@ -174,6 +237,63 @@ export function createJenkinsfileRouter(store: PipelineStore = new PipelineStore
       await store.remove(existing.id);
       log.info("jenkinsfile", `deleted ${existing.id}`, { name: existing.name });
       res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * Read a Jenkinsfile out of git. Turning it into stages is `parse.ts`'s job,
+   * in the browser, where the catalog and the import warnings already live.
+   *
+   * "No Jenkinsfile" and "several Jenkinsfiles" are both 404s carrying the
+   * sentence that says what to do about it, because to the person pressing
+   * Connect they are the same event: the repository did not hand back a file.
+   */
+  router.post("/api/jenkinsfile/pull", async (req, res, next) => {
+    try {
+      const { repoUrl, revision, path } = pullBody.parse(req.body);
+      const result = await pullJenkinsfile(repoUrl, revision, path);
+      if ("problem" in result) {
+        res.status(404).json({ error: result.problem, candidates: result.candidates });
+        return;
+      }
+      // `repoUrl` is echoed because it may not be the one that was sent — an
+      // SSH URL was rewritten above, and the pipeline should record what cloned.
+      res.json({ ...result, repoUrl, revision });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /** Commit the generated Jenkinsfile onto this pipeline's own branch and open a PR. */
+  router.post("/api/jenkinsfile/pipelines/:id/push", async (req, res, next) => {
+    try {
+      const pipeline = store.get(req.params.id);
+      if (!pipeline) {
+        res.status(404).json({ error: "Pipeline not found" });
+        return;
+      }
+      if (!mine(pipeline, req)) {
+        res.status(403).json({ error: "Forbidden — that pipeline belongs to someone else" });
+        return;
+      }
+      const body = pushBody.parse(req.body);
+      const repo = pipeline.repo;
+      if (!repo || !safeRepoUrl(repo.repoUrl) || !safeRef(repo.revision) || !safeFilePath(repo.path)) {
+        res.status(400).json({
+          error: "This pipeline's repository, branch or file path is not something git can be pointed at.",
+        });
+        return;
+      }
+      const result = await pushJenkinsfile({
+        pipeline,
+        text: body.text,
+        branch: body.branch || `portal/jenkinsfile-${pipeline.id.toLowerCase()}`,
+        message: body.message || `Update ${repo.path} from ${pipeline.name}`,
+        authorName: req.user!.displayName,
+      });
+      res.json(result);
     } catch (err) {
       next(err);
     }
