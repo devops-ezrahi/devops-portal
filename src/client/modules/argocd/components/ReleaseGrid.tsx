@@ -1,5 +1,5 @@
 import { Plus } from "lucide-react";
-import type { Resource } from "../resources";
+import { SCOPE_NOTE, type Resource } from "../resources";
 
 /**
  * One rectangle per release — the microservices this tree deploys — and what
@@ -30,7 +30,7 @@ type Props = {
   onAdd: () => void;
 };
 
-/** `ConfigMap ×2`, with the objects' own names on hover. */
+/** `ConfigMap ×2`, with the objects' own names and what kind of thing it is on hover. */
 function Chip({ kind, names, variant, title }: { kind: string; names?: string[]; variant?: string; title?: string }) {
   return (
     <span className={`ag-chip${variant ? ` ${variant}` : ""}`} title={title ?? names?.join(", ")}>
@@ -40,14 +40,19 @@ function Chip({ kind, names, variant, title }: { kind: string; names?: string[];
   );
 }
 
+/** `ConfigMap ×2 — app-config, feature-flags · An object of its own…` */
+const chipTitle = (r: Resource) => [r.names?.join(", "), SCOPE_NOTE[r.scope]].filter(Boolean).join(" · ");
+
 export function ReleaseGrid({ cards, selectedId, onSelect, onAdd }: Props) {
   return (
     <div className="ag-card-grid" aria-label="Releases">
       {cards.map((card) => {
-        // The workload is what the release *is*, so it leads and is styled
-        // apart from the objects it brings with it. A release can have none.
-        const workload = card.resources.find((r) => r.workload);
-        const rest = card.resources.filter((r) => !r.workload);
+        // Grouped by what each thing *is*, not just listed: the workload, the
+        // parts of its pod template, the objects beside it, and the
+        // cluster-scoped ones that only one release may own. `resourcesOf`
+        // returns them already in that order.
+        const workload = card.resources.find((r) => r.scope === "workload");
+        const rest = card.resources.filter((r) => r.scope !== "workload");
         const selected = card.id === selectedId;
         return (
           <button
@@ -63,9 +68,9 @@ export function ReleaseGrid({ cards, selectedId, onSelect, onAdd }: Props) {
                 with no workload is not missing anything. */}
             {(card.image || workload) && <span className="ag-card-image">{card.image || "no image"}</span>}
             <span className="ag-card-chips">
-              {workload && <Chip kind={workload.kind} variant="workload" />}
+              {workload && <Chip kind={workload.kind} variant="workload" title={SCOPE_NOTE.workload} />}
               {rest.map((r) => (
-                <Chip key={r.kind} kind={r.kind} names={r.names} />
+                <Chip key={r.kind} kind={r.kind} names={r.names} variant={r.scope} title={chipTitle(r)} />
               ))}
               {card.extras.map((e) => (
                 <Chip

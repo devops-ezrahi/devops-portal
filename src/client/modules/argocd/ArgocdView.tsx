@@ -544,12 +544,18 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
             </div>
 
             <div className="ag-section ag-wiring">
-              {/* The values repo is this tree's destination — what a commit
-                  writes to and what ArgoCD watches — so it is the panel, with
-                  its buttons on the row that names it. The chart is a
-                  deployment fact set once per organisation, so it is one line
-                  under it. They used to share a disclosure as equals, which
-                  made the rarely-touched one as loud as the live one. */}
+              {/* Read top to bottom: what renders this tree, then where the
+                  tree goes. The chart comes first because it is the input and
+                  the repo is the destination — but it is one quiet line,
+                  because it is set once per organisation, while the repo is the
+                  panel that carries the two git buttons. They used to share a
+                  disclosure as equals, which made the rarely-touched one as
+                  loud as the live one. */}
+              <ChartLine
+                tree={draft}
+                onChange={(chart) => setDraft((p) => ({ ...p, chart }))}
+                onRootAppName={(rootAppName) => setDraft((p) => ({ ...p, rootAppName }))}
+              />
               <RepoPanel
                 tree={draft}
                 open={repoOpen}
@@ -562,11 +568,6 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 gitEnabled={gitEnabled}
                 saved={!!draft.id}
                 releaseCount={draft.releases.length}
-              />
-              <ChartLine
-                tree={draft}
-                onChange={(chart) => setDraft((p) => ({ ...p, chart }))}
-                onRootAppName={(rootAppName) => setDraft((p) => ({ ...p, rootAppName }))}
               />
             </div>
             <div className="ag-section">

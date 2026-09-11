@@ -4270,9 +4270,25 @@ input.jf-title {
 .ag-repo label {
   display: grid;
   gap: 4px;
+  /* Both are needed, and neither is cosmetic. A grid row stretches its items to
+     the tallest one, so a label whose neighbour carries a hint was itself
+     stretched — and then its own auto rows shared the slack out, leaving the
+     field floating well below its own caption. `align-self` stops the label
+     growing; `align-content` stops its rows spreading if it ever does. */
+  align-content: start;
+  align-self: start;
   font-size: 13px;
   font-weight: 700;
   color: #f2f6f7;
+}
+
+/* A hint is prose, not part of the caption it sits under. */
+.ag-repo .field-hint,
+.ag-new-modal .field-hint {
+  font-weight: 400;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #8ea0a8;
 }
 
 /* ---- release / layer tabs ---- */
@@ -4370,6 +4386,31 @@ input.jf-title {
   border-color: #20c7bd66;
   background: rgba(32, 199, 189, 0.1);
   color: #9fe4dc;
+}
+
+/* Part of the workload's pod template, not an object of its own — a
+   `volumeClaimTemplates` entry is a stanza inside the StatefulSet, and reading
+   exactly like a standalone PersistentVolumeClaim was the confusion this
+   removes. Set back and joined to the workload chip by a leading tick. */
+.ag-chip.pod {
+  border-color: transparent;
+  background: rgba(159, 228, 220, 0.05);
+  color: #7d8e96;
+  font-weight: 400;
+}
+
+.ag-chip.pod::before {
+  content: "↳";
+  margin-right: 4px;
+  color: #4a5a62;
+}
+
+/* Cluster-scoped: exactly one release in the cluster may own it, which is a
+   fact about the object and not about this tree. */
+.ag-chip.cluster {
+  border-color: #4a3f2a;
+  background: rgba(224, 179, 65, 0.08);
+  color: #e0b341;
 }
 
 /* Only a namespace override creates this one — see the note under the grid.

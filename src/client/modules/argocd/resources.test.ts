@@ -42,8 +42,8 @@ describe("resourcesOf", () => {
     // an ordinary ConfigMap, so nothing may present it as the workload.
     const configOnly = resourcesOf({ workload: { type: "none" }, configMaps: { flags: {} } });
     expect(configOnly.map((r) => r.kind)).toEqual(["ConfigMap"]);
-    expect(configOnly.some((r) => r.workload)).toBe(false);
-    expect(resourcesOf({}).find((r) => r.workload)?.kind).toBe("Deployment");
+    expect(configOnly.some((r) => r.scope === "workload")).toBe(false);
+    expect(resourcesOf({}).find((r) => r.scope === "workload")?.kind).toBe("Deployment");
   });
 
   it("folds the primary and the extra objects of a kind into one chip", () => {
@@ -57,6 +57,43 @@ describe("resourcesOf", () => {
       extraDeploy: ["apiVersion: monitoring.coreos.com/v1\nkind: PrometheusRule\nmetadata:\n  name: x\n", "no kind here\n"],
     };
     expect(kinds(doc)).toEqual(["PrometheusRule", "extraDeploy"]);
+  });
+
+  it("separates what is part of the workload from what is an object of its own", () => {
+    // The trap this exists to close: `volumeClaimTemplates` really does end up
+    // as PersistentVolumeClaims, but they are minted by the StatefulSet and die
+    // with it — so showing them exactly like the standalone `pvc` below said
+    // two different things in the same words.
+    const doc = {
+      workload: { type: "statefulset" },
+      volumeClaimTemplates: { data: { size: "50Gi" } },
+      volumes: { config: { configMap: { name: "app-config" } } },
+      sidecars: { envoy: {} },
+      pvc: { shared: { size: "5Gi" } },
+      persistentVolumes: { nfs: {} },
+      rbac: { roles: { reader: {} }, clusterRoles: { admin: {} } },
+    };
+    const byScope = (scope: string) =>
+      resourcesOf(doc)
+        .filter((r) => r.scope === scope)
+        .map((r) => r.kind);
+
+    expect(byScope("workload")).toEqual(["StatefulSet"]);
+    expect(byScope("pod")).toEqual(["Sidecar", "Volume", "PVC per replica"]);
+    expect(byScope("object")).toEqual(["PersistentVolumeClaim", "Role"]);
+    expect(byScope("cluster")).toEqual(["PersistentVolume", "ClusterRole"]);
+
+    // Grouped, so the card can render them in bands without sorting itself.
+    expect(kinds(doc)).toEqual([
+      "StatefulSet",
+      "Sidecar",
+      "Volume",
+      "PVC per replica",
+      "PersistentVolumeClaim",
+      "Role",
+      "PersistentVolume",
+      "ClusterRole",
+    ]);
   });
 
   it("says what an override adds on top of the base", () => {
