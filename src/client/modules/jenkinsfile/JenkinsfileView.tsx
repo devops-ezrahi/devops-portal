@@ -3,9 +3,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { JenkinsfileParam, JenkinsfilePipeline, JenkinsfileStage } from "../../../server/types";
 import { log, error as logError } from "../../log";
-import { createPipeline, deletePipeline, getImages, listPipelines, updatePipeline, type PickableImage } from "./api";
+import {
+  createPipeline,
+  deletePipeline,
+  getImages,
+  listPipelines,
+  pullJenkinsfile,
+  pushPipeline,
+  updatePipeline,
+  type PickableImage,
+} from "./api";
 import { toGroovy } from "./groovy";
 import { usedParamNames } from "./params";
+import { parseJenkinsfile } from "./parse";
 import {
   createStage,
   DEFAULT_LIBRARY,
@@ -21,6 +31,7 @@ import { ParamsEditor, paramScope } from "./components/ParamsEditor";
 import { PipelineList } from "./components/PipelineList";
 import { ImagesContext } from "./components/ArgField";
 import { NewPipelineDialog } from "./components/NewPipelineDialog";
+import { RepoPanel, type PushState } from "./components/RepoPanel";
 import { StageList } from "./components/StageList";
 
 /** The `touched` key standing for the pipeline itself rather than one stage. */
@@ -89,6 +100,10 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
   const [newOpen, setNewOpen] = useState(false);
   const [naming, setNaming] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
+  /** Whether a git credential exists at all — the repo buttons say so when it does not. */
+  const [gitEnabled, setGitEnabled] = useState(false);
+  const [pulling, setPulling] = useState(false);
+  const [push, setPush] = useState<PushState>({ kind: "idle" });
   /** The id the next write should PUT to. A ref, because the write queue reads it after an await. */
   const idRef = useRef("");
   /**
@@ -107,6 +122,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
         log("jenkinsfile", `pipelines loaded: ${result.pipelines.length}`);
         setPipelines(result.pipelines);
         if (result.sharedLibrary) setSharedLibrary(result.sharedLibrary);
+        setGitEnabled(!!result.gitEnabled);
         // Reopen whatever was last open, so Refresh lands back where you were.
         // Only into an untouched draft: a load that resolves late must not take
         // the editor away from a pipeline already opened by hand.
@@ -178,6 +194,9 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
       ])
     );
     setSaveState("idle");
+    // The result line belongs to the pipeline that was committed, not to the
+    // next one opened.
+    setPush({ kind: "idle" });
   }
 
   /** Both ways of starting: `start` is the pipeline to open, empty or imported. */
@@ -189,6 +208,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
     // empty new pipeline has no stages, so this is a no-op for it.
     setTouched(new Set([...start.stages.map((stage) => stage.id), ...start.params.map(paramScope)]));
     setSaveState("idle");
+    setPush({ kind: "idle" });
     setNewOpen(false);
     localStorage.removeItem(LAST_OPENED_KEY);
   }
@@ -198,11 +218,83 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
     startPipeline(newPipeline());
   }
 
-  function handleImport(imported: DraftPipeline, warnings: string[]) {
-    log("jenkinsfile", `imported: ${imported.stages.length} stage(s)`, { warnings: warnings.length });
+  /**
+   * Pasted, picked, or read out of a repository — all three land here. `repo`
+   * is what separates the third: it rides along on the draft, is written by the
+   * same autosave, and is what the Commit button later pushes back to.
+   */
+  function handleImport(imported: DraftPipeline, warnings: string[], repo?: DraftPipeline["repo"]) {
+    log("jenkinsfile", `imported: ${imported.stages.length} stage(s)`, { warnings: warnings.length, repo: !!repo });
     // Autosave takes it from here — an import is a change like any other, so it
     // lands in the list on the same debounce as typing does.
-    startPipeline(imported);
+    // No toast for the warnings: the dialog has already shown them in full and
+    // been told to import anyway, which is the whole point of that gate.
+    startPipeline(repo ? { ...imported, repo } : imported);
+  }
+
+  /** Re-read the connected repo, replacing this pipeline's stages with what is in it. */
+  async function handlePull() {
+    const repo = draft.repo;
+    if (!repo) return;
+    setPulling(true);
+    try {
+      const result = await pullJenkinsfile(repo.repoUrl, repo.revision, repo.path);
+      const parsed = parseJenkinsfile(result.text);
+      log("jenkinsfile", "pulled", { path: result.path, stages: parsed.pipeline.stages.length });
+      // The file replaces what this pipeline holds, but not which file it is:
+      // the connection is the user's, and a pull must not be able to redirect
+      // where the next commit lands. Its own id, name and timestamps stay too —
+      // this is the same document, re-read.
+      setDraft((prev) => ({
+        ...prev,
+        library: parsed.pipeline.library,
+        params: parsed.pipeline.params,
+        stages: parsed.pipeline.stages,
+      }));
+      setTouched(
+        new Set([
+          PIPELINE_SCOPE,
+          ...parsed.pipeline.stages.map((stage) => stage.id),
+          ...parsed.pipeline.params.map(paramScope),
+        ])
+      );
+      if (parsed.warnings.length)
+        onError(`Pulled with ${parsed.warnings.length} warning(s). First: ${parsed.warnings[0]}`);
+    } catch (err) {
+      logError("jenkinsfile", "pull failed", err);
+      onError(err instanceof Error ? err.message : "Could not read that repository");
+    } finally {
+      setPulling(false);
+    }
+  }
+
+  /**
+   * Commit the generated Jenkinsfile and open a pull request.
+   *
+   * The server pushes the *stored* pipeline's file to the *stored* pipeline's
+   * repo, so anything still sitting in the autosave debounce has to land first —
+   * otherwise the commit describes the pipeline as it was one keystroke ago. It
+   * goes through the same queue rather than around it, so it cannot race the
+   * write that is already scheduled.
+   */
+  async function handleCommit() {
+    setPush({ kind: "busy" });
+    try {
+      const input = toInput(draft);
+      queue.current = queue.current.then(() => write(input, JSON.stringify(input)));
+      await queue.current;
+      const id = idRef.current;
+      if (!id) throw new Error("This pipeline has not been saved yet — try again in a moment.");
+      const result = await pushPipeline(id, code);
+      log("jenkinsfile", "pushed", { id, branch: result.branch, changed: result.changed });
+      setPush({ kind: "done", ...result });
+    } catch (err) {
+      logError("jenkinsfile", "push failed", err);
+      setPush({
+        kind: "error",
+        message: err instanceof Error ? err.message : "Could not commit to that repository",
+      });
+    }
   }
 
   function touch(scope: string) {
@@ -262,7 +354,10 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
     const input = toInput(draft);
     const json = JSON.stringify(input);
     if (json === persisted.current) return;
-    if (!draft.id && input.stages.length === 0 && input.params.length === 0) return;
+    // A connected repository counts as content even with nothing in it yet: an
+    // empty Jenkinsfile is a legitimate thing to read, and the connection is
+    // what Commit needs on the record.
+    if (!draft.id && !draft.repo && input.stages.length === 0 && input.params.length === 0) return;
 
     const timer = setTimeout(() => {
       queue.current = queue.current.then(() => write(input, json));
@@ -409,6 +504,24 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
               </button>
             </div>
 
+            {/* Only once connected. A pipeline that was never read out of git
+                has nothing to pull and nowhere to commit, and a permanently
+                disabled panel would be furniture explaining itself. */}
+            {draft.repo && (
+              <div className="jf-section">
+                <RepoPanel
+                  repo={draft.repo}
+                  onPull={() => void handlePull()}
+                  onCommit={() => void handleCommit()}
+                  pulling={pulling}
+                  push={push}
+                  gitEnabled={gitEnabled}
+                  saved={saveState !== "saving"}
+                  stageCount={draft.stages.length}
+                />
+              </div>
+            )}
+
             <div className="jf-section">
               <LibraryField
                 value={draft.library}
@@ -456,7 +569,12 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
       </div>
 
       {newOpen && (
-        <NewPipelineDialog onScratch={handleNew} onImport={handleImport} onClose={() => setNewOpen(false)} />
+        <NewPipelineDialog
+          onScratch={handleNew}
+          onImport={handleImport}
+          onClose={() => setNewOpen(false)}
+          gitEnabled={gitEnabled}
+        />
       )}
     </ImagesContext.Provider>
   );

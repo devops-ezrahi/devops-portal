@@ -3,7 +3,7 @@ import { dirname, join, resolve, sep } from "path";
 import { git, withCredentials } from "../../git";
 import { log } from "../../log";
 import { createTmpDir, removeTmpDir } from "../../tmp";
-import { openPullRequest, githubRepo } from "./github";
+import { openPullRequest, githubRepo } from "../../github";
 import { safeTreePath, valuesTokenFor } from "./valuesRepo";
 import type { ArgocdTree } from "../../types";
 

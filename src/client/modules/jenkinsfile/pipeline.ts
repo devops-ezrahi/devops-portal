@@ -98,6 +98,10 @@ export function toInput(draft: DraftPipeline) {
     // record, so sending nothing would leave a migrated pipeline's old copy behind.
     envVars: {},
     params: draft.params.filter((p) => p.name.trim()).map((p) => ({ ...p, name: p.name.trim() })),
+    // Omitted rather than sent as undefined when nothing is connected: the
+    // server reads an absent `repo` as "leave the connection alone", so a
+    // pipeline that has one keeps it even if this draft never learned about it.
+    ...(draft.repo ? { repo: draft.repo } : {}),
     stages: draft.stages,
   };
 }

@@ -97,7 +97,7 @@ Key variables (see `.env.example`):
 | `ARTIFACTORY_DOCKER_REPO`                                    | —               | Docker repo the Whitening module pushes retagged images to via `skopeo`                                                     |
 | `ARTIFACTORY_MAVEN_REPO` / `_RPM_REPO` / `_PYPI_REPO` / `_CONDA_REPO` / `_HELM_REPO` | —       | Per-type repos the Artifactory module routes detected artifacts to (`packageTypes.ts`); unset = that type is skipped with a log line. Helm is the one that is not routed by filename: a chart is a `.tgz` exactly like an npm package, so `readTarballIdentity` decides from the manifest inside (`<chart>/Chart.yaml` vs `package/package.json`). |
 | `NPM_SOURCE_TOKEN`                                            | —               | Credential for the *source* npm registry when a URL copy is submitted with **Include dependencies** ticked. That path derives the registry from the pasted tarball URL (`<registry>/<name>/-/<file>.tgz`), writes it plus this token into a throwaway `.npmrc`, and runs a real `npm install` — once per target platform, since optional deps are platform-gated. Unset is normal: a public registry needs nothing, and a source registry on the same host as `ARTIFACTORY_URL` reuses `ARTIFACTORY_TOKEN` automatically. |
-| `GIT_URL` / `GIT_TOKEN`                                      | —               | Bitbucket Server base URL + HTTP access token; required for the Whitening module to open pull requests. The AI module reuses the same token to authenticate `git clone` for registered `ai-*` project repos (unset = clone stays unauthenticated, so public repos still work) |
+| `GIT_URL` / `GIT_TOKEN`                                      | —               | Bitbucket Server base URL + HTTP access token; required for the Whitening module to open pull requests. The AI module reuses the same token to authenticate `git clone` for registered `ai-*` project repos (unset = clone stays unauthenticated, so public repos still work). The **Jenkinsfile** builder reuses it too — for reading a Jenkinsfile out of a repo and committing one back — and deliberately has no variable of its own: a Jenkinsfile lives in the application repos `GIT_URL` already names. Setting both is what enables that module's Connect/Pull/Commit; the token only ever reaches the `GIT_URL` host (`tokenFor`), so a repo elsewhere is cloned anonymously. |
 | `GIT_USERNAME`                                               | —               | Empty (default) puts the token alone in the clone URL; set it only if Bitbucket wants `username:token` basic auth           |
 | `JENKINS_IMAGES_PATH`                                        | —               | Artifactory storage path whose child folders name the agent images the Jenkinsfile builder's `image` field suggests (e.g. `docker-local/jenkins-agents`). One AQL search per hour per pod returns the names *and* each image's `SCREAMING_CASE` Docker labels (`JDK=17`), which are shown beside the name. Unset, or unreachable, = the field is plain free text exactly as before. |
 | `ARGOCD_CHART_REPO_URL` / `_CHART_PATH` / `_CHART_REVISION`   | universal-chart repo, `.`, `main` | Where the universal chart lives — what each generated release renders. |
@@ -771,6 +771,75 @@ no external system — the only server-side state is saved pipeline documents.
   stamped on.
 - The saved list uses the portal's standard `.ticket-row` shape, same as every
   other module. Editing a pipeline is opening it; there is nothing else to do to it.
+
+## Jenkinsfile: connecting a repository
+
+A pipeline can be read out of the repo that holds it and committed back to it —
+New's third choice, then Pull and Commit on the panel that names the repo. It is
+**the ArgoCD module's pull/push, reused rather than reinvented**: same guards,
+same per-document force-pushed branch, same `githubRepo`/`openPullRequest`, same
+"the push writes the *stored* record, so flush the autosave first" rule. Two
+builders that commit to git must not have two ideas of what pressing Commit
+does, so the parts that are not about values trees or Jenkinsfiles were promoted
+out of ArgoCD rather than copied:
+
+- `src/server/repoGuards.ts` — `safeRepoUrl` (http(s) only, which is what rules
+  out git's `ext::` transport, whose "URL" is a shell command git runs),
+  `safeRef`, `safeDirPath`, `safeFilePath`, and `tokenFor`. `valuesRepo.ts`
+  re-exports the first three and keeps `safeTreePath`, because the `.yaml` suffix
+  is a rule about a values tree and not about git.
+- `src/server/github.ts` — moved up from `modules/argocd/`. It was never
+  ArgoCD-specific; off GitHub both modules push the branch and say the pull
+  request is a manual step, which is the same sentence.
+
+**No new environment variable: it reuses `GIT_URL`/`GIT_TOKEN`.** ArgoCD needed
+`ARGOCD_VALUES_TOKEN` because a *values* repo is a separate GitOps repo, usually
+on another host. A Jenkinsfile is not: it lives in the application repo, which is
+the same set of repos the Whitening module already opens PRs against and the AI
+module already clones with this exact credential. A variable no deployment is
+asking for is a variable to get wrong, so `gitEnabled` on the pipelines list is
+just `config.git.enabled`, and `tokenFor(url)` is called with no fallback — the
+token reaches the `GIT_URL` host and nowhere else, and a repo elsewhere is cloned
+anonymously, so a public one still reads and a private one says why it cannot.
+
+**Finding the Jenkinsfile is the one genuinely new part.** ArgoCD is pointed at a
+directory and takes everything in it; here there is one file whose name is a
+convention rather than a rule, and nobody wants to type the path of the file they
+are about to import. So the clone is searched (`pickJenkinsfile`), bounded the
+way `pullValuesTree` is bounded — 4 000 entries, 4 levels, `node_modules`/`target`
+/`dist` and friends skipped — never an unbounded walk of a monorepo.
+
+- **A repo-root `Jenkinsfile` wins outright**; failing that, a single candidate
+  anywhere is taken. `Jenkinsfile`, `Jenkinsfile.release` and `deploy.jenkinsfile`
+  all count, case-insensitively.
+- **Several is a question, not a guess.** Taking the shallowest or the
+  alphabetically first would import the wrong pipeline silently and then commit
+  over it, which is the one failure worth a click to avoid. So it comes back as a
+  404 naming them, and the answer goes in the path field that is already on
+  screen — no picker component for a case that ends in typing a path anyway.
+  None is the same sentence in the other direction.
+- Both are a *return value*, not an exception: they are ordinary answers about a
+  repository, and a route should not have to recognise them by pattern-matching
+  its own error message.
+
+**Parsing is `parse.ts`, unchanged** — the importer the New dialog already had.
+Connecting sets the text and falls through to the same warnings gate, so a file
+that is half-understood says so once before replacing anything, exactly as a
+pasted one does. Parsing server-side would have forked it.
+
+**One difference from ArgoCD's push, deliberately.** `pushJenkinsfile` fetches
+the pipeline's branch and continues it when the remote already has one, where
+`pushValuesTree` does `clone --branch <base>` then `checkout -B` and so rebuilds
+the branch from the base branch every time. That makes a second press of Commit
+a real no-op ("the repository already matches this pipeline") instead of a fresh
+commit with identical content. ArgoCD's own test asserts the same thing and
+currently fails on it; this is what that test is asking for, not a divergence.
+
+Left out on purpose: **Bitbucket pull requests**. Whitening's `BitbucketApi` can
+open one and the dispatch would be a second `if`, but that is ArgoCD's semantics
+changed for one module — off GitHub the branch is pushed and the note says to
+open the PR by hand. Worth revisiting for both modules at once, not for this one
+alone.
 
 ## ArgoCD: the universal-chart GitOps builder
 

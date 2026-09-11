@@ -5118,3 +5118,108 @@ input.jf-title {
   display: grid;
   gap: 4px;
 }
+
+/* Jenkinsfile: the connected repository.
+   Deliberately the ArgoCD repo panel's shape and colours — the two builders do
+   the same thing with the same two buttons, so they read as one feature rather
+   than two. Appended here rather than folded into the .ag-* rules above so a
+   change to either module's panel cannot silently restyle the other's. */
+.jf-repo-panel {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #2a3940;
+  border-radius: 9px;
+  background: #0b1114;
+}
+
+.jf-repo-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.jf-repo-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 200px;
+}
+
+.jf-repo-role {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7f9199;
+}
+
+.jf-repo-ref {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #f2f6f7;
+  overflow-wrap: anywhere;
+}
+
+.jf-repo-rev { color: #9fe4dc }
+
+.jf-repo-file {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11.5px;
+  color: #6f8088;
+  overflow-wrap: anywhere;
+}
+
+.jf-repo-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.jf-push-result {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: #9fe4dc;
+}
+
+.jf-push-result code { font-size: 11.5px; color: #d7fbf8 }
+
+.jf-push-result a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #20c7bd;
+}
+
+.jf-push-result.quiet { color: #8ea0a8 }
+.jf-push-result.warn  { color: #f0c674 }
+.jf-push-result.error { color: #ff8d95 }
+
+/* Why Connect could not be read, in the dialog that asked. */
+.jf-new-error {
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12.5px;
+  color: #ff8d95;
+}
+
+/* No git credential: the choice stays visible and says why, rather than
+   vanishing and leaving the feature undiscoverable. */
+.jf-new-choice:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.jf-new-choice:disabled:hover {
+  border-color: #223038;
+  background: #101a1e;
+}

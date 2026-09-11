@@ -401,6 +401,15 @@ export type JenkinsfilePipeline = {
   envVars: Record<string, string>;
   /** Build parameters, referenced from skip conditions and commands as `params.<name>`. */
   params?: JenkinsfileParam[];
+  /**
+   * The repository this pipeline was read from and commits back to, absent
+   * until one is connected. `path` is where the Jenkinsfile sits in it — found
+   * by searching the clone, or typed when the search has more than one answer.
+   * Kept on the record rather than sent with each push, so a commit's
+   * destination is the one the owner connected and not the one a request asks
+   * for.
+   */
+  repo?: { repoUrl: string; revision: string; path: string };
   stages: JenkinsfileStage[];
   createdBy: string;
   createdByName: string;
