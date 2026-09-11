@@ -1,6 +1,7 @@
 import { FilePlus2, GitBranch, TriangleAlert, X } from "lucide-react";
 import { useState } from "react";
 import { isSshUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
+import { Help } from "../../../Help";
 import { pullValues } from "../api";
 import { importTree, type TreeImport } from "../importTree";
 
@@ -91,10 +92,17 @@ export function NewTreeDialog({
           </div>
         ) : (
           <div className="request-form">
-            <label>
-              <span>Repository URL</span>
+            <div className="field-block">
+              <span>
+                Repository URL
+                <Help label="the repository URL">
+                  <p>SSH or https — an SSH URL is rewritten to its https form for you.</p>
+                  <p>The portal authenticates with a token rather than a key, so it always clones over https.</p>
+                </Help>
+              </span>
               <input
                 autoFocus
+                aria-label="Repository URL"
                 value={repoUrl}
                 placeholder="git@github.com:org/microservices-values.git"
                 onChange={(e) => {
@@ -103,31 +111,31 @@ export function NewTreeDialog({
                 }}
                 onBlur={() => setRepoUrl((u) => normalizeRepoUrl(u))}
               />
-              {rewritten ? (
+              {rewritten && (
                 <small className="field-hint">
-                  SSH URL — this becomes <code>{normalizeRepoUrl(repoUrl)}</code>. The portal authenticates with a
-                  token rather than a key, so it clones over https.
+                  SSH URL — this becomes <code>{normalizeRepoUrl(repoUrl)}</code>.
                 </small>
-              ) : (
-                <small className="field-hint">SSH or https; an SSH URL is rewritten for you.</small>
               )}
-            </label>
+            </div>
             <label>
               <span>Branch</span>
-              <input value={revision} placeholder="main" onChange={(e) => setRevision(e.target.value)} />
+              <input aria-label="Branch" value={revision} placeholder="main" onChange={(e) => setRevision(e.target.value)} />
             </label>
-            <label>
-              <span>Subdirectory</span>
+            <div className="field-block">
+              <span>
+                Subdirectory
+                <Help label="the subdirectory">
+                  <p>Where the tree sits in that repo.</p>
+                  <p>Worth setting: a subdirectory is what lets a removed namespace be removed by a commit too.</p>
+                </Help>
+              </span>
               <input
+                aria-label="Subdirectory"
                 value={path}
                 placeholder="(repository root)"
                 onChange={(e) => setPath(e.target.value)}
               />
-              <small className="field-hint">
-                Where the tree sits in that repo. A subdirectory is worth setting: it is what lets a removed
-                namespace be removed by a commit too.
-              </small>
-            </label>
+            </div>
 
             {error && (
               <p className="ag-new-error">

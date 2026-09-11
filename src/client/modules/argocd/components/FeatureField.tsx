@@ -1,3 +1,4 @@
+import { Help } from "../../../Help";
 import { Plus, X } from "lucide-react";
 import type { FieldSpec, KvPair } from "../catalog";
 import type { Values } from "../values";
@@ -22,11 +23,19 @@ export function FeatureField({
   const wide = spec.kind === "rows" || spec.kind === "kv" || spec.kind === "text" || spec.kind === "yaml";
   return (
     <div className={`ag-field${wide ? " ag-field-wide" : ""}`}>
-      <label className="ag-field-label" htmlFor={id}>
-        {spec.label}
-      </label>
+      <span className="ag-field-label-row">
+        {/* `htmlFor`, so the `?` can sit beside the label rather than inside
+            it — a label wrapping a button names the button too. */}
+        <label className="ag-field-label" htmlFor={id}>
+          {spec.label}
+        </label>
+        {spec.hint && (
+          <Help label={spec.label}>
+            <p>{spec.hint}</p>
+          </Help>
+        )}
+      </span>
       <Control spec={spec} id={id} value={value} onChange={onChange} />
-      {spec.hint && <p className="ag-hint">{spec.hint}</p>}
     </div>
   );
 }

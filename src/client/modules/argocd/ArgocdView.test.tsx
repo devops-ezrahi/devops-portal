@@ -289,7 +289,7 @@ describe("ArgocdView", () => {
     fireEvent.click(within(screen.getByLabelText("Layers")).getByRole("button", { name: /prod/ }));
     const dotted = document.querySelectorAll(".ag-feature .ag-dot");
     expect(dotted.length).toBeGreaterThan(0);
-    const imageCard = screen.getByText("Image & pull secrets", { selector: ".ag-feature-name" });
+    const imageCard = screen.getByText("Image & pull secrets", { selector: ".ag-feature-name" }).closest(".ag-feature")!;
     expect(imageCard.querySelector(".ag-dot")).not.toBeNull();
   });
 

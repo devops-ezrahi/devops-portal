@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Pencil } from "lucide-react";
 import { normalizeRepoUrl } from "../../../../server/gitUrl";
+import { Help } from "../../../Help";
 import { repoName } from "./RepoPanel";
 import type { DraftTree } from "../document";
 
@@ -28,7 +29,13 @@ export function ChartLine({
   return (
     <div className="ag-chart-line">
       <div className="ag-chart-summary">
-        <span className="ag-chart-label">Chart</span>
+        <span className="ag-chart-label">
+          Chart
+          <Help label="the chart">
+            <p>The universal chart every microservice in this tree renders. Read-only — nothing is committed to it.</p>
+            <p>A connected tree reads it out of the repo's own root-applicationSet.yaml, so it is rarely set by hand.</p>
+          </Help>
+        </span>
         <span className="ag-chart-ref">
           {repoName(tree.chart.repoUrl)}
           <span className="ag-repo-rev">@{tree.chart.revision || "?"}</span>
@@ -49,10 +56,6 @@ export function ChartLine({
 
       {editing && (
         <div className="ag-repo">
-          <p className="ag-repo-note">
-            <strong>Chart</strong> — the universal chart every release in this tree renders. Read-only; nothing here
-            is committed to it.
-          </p>
           <label>
             <span>Chart repo URL</span>
             <input

@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronRight, CloudDownload, ExternalLink, GitPullRequestArrow, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { isSshUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
+import { Help } from "../../../Help";
 import type { DraftTree } from "../document";
 
 /**
@@ -149,13 +150,16 @@ export function RepoPanel({
 
       {open && (
         <div className="ag-repo">
-          <p className="ag-repo-note">
-            <strong>Values</strong> — where the files below are committed, and the repo the root Application
-            watches. This is the one you push to.
-          </p>
-          <label>
-            <span>Values repo URL</span>
+          <div className="field-block">
+            <span>
+              Values repo URL
+              <Help label="the values repository">
+                <p>Where the files below are committed, and the repo the root Application watches.</p>
+                <p>This is the one you push to — the chart repo above is read-only.</p>
+              </Help>
+            </span>
             <input
+              aria-label="Values repo URL"
               value={tree.values.repoUrl}
               placeholder="https://git.example.com/gitops/microservices-values.git"
               onChange={(e) => onChange({ ...tree.values, repoUrl: e.target.value })}
@@ -164,7 +168,7 @@ export function RepoPanel({
             {isSshUrl(tree.values.repoUrl) && (
               <small className="field-hint">SSH URL — this becomes {normalizeRepoUrl(tree.values.repoUrl)} on save.</small>
             )}
-          </label>
+          </div>
           <label>
             <span>Branch</span>
             <input
@@ -173,18 +177,24 @@ export function RepoPanel({
               onChange={(e) => onChange({ ...tree.values, revision: e.target.value })}
             />
           </label>
-          <label>
-            <span>Subdirectory for this tree</span>
+          <div className="field-block">
+            <span>
+              Subdirectory for this tree
+              <Help label="the subdirectory">
+                <p>At the repository root a commit only adds and updates — a removed namespace keeps its directory.</p>
+                <p>
+                  Point the tree at a subdirectory and removals travel too, because that directory is this tree's
+                  outright.
+                </p>
+              </Help>
+            </span>
             <input
+              aria-label="Subdirectory for this tree"
               placeholder="(repo root)"
               value={tree.values.path}
               onChange={(e) => onChange({ ...tree.values, path: e.target.value })}
             />
-            <small className="field-hint">
-              At the repository root a commit only adds and updates. Point the tree at a subdirectory and removals
-              travel too, because that directory is this tree's outright.
-            </small>
-          </label>
+          </div>
         </div>
       )}
     </div>

@@ -22,6 +22,7 @@ import { BY_ID } from "./catalog";
 import { deepMerge, obj } from "./values";
 import { buildTree } from "./tree";
 import { isEmptyTree, newNamespace, newRelease, newTree, toInput, type DraftTree } from "./document";
+import { Help } from "../../Help";
 import { addedKinds, resourcesOf } from "./resources";
 import { applyPromotion, findPromotions } from "./promote";
 import { FeatureEditor } from "./components/FeatureEditor";
@@ -618,6 +619,14 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 about — and a microservice card read differently depending on a
                 layer selected further down the page. */}
             <div className="ag-section">
+              <h3 className="ag-grid-head">
+                Namespaces
+                <Help label="a namespace">
+                  <p>Which layer the form below edits: the shared base, or one namespace's overrides.</p>
+                  <p>A namespace runs every microservice in the tree; its entry carries only what it changes.</p>
+                  <p>A dot marks a namespace that overrides the microservice you have open.</p>
+                </Help>
+              </h3>
               <LayerGrid
                 layer={layer}
                 namespaces={layerCards}
@@ -652,6 +661,18 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
             </div>
 
             <div className="ag-section">
+              <h3 className="ag-grid-head">
+                Microservices
+                <Help label="a microservice card">
+                  <p>One card per microservice, listing the Kubernetes objects it puts in the cluster.</p>
+                  <p>
+                    A chip set back behind <code>↳</code> is part of the workload's pod template rather than an object
+                    of its own; an amber one is cluster-scoped, so only one microservice may own it.
+                  </p>
+                  <p>A dashed chip is added by a namespace override, not by the base file.</p>
+                  <p>Press any chip to jump to the fields that set it.</p>
+                </Help>
+              </h3>
               <ReleaseGrid
                 cards={releaseCards}
                 selectedId={release?.id}
@@ -663,9 +684,6 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 onAdd={addRelease}
               />
 
-              {releaseCards.some((c) => c.extras.length) && (
-                <p className="ag-scope-note">A dashed chip is an object only a namespace override adds.</p>
-              )}
 
               {promotions.map((p) => (
                 <div className="ag-promote" key={p.releaseId}>
@@ -724,16 +742,21 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
             {release && (
               <div className="ag-section">
                 <div className="ag-scope-actions">
+                  <h3 className="ag-grid-head">
+                    {layer === BASE ? "Base values" : `${scopeLabel} overrides`}
+                    <Help label={layer === BASE ? "the base values" : "this namespace's overrides"}>
+                      {layer === BASE ? (
+                        <p>Environment-agnostic values, shared by every namespace that runs this microservice.</p>
+                      ) : (
+                        <p>Only what differs in {scopeLabel} — anything identical to base is left out of the file.</p>
+                      )}
+                    </Help>
+                  </h3>
                   <button type="button" className="ghost-button" onClick={() => setImportOpen(true)}>
                     <FileUp size={16} aria-hidden="true" /> Import values
                   </button>
                 </div>
 
-                <p className="ag-scope-note">
-                  {layer === BASE
-                    ? "Environment-agnostic values, shared by every namespace that runs this microservice."
-                    : `Only what differs in ${scopeLabel} — anything identical to base is left out of the file.`}
-                </p>
 
                 <FeatureEditor
                   // Remounted per scope, so which categories are open is

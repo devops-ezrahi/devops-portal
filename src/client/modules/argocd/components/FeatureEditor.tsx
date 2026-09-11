@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { BY_ID, CATEGORIES, FEATURES, defaultValues, primaryFields } from "../catalog";
+import { Help } from "../../../Help";
 import { FeatureField } from "./FeatureField";
 import type { FeatureSpec, FeatureState, FieldSpec } from "../catalog";
 
@@ -102,11 +103,9 @@ export function FeatureEditor({
         {REQUIRED.map((spec) => (
           <div className="ag-feature on ag-feature-required" key={spec.id} data-feature-card={spec.id}>
             <div className="ag-feature-head">
-              <span className="ag-feature-name">
-                {spec.name}
-                {overriding?.has(spec.id) && <i className="ag-dot" title="Overrides the base file" />}
-              </span>
-              <span className="ag-feature-blurb">{spec.blurb}</span>
+              <span className="ag-feature-name">{spec.name}</span>
+              <FeatureHelp spec={spec} />
+              {overriding?.has(spec.id) && <i className="ag-dot" title="Overrides the base file" />}
             </div>
             <FeatureBody spec={spec} state={features[spec.id]} onField={setField} />
           </div>
@@ -134,14 +133,18 @@ export function FeatureEditor({
               const on = !!state?.on;
               return (
                 <div className={`ag-feature${on ? " on" : ""}`} key={spec.id} data-feature-card={spec.id}>
-                  <label className="ag-feature-head">
-                    <input type="checkbox" checked={on} onChange={(e) => toggle(spec.id, e.target.checked)} />
-                    <span className="ag-feature-name">
-                      {spec.name}
-                      {overriding?.has(spec.id) && <i className="ag-dot" title="Overrides the base file" />}
-                    </span>
-                    <span className="ag-feature-blurb">{spec.blurb}</span>
-                  </label>
+                  {/* The `?` sits beside the label, never inside it: a button
+                      is a labelable element, so a label wrapping one names the
+                      button as well as the field — and a press on it would
+                      toggle the checkbox. */}
+                  <div className="ag-feature-head">
+                    <label className="ag-feature-label">
+                      <input type="checkbox" checked={on} onChange={(e) => toggle(spec.id, e.target.checked)} />
+                      <span className="ag-feature-name">{spec.name}</span>
+                    </label>
+                    <FeatureHelp spec={spec} />
+                    {overriding?.has(spec.id) && <i className="ag-dot" title="Overrides the base file" />}
+                  </div>
                   {on && <FeatureBody spec={spec} state={state} onField={setField} />}
                 </div>
               );
@@ -151,11 +154,16 @@ export function FeatureEditor({
       })}
 
       <section className="ag-category" aria-label="Extra values">
-        <h4 className="ag-category-name">Extra values</h4>
-        {/* The escape hatch, and where an import's unrecognised keys land. It is
-            merged last and wins, so anything the catalog cannot model still
-            reaches the file. */}
-        <p className="ag-feature-blurb">Raw YAML merged into {scopeLabel}, last and winning.</p>
+        <h4 className="ag-category-name">
+          Extra values
+          <Help label="extra values">
+            <p>Raw YAML merged into {scopeLabel}, last and winning.</p>
+            <p>
+              The escape hatch, and where an import's unrecognised keys land — so anything the catalog cannot model
+              still reaches the file.
+            </p>
+          </Help>
+        </h4>
         <textarea
           className="ag-textarea"
           aria-label="Extra values YAML"
@@ -168,6 +176,25 @@ export function FeatureEditor({
         {extraError && <p className="ag-error">{extraError}</p>}
       </section>
     </div>
+  );
+}
+
+/**
+ * A feature's blurb and its notes, behind the `?` beside its name.
+ *
+ * They used to sit on the page: a sentence under every one of forty-five
+ * feature names, plus up to three notes under an open one. Every line was
+ * worth saying and the stack of them was still a wall — and the field you came
+ * to change was below it.
+ */
+function FeatureHelp({ spec }: { spec: FeatureSpec }) {
+  return (
+    <Help label={spec.name}>
+      <p>{spec.blurb}</p>
+      {spec.notes?.map((note) => (
+        <p key={note}>{note}</p>
+      ))}
+    </Help>
   );
 }
 
@@ -224,11 +251,6 @@ function FeatureBody({
           ))}
         </div>
       )}
-      {spec.notes?.map((note) => (
-        <p className="ag-note" key={note}>
-          {note}
-        </p>
-      ))}
     </div>
   );
 }

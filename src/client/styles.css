@@ -2746,6 +2746,64 @@ code {
 
 /* ---- The ? beside an entry field ---- */
 
+/* ---- the shared `?` (src/client/Help.tsx) ----
+   The portal-wide version of what the Jenkinsfile builder's `.jf-help` does
+   for one field. Same shape, opened by hover as well as by press. */
+
+.help {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+.help-toggle {
+  display: inline-flex;
+  padding: 1px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #56666e;
+  cursor: help;
+  transition: color 140ms var(--ease-out);
+}
+
+.help-toggle:hover,
+.help-toggle:focus-visible,
+.help-toggle[aria-expanded="true"] {
+  color: #20c7bd;
+}
+
+.help-body {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: -8px;
+  z-index: 30;
+  width: max-content;
+  max-width: min(360px, 70vw);
+  padding: 8px 10px;
+  border: 1px solid #2a3940;
+  border-radius: 7px;
+  background: #0c1215;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+  color: #cfd8dc;
+  font-size: 11.5px;
+  font-weight: 400;
+  font-style: normal;
+  line-height: 1.55;
+  text-align: left;
+  white-space: normal;
+  /* Pointer events off: the popover hangs below its `?`, and a mouse moving
+     onto it would otherwise leave the `?` and close the thing it is over. */
+  pointer-events: none;
+}
+
+/* Near the right edge a left-anchored popover runs off the panel. */
+.help-body.right { left: auto; right: -8px }
+
+.help-body p { margin: 0 }
+.help-body p + p { margin-top: 6px }
+.help-body code { font-size: 11px; color: #9fe4dc }
+
 .jf-help {
   position: relative;
   display: inline-flex;
@@ -4267,6 +4325,26 @@ input.jf-title {
 
 .ag-repo-note strong { color: #f2f6f7 }
 
+/* A field whose caption carries a `?`. It is not a <label>, because a label
+   wrapping a button names the button too — the input carries its own
+   aria-label instead. */
+.field-block {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  align-self: start;
+  font-size: 13px;
+  font-weight: 700;
+  color: #f2f6f7;
+}
+
+.field-block > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ag-repo .field-block,
 .ag-repo label {
   display: grid;
   gap: 4px;
@@ -4524,6 +4602,8 @@ input.jf-title {
 
 .ag-category-head:hover { color: #b9c6cc }
 
+.ag-category-name:has(.help) { display: inline-flex; align-items: center; gap: 6px }
+
 .ag-category-name {
   font-size: 12px;
   letter-spacing: 0.08em;
@@ -4571,8 +4651,7 @@ input.jf-title {
 
 /* Nothing to tick, so the name starts at the edge instead of in the checkbox's
    column, and the blurb follows it. */
-.ag-feature-required .ag-feature-head { grid-template-columns: 1fr }
-.ag-feature-required .ag-feature-blurb { grid-column: 1 }
+
 
 /* Everything the chart already answers for you, one press away. */
 .ag-more {
@@ -4608,11 +4687,19 @@ input.jf-title {
   color: #d7fbf8;
 }
 
+/* A checkbox, a name and its `?`. The blurb that used to fill a second column
+   lives behind that `?` now, so this is one row rather than a grid. */
 .ag-feature-head {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: baseline;
-  gap: 4px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.ag-feature-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   cursor: pointer;
 }
 
@@ -4623,7 +4710,6 @@ input.jf-title {
 }
 
 .ag-feature-blurb {
-  grid-column: 2;
   margin: 0;
   font-size: 12.5px;
   color: #8ea0a8;
@@ -4646,6 +4732,13 @@ input.jf-title {
    needs the width, and a one-column list beside an empty half-panel is what
    made these read as broken. */
 .ag-field-wide { grid-column: 1 / -1 }
+
+.ag-field-label-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
 
 .ag-field-label {
   font-size: 13px;
@@ -4731,7 +4824,14 @@ input.jf-title {
   min-height: 36px;
 }
 
-.ag-field:has(> input[type="checkbox"]) .ag-field-label { font-weight: 700 }
+.ag-field:has(> input[type="checkbox"]) .ag-field-label-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ag-field-label { font-weight: 700 }
 
 .ag-add { justify-self: start }
 
@@ -4869,6 +4969,21 @@ input.jf-title {
 }
 
 /* ---- ArgoCD builder: import, problems ---- */
+
+/* A section's name, with its explanation behind the `?` beside it. */
+.ag-grid-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6f8088;
+}
+
+.ag-scope-actions .ag-grid-head { margin: 0; margin-right: auto }
 
 .ag-scope-actions {
   display: flex;
