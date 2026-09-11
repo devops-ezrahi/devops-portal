@@ -1,4 +1,5 @@
-import { Plus } from "lucide-react";
+import { Pencil, Plus, X } from "lucide-react";
+import { useState } from "react";
 import { SCOPE_NOTE, type Resource } from "../resources";
 
 /**
@@ -29,6 +30,8 @@ type Props = {
   onSelect: (id: string) => void;
   /** Pressing a chip selects the card *and* jumps to the fields that set it. */
   onJump: (releaseId: string, feature: string) => void;
+  onRename: (releaseId: string, name: string) => void;
+  onRemove: (releaseId: string) => void;
   onAdd: () => void;
 };
 
@@ -64,7 +67,10 @@ function Chip({
 /** `ConfigMap ×2 — app-config, feature-flags · An object of its own…` */
 const chipTitle = (r: Resource) => [r.names?.join(", "), SCOPE_NOTE[r.scope]].filter(Boolean).join(" · ");
 
-export function ReleaseGrid({ cards, selectedId, onSelect, onJump, onAdd }: Props) {
+export function ReleaseGrid({ cards, selectedId, onSelect, onJump, onRename, onRemove, onAdd }: Props) {
+  /** Which card's name is being typed into. Local — nothing above needs to know. */
+  const [editing, setEditing] = useState<string | null>(null);
+
   return (
     <div className="ag-card-grid" aria-label="Microservices">
       {cards.map((card) => {
@@ -75,19 +81,29 @@ export function ReleaseGrid({ cards, selectedId, onSelect, onJump, onAdd }: Prop
         const workload = card.resources.find((r) => r.scope === "workload");
         const rest = card.resources.filter((r) => r.scope !== "workload");
         const selected = card.id === selectedId;
-        return (
-          <button
-            key={card.id}
-            type="button"
-            aria-pressed={selected}
-            className={`ag-card ag-release-card${selected ? " selected" : ""}`}
-            onClick={(e) => {
-              const chip = (e.target as HTMLElement).closest<HTMLElement>("[data-feature]");
-              if (chip?.dataset.feature) onJump(card.id, chip.dataset.feature);
-              else onSelect(card.id);
-            }}
-          >
-            <span className="ag-card-name">{card.name.trim() || "unnamed"}</span>
+        const label = card.name.trim() || "this microservice";
+        const body = (
+          <>
+            <span className="ag-card-name">
+              {editing === card.id ? (
+                <input
+                  className="title-edit-input"
+                  aria-label="Microservice name"
+                  value={card.name}
+                  placeholder="api-gateway"
+                  autoFocus
+                  onChange={(e) => onRename(card.id, e.target.value)}
+                  onBlur={() => setEditing(null)}
+                  onKeyDown={(e) => {
+                    // Enter and Escape both just leave the field — every keystroke
+                    // is already in the draft, and autosave is what writes it.
+                    if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
+                  }}
+                />
+              ) : (
+                card.name.trim() || "unnamed"
+              )}
+            </span>
             {/* "no image" is a nudge for a release that runs pods and has not
                 been given one yet — `checks.ts` refuses that outright. A release
                 with no workload is not missing anything. */}
@@ -120,7 +136,56 @@ export function ReleaseGrid({ cards, selectedId, onSelect, onJump, onAdd }: Prop
                 overridden in {card.overrides.count} of {card.overrides.total} namespaces
               </span>
             )}
-          </button>
+          </>
+        );
+        return (
+          // The pencil and the × are siblings of the card rather than children,
+          // for the reason `Chip` above documents: the card is a <button>, and a
+          // button inside a button is invalid HTML. An <input> cannot live in
+          // one either, so the card being renamed is a plain div — it is the
+          // selected one anyway, so there is nothing left to press it for.
+          <div className="ag-card-shell" key={card.id}>
+            {editing === card.id ? (
+              <div className={`ag-card ag-release-card${selected ? " selected" : ""}`}>{body}</div>
+            ) : (
+              <button
+                type="button"
+                aria-pressed={selected}
+                className={`ag-card ag-release-card${selected ? " selected" : ""}`}
+                onClick={(e) => {
+                  const chip = (e.target as HTMLElement).closest<HTMLElement>("[data-feature]");
+                  if (chip?.dataset.feature) onJump(card.id, chip.dataset.feature);
+                  else onSelect(card.id);
+                }}
+              >
+                {body}
+              </button>
+            )}
+            <span className="ag-card-tools">
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={`Rename ${label}`}
+                // Selected as well as renamed: the fields underneath are what
+                // the name is about, and renaming a card you cannot see the
+                // contents of is how the wrong one gets renamed.
+                onClick={() => {
+                  onSelect(card.id);
+                  setEditing(card.id);
+                }}
+              >
+                <Pencil size={13} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={`Delete ${label}`}
+                onClick={() => onRemove(card.id)}
+              >
+                <X size={13} aria-hidden="true" />
+              </button>
+            </span>
+          </div>
         );
       })}
 

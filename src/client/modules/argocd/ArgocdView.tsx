@@ -1,6 +1,7 @@
 import { zipSync, strToU8 } from "fflate";
 import {
   ArrowDownToLine,
+  ArrowUpFromLine,
   Check,
   ChevronDown,
   ChevronRight,
@@ -9,7 +10,6 @@ import {
   Plus,
   Trash2,
   TriangleAlert,
-  X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
@@ -24,7 +24,8 @@ import { buildTree } from "./tree";
 import { isEmptyTree, newNamespace, newRelease, newTree, toInput, type DraftTree } from "./document";
 import { Help } from "../../Help";
 import { addedKinds, resourcesOf } from "./resources";
-import { applyPromotion, findPromotions } from "./promote";
+import { applyPromotion, findEnvSpecific, findPromotions } from "./promote";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 import { FeatureEditor } from "./components/FeatureEditor";
 import { FilePreview } from "./components/FilePreview";
 import { ImportDialog } from "./components/ImportDialog";
@@ -76,6 +77,8 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   const [push, setPush] = useState<PushState>({ kind: "idle" });
   /** Set by a press on a card's chip; the editor opens that feature and scrolls to it. */
   const [jump, setJump] = useState<{ feature: string; n: number } | undefined>();
+  /** A delete that would lose values, held until it is confirmed. */
+  const [confirm, setConfirm] = useState<{ title: string; detail: string; run: () => void } | undefined>();
   const [saveState, setSaveState] = useState<SaveState>("idle");
   /** The id the next write should PUT to. A ref, because the write queue reads it after an await. */
   const idRef = useRef("");
@@ -177,6 +180,13 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
    * down a layer rather than leaving the same line to be edited N times.
    */
   const promotions = useMemo(() => findPromotions(draft), [draft.releases, draft.namespaces]);
+  /**
+   * And the mirror: values *in* base that only an environment can answer. There
+   * is no button on these — see the note on `findEnvSpecific` for why moving one
+   * value into N namespaces unchanged would only be a promotion waiting to be
+   * offered back.
+   */
+  const envSpecific = useMemo(() => findEnvSpecific(draft), [draft.releases, draft.namespaces]);
 
   /**
    * Which features this layer actually changes. A namespace entry holds only
@@ -407,6 +417,55 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     setLayer(BASE);
   }
 
+  function renameRelease(id: string, name: string) {
+    setDraft((prev) => ({ ...prev, releases: prev.releases.map((r) => (r.id === id ? { ...r, name } : r)) }));
+  }
+
+  /**
+   * The × on a card deletes. It asks first only when there is something to
+   * lose — an empty namespace or microservice goes with no ceremony, which is
+   * what keeps the question meaningful on the one that is not empty.
+   *
+   * "Holds values" is asked of the *built* document rather than of the feature
+   * map, for the same reason the cards are: a feature can be switched on and
+   * still emit nothing, so `{ service: { on: true } }` is not work.
+   */
+  function askRemoveRelease(id: string) {
+    const target = draft.releases.find((r) => r.id === id);
+    if (!target) return;
+    const name = target.name.trim() || "this microservice";
+    const values = Object.keys(buildValues(target.features, target.extraValues)).length;
+    const overriding = draft.namespaces.filter((ns) =>
+      ns.releases.some((e) => e.release === id && Object.keys(buildValues(e.features, e.extraValues)).length)
+    ).length;
+    if (!values && !overriding) return removeRelease(id);
+    setConfirm({
+      title: `Delete ${name}?`,
+      detail: [
+        values && `its base file sets ${values} top-level value(s)`,
+        overriding && `${overriding} namespace(s) override it`,
+      ]
+        .filter(Boolean)
+        .join(", and ")
+        .replace(/^./, (c) => c.toUpperCase())
+        .concat(". Both go with it, and there is no undo."),
+      run: () => removeRelease(id),
+    });
+  }
+
+  function askRemoveNamespace(index: number) {
+    const target = draft.namespaces[index];
+    if (!target) return;
+    const name = target.name.trim() || "this namespace";
+    const overriding = target.releases.filter((e) => Object.keys(buildValues(e.features, e.extraValues)).length).length;
+    if (!overriding) return removeNamespace(index);
+    setConfirm({
+      title: `Delete ${name}?`,
+      detail: `${name} overrides ${overriding} microservice(s). Those override files go with it, and there is no undo.`,
+      run: () => removeNamespace(index),
+    });
+  }
+
   function removeRelease(id: string) {
     setDraft((prev) => ({
       ...prev,
@@ -627,37 +686,21 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   <p>A dot marks a namespace that overrides the microservice you have open.</p>
                 </Help>
               </h3>
+              {/* Renamed and removed on the tile itself. The strip that used to
+                  do both sat under the grid and acted on whatever was selected,
+                  so the name being typed was one row away from the tile showing
+                  it — and deleting meant selecting first, which is two presses
+                  to undo one mistake. A pencil and an × on the card say which
+                  one they are about without being told. */}
               <LayerGrid
                 layer={layer}
                 namespaces={layerCards}
                 releaseCount={draft.releases.length}
                 onSelect={setLayer}
+                onRename={renameNamespace}
+                onRemove={askRemoveNamespace}
                 onAdd={addNamespace}
               />
-
-              {/* Named and removed under its own strip — an input sitting
-                  inside the tiles renamed one from beside a tile already
-                  showing that name. */}
-              {namespace && (
-                <div className="ag-scope-head">
-                  <label className="ag-name-field">
-                    <span>Namespace name</span>
-                    <input
-                      value={namespace.name}
-                      placeholder="shop-web"
-                      onChange={(e) => renameNamespace(layer, e.target.value)}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="icon-button"
-                    aria-label="Remove this namespace"
-                    onClick={() => removeNamespace(layer)}
-                  >
-                    <X size={16} aria-hidden="true" />
-                  </button>
-                </div>
-              )}
             </div>
 
             <div className="ag-section">
@@ -681,6 +724,8 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   setReleaseId(id);
                   setJump({ feature, n: Date.now() });
                 }}
+                onRename={renameRelease}
+                onRemove={askRemoveRelease}
                 onAdd={addRelease}
               />
 
@@ -712,31 +757,28 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 </div>
               ))}
 
-              {release && (
-                <div className="ag-scope-head">
-                  <label className="ag-name-field">
-                    <span>Microservice name</span>
-                    <input
-                      value={release.name}
-                      placeholder="api-gateway"
-                      onChange={(e) =>
-                        setDraft((prev) => ({
-                          ...prev,
-                          releases: prev.releases.map((r) => (r.id === release.id ? { ...r, name: e.target.value } : r)),
-                        }))
-                      }
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="icon-button"
-                    aria-label="Remove this microservice"
-                    onClick={() => removeRelease(release.id)}
-                  >
-                    <X size={16} aria-hidden="true" />
-                  </button>
+              {/* The arrow points the other way, and so does the colour: teal is
+                  the offer to move a value down into base, orange is the one
+                  already used everywhere in this module for "an override lives
+                  here". There is no button on these — `findEnvSpecific` says
+                  why. */}
+              {envSpecific.map((e) => (
+                <div className="ag-promote env" key={e.releaseId}>
+                  <ArrowUpFromLine size={15} aria-hidden="true" />
+                  <span>
+                    <strong>{e.releaseName}</strong>'s base file sets{" "}
+                    {e.paths.slice(0, 4).map((path, i) => (
+                      <span key={path}>
+                        {i > 0 && ", "}
+                        <code>{path}</code>
+                      </span>
+                    ))}
+                    {e.paths.length > 4 && ` and ${e.paths.length - 4} more`}, and {e.namespaces.join(", ")}{" "}
+                    {e.namespaces.length === 1 ? "takes" : "take"} it as-is. Base is environment-agnostic — these
+                    usually belong in each namespace's own file.
+                  </span>
                 </div>
-              )}
+              ))}
             </div>
 
             {release && (
@@ -796,6 +838,18 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
 
       {newOpen && (
         <NewTreeDialog onScratch={handleScratch} onConnect={handleConnect} onClose={() => setNewOpen(false)} />
+      )}
+
+      {confirm && (
+        <ConfirmDialog
+          title={confirm.title}
+          detail={confirm.detail}
+          onConfirm={() => {
+            confirm.run();
+            setConfirm(undefined);
+          }}
+          onClose={() => setConfirm(undefined)}
+        />
       )}
     </>
   );

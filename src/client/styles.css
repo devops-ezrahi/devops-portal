@@ -4492,6 +4492,18 @@ input.jf-title {
 .ag-promote strong { color: #f2f6f7 }
 .ag-promote .ghost-button { margin-left: auto }
 
+/* The other direction — a base value only an environment can answer. Orange,
+   because that is what an override is coloured everywhere else in this module
+   (the tile dot, the override light), and because this one is an observation
+   rather than the offer a teal row makes. */
+.ag-promote.env {
+  border-color: #e2883c44;
+  background: rgba(226, 136, 60, 0.06);
+}
+
+.ag-promote.env > svg { color: #e2883c }
+.ag-promote.env code { color: #f0c08a }
+
 /* The workload is what the release *is*; the rest is what it brings with it. */
 .ag-chip.workload {
   border-color: #20c7bd66;
@@ -4547,21 +4559,76 @@ input.jf-title {
 
 .ag-add-card:hover { color: #d7fbf8 }
 
-.ag-scope-head {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  margin-top: 12px;
+/* A card's own rename and delete. They sit *beside* the card rather than in it
+   — the card is a <button>, and a button cannot contain one — so the shell is
+   what the grid lays out and the card fills it. */
+.ag-card-shell {
+  position: relative;
+  display: grid;
 }
 
-.ag-name-field {
-  display: grid;
-  gap: 4px;
-  flex: 1;
-  max-width: 340px;
+.ag-card-tools {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 2px;
+  /* Dimmed rather than hidden until hover: a control revealed only by a pointer
+     is a control a touch screen does not have, and these are the only way to
+     delete a card. */
+  opacity: 0.45;
+  transition: opacity 0.12s;
+}
+
+.ag-card-shell:hover .ag-card-tools,
+.ag-card-shell:focus-within .ag-card-tools {
+  opacity: 1;
+}
+
+.ag-card-tools .icon-button {
+  width: 22px;
+  min-height: 22px;
+  padding: 0;
+  color: #8ea0a8;
+}
+
+/* So a long name does not run underneath them — except while it is being
+   typed, where a layer tile is only ~148px wide and 46px of reserved gutter is
+   the difference between seeing the name and seeing the end of it. Renaming is
+   over the moment the field blurs, so the tools are one press away regardless. */
+.ag-card-shell .ag-card-name {
+  padding-right: 46px;
+}
+
+.ag-card-name:has(.title-edit-input) { padding-right: 0 }
+.ag-card-shell:has(.title-edit-input) .ag-card-tools { display: none }
+
+/* The portal's editable-title field, at the card's own type size. */
+.ag-card-name .title-edit-input {
+  width: 100%;
+  min-width: 0;
+  font-size: 13.5px;
+  padding: 2px 6px;
+}
+
+.ag-confirm {
+  max-width: 440px;
+}
+
+.ag-confirm-detail {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 16px;
   font-size: 13px;
-  font-weight: 700;
-  color: #f2f6f7;
+  line-height: 1.55;
+  color: #b9c6cc;
+}
+
+.ag-confirm-detail > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: #e2883c;
 }
 
 .ag-scope-note {

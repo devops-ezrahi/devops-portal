@@ -52,6 +52,27 @@ function view() {
 const feature = (name: string) =>
   screen.getByText(name, { selector: ".ag-feature-name" }).closest(".ag-feature") as HTMLElement;
 
+/**
+ * A tile in one of the two grids. Its own pencil and × carry the same name, so
+ * the role query alone matches three buttons — the card is the one with the
+ * card class on it.
+ */
+const card = (grid: "Microservices" | "Layers", name: RegExp) =>
+  within(screen.getByLabelText(grid))
+    .getAllByRole("button", { name })
+    .find((b) => b.classList.contains("ag-card")) as HTMLElement;
+
+/**
+ * Name a card. A card's name is text with a pencil beside it, so it has to be
+ * opened before it can be typed into — the same shape the tree's own name and a
+ * ticket's title use.
+ */
+function rename(what: "microservice" | "namespace", value: string, current = `this ${what}`) {
+  fireEvent.click(screen.getByRole("button", { name: `Rename ${current}` }));
+  const label = what === "microservice" ? "Microservice name" : "Namespace name";
+  fireEvent.change(screen.getByLabelText(label), { target: { value } });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
@@ -98,7 +119,7 @@ describe("ArgocdView", () => {
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
-    fireEvent.change(screen.getByLabelText("Microservice name"), { target: { value: "api-gateway" } });
+    rename("microservice", "api-gateway");
     fireEvent.change(screen.getByLabelText("image.repository"), { target: { value: "nginx" } });
 
     expect(screen.getByLabelText("base/api-gateway.yaml")).toBeInTheDocument();
@@ -115,11 +136,11 @@ describe("ArgocdView", () => {
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
-    fireEvent.change(screen.getByLabelText("Microservice name"), { target: { value: "api-gateway" } });
+    rename("microservice", "api-gateway");
     fireEvent.change(screen.getByLabelText("image.tag"), { target: { value: "1.0.0" } });
 
     fireEvent.click(screen.getByRole("button", { name: /Namespace/ }));
-    fireEvent.change(screen.getByLabelText("Namespace name"), { target: { value: "shop-web" } });
+    rename("namespace", "shop-web");
     // The namespace layer starts empty — it holds overrides, not a copy.
     fireEvent.change(screen.getByLabelText("image.tag"), { target: { value: "1.4.2" } });
 
@@ -164,15 +185,15 @@ describe("ArgocdView", () => {
     fireEvent.click(await screen.findByText("Dev User #1"));
 
     // Scoped to the grid: the file preview lists a `storefront.yaml` per layer.
-    const card = within(screen.getByLabelText("Microservices")).getByRole("button", { name: /storefront/ });
-    expect(card).toHaveTextContent("ghcr.io/shop/storefront:2.1.0");
+    const tile = card("Microservices", /storefront/);
+    expect(tile).toHaveTextContent("ghcr.io/shop/storefront:2.1.0");
     // The workload nobody typed: the chart defaults to a Deployment.
-    ["Deployment", "Service", "ConfigMap"].forEach((kind) => expect(card).toHaveTextContent(kind));
-    expect(card).toHaveTextContent("overridden in 1 of 1 namespaces");
+    ["Deployment", "Service", "ConfigMap"].forEach((kind) => expect(tile).toHaveTextContent(kind));
+    expect(tile).toHaveTextContent("overridden in 1 of 1 namespaces");
 
     // The Route exists only in prod, so it is on the card as an override —
     // dashed, and naming the namespace that adds it.
-    const route = [...card.querySelectorAll(".ag-chip")].find((c) => c.textContent === "Route")!;
+    const route = [...tile.querySelectorAll(".ag-chip")].find((c) => c.textContent === "Route")!;
     expect(route).toHaveClass("added");
     expect(route).toHaveAttribute("title", expect.stringContaining("prod"));
   });
@@ -231,8 +252,8 @@ describe("ArgocdView", () => {
 
     // The release came out of base/, and the chart came out of the root
     // ApplicationSet — nobody typed either.
-    const card = within(screen.getByLabelText("Microservices")).getByRole("button", { name: /checkout/ });
-    expect(card).toHaveTextContent("ghcr.io/shop/checkout:3.0.0");
+    const tile = card("Microservices", /checkout/);
+    expect(tile).toHaveTextContent("ghcr.io/shop/checkout:3.0.0");
     expect(screen.getByText(/universal-chart/)).toHaveTextContent("@v2.1.0");
 
     // Committing waits for the autosave that mints the id — the push writes the
@@ -286,7 +307,7 @@ describe("ArgocdView", () => {
 
     // On a namespace layer, the features that actually differ from base carry
     // the same dot the namespace tile does.
-    fireEvent.click(within(screen.getByLabelText("Layers")).getByRole("button", { name: /prod/ }));
+    fireEvent.click(card("Layers", /prod/));
     const dotted = document.querySelectorAll(".ag-feature .ag-dot");
     expect(dotted.length).toBeGreaterThan(0);
     const imageCard = screen.getByText("Image & pull secrets", { selector: ".ag-feature-name" }).closest(".ag-feature")!;
@@ -301,14 +322,14 @@ describe("ArgocdView", () => {
     listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
     view();
     fireEvent.click(await screen.findByText("Dev User #1"));
-    fireEvent.click(within(screen.getByLabelText("Layers")).getByRole("button", { name: /prod/ }));
+    fireEvent.click(card("Layers", /prod/));
 
-    const card = feature("Image & pull secrets");
+    const imageCard = feature("Image & pull secrets");
     // The light is the button — the explanation and the way out hang off it.
-    fireEvent.click(within(card).getByRole("button", { name: /What is the override on Image & pull secrets/ }));
-    expect(within(card).getByText(/deploys its own value instead of the base one/)).toBeInTheDocument();
+    fireEvent.click(within(imageCard).getByRole("button", { name: /What is the override on Image & pull secrets/ }));
+    expect(within(imageCard).getByText(/deploys its own value instead of the base one/)).toBeInTheDocument();
 
-    fireEvent.mouseDown(within(card).getByRole("button", { name: "Remove override" }));
+    fireEvent.mouseDown(within(imageCard).getByRole("button", { name: "Remove override" }));
 
     // The light goes out, and prod's file no longer carries the tag.
     expect(feature("Image & pull secrets").querySelector(".ag-dot")).toBeNull();
@@ -320,7 +341,7 @@ describe("ArgocdView", () => {
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
-    fireEvent.change(screen.getByLabelText("Microservice name"), { target: { value: "api-gateway" } });
+    rename("microservice", "api-gateway");
 
     fireEvent.click(screen.getByRole("button", { name: /Networking/ }));
     fireEvent.click(within(feature("Service")).getByRole("checkbox"));
@@ -392,6 +413,7 @@ describe("ArgocdView", () => {
     listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
     view();
     fireEvent.click(await screen.findByText("Dev User #1"));
+    fireEvent.click(screen.getByRole("button", { name: "Rename storefront" }));
     expect(screen.getByLabelText("Microservice name")).toHaveValue("storefront");
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyPromotion, findPromotions } from "./promote";
+import { applyPromotion, findEnvSpecific, findPromotions } from "./promote";
 import { buildValues } from "./build";
 import { deepMerge } from "./values";
 import type { ArgocdTree } from "../../../server/types";
@@ -92,5 +92,59 @@ describe("applyPromotion", () => {
     };
     expect(deployed(after, 0)).toBe(deployed(before, 0));
     expect(deployed(after, 1)).toBe(deployed(before, 1));
+  });
+});
+
+describe("findEnvSpecific", () => {
+  /** Base pins a tag and a hostname; nothing overrides either yet. */
+  const pinned = () => {
+    const t = tree({
+      namespaces: [
+        { name: "dev", releases: [] },
+        { name: "prod", releases: [{ release: "r1", features: { replicas: on({ replicaCount: "6" }) } }] },
+      ],
+    });
+    t.releases[0].features.route = on({ enabled: true, host: "checkout.apps.example.com" });
+    return t;
+  };
+
+  it("names the base values only an environment can answer", () => {
+    const found = findEnvSpecific(pinned());
+    expect(found).toHaveLength(1);
+    expect(found[0].releaseName).toBe("checkout");
+    // `image.repository` is the microservice's own — it is not on the list.
+    expect(found[0].paths).toEqual(["image.tag", "route.host"]);
+    expect(found[0].namespaces).toEqual(["dev", "prod"]);
+    expect(found[0].values).toEqual({ image: { tag: "1.0.0" }, route: { host: "checkout.apps.example.com" } });
+  });
+
+  it("says nothing about a path base does not set", () => {
+    const t = pinned();
+    t.releases[0].features.image = on({ repository: "shop/checkout" });
+    expect(findEnvSpecific(t)[0].paths).toEqual(["route.host"]);
+  });
+
+  it("says nothing once every namespace answers it for itself", () => {
+    // Base is then just the fallback nothing reaches, which is not a problem.
+    const t = pinned();
+    t.namespaces.forEach((ns) => {
+      ns.releases = [{ release: "r1", features: { image: on({ tag: "9.9.9" }), route: on({ host: "x.example.com" }) } }];
+    });
+    expect(findEnvSpecific(t)).toEqual([]);
+  });
+
+  it("still counts the namespaces that have not, when one has", () => {
+    const t = pinned();
+    t.namespaces[0].releases = [{ release: "r1", features: { image: on({ tag: "9.9.9" }) } }];
+    const found = findEnvSpecific(t);
+    expect(found[0].paths).toEqual(["image.tag", "route.host"]);
+    // dev pinned its own tag, but both are still taking base's route host.
+    expect(found[0].namespaces).toEqual(["dev", "prod"]);
+  });
+
+  it("needs a namespace to recommend anything into", () => {
+    const t = pinned();
+    t.namespaces = [];
+    expect(findEnvSpecific(t)).toEqual([]);
   });
 });
