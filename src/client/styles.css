@@ -4302,6 +4302,11 @@ input.jf-title {
   grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
   gap: 10px;
   align-items: stretch;
+  /* Grid rows size themselves independently, so a fourth microservice wrapping
+     onto a second row made that row as short as its own content while the
+     first stayed tall — the same cards, two different sizes. `1fr` makes every
+     row the height of the tallest card in the grid. */
+  grid-auto-rows: 1fr;
 }
 
 .ag-layer-grid {
@@ -4380,6 +4385,42 @@ input.jf-title {
 }
 
 .ag-chip b { color: #d7fbf8; font-weight: 700 }
+
+/* A chip that knows which feature made it takes you there when pressed. */
+.ag-chip.linked { cursor: pointer }
+.ag-chip.linked:hover { border-color: #20c7bd; color: #d7fbf8 }
+
+/* Where a chip lands: the feature card says so for a moment, because a smooth
+   scroll that ends on an unremarkable row leaves you wondering what moved. */
+@keyframes ag-flash {
+  from { border-color: #20c7bd; background: rgba(32, 199, 189, 0.16) }
+}
+
+.ag-feature.flash {
+  animation: ag-flash 1.4s ease-out;
+}
+
+/* "Every namespace says the same thing" — an offer, not a problem, so it is
+   the accent rather than the amber a check uses. */
+.ag-promote {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid #20c7bd44;
+  border-radius: 8px;
+  background: rgba(32, 199, 189, 0.06);
+  font-size: 12.5px;
+  color: #b9c6cc;
+}
+
+.ag-promote > svg { color: #20c7bd; flex: 0 0 auto }
+.ag-promote > span { flex: 1; min-width: 220px }
+.ag-promote code { font-size: 11.5px; color: #9fe4dc }
+.ag-promote strong { color: #f2f6f7 }
+.ag-promote .ghost-button { margin-left: auto }
 
 /* The workload is what the release *is*; the rest is what it brings with it. */
 .ag-chip.workload {

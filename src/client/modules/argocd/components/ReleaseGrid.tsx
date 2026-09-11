@@ -2,7 +2,7 @@ import { Plus } from "lucide-react";
 import { SCOPE_NOTE, type Resource } from "../resources";
 
 /**
- * One rectangle per release — the microservices this tree deploys — and what
+ * One rectangle per microservice — a release of the universal chart — and what
  * each of them puts in the cluster.
  *
  * It replaced a strip of name-only pills. A release is a Deployment *and* the
@@ -27,13 +27,34 @@ type Props = {
   cards: ReleaseCard[];
   selectedId: string | undefined;
   onSelect: (id: string) => void;
+  /** Pressing a chip selects the card *and* jumps to the fields that set it. */
+  onJump: (releaseId: string, feature: string) => void;
   onAdd: () => void;
 };
 
 /** `ConfigMap ×2`, with the objects' own names and what kind of thing it is on hover. */
-function Chip({ kind, names, variant, title }: { kind: string; names?: string[]; variant?: string; title?: string }) {
+function Chip({
+  kind,
+  names,
+  variant,
+  title,
+  feature,
+}: {
+  kind: string;
+  names?: string[];
+  variant?: string;
+  title?: string;
+  feature?: string;
+}) {
   return (
-    <span className={`ag-chip${variant ? ` ${variant}` : ""}`} title={title ?? names?.join(", ")}>
+    // `data-feature` rather than a nested <button>: the whole card is already a
+    // button, and a button inside a button is invalid HTML that browsers
+    // silently un-nest. The card's own click handler reads this off the target.
+    <span
+      className={`ag-chip${variant ? ` ${variant}` : ""}${feature ? " linked" : ""}`}
+      data-feature={feature}
+      title={title ?? names?.join(", ")}
+    >
       {kind}
       {names && names.length > 1 && <b> ×{names.length}</b>}
     </span>
@@ -43,9 +64,9 @@ function Chip({ kind, names, variant, title }: { kind: string; names?: string[];
 /** `ConfigMap ×2 — app-config, feature-flags · An object of its own…` */
 const chipTitle = (r: Resource) => [r.names?.join(", "), SCOPE_NOTE[r.scope]].filter(Boolean).join(" · ");
 
-export function ReleaseGrid({ cards, selectedId, onSelect, onAdd }: Props) {
+export function ReleaseGrid({ cards, selectedId, onSelect, onJump, onAdd }: Props) {
   return (
-    <div className="ag-card-grid" aria-label="Releases">
+    <div className="ag-card-grid" aria-label="Microservices">
       {cards.map((card) => {
         // Grouped by what each thing *is*, not just listed: the workload, the
         // parts of its pod template, the objects beside it, and the
@@ -60,7 +81,11 @@ export function ReleaseGrid({ cards, selectedId, onSelect, onAdd }: Props) {
             type="button"
             aria-pressed={selected}
             className={`ag-card ag-release-card${selected ? " selected" : ""}`}
-            onClick={() => onSelect(card.id)}
+            onClick={(e) => {
+              const chip = (e.target as HTMLElement).closest<HTMLElement>("[data-feature]");
+              if (chip?.dataset.feature) onJump(card.id, chip.dataset.feature);
+              else onSelect(card.id);
+            }}
           >
             <span className="ag-card-name">{card.name.trim() || "unnamed"}</span>
             {/* "no image" is a nudge for a release that runs pods and has not
@@ -68,9 +93,18 @@ export function ReleaseGrid({ cards, selectedId, onSelect, onAdd }: Props) {
                 with no workload is not missing anything. */}
             {(card.image || workload) && <span className="ag-card-image">{card.image || "no image"}</span>}
             <span className="ag-card-chips">
-              {workload && <Chip kind={workload.kind} variant="workload" title={SCOPE_NOTE.workload} />}
+              {workload && (
+                <Chip kind={workload.kind} variant="workload" feature={workload.feature} title={SCOPE_NOTE.workload} />
+              )}
               {rest.map((r) => (
-                <Chip key={r.kind} kind={r.kind} names={r.names} variant={r.scope} title={chipTitle(r)} />
+                <Chip
+                  key={r.kind}
+                  kind={r.kind}
+                  names={r.names}
+                  variant={r.scope}
+                  feature={r.feature}
+                  title={chipTitle(r)}
+                />
               ))}
               {card.extras.map((e) => (
                 <Chip
@@ -91,7 +125,7 @@ export function ReleaseGrid({ cards, selectedId, onSelect, onAdd }: Props) {
       })}
 
       <button type="button" className="ag-card ag-add-card" onClick={onAdd}>
-        <Plus size={15} aria-hidden="true" /> Release
+        <Plus size={15} aria-hidden="true" /> Microservice
       </button>
     </div>
   );

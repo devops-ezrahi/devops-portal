@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronRight, Plus } from "lucide-react";
-import { useState } from "react";
-import { CATEGORIES, FEATURES, defaultValues, primaryFields } from "../catalog";
+import { useEffect, useState } from "react";
+import { BY_ID, CATEGORIES, FEATURES, defaultValues, primaryFields } from "../catalog";
 import { FeatureField } from "./FeatureField";
 import type { FeatureSpec, FeatureState, FieldSpec } from "../catalog";
 
@@ -27,6 +27,8 @@ export function FeatureEditor({
   scopeLabel,
   extraValues,
   extraError,
+  overriding,
+  jump,
   onChange,
   onExtraChange,
 }: {
@@ -34,6 +36,10 @@ export function FeatureEditor({
   scopeLabel: string;
   extraValues: string;
   extraError: string | null;
+  /** Features whose value differs from base — marked with the same dot the namespace tile carries. */
+  overriding?: Set<string>;
+  /** A feature to open and scroll to, from a press on a microservice card's chip. */
+  jump?: { feature: string; n: number };
   onChange: (features: Record<string, FeatureState>) => void;
   onExtraChange: (text: string) => void;
 }) {
@@ -47,6 +53,29 @@ export function FeatureEditor({
   const [open, setOpen] = useState<Set<string>>(
     () => new Set(OPTIONAL.filter((f) => features[f.id]?.on).map((f) => f.cat))
   );
+
+  /**
+   * Pressing a chip on a microservice card lands here. The category has to be
+   * opened before the card exists to scroll to, so the scroll waits a frame.
+   * `n` is what makes pressing the same chip twice jump twice — the feature id
+   * alone would be unchanged and the effect would not re-run.
+   */
+  useEffect(() => {
+    if (!jump) return;
+    const spec = BY_ID[jump.feature];
+    if (!spec) return;
+    setOpen((prev) => new Set(prev).add(spec.cat));
+    const timer = setTimeout(() => {
+      const el = document.querySelector<HTMLElement>(`[data-feature-card="${jump.feature}"]`);
+      if (!el) return;
+      // Optional call: opening the category is the part that matters, and not
+      // every environment implements scrolling (jsdom does not).
+      el.scrollIntoView?.({ behavior: "smooth", block: "center" });
+      el.classList.add("flash");
+      setTimeout(() => el.classList.remove("flash"), 1400);
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [jump?.feature, jump?.n]);
 
   function toggleCategory(id: string) {
     setOpen((prev) => {
@@ -71,9 +100,12 @@ export function FeatureEditor({
       <section className="ag-category" aria-label="Required">
         <h4 className="ag-category-name ag-required-head">Required</h4>
         {REQUIRED.map((spec) => (
-          <div className="ag-feature on ag-feature-required" key={spec.id}>
+          <div className="ag-feature on ag-feature-required" key={spec.id} data-feature-card={spec.id}>
             <div className="ag-feature-head">
-              <span className="ag-feature-name">{spec.name}</span>
+              <span className="ag-feature-name">
+                {spec.name}
+                {overriding?.has(spec.id) && <i className="ag-dot" title="Overrides the base file" />}
+              </span>
               <span className="ag-feature-blurb">{spec.blurb}</span>
             </div>
             <FeatureBody spec={spec} state={features[spec.id]} onField={setField} />
@@ -92,15 +124,22 @@ export function FeatureEditor({
               {shown ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
               <span className="ag-category-name">{cat.name}</span>
               {count > 0 && <span className="ag-category-count">{count} on</span>}
+              {/* So a collapsed category still says it holds an override. */}
+              {specs.some((spec) => overriding?.has(spec.id)) && (
+                <i className="ag-dot" title="Holds an override of the base file" />
+              )}
             </button>
             {shown && specs.map((spec) => {
               const state = features[spec.id];
               const on = !!state?.on;
               return (
-                <div className={`ag-feature${on ? " on" : ""}`} key={spec.id}>
+                <div className={`ag-feature${on ? " on" : ""}`} key={spec.id} data-feature-card={spec.id}>
                   <label className="ag-feature-head">
                     <input type="checkbox" checked={on} onChange={(e) => toggle(spec.id, e.target.checked)} />
-                    <span className="ag-feature-name">{spec.name}</span>
+                    <span className="ag-feature-name">
+                      {spec.name}
+                      {overriding?.has(spec.id) && <i className="ag-dot" title="Overrides the base file" />}
+                    </span>
                     <span className="ag-feature-blurb">{spec.blurb}</span>
                   </label>
                   {on && <FeatureBody spec={spec} state={state} onField={setField} />}

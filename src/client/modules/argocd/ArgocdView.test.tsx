@@ -79,7 +79,7 @@ describe("ArgocdView", () => {
   it("shows the required features without a tick, and defaulted fields only on request", async () => {
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: /Release/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
 
     // Workload and image are on screen before any category is opened, and there
     // is nothing to untick them with.
@@ -97,8 +97,8 @@ describe("ArgocdView", () => {
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByRole("button", { name: /Release/ }));
-    fireEvent.change(screen.getByLabelText("Release name"), { target: { value: "api-gateway" } });
+    fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
+    fireEvent.change(screen.getByLabelText("Microservice name"), { target: { value: "api-gateway" } });
     fireEvent.change(screen.getByLabelText("image.repository"), { target: { value: "nginx" } });
 
     expect(screen.getByLabelText("base/api-gateway.yaml")).toBeInTheDocument();
@@ -114,8 +114,8 @@ describe("ArgocdView", () => {
   it("writes a namespace edit into that namespace, not into the base", async () => {
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: /Release/ }));
-    fireEvent.change(screen.getByLabelText("Release name"), { target: { value: "api-gateway" } });
+    fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
+    fireEvent.change(screen.getByLabelText("Microservice name"), { target: { value: "api-gateway" } });
     fireEvent.change(screen.getByLabelText("image.tag"), { target: { value: "1.0.0" } });
 
     fireEvent.click(screen.getByRole("button", { name: /Namespace/ }));
@@ -135,7 +135,7 @@ describe("ArgocdView", () => {
   it("shows the checks against the document that scope actually deploys", async () => {
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: /Release/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
     // A workload with no image is what the chart's own schema refuses, and the
     // workload defaults to a Deployment whether or not anything was typed.
     expect(await screen.findByText(/No image.repository/)).toBeInTheDocument();
@@ -164,7 +164,7 @@ describe("ArgocdView", () => {
     fireEvent.click(await screen.findByText("Dev User #1"));
 
     // Scoped to the grid: the file preview lists a `storefront.yaml` per layer.
-    const card = within(screen.getByLabelText("Releases")).getByRole("button", { name: /storefront/ });
+    const card = within(screen.getByLabelText("Microservices")).getByRole("button", { name: /storefront/ });
     expect(card).toHaveTextContent("ghcr.io/shop/storefront:2.1.0");
     // The workload nobody typed: the chart defaults to a Deployment.
     ["Deployment", "Service", "ConfigMap"].forEach((kind) => expect(card).toHaveTextContent(kind));
@@ -231,7 +231,7 @@ describe("ArgocdView", () => {
 
     // The release came out of base/, and the chart came out of the root
     // ApplicationSet — nobody typed either.
-    const card = within(screen.getByLabelText("Releases")).getByRole("button", { name: /checkout/ });
+    const card = within(screen.getByLabelText("Microservices")).getByRole("button", { name: /checkout/ });
     expect(card).toHaveTextContent("ghcr.io/shop/checkout:3.0.0");
     expect(screen.getByText(/universal-chart/)).toHaveTextContent("@v2.1.0");
 
@@ -253,11 +253,76 @@ describe("ArgocdView", () => {
     vi.useRealTimers();
   });
 
+  it("takes you to the fields a chip is about, and marks what a namespace overrides", async () => {
+    const tree = saved({
+      releases: [
+        {
+          id: "r1",
+          name: "storefront",
+          features: {
+            image: { on: true, v: { repository: "nginx", tag: "1.0.0" } },
+            hpa: { on: true, v: { minReplicas: "2", maxReplicas: "8" } },
+          },
+        },
+      ],
+      namespaces: [
+        { name: "prod", releases: [{ release: "r1", features: { image: { on: true, v: { tag: "2.0.0" } } } }] },
+      ],
+    });
+    listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
+    view();
+    fireEvent.click(await screen.findByText("Dev User #1"));
+
+    // Scrolling is jsdom's blind spot, so what is asserted is the half that
+    // makes the scroll possible: the chip reopens the category holding it.
+    // A category that already holds something opens on mount, so collapse it
+    // first — which is exactly the state someone tidying the page leaves.
+    fireEvent.click(screen.getByRole("button", { name: /Scaling & Availability/ }));
+    expect(screen.queryByText("HorizontalPodAutoscaler", { selector: ".ag-feature-name" })).not.toBeInTheDocument();
+
+    const grid = screen.getByLabelText("Microservices");
+    fireEvent.click(within(grid).getByText("HorizontalPodAutoscaler"));
+    expect(await screen.findByText("HorizontalPodAutoscaler", { selector: ".ag-feature-name" })).toBeInTheDocument();
+
+    // On a namespace layer, the features that actually differ from base carry
+    // the same dot the namespace tile does.
+    fireEvent.click(within(screen.getByLabelText("Layers")).getByRole("button", { name: /prod/ }));
+    const dotted = document.querySelectorAll(".ag-feature .ag-dot");
+    expect(dotted.length).toBeGreaterThan(0);
+    const imageCard = screen.getByText("Image & pull secrets", { selector: ".ag-feature-name" });
+    expect(imageCard.querySelector(".ag-dot")).not.toBeNull();
+  });
+
+  it("offers to move a value every namespace repeats down into the base", async () => {
+    const pinned = { on: true, v: { tag: "9.9.9" } };
+    const tree = saved({
+      releases: [{ id: "r1", name: "storefront", features: { image: { on: true, v: { repository: "nginx" } } } }],
+      namespaces: [
+        { name: "dev", releases: [{ release: "r1", features: { image: pinned } }] },
+        { name: "prod", releases: [{ release: "r1", features: { image: pinned } }] },
+      ],
+    });
+    listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
+    view();
+    fireEvent.click(await screen.findByText("Dev User #1"));
+
+    expect(await screen.findByText(/written out 2 times/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Move to base" }));
+
+    // The base file gained it and both namespace files lost it.
+    fireEvent.click(screen.getByLabelText("base/storefront.yaml"));
+    expect(document.querySelector(".ag-file-body")!.textContent).toContain("9.9.9");
+    fireEvent.click(screen.getByLabelText("prod/values/storefront.yaml"));
+    expect(document.querySelector(".ag-file-body")!.textContent).not.toContain("9.9.9");
+    // ...and the offer is gone, because there is nothing left to move.
+    expect(screen.queryByText(/written out 2 times/)).not.toBeInTheDocument();
+  });
+
   it("opens the tree the list row names", async () => {
     const tree = saved({ releases: [{ id: "r1", name: "storefront", features: {} }] });
     listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
     view();
     fireEvent.click(await screen.findByText("Dev User #1"));
-    expect(screen.getByLabelText("Release name")).toHaveValue("storefront");
+    expect(screen.getByLabelText("Microservice name")).toHaveValue("storefront");
   });
 });

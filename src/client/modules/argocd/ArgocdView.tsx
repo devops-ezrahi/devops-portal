@@ -1,5 +1,6 @@
 import { zipSync, strToU8 } from "fflate";
 import {
+  ArrowDownToLine,
   Check,
   ChevronDown,
   ChevronRight,
@@ -22,13 +23,14 @@ import { deepMerge, obj } from "./values";
 import { buildTree } from "./tree";
 import { isEmptyTree, newNamespace, newRelease, newTree, toInput, type DraftTree } from "./document";
 import { addedKinds, resourcesOf } from "./resources";
+import { applyPromotion, findPromotions } from "./promote";
 import { FeatureEditor } from "./components/FeatureEditor";
 import { FilePreview } from "./components/FilePreview";
 import { ImportDialog } from "./components/ImportDialog";
 import { ChartLine } from "./components/ChartLine";
 import { LayerGrid, type LayerCard } from "./components/LayerGrid";
 import { NewTreeDialog } from "./components/NewTreeDialog";
-import { RepoPanel, type PushState } from "./components/RepoPanel";
+import { RepoPanel, repoName, type PushState } from "./components/RepoPanel";
 import { ReleaseGrid, type ReleaseCard } from "./components/ReleaseGrid";
 import { TreeList } from "./components/TreeList";
 import type { FeatureState } from "./catalog";
@@ -51,6 +53,12 @@ type SaveState = "idle" | "saving" | "saved" | "error";
  */
 const BASE = -1;
 
+/** The repo's own name, and nothing if it has none to give. */
+const repoLabel = (url: string): string => {
+  const name = repoName(url);
+  return name === "not set" ? "" : name;
+};
+
 export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) {
   const [trees, setTrees] = useState<ArgocdTree[]>([]);
   const [defaults, setDefaults] = useState<TreeDefaults | undefined>();
@@ -65,6 +73,8 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   const [gitEnabled, setGitEnabled] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [push, setPush] = useState<PushState>({ kind: "idle" });
+  /** Set by a press on a card's chip; the editor opens that feature and scrolls to it. */
+  const [jump, setJump] = useState<{ feature: string; n: number } | undefined>();
   const [saveState, setSaveState] = useState<SaveState>("idle");
   /** The id the next write should PUT to. A ref, because the write queue reads it after an await. */
   const idRef = useRef("");
@@ -161,6 +171,34 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     [draft.namespaces, release?.id]
   );
   /**
+   * Values every namespace sets the same way. They are not overrides — they are
+   * the base, written out once per namespace — so the page offers to move them
+   * down a layer rather than leaving the same line to be edited N times.
+   */
+  const promotions = useMemo(() => findPromotions(draft), [draft.releases, draft.namespaces]);
+
+  /**
+   * Which features this layer actually changes. A namespace entry holds only
+   * overrides by design, but a value typed and then typed back is still in the
+   * map, and `subtractDefaults` drops it from the file — so "is in the entry"
+   * is not the same question as "differs from base". This asks the second one,
+   * against each feature's own emitted fragment.
+   */
+  const overriding = useMemo<Set<string>>(() => {
+    const out = new Set<string>();
+    if (layer === BASE || !release) return out;
+    Object.entries(features).forEach(([id, state]) => {
+      if (!state?.on) return;
+      const mine = JSON.stringify(buildValues({ [id]: state }));
+      if (mine === "{}") return;
+      const baseState = release.features[id];
+      const theirs = JSON.stringify(baseState ? buildValues({ [id]: baseState }) : {});
+      if (mine !== theirs) out.add(id);
+    });
+    return out;
+  }, [features, release, layer]);
+
+  /**
    * The checks run on the document that is actually deployed for this scope —
    * base alone, or base with the namespace's overrides merged over it — and on
    * the *parsed* form of it, so a raw block and extra values are checked
@@ -232,6 +270,11 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     const base = newTree(defaults);
     setDraft({
       ...base,
+      // Named after the repository it came from. The server mints
+      // `<author> #<n>` when a tree arrives without a name, and a list of
+      // `Dev User #6` says nothing about what any of them deploy — where a
+      // connected tree can say `argocd-example-values` outright.
+      name: repoLabel(repoUrl),
       ...(imported.chart ? { chart: imported.chart } : {}),
       ...(imported.rootAppName ? { rootAppName: imported.rootAppName } : {}),
       values: { repoUrl, revision, path },
@@ -570,17 +613,91 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 releaseCount={draft.releases.length}
               />
             </div>
+            {/* Namespaces first, microservices second. The namespace is the
+                wider choice — it says which environment everything below is
+                about — and a microservice card read differently depending on a
+                layer selected further down the page. */}
             <div className="ag-section">
-              <ReleaseGrid cards={releaseCards} selectedId={release?.id} onSelect={setReleaseId} onAdd={addRelease} />
+              <LayerGrid
+                layer={layer}
+                namespaces={layerCards}
+                releaseCount={draft.releases.length}
+                onSelect={setLayer}
+                onAdd={addNamespace}
+              />
+
+              {/* Named and removed under its own strip — an input sitting
+                  inside the tiles renamed one from beside a tile already
+                  showing that name. */}
+              {namespace && (
+                <div className="ag-scope-head">
+                  <label className="ag-name-field">
+                    <span>Namespace name</span>
+                    <input
+                      value={namespace.name}
+                      placeholder="shop-web"
+                      onChange={(e) => renameNamespace(layer, e.target.value)}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label="Remove this namespace"
+                    onClick={() => removeNamespace(layer)}
+                  >
+                    <X size={16} aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="ag-section">
+              <ReleaseGrid
+                cards={releaseCards}
+                selectedId={release?.id}
+                onSelect={setReleaseId}
+                onJump={(id, feature) => {
+                  setReleaseId(id);
+                  setJump({ feature, n: Date.now() });
+                }}
+                onAdd={addRelease}
+              />
 
               {releaseCards.some((c) => c.extras.length) && (
                 <p className="ag-scope-note">A dashed chip is an object only a namespace override adds.</p>
               )}
 
+              {promotions.map((p) => (
+                <div className="ag-promote" key={p.releaseId}>
+                  <ArrowDownToLine size={15} aria-hidden="true" />
+                  <span>
+                    Every namespace sets{" "}
+                    {p.paths.slice(0, 4).map((path, i) => (
+                      <span key={path}>
+                        {i > 0 && ", "}
+                        <code>{path}</code>
+                      </span>
+                    ))}
+                    {p.paths.length > 4 && ` and ${p.paths.length - 4} more`} the same way on{" "}
+                    <strong>{p.releaseName}</strong>. That is the base, written out {p.namespaces.length} times.
+                  </span>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => {
+                      log("argocd", "promoted to base", { release: p.releaseName, paths: p.paths });
+                      setDraft((prev) => applyPromotion(prev, p));
+                    }}
+                  >
+                    Move to base
+                  </button>
+                </div>
+              ))}
+
               {release && (
                 <div className="ag-scope-head">
                   <label className="ag-name-field">
-                    <span>Release name</span>
+                    <span>Microservice name</span>
                     <input
                       value={release.name}
                       placeholder="api-gateway"
@@ -595,7 +712,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   <button
                     type="button"
                     className="icon-button"
-                    aria-label="Remove this release"
+                    aria-label="Remove this microservice"
                     onClick={() => removeRelease(release.id)}
                   >
                     <X size={16} aria-hidden="true" />
@@ -606,38 +723,6 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
 
             {release && (
               <div className="ag-section">
-                <LayerGrid
-                  layer={layer}
-                  namespaces={layerCards}
-                  releaseCount={draft.releases.length}
-                  onSelect={setLayer}
-                  onAdd={addNamespace}
-                />
-
-                {/* Named and removed exactly where a release is, under its own
-                    strip — an input sitting inside the pills renamed a tab from
-                    beside a pill already showing that name. */}
-                {namespace && (
-                  <div className="ag-scope-head">
-                    <label className="ag-name-field">
-                      <span>Namespace name</span>
-                      <input
-                        value={namespace.name}
-                        placeholder="shop-web"
-                        onChange={(e) => renameNamespace(layer, e.target.value)}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      className="icon-button"
-                      aria-label="Remove this namespace"
-                      onClick={() => removeNamespace(layer)}
-                    >
-                      <X size={16} aria-hidden="true" />
-                    </button>
-                  </div>
-                )}
-
                 <div className="ag-scope-actions">
                   <button type="button" className="ghost-button" onClick={() => setImportOpen(true)}>
                     <FileUp size={16} aria-hidden="true" /> Import values
@@ -646,7 +731,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
 
                 <p className="ag-scope-note">
                   {layer === BASE
-                    ? "Environment-agnostic values, shared by every namespace that runs this release."
+                    ? "Environment-agnostic values, shared by every namespace that runs this microservice."
                     : `Only what differs in ${scopeLabel} — anything identical to base is left out of the file.`}
                 </p>
 
@@ -658,6 +743,8 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   scopeLabel={layer === BASE ? "the base file" : `${scopeLabel}'s override file`}
                   extraValues={extraValues}
                   extraError={extraError}
+                  overriding={overriding}
+                  jump={jump}
                   onChange={setFeatures}
                   onExtraChange={setExtra}
                 />

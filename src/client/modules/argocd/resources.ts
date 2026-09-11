@@ -38,6 +38,12 @@ export type Resource = {
   /** The objects' own names, where the document keys them — shown on hover. */
   names?: string[];
   scope: Scope;
+  /**
+   * The catalog feature that produced it, so pressing the chip can take you to
+   * the fields that set it. Absent where nothing in the catalog owns it —
+   * `extraDeploy` manifests and anything that arrived through extra values.
+   */
+  feature?: string;
 };
 
 /** What each scope means, said on the chip rather than in a legend. */
@@ -64,77 +70,77 @@ function kindsOf(manifest: unknown): string[] {
 export function resourcesOf(doc: Values): Resource[] {
   const out: Resource[] = [];
   /** One entry per kind, with the names folded together — `ConfigMap` twice reads as a mistake. */
-  const add = (kind: string, scope: Scope, names?: string[]) => {
+  const add = (kind: string, scope: Scope, feature?: string, names?: string[]) => {
     const found = out.find((r) => r.kind === kind);
-    if (!found) out.push(names?.length ? { kind, scope, names } : { kind, scope });
+    if (!found) out.push({ kind, scope, ...(feature ? { feature } : {}), ...(names?.length ? { names } : {}) });
     else if (names?.length) found.names = [...(found.names ?? []), ...names];
   };
   /** A map of objects keyed by name: `configMaps`, `cronjobs`, `pvc`, … */
-  const fromMap = (kind: string, scope: Scope, v: unknown) => {
+  const fromMap = (kind: string, scope: Scope, feature: string, v: unknown) => {
     const keys = Object.keys(obj(v));
-    if (keys.length) add(kind, scope, keys);
+    if (keys.length) add(kind, scope, feature, keys);
   };
 
   const workload = String(obj(doc.workload).type ?? "deployment");
   // `none` is a release that owns no pods — a config-only or RBAC-only one.
-  if (WORKLOAD_KINDS[workload]) add(WORKLOAD_KINDS[workload], "workload");
+  if (WORKLOAD_KINDS[workload]) add(WORKLOAD_KINDS[workload], "workload", "workload");
 
   // ---- inside the pod template ------------------------------------------
-  fromMap("Sidecar", "pod", doc.sidecars);
-  fromMap("Init container", "pod", doc.initContainers);
-  fromMap("Volume", "pod", doc.volumes);
+  fromMap("Sidecar", "pod", "sidecars", doc.sidecars);
+  fromMap("Init container", "pod", "sidecars", doc.initContainers);
+  fromMap("Volume", "pod", "volumes", doc.volumes);
   // A PVC per replica, minted by the StatefulSet and named `<template>-<pod>`.
   // It really is a PersistentVolumeClaim in the end, which is exactly why it
   // needs saying that this one is not a standalone object.
-  fromMap("PVC per replica", "pod", doc.volumeClaimTemplates);
+  fromMap("PVC per replica", "pod", "vct", doc.volumeClaimTemplates);
 
   // ---- objects of their own, in this namespace --------------------------
-  if (enabled(doc.service)) add("Service", "object");
-  fromMap("Service", "object", doc.services);
-  if (enabled(doc.ingress)) add("Ingress", "object");
-  if (enabled(doc.route)) add("Route", "object");
-  fromMap("Route", "object", doc.routes);
-  fromMap("NetworkPolicy", "object", doc.networkPolicies);
+  if (enabled(doc.service)) add("Service", "object", "service");
+  fromMap("Service", "object", "services", doc.services);
+  if (enabled(doc.ingress)) add("Ingress", "object", "ingress");
+  if (enabled(doc.route)) add("Route", "object", "route");
+  fromMap("Route", "object", "routes", doc.routes);
+  fromMap("NetworkPolicy", "object", "netpol", doc.networkPolicies);
 
-  fromMap("ConfigMap", "object", doc.configMaps);
-  fromMap("Secret", "object", doc.secrets);
-  fromMap("ExternalSecret", "object", doc.externalSecrets);
-  fromMap("SecretStore", "object", doc.secretStores);
+  fromMap("ConfigMap", "object", "configmaps", doc.configMaps);
+  fromMap("Secret", "object", "secrets", doc.secrets);
+  fromMap("ExternalSecret", "object", "externalsecrets", doc.externalSecrets);
+  fromMap("SecretStore", "object", "secretstores", doc.secretStores);
 
-  fromMap("PersistentVolumeClaim", "object", doc.pvc);
+  fromMap("PersistentVolumeClaim", "object", "pvc", doc.pvc);
 
-  if (enabled(doc.hpa)) add("HorizontalPodAutoscaler", "object");
-  if (enabled(doc.vpa)) add("VerticalPodAutoscaler", "object");
-  if (enabled(doc.pdb)) add("PodDisruptionBudget", "object");
+  if (enabled(doc.hpa)) add("HorizontalPodAutoscaler", "object", "hpa");
+  if (enabled(doc.vpa)) add("VerticalPodAutoscaler", "object", "vpa");
+  if (enabled(doc.pdb)) add("PodDisruptionBudget", "object", "pdb");
 
-  fromMap("CronJob", "object", doc.cronjobs);
-  fromMap("Job", "object", doc.jobs);
+  fromMap("CronJob", "object", "cronjobs", doc.cronjobs);
+  fromMap("Job", "object", "jobs", doc.jobs);
 
   // The chart models exactly one ServiceAccount, and `create: false` means it
   // is referencing one somebody else made.
-  if (present(doc.serviceAccount) && obj(doc.serviceAccount).create !== false) add("ServiceAccount", "object");
+  if (present(doc.serviceAccount) && obj(doc.serviceAccount).create !== false) add("ServiceAccount", "object", "serviceaccount");
 
   const rbac = obj(doc.rbac);
-  fromMap("Role", "object", rbac.roles);
-  fromMap("RoleBinding", "object", rbac.roleBindings);
+  fromMap("Role", "object", "rbac", rbac.roles);
+  fromMap("RoleBinding", "object", "rbac", rbac.roleBindings);
 
-  if (enabled(doc.serviceMonitor)) add("ServiceMonitor", "object");
+  if (enabled(doc.serviceMonitor)) add("ServiceMonitor", "object", "servicemonitor");
 
   // ---- cluster-scoped: one owner, cluster-wide --------------------------
-  fromMap("ClusterSecretStore", "cluster", doc.clusterSecretStores);
-  fromMap("PersistentVolume", "cluster", doc.persistentVolumes);
-  fromMap("StorageClass", "cluster", doc.storageClasses);
-  fromMap("ClusterRole", "cluster", rbac.clusterRoles);
-  fromMap("ClusterRoleBinding", "cluster", rbac.clusterRoleBindings);
-  fromMap("SecurityContextConstraints", "cluster", doc.scc);
+  fromMap("ClusterSecretStore", "cluster", "secretstores", doc.clusterSecretStores);
+  fromMap("PersistentVolume", "cluster", "pv", doc.persistentVolumes);
+  fromMap("StorageClass", "cluster", "storageclass", doc.storageClasses);
+  fromMap("ClusterRole", "cluster", "rbac", rbac.clusterRoles);
+  fromMap("ClusterRoleBinding", "cluster", "rbac", rbac.clusterRoleBindings);
+  fromMap("SecurityContextConstraints", "cluster", "scc", doc.scc);
 
   // An escape hatch says what it is in its own text, or it says nothing. Its
   // scope is unknowable without rendering the template, so it is left as an
   // ordinary object rather than guessed at.
   (Array.isArray(doc.extraDeploy) ? doc.extraDeploy : []).forEach((entry) => {
     const kinds = kindsOf(entry);
-    if (kinds.length) kinds.forEach((k) => add(k, "object"));
-    else add("extraDeploy", "object");
+    if (kinds.length) kinds.forEach((k) => add(k, "object", "extradeploy"));
+    else add("extraDeploy", "object", "extradeploy");
   });
 
   // Stable, so declaration order survives inside each group.

@@ -118,7 +118,7 @@ export function RepoPanel({
 
       {confirming && (
         <p className="ag-push-result warn">
-          <TriangleAlert size={14} aria-hidden="true" /> Pulling replaces the {releaseCount} release
+          <TriangleAlert size={14} aria-hidden="true" /> Pulling replaces the {releaseCount} microservice
           {releaseCount === 1 ? "" : "s"} in this tree with whatever is in the repository.
         </p>
       )}

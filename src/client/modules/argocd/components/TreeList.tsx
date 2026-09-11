@@ -10,7 +10,7 @@ type Props = {
 /** Same row shape and size as every other module's list panel. */
 export function TreeList({ trees, selectedId, isAdmin, onSelect }: Props) {
   if (trees.length === 0) {
-    return <div className="empty-state">No trees yet. Add a release and this fills in — saving is automatic.</div>;
+    return <div className="empty-state">No trees yet. Add a microservice and this fills in — saving is automatic.</div>;
   }
 
   return (
@@ -24,7 +24,7 @@ export function TreeList({ trees, selectedId, isAdmin, onSelect }: Props) {
           <strong>{tree.name}</strong>
           <div className="ticket-row-meta">
             <small>
-              {tree.releases.length} release{tree.releases.length === 1 ? "" : "s"} ·{" "}
+              {tree.releases.length} microservice{tree.releases.length === 1 ? "" : "s"} ·{" "}
               {tree.namespaces.length} namespace{tree.namespaces.length === 1 ? "" : "s"}
             </small>
             {/* Admins see every tree, so the owner is the useful column; a user

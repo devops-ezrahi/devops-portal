@@ -138,7 +138,7 @@ export function NewTreeDialog({
             {pending && (
               <div className="ag-import-warnings">
                 <p>
-                  Read {pending.imported.releases.length} release(s) and {pending.imported.namespaces.length}{" "}
+                  Read {pending.imported.releases.length} microservice(s) and {pending.imported.namespaces.length}{" "}
                   namespace(s). {pending.imported.warnings.length} thing(s) did not come across cleanly:
                 </p>
                 <ul>
