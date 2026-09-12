@@ -1,4 +1,4 @@
-import { Pencil, Plus, X } from "lucide-react";
+import { AlertTriangle, Pencil, Plus, X } from "lucide-react";
 import { useState } from "react";
 import { SCOPE_NOTE, type Resource } from "../resources";
 
@@ -22,6 +22,11 @@ export type ReleaseCard = {
   extras: { kind: string; namespaces: string[] }[];
   /** How many namespaces override this release, out of how many there are. */
   overrides: { count: number; total: number };
+  /**
+   * Base values here that only an environment can answer — an image tag, a
+   * host. `findEnvSpecific` decides; the card just says so.
+   */
+  envSpecific?: { paths: string[]; namespaces: string[] };
 };
 
 type Props = {
@@ -131,6 +136,31 @@ export function ReleaseGrid({ cards, selectedId, onSelect, onJump, onRename, onR
                 />
               ))}
             </span>
+            {card.envSpecific && (
+              // On the card rather than in a row under the grid: this is a fact
+              // about one microservice, and a stack of rows underneath made you
+              // match a name back to a tile to know which. `title` rather than
+              // the shared `?`, for the reason `Chip` above gives — the card is
+              // a <button>, and a button cannot hold one.
+              <span
+                className="ag-card-warn"
+                title={`${card.envSpecific.namespaces.join(", ")} ${
+                  card.envSpecific.namespaces.length === 1 ? "takes" : "take"
+                } base's value as-is. Base is environment-agnostic, so these usually belong in each namespace's own file.`}
+              >
+                <AlertTriangle size={12} aria-hidden="true" />
+                <span>
+                  {card.envSpecific.paths.slice(0, 3).map((path, i) => (
+                    <span key={path}>
+                      {i > 0 && ", "}
+                      <code>{path}</code>
+                    </span>
+                  ))}
+                  {card.envSpecific.paths.length > 3 && ` +${card.envSpecific.paths.length - 3}`}
+                  {card.envSpecific.paths.length === 1 ? " belongs" : " belong"} per-namespace
+                </span>
+              </span>
+            )}
             {card.overrides.count > 0 && (
               <span className="ag-card-foot">
                 overridden in {card.overrides.count} of {card.overrides.total} namespaces

@@ -4492,17 +4492,23 @@ input.jf-title {
 .ag-promote strong { color: #f2f6f7 }
 .ag-promote .ghost-button { margin-left: auto }
 
-/* The other direction — a base value only an environment can answer. Orange,
-   because that is what an override is coloured everywhere else in this module
-   (the tile dot, the override light), and because this one is an observation
-   rather than the offer a teal row makes. */
-.ag-promote.env {
-  border-color: #e2883c44;
-  background: rgba(226, 136, 60, 0.06);
+/* The other direction — a base value only an environment can answer — is not a
+   row under the grid but a line on the microservice's own card: it is a fact
+   about that one release, and a stack of rows made you match a name back to a
+   tile. Orange, because that is what an override is coloured everywhere else in
+   this module (the tile dot, the override light), and because this one is an
+   observation rather than the offer a teal row makes. */
+.ag-card-warn {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #e2883c;
 }
 
-.ag-promote.env > svg { color: #e2883c }
-.ag-promote.env code { color: #f0c08a }
+.ag-card-warn > svg { flex: 0 0 auto; align-self: center }
+.ag-card-warn code { font-size: 10.5px; color: #f0c08a }
 
 /* The workload is what the release *is*; the rest is what it brings with it. */
 .ag-chip.workload {

@@ -1,7 +1,6 @@
 import { zipSync, strToU8 } from "fflate";
 import {
   ArrowDownToLine,
-  ArrowUpFromLine,
   Check,
   ChevronDown,
   ChevronRight,
@@ -128,9 +127,18 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
    * still emit nothing, and an imported value has no feature state at all.
    * `resources.ts` carries that argument in full.
    */
+  /**
+   * Values *in* base that only an environment can answer. There
+   * is no button on these — see the note on `findEnvSpecific` for why moving one
+   * value into N namespaces unchanged would only be a promotion waiting to be
+   * offered back.
+   */
+  const envSpecific = useMemo(() => findEnvSpecific(draft), [draft.releases, draft.namespaces]);
+
   const releaseCards = useMemo<ReleaseCard[]>(
     () =>
       draft.releases.map((r) => {
+        const env = envSpecific.find((e) => e.releaseId === r.id);
         const base = buildValues(r.features, r.extraValues);
         const resources = resourcesOf(base);
         const image = obj(base.image);
@@ -157,9 +165,10 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
           resources,
           extras: [...extras].map(([kind, namespaces]) => ({ kind, namespaces })),
           overrides: { count: overridden, total: draft.namespaces.length },
+          envSpecific: env && { paths: env.paths, namespaces: env.namespaces },
         };
       }),
-    [draft.releases, draft.namespaces]
+    [draft.releases, draft.namespaces, envSpecific]
   );
 
   const layerCards = useMemo<LayerCard[]>(
@@ -180,13 +189,6 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
    * down a layer rather than leaving the same line to be edited N times.
    */
   const promotions = useMemo(() => findPromotions(draft), [draft.releases, draft.namespaces]);
-  /**
-   * And the mirror: values *in* base that only an environment can answer. There
-   * is no button on these — see the note on `findEnvSpecific` for why moving one
-   * value into N namespaces unchanged would only be a promotion waiting to be
-   * offered back.
-   */
-  const envSpecific = useMemo(() => findEnvSpecific(draft), [draft.releases, draft.namespaces]);
 
   /**
    * Which features this layer actually changes. A namespace entry holds only
@@ -757,28 +759,6 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 </div>
               ))}
 
-              {/* The arrow points the other way, and so does the colour: teal is
-                  the offer to move a value down into base, orange is the one
-                  already used everywhere in this module for "an override lives
-                  here". There is no button on these — `findEnvSpecific` says
-                  why. */}
-              {envSpecific.map((e) => (
-                <div className="ag-promote env" key={e.releaseId}>
-                  <ArrowUpFromLine size={15} aria-hidden="true" />
-                  <span>
-                    <strong>{e.releaseName}</strong>'s base file sets{" "}
-                    {e.paths.slice(0, 4).map((path, i) => (
-                      <span key={path}>
-                        {i > 0 && ", "}
-                        <code>{path}</code>
-                      </span>
-                    ))}
-                    {e.paths.length > 4 && ` and ${e.paths.length - 4} more`}, and {e.namespaces.join(", ")}{" "}
-                    {e.namespaces.length === 1 ? "takes" : "take"} it as-is. Base is environment-agnostic — these
-                    usually belong in each namespace's own file.
-                  </span>
-                </div>
-              ))}
             </div>
 
             {release && (
