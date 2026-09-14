@@ -313,13 +313,12 @@ describe("ArgocdView", () => {
     fireEvent.click(within(grid).getByText("HorizontalPodAutoscaler"));
     expect(await screen.findByText("HorizontalPodAutoscaler", { selector: ".ag-feature-name" })).toBeInTheDocument();
 
-    // On a namespace layer, the features that actually differ from base carry
-    // the same dot the namespace tile does.
+    // On a namespace layer, the features that actually differ from base are
+    // outlined, and carry the override tag that opens the way back out.
     fireEvent.click(card("Layers", /prod/));
-    const dotted = document.querySelectorAll(".ag-feature .ag-dot");
-    expect(dotted.length).toBeGreaterThan(0);
     const imageCard = screen.getByText("Image & pull secrets", { selector: ".ag-feature-name" }).closest(".ag-feature")!;
-    expect(imageCard.querySelector(".ag-dot")).not.toBeNull();
+    expect(imageCard.classList.contains("overridden")).toBe(true);
+    expect(imageCard.querySelector(".ag-override-tag")).not.toBeNull();
   });
 
   it("says what the override light means, and takes the override back out", async () => {
@@ -340,7 +339,7 @@ describe("ArgocdView", () => {
     fireEvent.mouseDown(within(imageCard).getByRole("button", { name: "Remove override" }));
 
     // The light goes out, and prod's file no longer carries the tag.
-    expect(feature("Image & pull secrets").querySelector(".ag-dot")).toBeNull();
+    expect(feature("Image & pull secrets").querySelector(".ag-override-tag")).toBeNull();
     fireEvent.click(screen.getByLabelText("prod/values/storefront.yaml"));
     expect(document.querySelector(".ag-file-body")!.textContent).not.toContain("2.0.0");
   });
@@ -479,14 +478,66 @@ describe("ArgocdView", () => {
 
     const mount = within(feature("Volume mounts"));
     expect(mount.getByText("app-data", { selector: ".ag-entry-title" })).toBeInTheDocument();
-    // The offer goes away once it has been taken.
+    // Once taken the offer stays, disabled, saying it was — and a claim is not
+    // settings, so it is never offered as env vars.
     expect(within(feature("PersistentVolumeClaims")).queryByRole("button", { name: /Mount this/ })).toBeNull();
+    expect(within(feature("PersistentVolumeClaims")).getByRole("button", { name: /Mounted/ })).toBeDisabled();
+    expect(within(feature("PersistentVolumeClaims")).queryByRole("button", { name: /env vars/ })).toBeNull();
 
     // And the mount's name offers what this release declares — a suggestion, so
     // an object the chart does not create can still be typed in.
     const name = mount.getAllByDisplayValue("app-data")[0] as HTMLInputElement;
     const list = document.getElementById(name.getAttribute("list") ?? "");
     expect([...(list?.querySelectorAll("option") ?? [])].map((o) => o.getAttribute("value"))).toEqual(["app-data"]);
+  });
+
+  it("pulls a ConfigMap in as env vars in one press, and says when it already is", async () => {
+    view();
+    await waitFor(() => expect(listTrees).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /Config/ }).find((b) => b.classList.contains("ag-category-head"))!
+    );
+    const maps = feature("ConfigMaps");
+    fireEvent.click(maps.querySelector("input[type=checkbox]")!);
+    fireEvent.change(maps.querySelector(".ag-entry input")!, { target: { value: "app-config" } });
+
+    fireEvent.click(within(feature("ConfigMaps")).getByRole("button", { name: /Use as env vars/ }));
+
+    expect(within(feature("envFrom")).getByText("app-config", { selector: ".ag-entry-title" })).toBeInTheDocument();
+    expect(within(feature("envFrom")).getByDisplayValue("configMapRef")).toBeInTheDocument();
+    expect(within(feature("ConfigMaps")).getByRole("button", { name: /In env/ })).toBeDisabled();
+  });
+
+  it("says a per-namespace value on the field it is about, and jumps there once", async () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    const tree = saved({
+      releases: [{ id: "r1", name: "storefront", features: { image: { on: true, v: { repository: "nginx", tag: "1.0.0" } } } }],
+      namespaces: [{ name: "prod", releases: [] }],
+    });
+    listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
+    view();
+    fireEvent.click(await screen.findByText("Dev User #1"));
+
+    // The card up top used to be the only place this was said.
+    const imageCard = document.querySelector('[data-feature-card="image"]')!;
+    expect(imageCard.querySelector(".ag-feature-problems")!.textContent).toMatch(/image\.tag is set in base/);
+    expect(imageCard.classList.contains("has-warn")).toBe(true);
+
+    // Pressing it in the list scrolls to that card — once. Selecting a layer
+    // remounts the editor, and must not replay the jump.
+    fireEvent.click(within(document.querySelector(".ag-problems") as HTMLElement).getByRole("button", { name: /image\.tag/ }));
+    await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1));
+    fireEvent.click(card("Layers", /prod/));
+    await new Promise((r) => setTimeout(r, 150));
+    expect(scroll).toHaveBeenCalledTimes(1);
+
+    // The card's own warning takes you back to base, where the warning is.
+    fireEvent.click(document.querySelector(".ag-card-warn")!);
+    expect(screen.getByText("Base values", { selector: "h3" })).toBeInTheDocument();
+    await waitFor(() => expect(scroll).toHaveBeenCalledTimes(2));
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
   });
 
   it("adds the shared release once, and it runs no pods", async () => {
@@ -522,6 +573,9 @@ describe("ArgocdView", () => {
     rename("namespace", "prod");
     fireEvent.blur(screen.getByLabelText("Namespace name"));
 
+    // The defaults sit under every namespace, so they are not offered from one.
+    expect(screen.getByRole("button", { name: /^Defaults/ })).toBeDisabled();
+    fireEvent.click(card("Layers", /Base/));
     // The defaults are a scope of their own, opened from the grid.
     fireEvent.click(screen.getByRole("button", { name: /^Defaults/ }));
     fireEvent.click(screen.getByRole("button", { name: /Identity & Observability/ }));

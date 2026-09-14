@@ -26,7 +26,7 @@ import {
 } from "./api";
 import { buildValues, extraValuesError, parseValues } from "./build";
 import { checkValues } from "./checks";
-import { BY_ID } from "./catalog";
+import { BY_ID, featureForPath } from "./catalog";
 import { deepMerge, obj, subtractDefaults } from "./values";
 import { buildTree } from "./tree";
 import {
@@ -49,7 +49,7 @@ import { ImportDialog } from "./components/ImportDialog";
 import { ChartLine } from "./components/ChartLine";
 import { LayerGrid, type LayerCard } from "./components/LayerGrid";
 import { NewTreeDialog } from "./components/NewTreeDialog";
-import { RepoPanel, repoName, type PushState } from "./components/RepoPanel";
+import { CommitButton, PushResult, RepoPanel, repoName, type PushState } from "./components/RepoPanel";
 import { ReleaseGrid, type ReleaseCard } from "./components/ReleaseGrid";
 import { TreeList } from "./components/TreeList";
 import type { FeatureState } from "./catalog";
@@ -356,8 +356,24 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         text: `${clusterFeatures.join(", ")} are cluster-scoped, and this tree deploys ${release.name || "this release"} into ${draft.namespaces.length} namespaces — every one of them would own the same object.`,
         feature: clusterIds[0],
       });
+    // Base values only an environment can answer. They used to be said only on
+    // the microservice's card above, never beside the field holding them — so
+    // they are problems like any other, shown in base and in each namespace
+    // still taking base's value, which are the layers they are true of.
+    const env = envSpecific.find((e) => e.releaseId === release.id);
+    const nsName = namespace?.name.trim();
+    if (env && (layer === BASE || (nsName && env.namespaces.includes(nsName))))
+      env.paths.forEach((path) =>
+        found.push({
+          level: "warn",
+          text: `${path} is set in base, so ${env.namespaces.join(", ")} ${
+            env.namespaces.length === 1 ? "takes" : "take"
+          } it as-is. Base is environment-agnostic — this usually belongs in each namespace's own file.`,
+          feature: featureForPath(path),
+        })
+      );
     return found;
-  }, [release, features, extraValues, layer, draft.namespaces.length, treeDefaultValues]);
+  }, [release, features, extraValues, layer, draft.namespaces.length, treeDefaultValues, envSpecific, namespace?.name]);
 
   function handleOpen(tree: ArgocdTree) {
     log("argocd", "opening tree", tree.id);
@@ -820,11 +836,8 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 onToggle={() => setRepoOpen((v) => !v)}
                 onChange={(values) => setDraft((p) => ({ ...p, values }))}
                 onPull={() => void handlePull()}
-                onCommit={() => void handleCommit()}
                 pulling={pulling}
-                push={push}
                 gitEnabled={gitEnabled}
-                saved={!!draft.id}
                 releaseCount={draft.releases.length}
               />
             </div>
@@ -880,8 +893,9 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 cards={releaseCards}
                 selectedId={release?.id}
                 onSelect={setReleaseId}
-                onJump={(id, feature) => {
+                onJump={(id, feature, toBase) => {
                   setReleaseId(id);
+                  if (toBase) setLayer(BASE);
                   setJump({ feature, n: Date.now() });
                 }}
                 onRename={renameRelease}
@@ -890,6 +904,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 onOpenDefaults={openDefaults}
                 defaultsOpen={editingDefaults}
                 defaultsCount={defaultsCount}
+                defaultsDisabled={layer !== BASE}
                 onAddShared={
                   draft.releases.some((r) => r.name.trim() === SHARED_RELEASE_NAME) ? undefined : addSharedRelease
                 }
@@ -969,6 +984,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   extraError={extraError}
                   overriding={overriding}
                   jump={jump}
+                  onJumped={() => setJump(undefined)}
                   inherited={inherited}
                   onOpenInherited={(from) => (from === "defaults" ? openDefaults() : setLayer(BASE))}
                   problems={problems}
@@ -1008,6 +1024,16 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 comparing={comparing}
                 error={baselineError}
                 deletes={!!subPath.trim()}
+                actions={
+                  <CommitButton
+                    tree={draft}
+                    gitEnabled={gitEnabled}
+                    saved={!!draft.id}
+                    push={push}
+                    onCommit={() => void handleCommit()}
+                  />
+                }
+                notice={<PushResult push={push} />}
               />
             </div>
           </section>

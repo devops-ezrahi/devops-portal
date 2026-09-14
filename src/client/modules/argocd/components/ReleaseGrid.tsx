@@ -1,6 +1,7 @@
 import { AlertTriangle, Pencil, Plus, Share2, X } from "lucide-react";
 import { useState } from "react";
 import { Help } from "../../../Help";
+import { featureForPath } from "../catalog";
 import { SCOPE_NOTE, type Resource, type Scope } from "../resources";
 
 /**
@@ -34,8 +35,12 @@ type Props = {
   cards: ReleaseCard[];
   selectedId: string | undefined;
   onSelect: (id: string) => void;
-  /** Pressing a chip selects the card *and* jumps to the fields that set it. */
-  onJump: (releaseId: string, feature: string) => void;
+  /**
+   * Pressing a chip selects the card *and* jumps to the fields that set it.
+   * `toBase` is the card's per-namespace warning: it is about base, so that is
+   * the layer where the same warning sits on the field.
+   */
+  onJump: (releaseId: string, feature: string, toBase?: boolean) => void;
   onRename: (releaseId: string, name: string) => void;
   onRemove: (releaseId: string) => void;
   /** Returns the new release's id, so its name field opens immediately. */
@@ -47,6 +52,8 @@ type Props = {
   defaultsOpen: boolean;
   /** How many top-level values the defaults set — nothing to say when none. */
   defaultsCount: number;
+  /** A namespace layer is open. Defaults sit under every namespace, so they are edited from Base only. */
+  defaultsDisabled?: boolean;
 };
 
 /** `ConfigMap ×2`, with the objects' own names and what kind of thing it is on hover. */
@@ -103,6 +110,7 @@ export function ReleaseGrid({
   onOpenDefaults,
   defaultsOpen,
   defaultsCount,
+  defaultsDisabled,
 }: Props) {
   /** Which card's name is being typed into. Local — nothing above needs to know. */
   const [editing, setEditing] = useState<string | null>(null);
@@ -117,6 +125,8 @@ export function ReleaseGrid({
           type="button"
           aria-pressed={defaultsOpen}
           className={`ag-card ag-defaults-card${defaultsOpen ? " selected" : ""}`}
+          disabled={defaultsDisabled}
+          title={defaultsDisabled ? "Defaults sit under every namespace — select Base to edit them" : undefined}
           onClick={onOpenDefaults}
         >
           <span className="ag-card-name">Defaults</span>
@@ -224,7 +234,11 @@ export function ReleaseGrid({
               // the shared `?`, for the reason `Chip` above gives — the card is
               // a <button>, and a button cannot hold one.
               <span
-                className="ag-card-warn"
+                className="ag-card-warn linked"
+                // Pressed, it lands on the field the warning is about, where the
+                // same warning is repeated — see the card's own click handler.
+                data-feature={featureForPath(card.envSpecific.paths[0])}
+                data-to-base="1"
                 title={`${card.envSpecific.namespaces.join(", ")} ${
                   card.envSpecific.namespaces.length === 1 ? "takes" : "take"
                 } base's value as-is. Base is environment-agnostic, so these usually belong in each namespace's own file.`}
@@ -265,7 +279,7 @@ export function ReleaseGrid({
                 className={`ag-card ag-release-card${selected ? " selected" : ""}`}
                 onClick={(e) => {
                   const chip = (e.target as HTMLElement).closest<HTMLElement>("[data-feature]");
-                  if (chip?.dataset.feature) onJump(card.id, chip.dataset.feature);
+                  if (chip?.dataset.feature) onJump(card.id, chip.dataset.feature, chip.dataset.toBase === "1");
                   else onSelect(card.id);
                 }}
               >

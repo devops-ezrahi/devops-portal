@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { BY_ID } from "./catalog";
+import { BY_ID, featureForPath } from "./catalog";
 import { checkValues } from "./checks";
+import { ENV_SPECIFIC_PATHS } from "./promote";
 import type { Values } from "./values";
+
+describe("featureForPath", () => {
+  // A per-namespace warning is a problem like any other, so its jump has to
+  // land on a real card — a path no feature owns is a row that goes nowhere.
+  it("finds a catalog feature for every path the per-namespace warning names", () => {
+    ENV_SPECIFIC_PATHS.forEach((path) => expect(BY_ID[featureForPath(path) ?? ""], path).toBeDefined());
+    expect(featureForPath("image.tag")).toBe("image");
+    expect(featureForPath("replicaCount")).toBe("replicas");
+  });
+});
 
 const say = (doc: Values) => checkValues(doc).map((p) => `${p.level}: ${p.text}`).join("\n");
 const withImage = (doc: Values): Values => ({ image: { repository: "nginx" }, ...doc });

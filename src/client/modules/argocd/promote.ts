@@ -178,7 +178,7 @@ export type EnvSpecific = {
  * - `ingress.hosts` / `route.host` — a hostname belongs to one cluster's
  *   domain, and base has no cluster.
  */
-const ENV_SPECIFIC_PATHS = [
+export const ENV_SPECIFIC_PATHS = [
   "image.tag",
   "image.digest",
   "nameOverride",

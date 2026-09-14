@@ -1,6 +1,6 @@
 import { Help } from "../../../Help";
-import { Link2, Plus, X } from "lucide-react";
-import { useId } from "react";
+import { Check, KeyRound, Link2, Plus, X } from "lucide-react";
+import { useId, type ReactNode } from "react";
 import type { FieldSpec, KvPair, RowCol } from "../catalog";
 import type { Values } from "../values";
 
@@ -14,9 +14,7 @@ export function FeatureField({
   value,
   onChange,
   onRemove,
-  rowsFor,
-  onMount,
-  mounted,
+  ...extras
 }: {
   spec: FieldSpec;
   value: unknown;
@@ -56,7 +54,7 @@ export function FeatureField({
           </button>
         )}
       </span>
-      <Control spec={spec} id={id} value={value} onChange={onChange} rowsFor={rowsFor} onMount={onMount} mounted={mounted} />
+      <Control spec={spec} id={id} value={value} onChange={onChange} {...extras} />
     </div>
   );
 }
@@ -74,8 +72,12 @@ export type RowExtras = {
   rowsFor?: (featureId: string) => string[];
   /** Wire this named object up as a volume plus a mount. Absent = not mountable. */
   onMount?: (name: string) => void;
-  /** What is already mounted, so the offer disappears once taken. */
+  /** What is already mounted, so the offer says so instead of offering twice. */
   mounted?: Set<string>;
+  /** Pull every key of this ConfigMap/Secret in as env vars. Absent = not offered. */
+  onEnv?: (name: string) => void;
+  /** What is already an envFrom source. */
+  inEnv?: Set<string>;
 };
 
 function Control({
@@ -83,9 +85,7 @@ function Control({
   id,
   value,
   onChange,
-  rowsFor,
-  onMount,
-  mounted,
+  ...extras
 }: {
   spec: FieldSpec;
   id: string;
@@ -139,14 +139,7 @@ function Control({
       return <KvRows rows={(value as KvPair[]) ?? []} onChange={onChange} />;
     case "rows":
       return (
-        <ObjectRows
-          spec={spec}
-          rows={(value as Values[]) ?? []}
-          onChange={onChange}
-          rowsFor={rowsFor}
-          onMount={onMount}
-          mounted={mounted}
-        />
+        <ObjectRows spec={spec} rows={(value as Values[]) ?? []} onChange={onChange} {...extras} />
       );
     default:
       return (
@@ -209,6 +202,8 @@ function ObjectRows({
   rowsFor,
   onMount,
   mounted,
+  onEnv,
+  inEnv,
 }: { spec: FieldSpec; rows: Values[]; onChange: (rows: Values[]) => void } & RowExtras) {
   const cols = spec.cols ?? [];
   const listId = useId();
@@ -224,11 +219,27 @@ function ObjectRows({
             <span className="ag-entry-title">{entryTitle(spec, row, i)}</span>
             {/* A claim nothing mounts is storage the pod never sees, and wiring
                 it up by hand means a volume in one feature and a mount in
-                another. The offer goes away once it is taken. */}
-            {onMount && nameOf(row) && !mounted?.has(nameOf(row)) && (
-              <button type="button" className="ghost-button ag-mount" onClick={() => onMount(nameOf(row))}>
-                <Link2 size={13} aria-hidden="true" /> Mount this
-              </button>
+                another. Once taken the button stays, disabled, saying so —
+                an offer that silently vanishes reads as one that never was. */}
+            {onMount && nameOf(row) && (
+              <OfferButton
+                done={!!mounted?.has(nameOf(row))}
+                doneLabel="Mounted"
+                doneTitle="Already mounted — see Volumes and Volume mounts"
+                icon={<Link2 size={13} aria-hidden="true" />}
+                label="Mount this"
+                onClick={() => onMount(nameOf(row))}
+              />
+            )}
+            {onEnv && nameOf(row) && (
+              <OfferButton
+                done={!!inEnv?.has(nameOf(row))}
+                doneLabel="In env"
+                doneTitle="Already an envFrom source"
+                icon={<KeyRound size={13} aria-hidden="true" />}
+                label="Use as env vars"
+                onClick={() => onEnv(nameOf(row))}
+              />
             )}
             <button
               type="button"
@@ -282,6 +293,33 @@ function ObjectRows({
         <Plus size={15} aria-hidden="true" /> {spec.addLabel ?? "Add"}
       </button>
     </div>
+  );
+}
+
+/** A one-press wiring offer on a row, or — once taken — a disabled note that it was. */
+function OfferButton({
+  done,
+  doneLabel,
+  doneTitle,
+  icon,
+  label,
+  onClick,
+}: {
+  done: boolean;
+  doneLabel: string;
+  doneTitle: string;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return done ? (
+    <button type="button" className="ghost-button ag-mount done" disabled title={doneTitle}>
+      <Check size={13} aria-hidden="true" /> {doneLabel}
+    </button>
+  ) : (
+    <button type="button" className="ghost-button ag-mount" onClick={onClick}>
+      {icon} {label}
+    </button>
   );
 }
 

@@ -21,6 +21,14 @@ export type Inherited = { state: FeatureState; from: "defaults" | "base" };
 const REQUIRED = FEATURES.filter((f) => f.req);
 const OPTIONAL = FEATURES.filter((f) => !f.req);
 
+/** Append a named row to one feature's `items`, switching it on — unless that name is already there. */
+function addRow(features: Record<string, FeatureState>, id: string, row: Values) {
+  const v = features[id]?.v ?? defaultValues(id);
+  const rows = Array.isArray(v.items) ? (v.items as Values[]) : [];
+  if (rows.some((r) => String(r.name ?? "").trim() === row.name)) return;
+  features[id] = { on: true, v: { ...v, items: [...rows, row] } };
+}
+
 /** Whether a field holds anything worth showing on screen without being asked for. */
 function hasValue(value: unknown): boolean {
   if (value === undefined || value === null || value === "") return false;
@@ -43,6 +51,7 @@ export function FeatureEditor({
   extraError,
   overriding,
   jump,
+  onJumped,
   inherited,
   onOpenInherited,
   problems,
@@ -59,6 +68,11 @@ export function FeatureEditor({
   overriding?: Set<string>;
   /** A feature to open and scroll to, from a press on a microservice card's chip. */
   jump?: { feature: string; n: number };
+  /**
+   * The jump was made — clear it. The editor remounts on every layer or
+   * microservice press, and a jump still held would replay its scroll on each.
+   */
+  onJumped?: () => void;
   /**
    * What the layers under this one already say — the tree's defaults in base,
    * those plus the microservice's base in a namespace override. Shown greyed,
@@ -96,6 +110,7 @@ export function FeatureEditor({
     if (!spec) return;
     setOpen((prev) => new Set(prev).add(spec.cat));
     const timer = setTimeout(() => {
+      onJumped?.();
       const el = document.querySelector<HTMLElement>(`[data-feature-card="${jump.feature}"]`);
       if (!el) return;
       // Optional call: opening the category is the part that matters, and not
@@ -159,19 +174,47 @@ export function FeatureEditor({
    */
   function mountObject(kind: string, name: string) {
     const next = { ...features };
-    const add = (id: string, row: Values) => {
-      const v = next[id]?.v ?? defaultValues(id);
-      const rows = Array.isArray(v.items) ? (v.items as Values[]) : [];
-      if (rows.some((r) => String(r.name ?? "").trim() === name)) return;
-      next[id] = { on: true, v: { ...v, items: [...rows, row] } };
-    };
-    add("volumes", { name, kind, src: name });
-    add("mounts", { name, mountPath: "" });
+    addRow(next, "volumes", { name, kind, src: name });
+    addRow(next, "mounts", { name, mountPath: "" });
     onChange(next);
+    reveal("volumes", "mounts");
   }
 
-  /** What is already mounted, so the offer disappears once it has been taken. */
+  /**
+   * Open the categories a one-press wiring just wrote into. A ConfigMap's env
+   * vars land under Container and its volume under Storage — both usually
+   * collapsed — and a row added out of sight reads as a press that did nothing.
+   */
+  function reveal(...ids: string[]) {
+    setOpen((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => BY_ID[id] && next.add(BY_ID[id].cat));
+      return next;
+    });
+  }
+
+  /** The other way a ConfigMap or Secret reaches the container: every key as an env var. */
+  function envFromObject(kind: string, name: string) {
+    const next = { ...features };
+    addRow(next, "envfrom", { name, type: kind === "secret" ? "secretRef" : "configMapRef" });
+    onChange(next);
+    reveal("envfrom");
+  }
+
+  /** What is already wired, so each offer says it was taken rather than offering twice. */
   const mountedNames = new Set(rowsFor("mounts"));
+  const envNames = new Set(rowsFor("envfrom"));
+
+  /**
+   * A card's border says what is wrong with it — a problem, or an override
+   * carried here — so the thing being warned about is outlined, not dotted.
+   */
+  function tone(id: string): string {
+    const mine = (problems ?? []).filter((p) => p.feature === id);
+    if (mine.some((p) => p.level === "bad")) return " has-bad";
+    if (mine.length) return " has-warn";
+    return overriding?.has(id) ? " overridden" : "";
+  }
 
   function setField(id: string, key: string, value: unknown) {
     const state = features[id] ?? { on: true, v: defaultValues(id) };
@@ -183,7 +226,7 @@ export function FeatureEditor({
       <section className="ag-category" aria-label="Required">
         <h4 className="ag-category-name ag-required-head">Required</h4>
         {REQUIRED.map((spec) => (
-          <div className="ag-feature on ag-feature-required" key={spec.id} data-feature-card={spec.id}>
+          <div className={`ag-feature on ag-feature-required${tone(spec.id)}`} key={spec.id} data-feature-card={spec.id}>
             <div className="ag-feature-head">
               <span className="ag-feature-name">{spec.name}</span>
               <FeatureHelp spec={spec} />
@@ -199,6 +242,8 @@ export function FeatureEditor({
               rowsFor={rowsFor}
               mounted={mountedNames}
               onMount={mountObject}
+              inEnv={envNames}
+              onEnv={envFromObject}
               inherited={inherited?.[spec.id]}
               onOpenInherited={onOpenInherited}
               problems={problems}
@@ -214,14 +259,16 @@ export function FeatureEditor({
         const shown = open.has(cat.id);
         return (
           <section className="ag-category" key={cat.id} aria-label={cat.name}>
-            <button type="button" className="ag-category-head" aria-expanded={shown} onClick={() => toggleCategory(cat.id)}>
+            {/* So a collapsed category still says it holds an override. */}
+            <button
+              type="button"
+              className={`ag-category-head${specs.some((spec) => overriding?.has(spec.id)) ? " overridden" : ""}`}
+              aria-expanded={shown}
+              onClick={() => toggleCategory(cat.id)}
+            >
               {shown ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
               <span className="ag-category-name">{cat.name}</span>
               {count > 0 && <span className="ag-category-count">{count} on</span>}
-              {/* So a collapsed category still says it holds an override. */}
-              {specs.some((spec) => overriding?.has(spec.id)) && (
-                <i className="ag-dot" title="Holds an override of the base file" />
-              )}
             </button>
             {shown && specs.map((spec) => {
               const state = features[spec.id];
@@ -232,7 +279,11 @@ export function FeatureEditor({
               // problem `enabled` already taught this module about.
               const fromBelow = !!inherited?.[spec.id]?.state.on;
               return (
-                <div className={`ag-feature${on || fromBelow ? " on" : ""}`} key={spec.id} data-feature-card={spec.id}>
+                <div
+                  className={`ag-feature${on || fromBelow ? " on" : ""}${tone(spec.id)}`}
+                  key={spec.id}
+                  data-feature-card={spec.id}
+                >
                   {/* The `?` sits beside the label, never inside it: a button
                       is a labelable element, so a label wrapping one names the
                       button as well as the field — and a press on it would
@@ -256,6 +307,8 @@ export function FeatureEditor({
                       rowsFor={rowsFor}
                       mounted={mountedNames}
                       onMount={mountObject}
+                      inEnv={envNames}
+                      onEnv={envFromObject}
                       inherited={inherited?.[spec.id]}
                       onOpenInherited={onOpenInherited}
                       problems={problems}
@@ -302,7 +355,7 @@ export function FeatureEditor({
  */
 function OverrideLight({ name, onRemove }: { name: string; onRemove: () => void }) {
   return (
-    <Help label={`the override on ${name}`} interactive trigger={<i className="ag-dot" aria-hidden="true" />}>
+    <Help label={`the override on ${name}`} interactive trigger={<span className="ag-override-tag">override</span>}>
       <p>
         <strong>{name}</strong> is set differently here, so this namespace deploys its own value instead of the base
         one.
@@ -350,6 +403,8 @@ function FeatureBody({
   rowsFor,
   mounted,
   onMount,
+  inEnv,
+  onEnv,
   inherited,
   onOpenInherited,
   problems,
@@ -361,6 +416,8 @@ function FeatureBody({
   rowsFor: (featureId: string) => string[];
   mounted: Set<string>;
   onMount: (kind: string, name: string) => void;
+  inEnv: Set<string>;
+  onEnv: (kind: string, name: string) => void;
   inherited?: Inherited;
   onOpenInherited?: (from: "defaults" | "base") => void;
   problems?: Problem[];
@@ -436,6 +493,9 @@ function FeatureBody({
           rowsFor={rowsFor}
           mounted={mounted}
           onMount={spec.mountable ? (name) => onMount(spec.mountable!, name) : undefined}
+          inEnv={inEnv}
+          // A claim is storage, not settings — only a ConfigMap or Secret can be env vars.
+          onEnv={spec.mountable && spec.mountable !== "persistentVolumeClaim" ? (name) => onEnv(spec.mountable!, name) : undefined}
           // A field added by hand can be put back on the add list. Removing it
           // resets it to the chart's own answer, which is what makes it fall
           // off `isShown` again — dropping it from `added` alone would leave

@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, Copy, Download, FileText, Folder, FolderOpen, TriangleAlert } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { diffTree, diffValues, type FileStatus, type TreeEntry } from "../diff";
 import type { RepoFile } from "../api";
 import type { GeneratedFile } from "../tree";
@@ -52,9 +52,13 @@ type Props = {
   deletes?: boolean;
   /** Why that read failed, when it did. A missing diff has to say why it is missing. */
   error?: string;
+  /** The primary action on these files — Commit — placed last in the head. */
+  actions?: ReactNode;
+  /** What that action last did, under the head. */
+  notice?: ReactNode;
 };
 
-export function FilePreview({ files, onDownload, repo, comparing, deletes = false, error }: Props) {
+export function FilePreview({ files, onDownload, repo, comparing, deletes = false, error, actions, notice }: Props) {
   const [selected, setSelected] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
@@ -156,8 +160,10 @@ export function FilePreview({ files, onDownload, repo, comparing, deletes = fals
           <button type="button" className="ghost-button" onClick={onDownload}>
             <Download size={16} aria-hidden="true" /> Download tree
           </button>
+          {actions}
         </div>
       </div>
+      {notice}
       {/* A diff that is simply absent reads as a feature that does not work, so
           the read that failed says so here rather than only in the console. */}
       {error && (

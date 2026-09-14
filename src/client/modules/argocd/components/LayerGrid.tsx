@@ -70,7 +70,6 @@ export function LayerGrid({ layer, namespaces, releaseCount, onSelect, onRename,
               ) : (
                 ns.name.trim() || "unnamed"
               )}
-              {ns.overridesSelected && <i className="ag-dot" title="This release is overridden here" />}
             </span>
             <span className="ag-card-foot">
               {ns.overrides ? `${ns.overrides} of ${releaseCount} overridden` : "no overrides"}
@@ -87,12 +86,16 @@ export function LayerGrid({ layer, namespaces, releaseCount, onSelect, onRename,
           // one anyway, so there is nothing left to press it for.
           <div className="ag-card-shell" key={i}>
             {editing === i ? (
-              <div className={`ag-card ag-layer-card${layer === i ? " selected" : ""}`}>{body}</div>
+              <div className={`ag-card ag-layer-card${layer === i ? " selected" : ""}${ns.overridesSelected ? " overridden" : ""}`}>
+                {body}
+              </div>
             ) : (
               <button
                 type="button"
                 aria-pressed={layer === i}
-                className={`ag-card ag-layer-card${layer === i ? " selected" : ""}`}
+                // An orange border marks a namespace that overrides the open microservice.
+                className={`ag-card ag-layer-card${layer === i ? " selected" : ""}${ns.overridesSelected ? " overridden" : ""}`}
+                title={ns.overridesSelected ? "The open microservice is overridden here" : undefined}
                 onClick={() => onSelect(i)}
               >
                 {body}

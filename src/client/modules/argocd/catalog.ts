@@ -2189,6 +2189,10 @@ F({
 
 export const BY_ID: Record<string, FeatureSpec> = Object.fromEntries(FEATURES.map((f) => [f.id, f]));
 
+/** The feature that owns a dotted values path (`image.tag` → `image`), by its top-level key. */
+export const featureForPath = (path: string): string | undefined =>
+  FEATURES.find((f) => f.keys.includes(path.split(".")[0]))?.id;
+
 /** The default state of a feature just switched on: every field at its `def`, lists empty. */
 export function defaultValues(id: string): FieldValues {
   const spec = BY_ID[id];

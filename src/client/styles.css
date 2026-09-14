@@ -4448,18 +4448,6 @@ input.jf-title {
   color: #6f8088;
 }
 
-/* A namespace override of the open release, marked on the namespace tile. */
-/* Orange, not the teal accent: teal is "selected", and an override is not a
-   state you chose so much as one you are carrying. */
-.ag-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #e2883c;
-  box-shadow: 0 0 0 3px rgba(226, 136, 60, 0.16);
-  flex: 0 0 auto;
-}
-
 .help-toggle.interactive {
   color: inherit;
   cursor: pointer;
@@ -4748,6 +4736,27 @@ input.jf-title {
 }
 
 .ag-feature.on { border-color: #20c7bd66 }
+
+/* What a card is warning about is the card itself, outlined — worst first. */
+.ag-feature.overridden { border-color: #e2883c }
+.ag-feature.has-warn { border-color: #e0aa54 }
+.ag-feature.has-bad { border-color: #ff8d95 }
+.ag-category-head.overridden { box-shadow: inset 3px 0 0 #e2883c }
+.ag-layer-card.overridden { border-color: #e2883c }
+
+/* The handle on an override's popover, now the border carries the signal. */
+.ag-override-tag {
+  border: 1px solid #e2883c88;
+  border-radius: 999px;
+  padding: 0 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #f0b27a;
+}
+
+.ag-mount.done { opacity: 0.7; cursor: default }
+.ag-card-warn.linked { cursor: pointer }
+.ag-card-warn.linked:hover span { text-decoration: underline }
 
 /* The three a release cannot be built without. Pinned above the categories,
    always open, no checkbox — so the first thing on screen is the workload and

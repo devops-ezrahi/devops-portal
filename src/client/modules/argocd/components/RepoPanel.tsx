@@ -28,16 +28,82 @@ type Props = {
   onChange: (values: DraftTree["values"]) => void;
   /** Re-read the repo and replace the tree with what is in it. */
   onPull: () => void;
-  onCommit: () => void;
   pulling: boolean;
-  push: PushState;
-  /** No credential is configured, so neither button can work. */
+  /** No credential is configured, so Pull cannot work. */
   gitEnabled: boolean;
-  /** A push writes the *stored* tree, so an unsaved one has nothing to push. */
-  saved: boolean;
   /** How much a pull would replace — nothing to warn about when it is zero. */
   releaseCount: number;
 };
+
+/** Every reason git cannot be reached from this tree, said on the button rather than found by pressing it. */
+const gitBlocked = (tree: DraftTree, gitEnabled: boolean): string =>
+  !gitEnabled
+    ? "No git credential is configured for this portal (ARGOCD_VALUES_TOKEN)."
+    : !tree.values.repoUrl.trim()
+      ? "This tree has no values repository yet."
+      : "";
+
+/**
+ * Commit lives with the working tree, not with the repository settings: it is
+ * the files listed beside it that it writes, and that listing is where you
+ * decide whether they are right.
+ */
+export function CommitButton({
+  tree,
+  gitEnabled,
+  saved,
+  push,
+  onCommit,
+}: {
+  tree: DraftTree;
+  gitEnabled: boolean;
+  /** A push writes the *stored* tree, so an unsaved one has nothing to push. */
+  saved: boolean;
+  push: PushState;
+  onCommit: () => void;
+}) {
+  const why = gitBlocked(tree, gitEnabled);
+  return (
+    <button
+      type="button"
+      className="primary"
+      disabled={!!why || !saved || push.kind === "busy"}
+      title={why || (!saved ? "Saving — the commit writes the saved tree" : "Commit these files and open a pull request")}
+      onClick={onCommit}
+    >
+      <GitPullRequestArrow size={16} aria-hidden="true" /> {push.kind === "busy" ? "Committing…" : "Commit"}
+    </button>
+  );
+}
+
+/** What the last commit did, under the files it wrote. */
+export function PushResult({ push }: { push: PushState }) {
+  if (push.kind === "error")
+    return (
+      <p className="ag-push-result error">
+        <TriangleAlert size={14} aria-hidden="true" /> {push.message}
+      </p>
+    );
+  if (push.kind !== "done") return null;
+  return (
+    <p className={`ag-push-result${push.changed ? "" : " quiet"}`}>
+      {push.changed ? (
+        <>
+          Committed to <code>{push.branch}</code>.{" "}
+          {push.prUrl ? (
+            <a href={push.prUrl} target="_blank" rel="noreferrer">
+              Open the pull request <ExternalLink size={13} aria-hidden="true" />
+            </a>
+          ) : (
+            push.note
+          )}
+        </>
+      ) : (
+        <>The repository already matches this tree — nothing to commit.</>
+      )}
+    </p>
+  );
+}
 
 /** A git URL as the name people call it: the last path segment, without `.git`. */
 export const repoName = (url: string): string =>
@@ -49,11 +115,8 @@ export function RepoPanel({
   onToggle,
   onChange,
   onPull,
-  onCommit,
   pulling,
-  push,
   gitEnabled,
-  saved,
   releaseCount,
 }: Props) {
   /**
@@ -63,14 +126,7 @@ export function RepoPanel({
    * dialog looks like it came from somewhere else.
    */
   const [confirming, setConfirming] = useState(false);
-  const connected = !!tree.values.repoUrl.trim();
-  // Every reason a button cannot work, said on the button rather than found by
-  // pressing it.
-  const why = !gitEnabled
-    ? "No git credential is configured for this portal (ARGOCD_VALUES_TOKEN)."
-    : !connected
-      ? "This tree has no values repository yet."
-      : "";
+  const why = gitBlocked(tree, gitEnabled);
 
   return (
     <div className="ag-repo-panel">
@@ -104,16 +160,6 @@ export function RepoPanel({
             <CloudDownload size={16} aria-hidden="true" />{" "}
             {pulling ? "Pulling…" : confirming ? "Pull anyway" : "Pull"}
           </button>
-          <button
-            type="button"
-            className="primary"
-            disabled={!!why || !saved || push.kind === "busy"}
-            title={why || (!saved ? "Saving — the commit writes the saved tree" : "Commit these files and open a pull request")}
-            onClick={onCommit}
-          >
-            <GitPullRequestArrow size={16} aria-hidden="true" />{" "}
-            {push.kind === "busy" ? "Committing…" : "Commit"}
-          </button>
         </div>
       </div>
 
@@ -121,30 +167,6 @@ export function RepoPanel({
         <p className="ag-push-result warn">
           <TriangleAlert size={14} aria-hidden="true" /> Pulling replaces the {releaseCount} microservice
           {releaseCount === 1 ? "" : "s"} in this tree with whatever is in the repository.
-        </p>
-      )}
-
-      {push.kind === "done" && (
-        <p className={`ag-push-result${push.changed ? "" : " quiet"}`}>
-          {push.changed ? (
-            <>
-              Committed to <code>{push.branch}</code>.{" "}
-              {push.prUrl ? (
-                <a href={push.prUrl} target="_blank" rel="noreferrer">
-                  Open the pull request <ExternalLink size={13} aria-hidden="true" />
-                </a>
-              ) : (
-                push.note
-              )}
-            </>
-          ) : (
-            <>The repository already matches this tree — nothing to commit.</>
-          )}
-        </p>
-      )}
-      {push.kind === "error" && (
-        <p className="ag-push-result error">
-          <TriangleAlert size={14} aria-hidden="true" /> {push.message}
         </p>
       )}
 

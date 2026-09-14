@@ -930,9 +930,12 @@ carries both what that namespace's releases share and the tree's own defaults.
 - **Every layer file is written, empty ones included.** A `valueFiles` entry
   that does not exist fails the whole render, so an empty layer is `{}` with a
   header comment rather than an absent file.
-- **An override carries an orange light, and the light is the way out of it.**
+- **An override carries an orange border, and its tag is the way out of it.**
   Teal means "selected"; an override is not a state anyone chose so much as one
-  they are carrying, so it gets its own colour. The light is a `Help` trigger —
+  they are carrying, so it gets its own colour — on the whole card, the category
+  head and the namespace tile, because a 6px dot beside a name was easy to miss.
+  A card with a problem is outlined the same way, worst first (red, amber, then
+  override orange). The small `override` tag is a `Help` trigger —
   the popover says what overriding costs (a second copy of that value, kept in
   step with base forever) and holds a **Remove override** button that deletes
   the feature from the layer. Not `on: false`: in an override file "off here"
@@ -991,9 +994,14 @@ carries both what that namespace's releases share and the tree's own defaults.
   features away from the one that created it, and storage nothing mounts is
   storage the pod never sees. So each named row of those three carries a **Mount
   this** button (`FeatureSpec.mountable` names the volume kind it becomes) that
-  adds both in one press, and the offer disappears once taken. The `mountPath`
-  is deliberately left empty: where it lands is the one thing nobody can guess,
-  and it is the next field on screen.
+  adds both in one press. Once taken it stays, disabled, reading **Mounted** — an
+  offer that silently vanished read as one that was never there. A ConfigMap or
+  Secret also offers **Use as env vars** (an `envFrom` row, **In env** once
+  taken), the other way the same object reaches the container. Both open the
+  categories they wrote into — `envFrom` sits under Container and the volume
+  under Storage, and a row added out of sight is a press that seems to do
+  nothing. The `mountPath` is deliberately left empty: where it lands is the one
+  thing nobody can guess, and it is the next field on screen.
 - **A column that names another feature's object suggests them.**
   `RowCol.suggest` returns the feature whose row names to offer — a mount offers
   this release's volumes, a volume's source offers its ConfigMaps, Secrets or
@@ -1059,6 +1067,24 @@ carries both what that namespace's releases share and the tree's own defaults.
   names.** Pressing it in the list is what scrolls to the card — and arriving at
   a card with no sign of why is the other half of the same complaint. Same
   `Problem.feature` id drives both.
+  - **`findEnvSpecific` findings are problems too** (base `image.tag`,
+    `replicaCount`, a host…), in base and in each namespace still taking base's
+    value. They used to be said only on the microservice card up top, never on
+    the field. `featureForPath` maps the path to its card by top-level key, and
+    `checks.test.ts` sweeps `ENV_SPECIFIC_PATHS` so none maps to nothing. The
+    card's own warning is a jump as well, and switches to Base, where the value
+    lives.
+  - **A jump is consumed.** `FeatureEditor` is keyed per scope and remounts on
+    every layer or microservice press; a `jump` left set replayed its
+    `scrollIntoView` on each, which read as the page scrolling for no reason.
+    `onJumped` clears it the moment it fires.
+- **Defaults are edited from Base only.** The tile is disabled while a namespace
+  layer is open: Defaults sit under every namespace, so editing them from inside
+  one override is two scopes claiming one form.
+- **Commit sits on the file preview, not the repository panel.** It writes the
+  files listed there, which is where you decide whether they are right; Pull
+  stays with the repo it reads. `CommitButton`/`PushResult` live in
+  `RepoPanel.tsx` beside the `gitBlocked` rule they share with Pull.
 - **A field added from the add list can be put back on it.** The `×` beside its
   label resets it to the chart's own answer as well as dropping it from
   `added` — dropping it from `added` alone would leave whatever was typed
