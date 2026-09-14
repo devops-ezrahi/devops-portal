@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diffLines, diffTree } from "./diff";
+import { diffLines, diffTree, diffValues } from "./diff";
 import type { GeneratedFile } from "./tree";
 
 const gen = (path: string, text: string): GeneratedFile => ({ path, text, note: "" });
@@ -58,5 +58,46 @@ describe("diffLines", () => {
   it("falls back to a whole-file replace past the line ceiling", () => {
     const big = Array.from({ length: 1500 }, (_, i) => `line ${i}`).join("\n");
     expect(diffLines(big, big).some((l) => l.kind === " ")).toBe(false);
+  });
+});
+
+describe("diffValues", () => {
+  // The complaint this answers: a block that only moved was eight removals and
+  // eight additions of the same lines, and the one value that did change was
+  // lost in them.
+  const before = [
+    "volumeClaimTemplates:",
+    "  data:",
+    "    size: 50Gi",
+    "volumes:",
+    "  initscripts:",
+    "    configMap:",
+    "      name: db-init",
+    "",
+  ].join("\n");
+  const after = [
+    "volumes:",
+    "  initscripts:",
+    "    configMap:",
+    "      name: db-init",
+    "volumeClaimTemplates:",
+    "  data:",
+    "    size: 50Gi",
+    "",
+  ].join("\n");
+
+  it("reports nothing when a block only moved", () => {
+    expect(diffValues(before, after).every((l) => l.kind === " ")).toBe(true);
+  });
+
+  it("reports the one value that did change, and only that", () => {
+    const changed = after.replace("50Gi", "100Gi");
+    const marked = diffValues(before, changed).filter((l) => l.kind !== " ");
+    expect(marked.map((l) => l.kind + l.text.trim())).toEqual(["-size: 50Gi", "+size: 100Gi"]);
+  });
+
+  it("falls back to the raw text when a side will not parse", () => {
+    const broken = "volumes: [unclosed\n";
+    expect(diffValues(broken, after).some((l) => l.kind !== " ")).toBe(true);
   });
 });

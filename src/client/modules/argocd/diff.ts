@@ -1,7 +1,9 @@
 import { parseValues } from "./build";
-import { deepEqual } from "./values";
+import { isPlainObject } from "./values";
+import { toYaml } from "./yaml";
 import type { RepoFile } from "./api";
 import type { GeneratedFile } from "./tree";
+import type { Values } from "./values";
 
 /**
  * What this tree would do to the values repo, file by file.
@@ -43,7 +45,8 @@ export function diffTree(files: GeneratedFile[], repo: RepoFile[], deletes: bool
     // that moved and on the line nobody wrote. None of that changes what
     // deploys, and a listing of it hides the one value that did change — so
     // the comparison is between the parsed documents, not the two texts.
-    if (sameValues(repoText, file.text))
+    const canon = canonical(file.text);
+    if (canon !== null && canon === canonical(repoText))
       return { ...file, repoText, status: "unchanged" as const, note: "same values, written in a different order" };
     return { ...file, repoText, status: "modified" as const };
   });
@@ -63,12 +66,42 @@ export function diffTree(files: GeneratedFile[], repo: RepoFile[], deletes: bool
   return entries;
 }
 
-/** Whether two YAML files say the same thing, whatever order they say it in. */
-function sameValues(a: string, b: string): boolean {
-  const pa = parseValues(a);
-  const pb = parseValues(b);
-  // Either side unreadable is a real difference to report, not one to hide.
-  return !!pa && !!pb && deepEqual(pa, pb);
+/**
+ * A values file rewritten in one canonical order — keys sorted, comments gone.
+ *
+ * Two files that deploy the same thing have to *read* the same before a line
+ * diff can agree they are the same, and neither side's own order is that
+ * canon: the builder writes catalog order, a hand-authored file writes whatever
+ * order it was typed in, and either can move a block without changing a value.
+ * `null` when the text will not parse — that is a real difference to report,
+ * not one to normalise away.
+ */
+function canonical(text: string): string | null {
+  const doc = parseValues(text);
+  if (!doc) return null;
+  return toYaml(sortKeys(doc) as Values);
+}
+
+/** Every map in a document, key-sorted. Sequences keep their order — there it is the value. */
+function sortKeys(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(sortKeys);
+  if (!isPlainObject(node)) return node;
+  const out: Record<string, unknown> = {};
+  Object.keys(node)
+    .sort()
+    .forEach((k) => (out[k] = sortKeys((node as Record<string, unknown>)[k])));
+  return out;
+}
+
+/**
+ * The line diff the preview shows: over the canonical form when both sides
+ * parse, so a block that only moved is not reported as eight removals and
+ * eight additions of the same lines.
+ */
+export function diffValues(before: string, after: string): DiffLine[] {
+  const a = canonical(before);
+  const b = canonical(after);
+  return a !== null && b !== null ? diffLines(a, b) : diffLines(before, after);
 }
 
 /**

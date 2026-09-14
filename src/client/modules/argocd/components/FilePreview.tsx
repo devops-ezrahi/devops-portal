@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronRight, Copy, Download, FileText, Folder, FolderOpen, TriangleAlert } from "lucide-react";
 import { useMemo, useState } from "react";
-import { diffLines, diffTree, type FileStatus, type TreeEntry } from "../diff";
+import { diffTree, diffValues, type FileStatus, type TreeEntry } from "../diff";
 import type { RepoFile } from "../api";
 import type { GeneratedFile } from "../tree";
 
@@ -197,7 +197,7 @@ export function FilePreview({ files, onDownload, repo, comparing, deletes = fals
 
 /** One file's lines: what the branch has, against what this tree generates. */
 function Diff({ before, after }: { before: string; after: string }) {
-  const lines = useMemo(() => diffLines(before, after), [before, after]);
+  const lines = useMemo(() => diffValues(before, after), [before, after]);
   return (
     <pre className="ag-file-body ag-diff">
       <code>

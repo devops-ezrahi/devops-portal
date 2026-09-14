@@ -121,20 +121,29 @@ export function ReleaseGrid({
         >
           <span className="ag-card-name">Defaults</span>
           <span className="ag-card-foot">
-            {defaultsCount ? `${defaultsCount} value${defaultsCount === 1 ? "" : "s"} in every base file` : "every microservice"}
+            {defaultsCount
+              ? `${defaultsCount} value${defaultsCount === 1 ? "" : "s"} in every defaults.yaml`
+              : "every microservice"}
           </span>
         </button>
         <span className="ag-card-tools">
           <Help label="the tree's defaults">
-            <p>Values set once here are merged into every microservice's base file.</p>
             <p>
-              A microservice that sets the same thing wins — its own value merges over this one — and everything that
-              came from here shows greyed on its card, with a way back.
+              Values set once here are written into every <code>&lt;ns&gt;/defaults.yaml</code> — the first file the
+              chart layers, so every microservice in every namespace starts from them.
             </p>
             <p>
-              There is no defaults file in the repository: the chart's layering starts at{" "}
-              <code>&lt;ns&gt;/defaults.yaml</code>, so a tree-root one would be a layer nothing reads. This is folded
-              in when the files are written.
+              A microservice that sets the same thing wins: its <code>base/</code> file is layered after, and what it
+              takes from here shows greyed on its card, with a way back.
+            </p>
+            <p>
+              The <strong>shared</strong> release is in that namespace too, and it runs no pods — so keep anything
+              that only makes sense for a workload (a Route, an HPA, replicas) on the microservices themselves.
+            </p>
+            <p>
+              There is no defaults file at the tree root. The chain is{" "}
+              <code>&lt;ns&gt;/defaults.yaml → base/&lt;release&gt;.yaml → &lt;ns&gt;/values/&lt;release&gt;.yaml</code>
+              , so a file above it is a layer nothing reads.
             </p>
           </Help>
         </span>

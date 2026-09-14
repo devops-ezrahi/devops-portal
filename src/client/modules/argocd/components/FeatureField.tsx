@@ -13,6 +13,7 @@ export function FeatureField({
   spec,
   value,
   onChange,
+  onRemove,
   rowsFor,
   onMount,
   mounted,
@@ -20,6 +21,8 @@ export function FeatureField({
   spec: FieldSpec;
   value: unknown;
   onChange: (value: unknown) => void;
+  /** Put this field back on the add list. Absent on the ones that cannot leave. */
+  onRemove?: () => void;
 } & RowExtras) {
   const id = `ag-field-${spec.key}`;
   // A list, a map or a block of YAML gets the whole width of the feature; only
@@ -37,6 +40,20 @@ export function FeatureField({
           <Help label={spec.label}>
             <p>{spec.hint}</p>
           </Help>
+        )}
+        {/* The way back out of an add-list chip. Adding a field is a decision,
+            and one made by mistake had no undo short of knowing which value
+            the chart would have used. */}
+        {onRemove && (
+          <button
+            type="button"
+            className="ag-field-remove"
+            aria-label={`Remove ${spec.label}`}
+            title="Back to the optional list"
+            onClick={onRemove}
+          >
+            <X size={12} aria-hidden="true" />
+          </button>
         )}
       </span>
       <Control spec={spec} id={id} value={value} onChange={onChange} rowsFor={rowsFor} onMount={onMount} mounted={mounted} />

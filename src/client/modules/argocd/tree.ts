@@ -29,7 +29,8 @@ import type { Values } from "./values";
  * ApplicationSets: the `<ns>/releases/*.yaml` pointer files (the fan-out globs
  * `<ns>/values/*.yaml` directly now) and the tree-root `defaults.yaml` (no
  * layer in the chain reads one, so anything common across namespaces is
- * repeated per namespace instead).
+ * repeated per namespace instead — which is where the tree's own defaults go:
+ * into every `<ns>/defaults.yaml`, the first file the chain reads).
  */
 
 export type GeneratedFile = {
@@ -117,16 +118,18 @@ export function buildTree(tree: ArgocdTree): GeneratedFile[] {
   const valuesPath = tree.values.path ?? "";
 
   // ---- base layer -------------------------------------------------------
-  // Written whole. There is no tree-root defaults.yaml to subtract against any
-  // more — the chart's chain starts at <ns>/defaults.yaml, and subtracting
-  // against a layer nobody applies silently drops the value.
-  // The tree's own defaults are folded into every base file rather than written
-  // as a file of their own: the chart's chain starts at `<ns>/defaults.yaml`, so
-  // a tree-root defaults file is a layer nothing reads. A release's own value
-  // merges over it, which is why it is the left argument.
-  const treeDefaults = buildValues(tree.defaults?.features ?? {}, tree.defaults?.extraValues);
+  // Written whole. There is no tree-root defaults.yaml to subtract against —
+  // the chart's chain starts at <ns>/defaults.yaml, and subtracting against a
+  // layer nobody applies silently drops the value.
   const base = new Map<string, Values>();
-  releases.forEach((r) => base.set(r.id, deepMerge(treeDefaults, buildValues(r.features, r.extraValues))));
+  releases.forEach((r) => base.set(r.id, buildValues(r.features, r.extraValues)));
+
+  // The tree's defaults are the bottom of that chain, so they go into the one
+  // file the chain actually reads first: every <ns>/defaults.yaml. That is what
+  // makes them reach a microservice without being copied into its base file —
+  // and what makes a base file that sets the same key win, which is the rule
+  // the layering already has.
+  const treeDefaults = buildValues(tree.defaults?.features ?? {}, tree.defaults?.extraValues);
 
   const claimed = new Set<string>();
   base.forEach((doc) => paths(doc).forEach((p) => claimed.add(p)));
@@ -154,16 +157,20 @@ export function buildTree(tree: ArgocdTree): GeneratedFile[] {
       fragments.set(r.id, entry ? buildValues(entry.features, entry.extraValues) : {});
     });
 
-    // Shared across this namespace's releases AND not claimed by any base file
-    // — see `withoutClaimed`: base merges after namespace defaults, so a
-    // colliding key promoted here would never take effect.
-    const nsDefaults = withoutClaimed(commonSubtree([...fragments.values()]), claimed);
+    // Two things share this file. The promoted half is shared across this
+    // namespace's releases AND not claimed by any base file — see
+    // `withoutClaimed`: base merges after namespace defaults, so a colliding
+    // key promoted here would never take effect. The tree's defaults are not
+    // filtered that way: being overridden by a base file is exactly what they
+    // are for, and dropping a key one microservice claims would take the
+    // default away from every microservice that does not.
+    const nsDefaults = deepMerge(treeDefaults, withoutClaimed(commonSubtree([...fragments.values()]), claimed));
 
     files.push(
       valuesFile(
         `${ns.name}/defaults.yaml`,
         nsDefaults,
-        `${HEADER}\n# ${ns.name} — settings identical across this namespace's releases.`,
+        `${HEADER}\n# ${ns.name} — the tree's defaults, plus whatever is identical across this namespace's releases.\n# Merged first, so a base/<release>.yaml that sets the same key wins.`,
         `${ns.name} · shared`
       )
     );

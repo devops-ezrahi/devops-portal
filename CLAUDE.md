@@ -916,7 +916,9 @@ tree; the three-file layering (`<ns>/defaults.yaml` → `base/<file>` →
 alongside the universal chart it applies. There is no tree-root
 `defaults.yaml` either — no layer in that chain reads one, and subtracting
 against a layer nobody applies silently drops the value, so whatever is common
-across namespaces is repeated per namespace instead.
+across namespaces is repeated per namespace instead. `<ns>/defaults.yaml` is
+therefore the bottom of the chain and the only "defaults" file there is: it
+carries both what that namespace's releases share and the tree's own defaults.
 
 - **The merge/diff logic is carried over, not reinvented.** `values.ts`'s
   `deepMerge` / `commonSubtree` / `subtractDefaults` come from
@@ -1018,22 +1020,49 @@ across namespaces is repeated per namespace instead.
   beside converter output keeps the same root ApplicationSet; building one is a
   second feature, and the per-feature `cluster` scope is what warns about the
   collision in the meantime.
-- **The tree's defaults are merged in, not written out.** A **Defaults** tile
-  leads the microservices grid — the same idea as the Layers grid's **Base**
-  tile, in the other direction: Base is every namespace, Defaults is every
-  microservice. `buildTree` folds them under each release's own values
-  (`deepMerge(treeDefaults, releaseDoc)`, so the release wins) and **there is no
-  defaults file in the repository**: the chart's chain starts at
-  `<ns>/defaults.yaml`, so a tree-root one would be a layer nothing reads —
-  the same reason that file was removed in the first place.
-- **What a microservice inherits is on its own card, greyed, with the way
-  back.** A feature only the defaults set still opens (an unticked box beside a
-  value that deploys is the invisible-value problem `enabled` already taught
-  this module about) and shows the inherited fragment as YAML behind a *from the
-  tree's Defaults* link. YAML rather than a second set of disabled inputs: one
-  block covers all eight field kinds, and a greyed-out input still reads as
-  something you might be able to type into. Ticking the feature and setting it
-  here is what overrides it.
+- **The tree's defaults are written into every `<ns>/defaults.yaml`.** A
+  **Defaults** tile leads the microservices grid — the same idea as the Layers
+  grid's **Base** tile, in the other direction: Base is every namespace,
+  Defaults is every microservice. There is still no file at the tree *root*
+  (nothing reads one), but `<ns>/defaults.yaml` is the first file the
+  `ms-applicationSet` chart layers, so a value written there reaches every
+  microservice in that namespace — which is what "set it once for all of them"
+  has to mean. `buildTree` merges them under each namespace's own promoted
+  values (`deepMerge(treeDefaults, withoutClaimed(...))`).
+  - **`withoutClaimed` does not apply to them**, deliberately. It exists to keep
+    a *promoted namespace override* out of a layer that sits below the base it
+    was meant to override; a default being overridden by a base file is the
+    whole point of it, and dropping a key because one microservice claims it
+    would take the default away from every microservice that does not.
+  - Folding them into each `base/<release>.yaml` instead — which is what this
+    did first — put a copy of the same value in N files and called a tree-wide
+    decision the microservice's own.
+- **What a layer inherits is on its own card, greyed, with the way back.** Base
+  shows what the tree's Defaults contribute; a namespace override shows those
+  **and** the microservice's base, so the whole document that deploys is
+  readable in one place rather than by switching layers and remembering. A
+  feature only a lower layer sets still opens (an unticked box beside a value
+  that deploys is the invisible-value problem `enabled` already taught this
+  module about) and shows the fragment as YAML behind a *from the tree's
+  Defaults* / *from the base values* link. YAML rather than a second set of
+  disabled inputs: one block covers all eight field kinds, and a greyed-out
+  input still reads as something you might be able to type into. Ticking the
+  feature and setting it here is what overrides it.
+- **The override light means "this puts something in the override file"**, not
+  "this feature is ticked here". Ticking one on writes the chart's own answers
+  into the layer, so comparing catalog state against base lit up a feature
+  nobody had touched — *OpenShift Route is set differently here* on a Route
+  nothing differs on. It is `subtractDefaults` against everything below (the
+  tree's defaults, then base) that decides: the same call that writes the file,
+  so a light means a file with something in it.
+- **A problem is shown twice: in the list under the form, and on the card it
+  names.** Pressing it in the list is what scrolls to the card — and arriving at
+  a card with no sign of why is the other half of the same complaint. Same
+  `Problem.feature` id drives both.
+- **A field added from the add list can be put back on it.** The `×` beside its
+  label resets it to the chart's own answer as well as dropping it from
+  `added` — dropping it from `added` alone would leave whatever was typed
+  emitting from a field nobody can see.
 - **Adding a microservice opens its name.** `addRelease` returns the new id and
   the grid starts editing it. An unnamed release generates `release.yaml` and is
   indistinguishable from the last one, so naming it later means finding it again.
@@ -1142,6 +1171,14 @@ files in the preview and no way to see that this press moves two of them.
   hides the one value that did change. A file whose values match is `unchanged`
   and carries the note *same values, written in a different order*; either side
   failing to parse is a real difference and is reported as one.
+- **The line diff runs over a canonical rendering of both sides**, not over
+  their own text: `canonical()` parses and re-emits with every map key sorted,
+  so a block that only moved is not eight removals and eight additions of the
+  same lines with the one real change buried in them. Neither side's own order
+  is that canon — the builder's is catalog order and a hand-written file's is
+  whatever it was typed in — which is why both are rewritten rather than one
+  being normalised towards the other. Sequences keep their order; there it is
+  the value. A side that will not parse falls back to the raw text.
 - **`pushValuesTree` rebuilds its branch from `values.revision` every time**
   (`clone --branch <rev>` then `checkout -B`), so diffing against that revision
   is exactly what the commit will do, not an approximation of it.

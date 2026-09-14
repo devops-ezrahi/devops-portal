@@ -4946,6 +4946,60 @@ input.jf-title {
   overflow-wrap: anywhere;
 }
 
+/* The same problem the list under the form shows, repeated on the card it is
+   about: pressing it there lands here, and a card with no sign of why is the
+   other half of that complaint. */
+.ag-feature-problems {
+  grid-column: 1 / -1;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.ag-feature-problems li {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  border-left: 2px solid;
+  border-radius: 0 6px 6px 0;
+  padding: 6px 9px;
+  font-size: 12px;
+}
+
+.ag-feature-problems li svg { flex: 0 0 auto; margin-top: 1px }
+
+.ag-feature-problems li.bad {
+  border-color: #ff8d95;
+  background: rgba(255, 141, 149, 0.08);
+  color: #ffc9cd;
+}
+
+.ag-feature-problems li.warn {
+  border-color: #e0aa54;
+  background: rgba(224, 170, 84, 0.08);
+  color: #f0d7a8;
+}
+
+/* The way back out of an add-list chip, shown on hover so a form of a dozen
+   fields is not a row of a dozen crosses. */
+.ag-field-remove {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: #55656d;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.ag-field:hover .ag-field-remove,
+.ag-field-remove:focus-visible { opacity: 1 }
+.ag-field-remove:hover { color: #ff8d95 }
+
 .ag-entry-title {
   font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 12px;

@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArgocdTree } from "../../../server/types";
 import { buildTree } from "./tree";
+import { defaultValues } from "./catalog";
 
 const listTrees = vi.fn();
 const createTree = vi.fn();
@@ -159,11 +160,17 @@ describe("ArgocdView", () => {
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
     // A workload with no image is what the chart's own schema refuses, and the
-    // workload defaults to a Deployment whether or not anything was typed.
-    expect(await screen.findByText(/No image.repository/)).toBeInTheDocument();
+    // workload defaults to a Deployment whether or not anything was typed. It
+    // is said twice on purpose — once in the list under the form, once on the
+    // Image card itself — so both places are asserted.
+    const listed = () => document.querySelector(".ag-problems")?.textContent ?? "";
+    const onCard = () => document.querySelector('[data-feature-card="image"] .ag-feature-problems')?.textContent ?? "";
+    await waitFor(() => expect(listed()).toMatch(/No image.repository/));
+    expect(onCard()).toMatch(/No image.repository/);
 
     fireEvent.change(screen.getByLabelText("image.repository"), { target: { value: "nginx" } });
-    await waitFor(() => expect(screen.queryByText(/No image.repository/)).not.toBeInTheDocument());
+    await waitFor(() => expect(listed()).not.toMatch(/No image.repository/));
+    expect(onCard()).toBe("");
   });
 
   it("says on the card what each release deploys, and what only a namespace adds", async () => {
@@ -510,6 +517,10 @@ describe("ArgocdView", () => {
     rename("microservice", "checkout");
     // Leave the name field, or the card is still an <input> and not a button.
     fireEvent.blur(screen.getByLabelText("Microservice name"));
+    // A namespace, because <ns>/defaults.yaml is where the defaults are written.
+    fireEvent.click(screen.getByRole("button", { name: /Namespace/ }));
+    rename("namespace", "prod");
+    fireEvent.blur(screen.getByLabelText("Namespace name"));
 
     // The defaults are a scope of their own, opened from the grid.
     fireEvent.click(screen.getByRole("button", { name: /^Defaults/ }));
@@ -519,10 +530,13 @@ describe("ArgocdView", () => {
     fireEvent.click(within(feature("ServiceAccount")).getByRole("button", { name: /imagePullSecrets/ }));
     fireEvent.change(screen.getByLabelText("imagePullSecrets"), { target: { value: "regcred" } });
 
-    // It lands in the microservice's own base file...
-    expect(screen.getByLabelText("base/checkout.yaml")).toBeInTheDocument();
+    // It lands in the one file the chart layers first — every namespace's
+    // defaults.yaml — and not in the microservice's own base file.
+    const shown = () => document.querySelector(".ag-file-body")?.textContent ?? "";
     fireEvent.click(screen.getByLabelText("base/checkout.yaml"));
-    expect(document.querySelector(".ag-file-body")!.textContent).toContain("regcred");
+    expect(shown()).not.toContain("regcred");
+    fireEvent.click(screen.getByLabelText("prod/defaults.yaml"));
+    expect(shown()).toContain("regcred");
 
     // ...and the microservice says so, with the way back to where it is set.
     fireEvent.click(card("Microservices", /checkout/));
@@ -530,6 +544,59 @@ describe("ArgocdView", () => {
     expect(inherited.textContent).toContain("regcred");
     fireEvent.click(within(inherited as HTMLElement).getByRole("button", { name: /Defaults/ }));
     expect(screen.getByText("Defaults for every microservice", { selector: "h3" })).toBeInTheDocument();
+  });
+
+  it("puts a field back on the optional list", async () => {
+    view();
+    await waitFor(() => expect(listTrees).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
+    rename("microservice", "storefront");
+
+    fireEvent.click(screen.getByRole("button", { name: /image\.pullPolicy/ }));
+    fireEvent.change(screen.getByLabelText("image.pullPolicy"), { target: { value: "Always" } });
+
+    // Removing it is the way back out: the field goes, and so does what was
+    // typed into it — otherwise it would still be emitting from a field nobody
+    // can see.
+    fireEvent.click(screen.getByRole("button", { name: "Remove image.pullPolicy" }));
+    expect(screen.queryByLabelText("image.pullPolicy")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /image\.pullPolicy/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("base/storefront.yaml"));
+    expect(document.querySelector(".ag-file-body")!.textContent).not.toContain("Always");
+  });
+
+  it("lights a namespace override only when it puts something in the file", async () => {
+    const tree = saved({
+      releases: [
+        {
+          id: "r1",
+          name: "storefront",
+          features: {
+            image: { on: true, v: { repository: "ghcr.io/shop/storefront" } },
+            route: { on: true, v: { ...defaultValues("route"), host: "shop.example.com" } },
+          },
+        },
+      ],
+      namespaces: [{ name: "prod", releases: [] }],
+    });
+    listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
+    view();
+    fireEvent.click(await screen.findByText("Dev User #1"));
+    fireEvent.click(card("Layers", /prod/));
+    // Networking is already open: the greyed base values under this layer are
+    // what decides which categories a namespace override lands on.
+
+    // Ticking a feature on writes the chart's own answers into the layer, and
+    // every one of them is already what base says — so the override file is
+    // empty and there is nothing to warn about.
+    const route = () => feature("OpenShift Route");
+    fireEvent.click(route().querySelector("input[type=checkbox]")!);
+    const light = () => within(route()).queryByRole("button", { name: /override on OpenShift Route/ });
+    expect(light()).toBeNull();
+
+    // A value that really differs is a second copy to keep in step, and says so.
+    fireEvent.change(within(route()).getByLabelText("host"), { target: { value: "shop.prod.example.com" } });
+    expect(light()).not.toBeNull();
   });
 
   it("offers nameOverride per namespace, not in base — but still shows one base already has", async () => {

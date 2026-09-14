@@ -27,7 +27,7 @@ import {
 import { buildValues, extraValuesError, parseValues } from "./build";
 import { checkValues } from "./checks";
 import { BY_ID } from "./catalog";
-import { deepMerge, obj } from "./values";
+import { deepMerge, obj, subtractDefaults } from "./values";
 import { buildTree } from "./tree";
 import {
   SHARED_RELEASE_NAME,
@@ -43,7 +43,7 @@ import { Help } from "../../Help";
 import { addedKinds, resourcesOf } from "./resources";
 import { applyPromotion, findEnvSpecific, findPromotions } from "./promote";
 import { ConfirmDialog } from "./components/ConfirmDialog";
-import { FeatureEditor } from "./components/FeatureEditor";
+import { FeatureEditor, type Inherited } from "./components/FeatureEditor";
 import { FilePreview } from "./components/FilePreview";
 import { ImportDialog } from "./components/ImportDialog";
 import { ChartLine } from "./components/ChartLine";
@@ -204,11 +204,12 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     : layer === BASE
       ? "base"
       : namespace?.name.trim() || "this namespace";
-  /** How many top-level values the defaults put into every base file. */
-  const defaultsCount = useMemo(
-    () => Object.keys(buildValues(draft.defaults?.features ?? {}, draft.defaults?.extraValues)).length,
+  /** The tree's defaults as values — the bottom layer of every namespace's defaults.yaml. */
+  const treeDefaultValues = useMemo(
+    () => buildValues(draft.defaults?.features ?? {}, draft.defaults?.extraValues),
     [draft.defaults]
   );
+  const defaultsCount = Object.keys(treeDefaultValues).length;
 
   /**
    * What each release rectangle says. Every figure on it comes from the *built*
@@ -289,16 +290,45 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   const overriding = useMemo<Set<string>>(() => {
     const out = new Set<string>();
     if (layer === BASE || !release) return out;
+    // Everything below this layer, in the order the chart reads it: the tree's
+    // defaults, then this microservice's base over them.
+    const below = deepMerge(treeDefaultValues, buildValues(release.features, release.extraValues));
     Object.entries(features).forEach(([id, state]) => {
       if (!state?.on) return;
-      const mine = JSON.stringify(buildValues({ [id]: state }));
-      if (mine === "{}") return;
-      const baseState = release.features[id];
-      const theirs = JSON.stringify(baseState ? buildValues({ [id]: baseState }) : {});
-      if (mine !== theirs) out.add(id);
+      // The light means "this feature puts something in the override file",
+      // never "this feature is ticked here". Ticking one on writes the chart's
+      // own defaults into the layer, and `subtractDefaults` — the same call
+      // that writes the file — drops every one of them again when what is
+      // below already says so. A light on a feature whose override file is
+      // empty warns about a second copy that does not exist.
+      if (Object.keys(subtractDefaults(buildValues({ [id]: state }), below)).length) out.add(id);
     });
     return out;
-  }, [features, release, layer]);
+  }, [features, release, layer, treeDefaultValues]);
+
+  /**
+   * What this layer inherits from the ones under it, so the whole deployed
+   * document is readable in one place: base inherits the tree's defaults, a
+   * namespace override inherits those *and* the microservice's base.
+   */
+  const inherited = useMemo<Record<string, Inherited> | undefined>(() => {
+    if (editingDefaults) return undefined;
+    const out: Record<string, Inherited> = {};
+    Object.entries(draft.defaults?.features ?? {}).forEach(([id, state]) => {
+      out[id] = { state, from: "defaults" };
+    });
+    if (layer === BASE) return out;
+    if (!release) return undefined;
+    // Each fragment says where it is editable, rather than the layer saying it
+    // once: in a namespace override most of what shows comes from base, but a
+    // feature only the tree's defaults set is not base's to change, and a link
+    // that lands on the wrong scope is worse than no link.
+    Object.entries(release.features).forEach(([id, state]) => {
+      const under = out[id];
+      out[id] = under ? { state: { on: under.state.on || state.on, v: deepMerge(under.state.v, state.v) }, from: "base" } : { state, from: "base" };
+    });
+    return out;
+  }, [editingDefaults, layer, draft.defaults, release]);
 
   /**
    * The checks run on the document that is actually deployed for this scope —
@@ -308,7 +338,10 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
    */
   const problems = useMemo(() => {
     if (!release) return [];
-    const base = buildValues(release.features, release.extraValues);
+    // The tree's defaults are under the base file in the chart's chain, so they
+    // deploy here too — a check run without them misses the one nobody typed
+    // on this card, which is exactly the kind this list exists to catch.
+    const base = deepMerge(treeDefaultValues, buildValues(release.features, release.extraValues));
     const effective = layer === BASE ? base : deepMerge(base, buildValues(features, extraValues));
     const found = checkValues(parseValues(toYaml(effective)) ?? {});
     // Cluster-scoped objects belong to one release in the cluster, so a tree
@@ -324,7 +357,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         feature: clusterIds[0],
       });
     return found;
-  }, [release, features, extraValues, layer, draft.namespaces.length]);
+  }, [release, features, extraValues, layer, draft.namespaces.length, treeDefaultValues]);
 
   function handleOpen(tree: ArgocdTree) {
     log("argocd", "opening tree", tree.id);
@@ -908,8 +941,9 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                     >
                       {editingDefaults ? (
                         <p>
-                          Merged into every microservice's base file. A microservice that sets the same thing wins, and
-                          what it takes from here shows greyed on its own card.
+                          Written into every namespace's <code>defaults.yaml</code>, the first file the chart layers. A
+                          microservice that sets the same thing wins, and what it takes from here shows greyed on its
+                          own card.
                         </p>
                       ) : layer === BASE ? (
                         <p>Environment-agnostic values, shared by every namespace that runs this microservice.</p>
@@ -935,9 +969,9 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   extraError={extraError}
                   overriding={overriding}
                   jump={jump}
-                  // Base only, and never while editing the defaults themselves.
-                  inherited={editingDefaults || layer !== BASE ? undefined : draft.defaults?.features}
-                  onOpenDefaults={openDefaults}
+                  inherited={inherited}
+                  onOpenInherited={(from) => (from === "defaults" ? openDefaults() : setLayer(BASE))}
+                  problems={problems}
                   onChange={setFeatures}
                   onExtraChange={setExtra}
                 />

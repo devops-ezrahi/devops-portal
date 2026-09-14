@@ -188,23 +188,61 @@ describe("the tree's defaults", () => {
           features: { workload: on({ type: "deployment" }), serviceaccount: on({ create: true, name: "storefront-sa" }) },
         },
       ],
-      namespaces: [],
+      namespaces: [
+        { name: "shop-dev", releases: [] },
+        { name: "shop-prod", releases: [] },
+      ],
     });
 
-  const baseOf = (files: { path: string; text: string }[], name: string) =>
-    parseYaml(files.find((f) => f.path === `base/${name}.yaml`)!.text);
+  const fileAt = (files: { path: string; text: string }[], path: string) =>
+    parseYaml(files.find((f) => f.path === path)!.text);
 
-  it("reaches every base file, with no defaults file of its own", () => {
+  it("is written into every namespace's defaults.yaml, and nowhere else", () => {
     const files = buildTree(withDefaults());
-    expect(files.some((f) => /defaults\.yaml$/.test(f.path) && !f.path.includes("/"))).toBe(false);
-    expect(baseOf(files, "api-gateway").serviceAccount.imagePullSecrets).toEqual([{ name: "regcred" }]);
-    expect(baseOf(files, "storefront").serviceAccount.imagePullSecrets).toEqual([{ name: "regcred" }]);
+    // Not at the tree root: the chart's chain starts at <ns>/defaults.yaml, so
+    // a file above that is a layer nothing reads.
+    expect(files.some((f) => f.path === "defaults.yaml")).toBe(false);
+    ["shop-dev", "shop-prod"].forEach((ns) => {
+      expect(fileAt(files, `${ns}/defaults.yaml`).serviceAccount).toEqual({
+        create: true,
+        imagePullSecrets: [{ name: "regcred" }],
+      });
+    });
+    // And not copied into the base files — that layer is the microservice's.
+    expect(fileAt(files, "base/api-gateway.yaml").serviceAccount).toBeUndefined();
   });
 
-  it("loses to what the microservice sets itself", () => {
-    const doc = baseOf(buildTree(withDefaults()), "storefront");
-    // Its own key wins; the rest of the default is still merged in beside it.
-    expect(doc.serviceAccount.name).toBe("storefront-sa");
-    expect(doc.serviceAccount.imagePullSecrets).toEqual([{ name: "regcred" }]);
+  it("loses to what the microservice sets itself, by layer order alone", () => {
+    const files = buildTree(withDefaults());
+    // Nothing subtracts it: base/ is layered after <ns>/defaults.yaml, so the
+    // microservice's own value wins where it has one and inherits where it
+    // does not. Both files say what they say.
+    expect(fileAt(files, "base/storefront.yaml").serviceAccount).toEqual({ create: true, name: "storefront-sa" });
+    expect(fileAt(files, "shop-dev/defaults.yaml").serviceAccount.imagePullSecrets).toEqual([{ name: "regcred" }]);
+  });
+
+  it("still leaves the namespace's own promoted values in that file", () => {
+    const files = buildTree(
+      tree({
+        defaults: { features: { serviceaccount: on({ create: true, imagePullSecrets: "regcred" }) } },
+        releases: [
+          { id: "r1", name: "api-gateway", features: { workload: on({ type: "deployment" }) } },
+          { id: "r2", name: "storefront", features: { workload: on({ type: "deployment" }) } },
+        ],
+        namespaces: [
+          {
+
+            name: "shop-dev",
+            releases: [
+              { release: "r1", features: { replicas: on({ replicaCount: 3 }) } },
+              { release: "r2", features: { replicas: on({ replicaCount: 3 }) } },
+            ],
+          },
+        ],
+      })
+    );
+    const doc = fileAt(files, "shop-dev/defaults.yaml");
+    expect(doc.serviceAccount.create).toBe(true);
+    expect(doc.replicaCount).toBe(3);
   });
 });
