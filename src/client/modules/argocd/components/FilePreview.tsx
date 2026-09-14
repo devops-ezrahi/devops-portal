@@ -123,7 +123,12 @@ export function FilePreview({ files, onDownload, repo, comparing, deletes = fals
     <div className="ag-preview">
       <div className="ag-preview-head">
         <h3>
-          {diffing ? `Changes vs the repository (${changed.length})` : `Generated files (${entries.length})`}
+          {diffing
+            ? `Changes vs the repository (${changed.length})`
+            : // "All files" rather than "Generated files" once the repository is
+              // known: the list then also holds what the repo has and this tree
+              // does not, which nothing here generated.
+              `${repo ? "All" : "Generated"} files (${entries.length})`}
           {comparing && <span className="ag-file-note"> · reading the repository…</span>}
         </h3>
         <div className="ag-preview-actions">

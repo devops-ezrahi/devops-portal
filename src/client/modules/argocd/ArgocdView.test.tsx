@@ -447,7 +447,7 @@ describe("ArgocdView", () => {
 
     // The button names the list it switches to; the heading says which is on screen.
     fireEvent.click(screen.getByRole("button", { name: `All files (${generated.length})` }));
-    expect(screen.getByRole("heading", { name: `Generated files (${generated.length})` })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: `All files (${generated.length})` })).toBeInTheDocument();
     expect(document.querySelectorAll(".ag-file")).toHaveLength(generated.length);
     vi.useRealTimers();
   });

@@ -1014,6 +1014,39 @@ across namespaces is repeated per namespace instead.
   `DELETE` really deletes.** Autosave, minted names and the ownership rules are
   the Jenkinsfile builder's, unchanged.
 
+## ArgoCD: the preview is a diff against the connected branch
+
+The builder regenerates the whole tree on every keystroke, so "what did I
+change" is not something it knows — it is the generated files held against what
+the connected branch has. Without that, pressing Commit is a leap: forty-odd
+files in the preview and no way to see that this press moves two of them.
+
+- **The baseline is the Pull button's clone, minus the import.** The same
+  `POST /api/argocd/pull` comes back and nothing in the draft is touched, so
+  there is no second endpoint and no server-side diff — `diff.ts` is client
+  code, next to `buildTree`, which is where both sides of the comparison
+  already live. Pull itself keeps the files it just read, so pressing it costs
+  one clone rather than two.
+- **The read is keyed on the connection and debounced**, not on the draft: the
+  repo URL is a text field, and one clone per keystroke is not a thing to do to
+  a git server. A branch that cannot be read leaves the baseline unknown and
+  the preview falls back to the plain file list — the error belongs to the Pull
+  button, which is the press that asked for it.
+- **`pushValuesTree` rebuilds its branch from `values.revision` every time**
+  (`clone --branch <rev>` then `checkout -B`), so diffing against that revision
+  is exactly what the commit will do, not an approximation of it.
+- **A removal is only shown when the push would actually make one** — that is,
+  when `values.path` names a subdirectory this tree owns. At the repository root
+  the commit only adds and updates, and a shared root holds other trees' files;
+  listing those as deletions would name deletions that never happen.
+- **The listing opens on the changes and the button switches to the whole
+  tree**, heading naming what is on screen — the job lists' All/Mine rule. The
+  status is one letter in the gutter the file rows already reserve for a
+  chevron they do not have, so marking a file widens no row.
+- The line diff is a plain LCS over a values file's few dozen lines, bailing to
+  a whole-file replace past 2 000 — no dependency for what is twenty lines, and
+  `diff.test.ts` is what pins it.
+
 ## Job lists: scope and links
 
 Both job modules (artifactory, whitening) share these, and the ticket queue
