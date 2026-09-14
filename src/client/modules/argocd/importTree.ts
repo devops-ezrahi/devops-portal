@@ -1,6 +1,6 @@
 import { importValues, releaseNameFrom } from "./import";
 import { parseValues } from "./build";
-import { deepMerge, isPlainObject } from "./values";
+import { commonSubtree, deepMerge, isPlainObject, subtractDefaults } from "./values";
 import { NON_NAMESPACE_DIRS } from "./tree";
 import { toYaml } from "./yaml";
 import type { ArgocdNamespace, ArgocdRelease, ArgocdTree } from "../../../server/types";
@@ -36,6 +36,8 @@ export type TreeImport = {
   rootAppName?: string;
   releases: ArgocdRelease[];
   namespaces: ArgocdNamespace[];
+  /** The tree's own Defaults, recovered from what every `<ns>/defaults.yaml` agrees on. */
+  defaults?: NonNullable<ArgocdTree["defaults"]>;
   warnings: string[];
 };
 
@@ -72,15 +74,28 @@ export function importTree(files: RepoFile[]): TreeImport {
     nsNames.add(dir);
   }
 
+  // ---- the tree's defaults: what every namespace's defaults.yaml agrees on ----
+  // `buildTree` writes the tree's Defaults into every <ns>/defaults.yaml, *un*
+  // filtered by `withoutClaimed`. Folding them into each namespace's overrides
+  // instead — which is what this did before Defaults existed — pushed a key a
+  // base file also sets out of defaults.yaml and into override files on the
+  // next build: the same deployment, and a commit rewriting every file.
+  // ponytail: a converter tree whose namespaces happen to share a value gets it as a Default — it deploys the same.
+  const sortedNs = [...nsNames].sort();
+  const nsDocs = new Map(sortedNs.map((name) => [name, docAt(byPath, `${name}/defaults.yaml`) ?? {}]));
+  const treeDefaults = sortedNs.length ? commonSubtree([...nsDocs.values()]) : {};
+  const defaultsImport = Object.keys(treeDefaults).length ? importValues(toYaml(treeDefaults)) : null;
+  defaultsImport?.warnings.forEach((w) => warnings.push(`defaults.yaml: ${w}`));
+
   const namespaces: ArgocdNamespace[] = [];
-  for (const name of [...nsNames].sort()) {
-    // Namespace defaults sit *below* the base file, and `commonSubtree` put
-    // there only paths every one of this namespace's fragments held identically
-    // — so merging the whole of it back into each fragment is exact, not an
-    // approximation. `withoutClaimed` having shrunk it changes nothing: a path
-    // some base file claimed either sat in that base (and was subtracted out of
-    // the override, a deployed no-op) or survived in the override itself.
-    const nsDefaults = docAt(byPath, `${name}/defaults.yaml`) ?? {};
+  for (const name of sortedNs) {
+    // What is left of this namespace's defaults once the tree's are taken out
+    // is the promoted half: paths every one of its fragments held identically,
+    // so merging it back into each fragment is exact, not an approximation.
+    // `withoutClaimed` having shrunk it changes nothing: a path some base file
+    // claimed either sat in that base (and was subtracted out of the override,
+    // a deployed no-op) or survived in the override itself.
+    const nsDefaults = subtractDefaults(nsDocs.get(name) ?? {}, treeDefaults);
     const entries: ArgocdNamespace["releases"] = [];
 
     for (const [slug, id] of idBySlug) {
@@ -108,7 +123,13 @@ export function importTree(files: RepoFile[]): TreeImport {
   }
   if (!releases.length) warnings.push("No `base/*.yaml` files found — this does not look like a universal-chart values repo.");
 
-  return { ...wiring, releases, namespaces, warnings };
+  return {
+    ...wiring,
+    releases,
+    namespaces,
+    ...(defaultsImport ? { defaults: { features: defaultsImport.features, extraValues: defaultsImport.extraValues } } : {}),
+    warnings,
+  };
 }
 
 function docAt(byPath: Map<string, string>, path: string): Values | null {

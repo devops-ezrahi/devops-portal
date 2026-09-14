@@ -1045,6 +1045,13 @@ carries both what that namespace's releases share and the tree's own defaults.
   - Folding them into each `base/<release>.yaml` instead — which is what this
     did first — put a copy of the same value in N files and called a tree-wide
     decision the microservice's own.
+  - **Import recovers them** as what every `<ns>/defaults.yaml` agrees on
+    (`commonSubtree`), and folds only each namespace's remainder into its
+    overrides. Folding the whole file in instead moved any Default a base file
+    also sets out of `defaults.yaml` and into every override file on the next
+    build — nothing deployed differently, and a clean connect showed 164 of 197
+    files changed. A converter tree whose namespaces happen to share a value
+    gets it as a Default, which renders the same files.
 - **What a layer inherits is on its own card, greyed, with the way back.** Base
   shows what the tree's Defaults contribute; a namespace override shows those
   **and** the microservice's base, so the whole document that deploys is

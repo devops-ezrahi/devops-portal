@@ -433,6 +433,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       values: { repoUrl, revision, path },
       releases: imported.releases,
       namespaces: imported.namespaces,
+      defaults: imported.defaults,
     });
     setReleaseId(imported.releases[0]?.id ?? "");
     setLayer(BASE);
@@ -461,6 +462,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         ...(imported.chart ? { chart: imported.chart } : {}),
         releases: imported.releases,
         namespaces: imported.namespaces,
+        defaults: imported.defaults,
       }));
       setReleaseId(imported.releases[0]?.id ?? "");
       setLayer(BASE);

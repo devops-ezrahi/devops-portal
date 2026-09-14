@@ -74,6 +74,7 @@ function roundTrip(t: ArgocdTree) {
     rootAppName: recovered.rootAppName || t.rootAppName,
     releases: recovered.releases,
     namespaces: recovered.namespaces,
+    defaults: recovered.defaults,
   });
   return { files, recovered, again };
 }
@@ -122,6 +123,28 @@ describe("importTree", () => {
     const { files, again } = roundTrip(t);
     // The value really did get promoted — otherwise this test proves nothing.
     expect(parseYaml(files.find((f) => f.path === "shop-web/defaults.yaml")!.text)).not.toEqual({});
+    expect(docs(again)).toEqual(docs(files));
+  });
+
+  it("recovers the tree's Defaults, so a key a base file also sets stays in defaults.yaml", () => {
+    // The trap: base/api-gateway.yaml sets serviceAccount.create too. Folding
+    // the Defaults into each namespace's overrides pushed that key out of
+    // defaults.yaml and into override files on the next build — same deployment,
+    // and a commit rewriting every file.
+    const base = tree();
+    const t = tree({
+      defaults: { features: { serviceaccount: on({ create: true }) } },
+      releases: base.releases.map((r, i) =>
+        i === 0 ? { ...r, features: { ...r.features, serviceaccount: on({ create: true, name: "gw" }) } } : r
+      ),
+      namespaces: [
+        { name: "shop-dev", releases: [{ release: "r1", features: { image: on({ tag: "1.4.2-rc" }) } }] },
+        { name: "shop-prod", releases: [{ release: "r2", features: { image: on({ tag: "9.9.9" }) } }] },
+      ],
+    });
+    const { files, again, recovered } = roundTrip(t);
+    expect(parseYaml(files.find((f) => f.path === "shop-dev/defaults.yaml")!.text)).toMatchObject({ serviceAccount: { create: true } });
+    expect(recovered.defaults?.features.serviceaccount?.on).toBe(true);
     expect(docs(again)).toEqual(docs(files));
   });
 

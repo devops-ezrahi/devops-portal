@@ -91,7 +91,9 @@ export function createApp(
   // cross-origin response unless it is named here, and the browser console's
   // correlation id (`ref`) is read straight off it.
   app.use(cors({ exposedHeaders: ["X-Request-Id"] }));
-  app.use(express.json());
+  // Express's 100kb default refuses an ArgoCD tree of a few dozen microservices
+  // — the autosave of every saved document goes through here.
+  app.use(express.json({ limit: "5mb" }));
   app.use(requestLogger);
 
   // Public config — no secrets, no auth required. The 401 body carries ssoUrl,
