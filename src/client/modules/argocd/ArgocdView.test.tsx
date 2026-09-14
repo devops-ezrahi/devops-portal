@@ -451,4 +451,35 @@ describe("ArgocdView", () => {
     expect(document.querySelectorAll(".ag-file")).toHaveLength(generated.length);
     vi.useRealTimers();
   });
+  it("offers nameOverride per namespace, not in base — but still shows one base already has", async () => {
+    const tree = saved({
+      releases: [{ id: "r1", name: "storefront", features: { identity: { on: true, v: {} } } }],
+      namespaces: [{ name: "prod", releases: [] }],
+    });
+    listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
+    view();
+    fireEvent.click(await screen.findByText("Dev User #1"));
+
+    // Base cannot set it at all — not on screen, and not on the add list
+    // either. The object names belong to an environment.
+    const identity = () => document.querySelector('[data-feature-card="identity"]')!;
+    expect(identity().textContent).not.toContain("nameOverride");
+
+    fireEvent.click(card("Layers", /prod/));
+    expect(identity().textContent).toContain("nameOverride");
+
+    // An imported tree can still carry one in base, and a value that deploys
+    // while nothing on screen admits to it is worse than a field in an odd place.
+    const withOne = saved({
+      id: "AG-0002",
+      name: "Imported",
+      releases: [{ id: "r1", name: "storefront", features: { identity: { on: true, v: { nameOverride: "checkout-api" } } } }],
+      namespaces: [{ name: "prod", releases: [] }],
+    });
+    listTrees.mockResolvedValue({ trees: [withOne], defaults, gitEnabled: true });
+    view();
+    fireEvent.click(await screen.findByText("Imported"));
+    expect(identity().textContent).toContain("nameOverride");
+    expect(screen.getByDisplayValue("checkout-api")).toBeInTheDocument();
+  });
 });

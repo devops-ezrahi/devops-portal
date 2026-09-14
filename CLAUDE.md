@@ -960,6 +960,33 @@ across namespaces is repeated per namespace instead.
   is on screen, not what is emitted. That also keeps the layering honest —
   a required feature that emitted its default into every override file would
   push `workload.type: deployment` over a base that says `statefulset`.
+- **A field only a namespace can answer is not offered in base at all.**
+  `FieldSpec.ns` marks it — `nameOverride` and `fullnameOverride` today, which
+  are the object names in the cluster and the usual reason a release is
+  `checkout-dev` in one place. Base is environment-agnostic, so a value there is
+  inherited everywhere and then overridden everywhere, which is the promotion
+  `findEnvSpecific` already nags about: not offering the mistake beats warning
+  about it afterwards. It still **shows** in base when it already holds a value
+  — an import or an older tree can have put one there, and `primaryFields` is
+  recomputed over what survives the filter, so the feature opens on its next
+  field rather than on nothing. Same rule, same reason, as `enabled`.
+- **A problem is a button to the field it names.** `Problem.feature` carries a
+  catalog id and pressing the row fires the same jump a release card's chip
+  does — reading "No image.repository" and then scrolling forty-five collapsed
+  cards for the one it means is the whole reason the chips got that jump in the
+  first place. The ids are hand-written, so `checks.test.ts` sweeps a set of
+  documents and asserts every id it emits exists in `BY_ID`: a typo makes a row
+  that looks pressable and goes nowhere, which is worse than not linking it.
+- **A release card's chips are one row per scope, not one wrapped line.** The
+  workload, then the parts of its pod template indented under it on a hung
+  rule, then the objects beside it, then the cluster-scoped ones. Wrapped
+  together, a `Volume` sat next to a `ConfigMap` as though they were the same
+  kind of thing — which is the exact confusion `Scope` was introduced to end,
+  undone by the layout. Kinds a namespace override adds keep their own row
+  below, rather than reading as more objects in the base file.
+- **Adding a microservice opens its name.** `addRelease` returns the new id and
+  the grid starts editing it. An unnamed release generates `release.yaml` and is
+  indistinguishable from the last one, so naming it later means finding it again.
 - **A field the chart already answers is on an add list, not on screen.** An
   open feature shows `primaryFields(spec)` — the fields marked `req`, or its
   first one, skipping a leading `enabled` since that is the feature's own

@@ -26,6 +26,7 @@ function hasValue(value: unknown): boolean {
 export function FeatureEditor({
   features,
   scopeLabel,
+  isBase,
   extraValues,
   extraError,
   overriding,
@@ -35,6 +36,8 @@ export function FeatureEditor({
 }: {
   features: Record<string, FeatureState>;
   scopeLabel: string;
+  /** The base layer hides the fields only a namespace should answer — see `FieldSpec.ns`. */
+  isBase: boolean;
   extraValues: string;
   extraError: string | null;
   /** Features whose value differs from base — marked with the same dot the namespace tile carries. */
@@ -123,7 +126,7 @@ export function FeatureEditor({
                 <OverrideLight name={spec.name} onRemove={() => removeOverride(spec.id)} />
               )}
             </div>
-            <FeatureBody spec={spec} state={features[spec.id]} onField={setField} />
+            <FeatureBody spec={spec} state={features[spec.id]} isBase={isBase} onField={setField} />
           </div>
         ))}
       </section>
@@ -163,7 +166,7 @@ export function FeatureEditor({
                       <OverrideLight name={spec.name} onRemove={() => removeOverride(spec.id)} />
                     )}
                   </div>
-                  {on && <FeatureBody spec={spec} state={state} onField={setField} />}
+                  {on && <FeatureBody spec={spec} state={state} isBase={isBase} onField={setField} />}
                 </div>
               );
             })}
@@ -248,16 +251,24 @@ function FeatureHelp({ spec }: { spec: FeatureSpec }) {
 function FeatureBody({
   spec,
   state,
+  isBase,
   onField,
 }: {
   spec: FeatureSpec;
   state: FeatureState | undefined;
+  isBase: boolean;
   onField: (id: string, key: string, value: unknown) => void;
 }) {
   // Local, and keyed by field: pressing "add" is a request to see the field,
   // not a value, so it must not be written into the document.
   const [added, setAdded] = useState<Set<string>>(new Set());
-  const primary = new Set(primaryFields(spec).map((f) => f.key));
+  // A field marked `ns` is not base's decision to make, so base is not offered
+  // it — but one that already holds a value still shows, or the value would be
+  // deployed by something nobody can see.
+  const fields = spec.fields.filter((f) => !f.ns || !isBase || hasValue(state?.v?.[f.key]));
+  // Computed over what is actually on offer: with `nameOverride` gone in base,
+  // the next field is what the feature opens on, not nothing.
+  const primary = new Set(primaryFields({ ...spec, fields }).map((f) => f.key));
   // A field still sitting on its own default is not "filled in" — it is the
   // chart's answer, not anyone's decision, so it stays on the add list even
   // though `defaultValues` put it in the state when the feature was switched on.
@@ -273,11 +284,11 @@ function FeatureBody({
   // `enabled` is never offered: ticking the feature is what switches it on, and
   // its emit writes `enabled: true` regardless. It still *shows* when it holds
   // `false` — an imported document saying so must not become an invisible value.
-  const rest = spec.fields.filter((f) => !isShown(f) && f.key !== "enabled");
+  const rest = fields.filter((f) => !isShown(f) && f.key !== "enabled");
 
   return (
     <div className="ag-feature-body">
-      {spec.fields.filter(isShown).map((field) => (
+      {fields.filter(isShown).map((field) => (
         <FeatureField
           key={field.key}
           spec={field}

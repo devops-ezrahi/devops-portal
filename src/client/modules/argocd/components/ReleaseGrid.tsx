@@ -1,6 +1,6 @@
 import { AlertTriangle, Pencil, Plus, X } from "lucide-react";
 import { useState } from "react";
-import { SCOPE_NOTE, type Resource } from "../resources";
+import { SCOPE_NOTE, type Resource, type Scope } from "../resources";
 
 /**
  * One rectangle per microservice — a release of the universal chart — and what
@@ -37,7 +37,8 @@ type Props = {
   onJump: (releaseId: string, feature: string) => void;
   onRename: (releaseId: string, name: string) => void;
   onRemove: (releaseId: string) => void;
-  onAdd: () => void;
+  /** Returns the new release's id, so its name field opens immediately. */
+  onAdd: () => string | void;
 };
 
 /** `ConfigMap ×2`, with the objects' own names and what kind of thing it is on hover. */
@@ -72,6 +73,16 @@ function Chip({
 /** `ConfigMap ×2 — app-config, feature-flags · An object of its own…` */
 const chipTitle = (r: Resource) => [r.names?.join(", "), SCOPE_NOTE[r.scope]].filter(Boolean).join(" · ");
 
+/**
+ * One row per scope, in the order `resourcesOf` already ranks them, so the
+ * shape of the card says what belongs to what: the workload first, the parts of
+ * its pod template indented under it, then the objects beside it, then the
+ * cluster-scoped ones. On one wrapped line a `Volume` sat beside a `ConfigMap`
+ * as though they were the same kind of thing — one is a stanza inside the
+ * Deployment and the other is an object with its own lifetime.
+ */
+const SCOPES: Scope[] = ["workload", "pod", "object", "cluster"];
+
 export function ReleaseGrid({ cards, selectedId, onSelect, onJump, onRename, onRemove, onAdd }: Props) {
   /** Which card's name is being typed into. Local — nothing above needs to know. */
   const [editing, setEditing] = useState<string | null>(null);
@@ -84,7 +95,6 @@ export function ReleaseGrid({ cards, selectedId, onSelect, onJump, onRename, onR
         // cluster-scoped ones that only one release may own. `resourcesOf`
         // returns them already in that order.
         const workload = card.resources.find((r) => r.scope === "workload");
-        const rest = card.resources.filter((r) => r.scope !== "workload");
         const selected = card.id === selectedId;
         const label = card.name.trim() || "this microservice";
         const body = (
@@ -114,27 +124,38 @@ export function ReleaseGrid({ cards, selectedId, onSelect, onJump, onRename, onR
                 with no workload is not missing anything. */}
             {(card.image || workload) && <span className="ag-card-image">{card.image || "no image"}</span>}
             <span className="ag-card-chips">
-              {workload && (
-                <Chip kind={workload.kind} variant="workload" feature={workload.feature} title={SCOPE_NOTE.workload} />
+              {SCOPES.map((scope) => {
+                const inScope = card.resources.filter((r) => r.scope === scope);
+                if (!inScope.length) return null;
+                return (
+                  <span className={`ag-chip-row ${scope}`} key={scope}>
+                    {inScope.map((r) => (
+                      <Chip
+                        key={r.kind}
+                        kind={r.kind}
+                        names={r.names}
+                        variant={r.scope}
+                        feature={r.feature}
+                        title={chipTitle(r)}
+                      />
+                    ))}
+                  </span>
+                );
+              })}
+              {card.extras.length > 0 && (
+                // Its own row, not folded into the objects: these are what a
+                // namespace override adds, and not what the base file creates.
+                <span className="ag-chip-row added">
+                  {card.extras.map((e) => (
+                    <Chip
+                      key={e.kind}
+                      kind={e.kind}
+                      variant="added"
+                      title={`Added by ${e.namespaces.join(", ")} — not in the base file`}
+                    />
+                  ))}
+                </span>
               )}
-              {rest.map((r) => (
-                <Chip
-                  key={r.kind}
-                  kind={r.kind}
-                  names={r.names}
-                  variant={r.scope}
-                  feature={r.feature}
-                  title={chipTitle(r)}
-                />
-              ))}
-              {card.extras.map((e) => (
-                <Chip
-                  key={e.kind}
-                  kind={e.kind}
-                  variant="added"
-                  title={`Added by ${e.namespaces.join(", ")} — not in the base file`}
-                />
-              ))}
             </span>
             {card.envSpecific && (
               // On the card rather than in a row under the grid: this is a fact
@@ -219,7 +240,17 @@ export function ReleaseGrid({ cards, selectedId, onSelect, onJump, onRename, onR
         );
       })}
 
-      <button type="button" className="ag-card ag-add-card" onClick={onAdd}>
+      <button
+        type="button"
+        className="ag-card ag-add-card"
+        // Straight into the name: an unnamed card generates `release.yaml` and
+        // is indistinguishable from the last one, and naming it later means
+        // finding it again first.
+        onClick={() => {
+          const id = onAdd();
+          if (id) setEditing(id);
+        }}
+      >
         <Plus size={15} aria-hidden="true" /> Microservice
       </button>
     </div>

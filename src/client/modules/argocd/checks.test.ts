@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { BY_ID } from "./catalog";
 import { checkValues } from "./checks";
 import type { Values } from "./values";
 
@@ -66,5 +67,37 @@ describe("checkValues", () => {
   it("catches a batch entry naming a ServiceAccount nothing creates", () => {
     expect(say(withImage({ jobs: { migrate: { serviceAccountName: "seeder-sa" } } }))).toContain("nothing in this release creates it");
     expect(say(withImage({ jobs: { migrate: { serviceAccountName: "seeder-sa" } }, serviceAccount: { name: "seeder-sa" } }))).toBe("");
+  });
+  /**
+   * The ids are hand-written, and a typo makes a problem that looks pressable
+   * and then jumps nowhere — which is worse than not linking it at all.
+   */
+  it("names a real catalog feature on every problem that carries one", () => {
+    const docs: Values[] = [
+      { workload: { type: "none" }, hpa: { enabled: true }, vpa: { enabled: true }, pdb: { enabled: true }, service: { enabled: true } },
+      { ingress: { enabled: true }, route: { enabled: true } },
+      withImage({ workload: { type: "daemonset" }, hpa: { enabled: true } }),
+      withImage({ hpa: { enabled: true }, replicaCount: 3 }),
+      withImage({ volumeClaimTemplates: { data: { size: "1Gi" } } }),
+      withImage({ pdb: { minAvailable: 2 }, replicaCount: 2 }),
+      withImage({ pvc: { data: {} }, replicaCount: 2 }),
+      withImage({ securityContext: { readOnlyRootFilesystem: true } }),
+      withImage({ hostNetwork: true }),
+      withImage({ serviceMonitor: { enabled: true } }),
+      withImage({ volumeMounts: { data: { mountPath: "/data" } } }),
+      withImage({ jobs: { migrate: { serviceAccountName: "seeder-sa" } } }),
+      { workload: { type: "statefulset" }, service: { enabled: true } },
+      {},
+    ];
+    const seen = new Set<string>();
+    for (const doc of docs)
+      for (const problem of checkValues(doc)) {
+        if (!problem.feature) continue;
+        seen.add(problem.feature);
+        expect(BY_ID[problem.feature], `${problem.feature} is not a catalog feature`).toBeDefined();
+      }
+    // Not just "the ones that happen to be set" — the sweep has to have covered
+    // real ground, or the assertion above passes on an empty loop.
+    expect(seen.size).toBeGreaterThan(8);
   });
 });

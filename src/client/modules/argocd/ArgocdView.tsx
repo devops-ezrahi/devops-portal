@@ -284,13 +284,15 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     const found = checkValues(parseValues(toYaml(effective)) ?? {});
     // Cluster-scoped objects belong to one release in the cluster, so a tree
     // that fans the same release out over several namespaces owns them twice.
-    const clusterFeatures = Object.entries(release.features)
+    const clusterIds = Object.entries(release.features)
       .filter(([id, state]) => state.on && BY_ID[id]?.cluster)
-      .map(([id]) => BY_ID[id].name);
+      .map(([id]) => id);
+    const clusterFeatures = clusterIds.map((id) => BY_ID[id].name);
     if (clusterFeatures.length && draft.namespaces.length > 1)
       found.push({
         level: "warn",
         text: `${clusterFeatures.join(", ")} are cluster-scoped, and this tree deploys ${release.name || "this release"} into ${draft.namespaces.length} namespaces — every one of them would own the same object.`,
+        feature: clusterIds[0],
       });
     return found;
   }, [release, features, extraValues, layer, draft.namespaces.length]);
@@ -474,11 +476,13 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     setImportOpen(false);
   }
 
-  function addRelease() {
+  function addRelease(): string {
     const created = newRelease("");
     setDraft((prev) => ({ ...prev, releases: [...prev.releases, created] }));
     setReleaseId(created.id);
     setLayer(BASE);
+    // Returned so the grid opens the new card's name field straight away.
+    return created.id;
   }
 
   function renameRelease(id: string, name: string) {
@@ -849,6 +853,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   features={features}
                   scopeLabel={layer === BASE ? "the base file" : `${scopeLabel}'s override file`}
                   extraValues={extraValues}
+                  isBase={layer === BASE}
                   extraError={extraError}
                   overriding={overriding}
                   jump={jump}
@@ -862,8 +867,21 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
               {problems.length > 0 && (
                 <ul className="ag-problems">
                   {problems.map((p) => (
-                    <li key={p.text} className={p.level}>
-                      <TriangleAlert size={14} aria-hidden="true" /> {p.text}
+                    // A problem is about a field, and reading it used to leave
+                    // you scrolling forty-five collapsed cards for the one it
+                    // names. Pressing it opens that feature — the same jump a
+                    // release card's chip makes, so there is one way to get to
+                    // a field from something that mentions it.
+                    <li key={p.text} className={`${p.level}${p.feature ? " linked" : ""}`}>
+                      {p.feature ? (
+                        <button type="button" onClick={() => setJump({ feature: p.feature!, n: Date.now() })}>
+                          <TriangleAlert size={14} aria-hidden="true" /> {p.text}
+                        </button>
+                      ) : (
+                        <>
+                          <TriangleAlert size={14} aria-hidden="true" /> {p.text}
+                        </>
+                      )}
                     </li>
                   ))}
                 </ul>

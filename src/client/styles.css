@@ -4407,11 +4407,40 @@ input.jf-title {
   overflow-wrap: anywhere;
 }
 
+/* One row per scope, so the card is read top to bottom: the workload, what is
+   inside its pod template, the objects beside it, the cluster-scoped ones. */
 .ag-card-chips {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  margin-top: 1px;
+}
+
+.ag-chip-row {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 1px;
+}
+
+/* Indented and hung off a rule, because these are stanzas inside the workload
+   above them rather than objects of their own. */
+.ag-chip-row.pod {
+  position: relative;
+  margin-left: 9px;
+  padding-left: 8px;
+}
+
+.ag-chip-row.pod::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -2px;
+  bottom: 7px;
+  width: 7px;
+  border-left: 1px solid #2a3940;
+  border-bottom: 1px solid #2a3940;
+  border-bottom-left-radius: 4px;
 }
 
 .ag-card-foot {
@@ -5108,6 +5137,28 @@ input.jf-title {
   padding: 7px 10px;
   font-size: 12.5px;
 }
+
+/* A problem that names a feature is a button to it — the row itself, so the
+   whole line is the target rather than a link buried in the sentence. */
+.ag-problems li.linked { padding: 0 }
+
+.ag-problems li.linked > button {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 0 6px 6px 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ag-problems li.linked > button svg { flex: 0 0 auto; margin-top: 1px }
+.ag-problems li.linked:hover { filter: brightness(1.25) }
 
 .ag-problems li.bad {
   border-color: #ff8d95;

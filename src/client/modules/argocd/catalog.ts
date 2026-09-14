@@ -55,6 +55,18 @@ export type FieldSpec = {
    * noise until someone means to change it. `primaryFields` is the rule.
    */
   req?: true;
+  /**
+   * A decision only a namespace can make, so the field is not offered in the
+   * base layer at all. Base is environment-agnostic: a value here would be
+   * inherited by every namespace and then have to be overridden in each of
+   * them, which is the promotion `findEnvSpecific` already nags about — better
+   * not to offer the mistake than to warn about it afterwards.
+   *
+   * It still *shows* in base when it already holds a value, for the reason
+   * `enabled` does: an import or an older tree can have put one there, and a
+   * value you cannot see but still deploy is worse than a field in an odd place.
+   */
+  ns?: true;
 };
 
 export type FeatureSpec = {
@@ -195,8 +207,8 @@ F({
   keys: ["nameOverride", "fullnameOverride", "commonLabels", "commonAnnotations"],
   blurb: "The name every object in the release is built from, plus labels and annotations stamped onto all of them.",
   fields: [
-    S("nameOverride", "nameOverride", { path: "nameOverride", placeholder: "checkout-api", hint: "Resource names become exactly this, not <release>-<chart>. A GitOps tree should always set it." }),
-    S("fullnameOverride", "fullnameOverride", { path: "fullnameOverride", hint: "Wins over nameOverride. Rarely needed." }),
+    S("nameOverride", "nameOverride", { ns: true, path: "nameOverride", placeholder: "checkout-api", hint: "Resource names become exactly this, not <release>-<chart>. Set it per namespace — it is the usual reason a release is checkout-dev in one place and checkout in another." }),
+    S("fullnameOverride", "fullnameOverride", { ns: true, path: "fullnameOverride", hint: "Wins over nameOverride. Rarely needed." }),
     KV("commonLabels", "commonLabels"),
     KV("commonAnnotations", "commonAnnotations"),
   ],
@@ -215,6 +227,7 @@ F({
   }),
   notes: [
     "nameOverride is the one to set. Without it the chart builds names as <release>-<chart>, which is almost never what a converted manifest wants.",
+    "It is offered per namespace, not in base: the object names belong to an environment, and one in base is inherited everywhere and then overridden everywhere.",
   ],
 });
 
