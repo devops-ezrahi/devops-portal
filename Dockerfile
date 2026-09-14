@@ -47,9 +47,15 @@ FROM node:20-slim AS production
 # Both are optional at runtime — toolDependencies.ts probes for them and copies
 # the single artifact when they are absent — so this line can be reverted
 # without breaking the module.
+#
+# unar is the .rar half of the Upload tab's "unpack it and see what is inside"
+# fallback; tar and unzip cover every other archive this takes and are already
+# here. It is optional in the same way — extractArchive reports a missing binary
+# as an archive it could not read — so dropping the word costs rar and nothing
+# else.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ca-certificates git unzip maven openjdk-17-jre-headless python3-pip \
+        ca-certificates git unzip unar maven openjdk-17-jre-headless python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
 # Pre-warm maven-dependency-plugin into a baked local repository. Without this

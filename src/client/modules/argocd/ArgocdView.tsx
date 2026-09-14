@@ -14,7 +14,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ArgocdTree } from "../../../server/types";
 import { log, error as logError } from "../../log";
-import { createTree, deleteTree, listTrees, pullValues, pushTree, updateTree, type TreeDefaults } from "./api";
+import {
+  createTree,
+  deleteTree,
+  listTrees,
+  pullValues,
+  pushTree,
+  updateTree,
+  type RepoFile,
+  type TreeDefaults,
+} from "./api";
 import { buildValues, extraValuesError, parseValues } from "./build";
 import { checkValues } from "./checks";
 import { BY_ID } from "./catalog";
@@ -74,6 +83,9 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   const [gitEnabled, setGitEnabled] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [push, setPush] = useState<PushState>({ kind: "idle" });
+  /** What the connected branch holds right now — the preview diffs against it. */
+  const [repoFiles, setRepoFiles] = useState<RepoFile[] | undefined>();
+  const [comparing, setComparing] = useState(false);
   /** Set by a press on a card's chip; the editor opens that feature and scrolls to it. */
   const [jump, setJump] = useState<{ feature: string; n: number } | undefined>();
   /** A delete that would lose values, held until it is confirmed. */
@@ -105,6 +117,45 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         onError(err.message);
       });
   }, [refreshKey]);
+
+  /**
+   * Read the connected branch so the preview can say what this tree would
+   * actually change. It is the Pull button's clone, without the import: the
+   * files come back and nothing in the draft is touched.
+   *
+   * Keyed on the connection rather than on the draft, so editing values does
+   * not re-clone — and debounced, because the repo URL is a text field and one
+   * clone per keystroke is not a thing to do to a git server. A repo that
+   * cannot be read leaves the baseline unknown: the preview falls back to the
+   * plain file list, and the Pull button is where that error belongs.
+   */
+  const { repoUrl, revision } = draft.values;
+  const subPath = draft.values.path ?? "";
+  useEffect(() => {
+    setRepoFiles(undefined);
+    if (!gitEnabled || !repoUrl.trim() || !revision.trim()) {
+      setComparing(false);
+      return;
+    }
+    setComparing(true);
+    let live = true;
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const result = await pullValues(repoUrl, revision, subPath);
+          if (live) setRepoFiles(result.files);
+        } catch (err) {
+          log("argocd", "no baseline to diff against", { message: err instanceof Error ? err.message : String(err) });
+        } finally {
+          if (live) setComparing(false);
+        }
+      })();
+    }, AUTOSAVE_MS);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [repoUrl, revision, subPath, gitEnabled]);
 
   // Admins get every tree from the server; the toggle narrows it back
   // client-side, same as every other list in the portal.
@@ -310,6 +361,8 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     try {
       const result = await pullValues(draft.values.repoUrl, draft.values.revision, draft.values.path ?? "");
       const imported = importTree(result.files);
+      // The clone the preview diffs against, already in hand — no second one.
+      setRepoFiles(result.files);
       log("argocd", "pulled", { releases: imported.releases.length, warnings: imported.warnings.length });
       // The repo replaces what this tree holds, but not which repo it is: the
       // connection is the user's, and a pull must not be able to redirect where
@@ -806,7 +859,13 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   ))}
                 </ul>
               )}
-              <FilePreview files={files} onDownload={handleDownload} />
+              <FilePreview
+                files={files}
+                onDownload={handleDownload}
+                repo={repoFiles}
+                comparing={comparing}
+                deletes={!!subPath.trim()}
+              />
             </div>
           </section>
         </div>

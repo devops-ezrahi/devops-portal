@@ -4990,8 +4990,25 @@ input.jf-title {
 }
 
 /* A file has no chevron, so it needs the space one would have taken to line up
-   with the folders around it. */
-.ag-file-gutter { width: 13px; flex: 0 0 auto }
+   with the folders around it. That space is also where its status letter goes,
+   so a changed file is marked without a badge widening every row. */
+.ag-file-gutter {
+  width: 13px;
+  flex: 0 0 auto;
+  text-align: center;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.ag-file-gutter.st-added { color: #55d18d }
+.ag-file-gutter.st-modified { color: #e6b455 }
+.ag-file-gutter.st-removed { color: #e0736d }
+
+/* A unified diff: the sign column is part of the line, so it copies with it. */
+.ag-diff .add { display: block; color: #a8f0cb; background: rgba(85, 209, 141, 0.1) }
+.ag-diff .del { display: block; color: #ffb8b2; background: rgba(224, 115, 109, 0.1) }
+.ag-diff .same { display: block; color: #8fa2aa }
 
 /* The global `code` rule paints a chip background, which turns a whole file
    into a striped block. The preview is one plain document. */

@@ -207,6 +207,41 @@ about any of this.
   and is what this would be on a Chrome-only intranet: it needs HTTP/2, which
   `npm run dev` does not serve, and Firefox does not implement it at all.
 
+## Artifactory: an archive may just be carrying a folder
+
+A dropped `.zip` / `.tar` / `.tar.gz` / `.rar` is unpacked on the server and
+whatever is inside it is routed exactly as the same files dropped as a folder
+would be. That is what people reach for when a folder drop is awkward — a
+browser file picker cannot select a directory, a folder arrives by mail as one
+attachment — and before this it was one unrecognised file.
+
+- **It is the last fallback in `collectItems`, after every classifier has
+  declined.** So an archive that *is* a package is never torn open: a `.tgz`
+  whose manifest names an npm package or a Helm chart, a `foo-1.0.tar.gz` that
+  is a PyPI sdist, and a `.zip` sitting at a Maven layout path are all still
+  uploaded as the artifacts they are. Ordering is the whole correctness
+  argument here, and `archiveUnpack.test.ts` pins it.
+- **`collectItems` recurses into itself** rather than growing a second routing
+  path — a zip of jars has to land where those jars dropped loose would, and
+  the Maven root prefix, the tarball sniff and the duplicate-package fold all
+  have to hold inside the archive too. `MAX_ARCHIVE_DEPTH` (2) is an archive
+  inside an archive and no further; the expanded size is not measured, since
+  the outer archive is already capped at 500 MB by the upload route.
+- **`extractArchive` runs from the destination and names the archive
+  relatively.** GNU tar reads a leading `C:` as a remote host spec, the same
+  trap `readTarballIdentity` already works around.
+- **`.rar` needs `unar`** (one word in the Dockerfile's apt line); `tar` and
+  `unzip` cover everything else and were already there. A missing binary comes
+  back as "could not unpack", which is reported like any other unreadable file
+  — so the apt word is revertable and costs rar support and nothing else.
+- An archive that unpacks to nothing recognisable is named in the log and
+  counted unrelated, rather than failing silently or uploading itself flat.
+
+Left out: the **single-URL copy** path. A pasted URL to a `bundle.zip` is still
+an unrecognised artifact uploaded flat to `ARTIFACTORY_REPO`, as before — that
+path resolves one artifact's identity and dependencies, and unpacking there is
+a different question from "this folder arrived zipped".
+
 ## Artifactory: a pasted URL may name a folder
 
 A package is rarely one file — a Maven package is a pom *and* a jar (plus its

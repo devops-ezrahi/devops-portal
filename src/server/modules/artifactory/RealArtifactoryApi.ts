@@ -84,6 +84,21 @@ const SNIFF_CONCURRENCY = 16;
 const FOLDER_DOWNLOAD_CONCURRENCY = 6;
 const MAX_FOLDER_FILES = 500;
 
+/**
+ * Archives that are unpacked and looked inside, and how deep that recursion is
+ * allowed to go. Tried only after every classifier has declined, so a `.tgz`
+ * that is an npm package, a `.tar.gz` named like an sdist and a `.zip` sitting
+ * at a Maven layout path are all still uploaded as the artifacts they are —
+ * this is the fallback for an archive that is nothing but a way of carrying a
+ * folder, which is what people reach for when a folder drop is awkward.
+ *
+ * ponytail: depth 2 is an archive inside an archive and no further. Nothing
+ * here measures the expanded size — the outer archive is already capped at 500
+ * MB by the upload route, which is the same bound the existing unzip runs under.
+ */
+const ARCHIVE_RE = /\.(tar|tar\.gz|tgz|tar\.bz2|tbz2?|tar\.xz|txz|tar\.zst|zip|rar)$/i;
+const MAX_ARCHIVE_DEPTH = 2;
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -953,7 +968,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
    * coordinates inside a bare jar, the duplicate-package fold) has to hold for
    * both or one entry point silently uploads to a path nothing resolves from.
    */
-  private async collectItems(jobId: string, sourceDir: string, stageDir: string) {
+  private async collectItems(jobId: string, sourceDir: string, stageDir: string, depth = 0) {
     const relPaths = await listFilesRecursive(sourceDir);
 
     const log = (line: string) => this.appendLog(jobId, line);
@@ -984,6 +999,11 @@ export class RealArtifactoryApi implements ArtifactoryApi {
       mavenPrefix && path.startsWith(`${mavenPrefix}/`) ? path.slice(mavenPrefix.length + 1) : path;
 
     let unrelated = 0;
+    let looseCount = loose.length;
+    // Numbered so two archives unpacked at once cannot share a directory. The
+    // increment is synchronous, before any await, which is what makes it safe
+    // inside the pool below.
+    let unpacked = 0;
     // Sniffing spawns a `tar` or an `unzip` per file, and on the two shapes
     // this form exists for — a flat folder of jars, a folder of loose
     // tarballs — that is *every* file. Sequentially, thousands of process
@@ -1031,11 +1051,39 @@ export class RealArtifactoryApi implements ArtifactoryApi {
         });
         return;
       }
+      // Last resort: the file may be an archive someone used to carry a folder,
+      // which is what a tab that will not take a folder drop leaves people
+      // doing. Unpack it and run this whole routine again over what came out —
+      // a zip of jars has to land exactly where those jars dropped as a folder
+      // would, and a second copy of the routing is a second place for it to
+      // drift. Reached only after every classifier declined, so an archive that
+      // *is* a package is never torn open.
+      if (depth < MAX_ARCHIVE_DEPTH && ARCHIVE_RE.test(path)) {
+        const into = join(stageDir, "unpacked", String(unpacked++));
+        log(`Unpacking ${basename(path)} to see what is inside ...`);
+        if (!(await extractArchive(join(sourceDir, path), join(into, "src")))) {
+          log(`Could not unpack ${basename(path)} — skipping it.`);
+          unrelated++;
+          return;
+        }
+        const inner = await this.collectItems(jobId, join(into, "src"), join(into, "stage"), depth + 1);
+        looseCount += inner.looseCount;
+        unrelated += inner.unrelated;
+        if (inner.items.length === 0) {
+          log(`Nothing recognisable inside ${basename(path)} — skipping it.`);
+          unrelated++;
+          return;
+        }
+        log(`${basename(path)} held ${inner.items.length} artifact(s).`);
+        items.push(...inner.items);
+        unique.push(...inner.unique);
+        return;
+      }
       unrelated++;
     });
 
 
-    return { items, unique, unrelated, looseCount: loose.length };
+    return { items, unique, unrelated, looseCount };
   }
 
   private async runFolderUpload(jobId: string, input: FolderUploadInput) {
@@ -1165,6 +1213,38 @@ async function mavenCoordsFromJar(file: string): Promise<MavenCoords | null> {
   } catch {
     // Not a zip, no such entry, or no unzip on PATH.
     return null;
+  }
+}
+
+/**
+ * Unpack an archive into `destDir`, `false` when it cannot be read as one.
+ *
+ * Both commands run *from* the destination with the archive named relative to
+ * it: GNU tar reads a leading `C:` as a remote host spec, which is the same
+ * reason `readTarballIdentity` works out of the file's own directory.
+ *
+ * `.rar` needs `unar`, which the image need not carry — a missing binary throws
+ * ENOENT and comes back as `false`, so the caller reports the archive as
+ * unrelated exactly as it reports one it could not read.
+ */
+async function extractArchive(file: string, destDir: string): Promise<boolean> {
+  await mkdir(destDir, { recursive: true });
+  const from = relative(destDir, file).replace(/\\/g, "/");
+  const lower = file.toLowerCase();
+  const [cmd, args]: [string, string[]] = lower.endsWith(".zip")
+    ? ["unzip", ["-q", "-o", from]]
+    : lower.endsWith(".rar")
+      ? ["unar", ["-q", "-D", from]]
+      : // No -z/-j/-J: every tar in play auto-detects the compression on extract,
+        // so one branch covers .tar through .tar.zst.
+        ["tar", ["-xf", from]];
+  try {
+    await execFileAsync(cmd, args, { cwd: destDir });
+    return true;
+  } catch (err) {
+    // unzip exits 1 for "extracted, with warnings" and only >= 2 for a real
+    // failure — the same handling the outer archive already gets.
+    return (err as { code?: number }).code === 1;
   }
 }
 

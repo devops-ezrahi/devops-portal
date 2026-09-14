@@ -22,7 +22,7 @@ const MAX_ARCHIVE_BYTES = 500 * 1024 * 1024;
  * the whole wait to save nothing. Most of what this form takes (a folder of
  * .tgz / .whl / .rpm / .conda, an ~/.m2 tree of jars) is exactly this.
  */
-const STORED = /\.(tgz|gz|zip|jar|war|whl|rpm|conda|bz2|xz|zst|7z|png|jpe?g|gif|webp|avif|woff2?|mp4|mp3)$/i;
+const STORED = /\.(tgz|gz|zip|rar|jar|war|whl|rpm|conda|bz2|xz|zst|7z|png|jpe?g|gif|webp|avif|woff2?|mp4|mp3)$/i;
 
 /**
  * Cut a part every 8 MB. Small enough that the first one is on the wire seconds
@@ -395,6 +395,11 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
                   <p>
                     Or any number of loose <code>.tgz</code> / <code>.jar</code> / <code>.whl</code> /{" "}
                     <code>.rpm</code> / <code>.conda</code> files.
+                  </p>
+                  <p>
+                    A <code>.zip</code> / <code>.tar</code> / <code>.tar.gz</code> / <code>.rar</code> of any
+                    of those works too — one that is not itself a package is unpacked on the server and
+                    whatever it holds is routed the same way.
                   </p>
                 </Help>
               </span>
