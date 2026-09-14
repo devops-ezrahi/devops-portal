@@ -101,7 +101,7 @@ Key variables (see `.env.example`):
 | `GIT_USERNAME`                                               | —               | Empty (default) puts the token alone in the clone URL; set it only if Bitbucket wants `username:token` basic auth           |
 | `JENKINS_IMAGES_PATH`                                        | —               | Artifactory storage path whose child folders name the agent images the Jenkinsfile builder's `image` field suggests (e.g. `docker-local/jenkins-agents`). One AQL search per hour per pod returns the names *and* each image's `SCREAMING_CASE` Docker labels (`JDK=17`), which are shown beside the name. Unset, or unreachable, = the field is plain free text exactly as before. |
 | `ARGOCD_CHART_REPO_URL` / `_CHART_PATH` / `_CHART_REVISION`   | universal-chart repo, `.`, `main` | Where the universal chart lives — what each generated release renders. |
-| `ARGOCD_APPSET_CHART_PATH`                                   | `ms-applicationSet` | The second chart in that same repo. The generated `root-applicationSet.yaml` deploys it once per namespace directory, and it owns the per-release fan-out over `<ns>/values/*.yaml` plus the three-file layering (`<ns>/defaults.yaml` → `base/<file>` → `<ns>/values/<file>`). Keeping that in the chart is why a generated tree carries no per-namespace ApplicationSet of its own. |
+| `ARGOCD_APPSET_CHART_PATH`                                   | `ms-applicationSet` | The second chart in that same repo. The generated `root-applicationSet.yaml` deploys it once per namespace directory, and it owns the per-release fan-out over `<ns>/values/*.yaml` plus the three-file layering (`base/<file>` → `<ns>/defaults.yaml` → `<ns>/values/<file>`). Keeping that in the chart is why a generated tree carries no per-namespace ApplicationSet of its own. |
 | `ARGOCD_VALUES_TOKEN`                                        | —               | Credential for the *values* repo, and only for its own host (`valuesTokenFor` → `tokenFor`). A values repo on the `GIT_URL` host reuses `GIT_TOKEN`/`GIT_USERNAME` and needs nothing here — **`GIT_TOKEN` is scoped to that host and reaches nowhere else**, so a values repo on GitHub while `GIT_URL` names an on-prem Bitbucket needs this variable, and unset is what makes a private one fail with Git's own `Invalid username or token`. A public values repo needs neither: it is still cloned, so the builder's preview still diffs against the branch — it is Commit that needs the write. |
 | `ARGOCD_VALUES_REPO_URL` / `_VALUES_REVISION`                | —               | Where a generated tree is committed — the `$values` ref source, and the repo the root app watches. All five only *pre-fill* a new tree; each document keeps its own copy and can point elsewhere, unlike `JENKINS_SHARED_LIBRARY`. Defaults match `convert_to_universal_chart.py`'s own CLI defaults, so a tree built here lands where the converter's would. |
 | `JIRA_URL` / `JIRA_TOKEN` / `JIRA_PROJECT_KEY`               | —               | All three required to activate `JiraTicketingApi` (Jira Data Center, Bearer PAT); otherwise `InMemoryTicketingApi` fallback |
@@ -891,9 +891,9 @@ authored here and one converted there land in the same repo and are read by the
 same wiring:
 
 ```
-base/<release>.yaml              # environment-agnostic, the full catalog
-<ns>/defaults.yaml               # computed: what this namespace's releases share
-<ns>/values/<release>.yaml       # only what differs — applied last, so it wins
+base/<release>.yaml              # the microservice, the same in every namespace — like a chart's values.yaml
+<ns>/defaults.yaml               # set once for every microservice in <ns> — layered over base
+<ns>/values/<release>.yaml       # this microservice in <ns>, only what differs — applied last, so it wins
 root-applicationSet.yaml         # one Application per namespace directory
 root-application.yaml            # app-of-apps: the one object applied by hand
 ```
@@ -911,14 +911,18 @@ kubectl apply -f root-application.yaml      once, by hand
 Adding a namespace is adding a directory; adding a release is adding a file.
 The fan-out globs `<ns>/values/*.yaml` directly, so there are no
 `<ns>/releases/*.yaml` pointer files and no per-namespace ApplicationSet in the
-tree; the three-file layering (`<ns>/defaults.yaml` → `base/<file>` →
+tree; the three-file layering (`base/<file>` → `<ns>/defaults.yaml` →
 `<ns>/values/<file>`) lives in the `ms-applicationSet` chart, versioned
-alongside the universal chart it applies. There is no tree-root
-`defaults.yaml` either — no layer in that chain reads one, and subtracting
-against a layer nobody applies silently drops the value, so whatever is common
-across namespaces is repeated per namespace instead. `<ns>/defaults.yaml` is
-therefore the bottom of the chain and the only "defaults" file there is: it
-carries both what that namespace's releases share and the tree's own defaults.
+alongside the universal chart it applies.
+
+**That order is a contract between three repos.** It used to be
+`<ns>/defaults.yaml` first, which meant a namespace default lost to any base
+file setting the same key — a monorepo image tag set once for `shop-prod`
+never reached a microservice whose base had a tag. The chart's
+`applicationSet.yaml`, the converter's `chain`/`value_files` and this module's
+`buildTree` changed together; change one and change all three. There is no
+tree-root `defaults.yaml` — base is the same in every namespace, so it has no
+defaults of its own.
 
 - **The merge/diff logic is carried over, not reinvented.** `values.ts`'s
   `deepMerge` / `commonSubtree` / `subtractDefaults` come from
@@ -952,11 +956,6 @@ carries both what that namespace's releases share and the tree's own defaults.
   the absence of a decision (an import writes every key it reads), so that one
   stays on the add list.
 
-- **A shared namespace override does not always belong in `<ns>/defaults.yaml`.**
-  Namespace defaults merge *below* `base/<release>.yaml`, so a path any base
-  file claims would be overwritten by it. `withoutClaimed` in `tree.ts` keeps
-  those in each release's own override file instead — where they are last and
-  actually win. This is the one place the layout's ordering has a trap in it.
 - **Three features are `req` and sit above the categories**: release identity,
   workload type and image. They are always open and carry no checkbox — the
   same call the Jenkinsfile builder makes about `title` and `image`/`node`. They
@@ -1028,47 +1027,45 @@ carries both what that namespace's releases share and the tree's own defaults.
   beside converter output keeps the same root ApplicationSet; building one is a
   second feature, and the per-feature `cluster` scope is what warns about the
   collision in the meantime.
-- **The tree's defaults are written into every `<ns>/defaults.yaml`.** A
-  **Defaults** tile leads the microservices grid — the same idea as the Layers
-  grid's **Base** tile, in the other direction: Base is every namespace,
-  Defaults is every microservice. There is still no file at the tree *root*
-  (nothing reads one), but `<ns>/defaults.yaml` is the first file the
-  `ms-applicationSet` chart layers, so a value written there reaches every
-  microservice in that namespace — which is what "set it once for all of them"
-  has to mean. `buildTree` merges them under each namespace's own promoted
-  values (`deepMerge(treeDefaults, withoutClaimed(...))`).
-  - **`withoutClaimed` does not apply to them**, deliberately. It exists to keep
-    a *promoted namespace override* out of a layer that sits below the base it
-    was meant to override; a default being overridden by a base file is the
-    whole point of it, and dropping a key because one microservice claims it
-    would take the default away from every microservice that does not.
-  - Folding them into each `base/<release>.yaml` instead — which is what this
-    did first — put a copy of the same value in N files and called a tree-wide
-    decision the microservice's own.
-  - **Import recovers them** as what every `<ns>/defaults.yaml` agrees on
-    (`commonSubtree`), and folds only each namespace's remainder into its
-    overrides. Folding the whole file in instead moved any Default a base file
-    also sets out of `defaults.yaml` and into every override file on the next
-    build — nothing deployed differently, and a clean connect showed 164 of 197
-    files changed. A converter tree whose namespaces happen to share a value
-    gets it as a Default, which renders the same files.
-- **What a layer inherits is on its own card, greyed, with the way back.** Base
-  shows what the tree's Defaults contribute; a namespace override shows those
-  **and** the microservice's base, so the whole document that deploys is
-  readable in one place rather than by switching layers and remembering. A
+- **Defaults belong to a namespace — one per namespace, for every
+  microservice in it** (`ArgocdNamespace.defaults`). They are edited from a
+  wide bar above the microservice squares, shown only while that namespace is
+  selected: base is the same in every environment and has none. `<ns>/defaults.yaml`
+  is **exactly what was set there** — `buildTree` no longer promotes values it
+  notices every microservice shares (the old `commonSubtree` + `withoutClaimed`
+  pass is gone), because a defaults file holding values nobody typed there is a
+  file nobody can explain. A value every microservice sets alike stays in each
+  one's own file; `findPromotions` still offers the base-ward move.
+  - **Import reads `<ns>/defaults.yaml` whole** as that namespace's defaults —
+    whoever wrote it, the portal or the converter — and folds nothing into the
+    overrides, which were written against base + these defaults and read back
+    as they are.
+  - **Trees saved with tree-wide Defaults are migrated on open**
+    (`migrateTreeDefaults`): each namespace takes a copy, its own settings
+    winning. A copied default that a base file also sets used to lose to it and
+    now wins, so the open says which ones — a deployment change is not made
+    silently. The server schema no longer accepts tree-level `defaults`, so the
+    next save drops it.
+  - `findEnvSpecific` counts a namespace's defaults as that namespace answering
+    for itself: a monorepo tag set there means base's tag is no longer taken
+    as-is.
+- **What a microservice inherits in a namespace is on its own card, greyed,
+  with the way back**: its base, then that namespace's defaults over it — one
+  block per layer, in chain order, labelled *from the base values* / *from
+  shop-prod defaults* and linking to that scope. Never merged into one block:
+  under a single label, a base value read as though the namespace set it. Base and a namespace's defaults inherit nothing. A
   feature only a lower layer sets still opens (an unticked box beside a value
   that deploys is the invisible-value problem `enabled` already taught this
-  module about) and shows the fragment as YAML behind a *from the tree's
-  Defaults* / *from the base values* link. YAML rather than a second set of
-  disabled inputs: one block covers all eight field kinds, and a greyed-out
-  input still reads as something you might be able to type into. Ticking the
-  feature and setting it here is what overrides it.
+  module about) and shows the fragment as YAML — one block covers all eight
+  field kinds, and a greyed-out input still reads as something you might be
+  able to type into. Ticking the feature and setting it here is what overrides
+  it.
 - **The override light means "this puts something in the override file"**, not
   "this feature is ticked here". Ticking one on writes the chart's own answers
   into the layer, so comparing catalog state against base lit up a feature
   nobody had touched — *OpenShift Route is set differently here* on a Route
-  nothing differs on. It is `subtractDefaults` against everything below (the
-  tree's defaults, then base) that decides: the same call that writes the file,
+  nothing differs on. It is `subtractDefaults` against everything below (base,
+  then the namespace's defaults) that decides: the same call that writes the file,
   so a light means a file with something in it.
 - **A problem is shown twice: in the list under the form, and on the card it
   names.** Pressing it in the list is what scrolls to the card — and arriving at
@@ -1085,9 +1082,6 @@ carries both what that namespace's releases share and the tree's own defaults.
     every layer or microservice press; a `jump` left set replayed its
     `scrollIntoView` on each, which read as the page scrolling for no reason.
     `onJumped` clears it the moment it fires.
-- **Defaults are edited from Base only.** The tile is disabled while a namespace
-  layer is open: Defaults sit under every namespace, so editing them from inside
-  one override is two scopes claiming one form.
 - **Commit sits on the file preview, not the repository panel.** It writes the
   files listed there, which is where you decide whether they are right; Pull
   stays with the repo it reads. `CommitButton`/`PushResult` live in

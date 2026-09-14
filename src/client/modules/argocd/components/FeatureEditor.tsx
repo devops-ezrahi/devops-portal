@@ -11,11 +11,11 @@ import type { Values } from "../values";
 
 /**
  * One feature's worth of what a lower layer already says, and which layer that
- * is — the note above the greyed block links there, and in a namespace override
- * the two are mixed: most of it is base, but a feature only the tree's defaults
- * set is not base's to change.
+ * is — the note above the greyed block names it and links there. A microservice
+ * in a namespace inherits from two: its base, and that namespace's defaults.
  */
-export type Inherited = { state: FeatureState; from: "defaults" | "base" };
+export type InheritedFrom = "base" | "nsDefaults";
+export type Inherited = { state: FeatureState; from: InheritedFrom; label: string };
 
 /** The features a release is not a release without — pinned above the categories. */
 const REQUIRED = FEATURES.filter((f) => f.req);
@@ -79,9 +79,9 @@ export function FeatureEditor({
    * not editable: it deploys here, but it is not this layer's decision, and
    * reading the whole document means reading it in one place.
    */
-  inherited?: Record<string, Inherited>;
+  inherited?: Record<string, Inherited[]>;
   /** Where a fragment is editable. Pressing the note above it goes there. */
-  onOpenInherited?: (from: "defaults" | "base") => void;
+  onOpenInherited?: (from: InheritedFrom) => void;
   /** The checks for this scope, so the one about a field is also beside it. */
   problems?: Problem[];
   onChange: (features: Record<string, FeatureState>) => void;
@@ -95,7 +95,7 @@ export function FeatureEditor({
    * you start.
    */
   const [open, setOpen] = useState<Set<string>>(
-    () => new Set(OPTIONAL.filter((f) => features[f.id]?.on || inherited?.[f.id]?.state.on).map((f) => f.cat))
+    () => new Set(OPTIONAL.filter((f) => features[f.id]?.on || inherited?.[f.id]?.some((i) => i.state.on)).map((f) => f.cat))
   );
 
   /**
@@ -255,7 +255,7 @@ export function FeatureEditor({
       {CATEGORIES.map((cat) => {
         const specs = OPTIONAL.filter((f) => f.cat === cat.id);
         if (!specs.length) return null;
-        const count = specs.filter((spec) => features[spec.id]?.on || inherited?.[spec.id]?.state.on).length;
+        const count = specs.filter((spec) => features[spec.id]?.on || inherited?.[spec.id]?.some((i) => i.state.on)).length;
         const shown = open.has(cat.id);
         return (
           <section className="ag-category" key={cat.id} aria-label={cat.name}>
@@ -277,7 +277,7 @@ export function FeatureEditor({
               // in this microservice's file, so the card has to be open — an
               // unticked box beside a value that deploys is the invisible-value
               // problem `enabled` already taught this module about.
-              const fromBelow = !!inherited?.[spec.id]?.state.on;
+              const fromBelow = !!inherited?.[spec.id]?.some((i) => i.state.on);
               return (
                 <div
                   className={`ag-feature${on || fromBelow ? " on" : ""}${tone(spec.id)}`}
@@ -418,8 +418,8 @@ function FeatureBody({
   onMount: (kind: string, name: string) => void;
   inEnv: Set<string>;
   onEnv: (kind: string, name: string) => void;
-  inherited?: Inherited;
-  onOpenInherited?: (from: "defaults" | "base") => void;
+  inherited?: Inherited[];
+  onOpenInherited?: (from: InheritedFrom) => void;
   problems?: Problem[];
 }) {
   // Local, and keyed by field: pressing "add" is a request to see the field,
@@ -452,7 +452,10 @@ function FeatureBody({
   // What the tree's defaults put in this file, as the values themselves rather
   // than as a second set of controls: every field kind is covered by one block,
   // and a disabled input still reads as something you might be able to type in.
-  const below = inherited?.state.on ? toYaml(buildValues({ [spec.id]: inherited.state })) : "";
+  const below = (inherited ?? [])
+    .filter((i) => i.state.on)
+    .map((i) => ({ ...i, yaml: toYaml(buildValues({ [spec.id]: i.state })) }))
+    .filter((i) => i.yaml.trim() && i.yaml.trim() !== "{}");
 
   // The problems list sits under the whole form, so a warning about this
   // feature is read a screen away from the field it names. It is repeated here
@@ -471,19 +474,14 @@ function FeatureBody({
           ))}
         </ul>
       )}
-      {below && (
-        <div className="ag-inherited">
-          <button
-            type="button"
-            className="ag-inherited-link"
-            onClick={() => onOpenInherited?.(inherited!.from)}
-          >
-            <ArrowUpRight size={12} aria-hidden="true" />{" "}
-            {inherited!.from === "defaults" ? "from the tree's Defaults" : "from the base values"}
+      {below.map((i) => (
+        <div className="ag-inherited" key={i.from}>
+          <button type="button" className="ag-inherited-link" onClick={() => onOpenInherited?.(i.from)}>
+            <ArrowUpRight size={12} aria-hidden="true" /> from {i.label}
           </button>
-          <pre>{below}</pre>
+          <pre>{i.yaml}</pre>
         </div>
-      )}
+      ))}
       {fields.filter(isShown).map((field) => (
         <FeatureField
           key={field.key}

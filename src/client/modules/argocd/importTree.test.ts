@@ -74,7 +74,6 @@ function roundTrip(t: ArgocdTree) {
     rootAppName: recovered.rootAppName || t.rootAppName,
     releases: recovered.releases,
     namespaces: recovered.namespaces,
-    defaults: recovered.defaults,
   });
   return { files, recovered, again };
 }
@@ -106,45 +105,34 @@ describe("importTree", () => {
     expect(recovered.namespaces[0].releases).toHaveLength(2);
   });
 
-  it("round-trips a shared override that DOES reach <ns>/defaults.yaml", () => {
-    // replicaCount is claimed by base too, so use a key base does not set: both
-    // releases get the same resources block, which commonSubtree promotes.
+  it("reads <ns>/defaults.yaml back as that namespace's defaults", () => {
     const t = tree({
       namespaces: [
         {
           name: "shop-web",
-          releases: [
-            { release: "r1", features: { resources: on({ rcpu: "100m", rmem: "128Mi" }) } },
-            { release: "r2", features: { resources: on({ rcpu: "100m", rmem: "128Mi" }) } },
-          ],
+          defaults: { features: { resources: on({ rcpu: "100m", rmem: "128Mi" }) } },
+          releases: [{ release: "r1", features: { image: on({ tag: "1.4.2" }) } }],
         },
       ],
     });
-    const { files, again } = roundTrip(t);
-    // The value really did get promoted — otherwise this test proves nothing.
+    const { files, again, recovered } = roundTrip(t);
+    // The value really is in the file — otherwise this test proves nothing.
     expect(parseYaml(files.find((f) => f.path === "shop-web/defaults.yaml")!.text)).not.toEqual({});
+    expect(recovered.namespaces[0].defaults?.features.resources?.on).toBe(true);
     expect(docs(again)).toEqual(docs(files));
   });
 
-  it("recovers the tree's Defaults, so a key a base file also sets stays in defaults.yaml", () => {
-    // The trap: base/api-gateway.yaml sets serviceAccount.create too. Folding
-    // the Defaults into each namespace's overrides pushed that key out of
-    // defaults.yaml and into override files on the next build — same deployment,
-    // and a commit rewriting every file.
-    const base = tree();
+  it("keeps a namespace default that a base file also sets, and folds nothing into the overrides", () => {
+    // Both bases say replicaCount: 2; shop-prod's defaults say 5 for every
+    // microservice there. It stays in defaults.yaml — it is not pushed into
+    // each microservice's override file, where nobody set it.
     const t = tree({
-      defaults: { features: { serviceaccount: on({ create: true }) } },
-      releases: base.releases.map((r, i) =>
-        i === 0 ? { ...r, features: { ...r.features, serviceaccount: on({ create: true, name: "gw" }) } } : r
-      ),
-      namespaces: [
-        { name: "shop-dev", releases: [{ release: "r1", features: { image: on({ tag: "1.4.2-rc" }) } }] },
-        { name: "shop-prod", releases: [{ release: "r2", features: { image: on({ tag: "9.9.9" }) } }] },
-      ],
+      namespaces: [{ name: "shop-prod", defaults: { features: { replicas: on({ replicaCount: 5 }) } }, releases: [] }],
     });
     const { files, again, recovered } = roundTrip(t);
-    expect(parseYaml(files.find((f) => f.path === "shop-dev/defaults.yaml")!.text)).toMatchObject({ serviceAccount: { create: true } });
-    expect(recovered.defaults?.features.serviceaccount?.on).toBe(true);
+    expect(parseYaml(files.find((f) => f.path === "shop-prod/defaults.yaml")!.text)).toMatchObject({ replicaCount: 5 });
+    expect(parseYaml(files.find((f) => f.path === "shop-prod/values/api-gateway.yaml")!.text)).toEqual({});
+    expect(recovered.namespaces[0].releases).toHaveLength(0);
     expect(docs(again)).toEqual(docs(files));
   });
 

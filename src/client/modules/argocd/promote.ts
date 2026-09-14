@@ -217,9 +217,12 @@ export function findEnvSpecific(tree: ArgocdTree): EnvSpecific[] {
   const out: EnvSpecific[] = [];
   for (const release of tree.releases) {
     const base = buildValues(release.features, release.extraValues);
+    // A namespace's defaults are that namespace answering for itself too: a
+    // monorepo tag set there means the base tag is no longer taken as-is.
     const overrides = namespaces.map((ns) => {
       const entry = ns.releases.find((e) => e.release === release.id);
-      return entry ? buildValues(entry.features, entry.extraValues) : {};
+      const own = entry ? buildValues(entry.features, entry.extraValues) : {};
+      return deepMergeInto(buildValues(ns.defaults?.features ?? {}, ns.defaults?.extraValues), own);
     });
 
     const paths: string[] = [];

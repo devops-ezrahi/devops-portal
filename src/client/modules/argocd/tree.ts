@@ -73,38 +73,6 @@ export function slug(name: string): string {
   );
 }
 
-/**
- * Every path a document defines, as dotted strings — used to keep a shared
- * namespace override out of `<ns>/defaults.yaml` when a base file already sets
- * the same path. Namespace defaults are merged *below* base, so a value
- * promoted there would be silently overwritten by the base it was meant to
- * override.
- */
-function paths(doc: Values, prefix = ""): Set<string> {
-  const out = new Set<string>();
-  for (const [k, v] of Object.entries(doc)) {
-    const p = prefix ? `${prefix}.${k}` : k;
-    out.add(p);
-    if (isPlainObject(v)) paths(v, p).forEach((c) => out.add(c));
-  }
-  return out;
-}
-
-/** Drop from `doc` every path any base file already claims. */
-function withoutClaimed(doc: Values, claimed: Set<string>, prefix = ""): Values {
-  const out: Values = {};
-  for (const [k, v] of Object.entries(doc)) {
-    const p = prefix ? `${prefix}.${k}` : k;
-    if (isPlainObject(v)) {
-      const sub = withoutClaimed(v, claimed, p);
-      if (Object.keys(sub).length) out[k] = sub;
-    } else if (!claimed.has(p)) {
-      out[k] = v;
-    }
-  }
-  return out;
-}
-
 /** A values file always exists, even when it is empty: a missing valueFile fails the whole render. */
 function valuesFile(path: string, doc: Values, header: string, note: string): GeneratedFile {
   const body = Object.keys(doc).length ? toYaml(doc) : "{}";
@@ -123,16 +91,6 @@ export function buildTree(tree: ArgocdTree): GeneratedFile[] {
   // layer nobody applies silently drops the value.
   const base = new Map<string, Values>();
   releases.forEach((r) => base.set(r.id, buildValues(r.features, r.extraValues)));
-
-  // The tree's defaults are the bottom of that chain, so they go into the one
-  // file the chain actually reads first: every <ns>/defaults.yaml. That is what
-  // makes them reach a microservice without being copied into its base file —
-  // and what makes a base file that sets the same key win, which is the rule
-  // the layering already has.
-  const treeDefaults = buildValues(tree.defaults?.features ?? {}, tree.defaults?.extraValues);
-
-  const claimed = new Set<string>();
-  base.forEach((doc) => paths(doc).forEach((p) => claimed.add(p)));
 
   releases.forEach((r) => {
     files.push(
@@ -157,26 +115,24 @@ export function buildTree(tree: ArgocdTree): GeneratedFile[] {
       fragments.set(r.id, entry ? buildValues(entry.features, entry.extraValues) : {});
     });
 
-    // Two things share this file. The promoted half is shared across this
-    // namespace's releases AND not claimed by any base file — see
-    // `withoutClaimed`: base merges after namespace defaults, so a colliding
-    // key promoted here would never take effect. The tree's defaults are not
-    // filtered that way: being overridden by a base file is exactly what they
-    // are for, and dropping a key one microservice claims would take the
-    // default away from every microservice that does not.
-    const nsDefaults = deepMerge(treeDefaults, withoutClaimed(commonSubtree([...fragments.values()]), claimed));
+    // Exactly what was set for this namespace — nothing is promoted into it.
+    // A value several microservices happen to share stays in each one's own
+    // file, where it was typed: a defaults file holding values nobody put there
+    // is a file nobody can explain.
+    const nsDefaults = buildValues(ns.defaults?.features ?? {}, ns.defaults?.extraValues);
 
     files.push(
       valuesFile(
         `${ns.name}/defaults.yaml`,
         nsDefaults,
-        `${HEADER}\n# ${ns.name} — the tree's defaults, plus whatever is identical across this namespace's releases.\n# Merged first, so a base/<release>.yaml that sets the same key wins.`,
-        `${ns.name} · shared`
+        `${HEADER}\n# ${ns.name} — defaults for every microservice in this namespace.\n# Layered over base/<release>.yaml and under ${ns.name}/values/<release>.yaml.`,
+        `${ns.name} · defaults`
       )
     );
 
     releases.forEach((release) => {
-      const below = deepMerge(nsDefaults, base.get(release.id) ?? {});
+      // The chain's own order: base, then this namespace's defaults over it.
+      const below = deepMerge(base.get(release.id) ?? {}, nsDefaults);
       const doc = subtractDefaults(fragments.get(release.id) ?? {}, below);
       files.push(
         valuesFile(

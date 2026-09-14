@@ -36,6 +36,7 @@ import {
   newRelease,
   newSharedRelease,
   newTree,
+  migrateTreeDefaults,
   toInput,
   type DraftTree,
 } from "./document";
@@ -190,26 +191,26 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     [trees, showAll, isAdmin, user.id]
   );
   const files = useMemo(() => buildTree(draft), [draft]);
-  const editingDefaults = releaseId === DEFAULTS;
-  const release = editingDefaults ? undefined : (draft.releases.find((r) => r.id === releaseId) ?? draft.releases[0]);
   const namespace = layer === BASE ? undefined : draft.namespaces[layer];
+  // A namespace's defaults only exist inside a namespace: base is the same in
+  // every environment, so it has none to edit.
+  const editingDefaults = releaseId === DEFAULTS && !!namespace;
+  const release = editingDefaults ? undefined : (draft.releases.find((r) => r.id === releaseId) ?? draft.releases[0]);
   const nsEntry = namespace?.releases.find((e) => e.release === release?.id);
   const features =
-    (editingDefaults ? draft.defaults?.features : layer === BASE ? release?.features : nsEntry?.features) ?? {};
+    (editingDefaults ? namespace?.defaults?.features : layer === BASE ? release?.features : nsEntry?.features) ?? {};
   const extraValues =
-    (editingDefaults ? draft.defaults?.extraValues : layer === BASE ? release?.extraValues : nsEntry?.extraValues) ?? "";
+    (editingDefaults ? namespace?.defaults?.extraValues : layer === BASE ? release?.extraValues : nsEntry?.extraValues) ??
+    "";
   const extraError = extraValuesError(extraValues);
-  const scopeLabel = editingDefaults
-    ? "every microservice"
-    : layer === BASE
-      ? "base"
-      : namespace?.name.trim() || "this namespace";
-  /** The tree's defaults as values — the bottom layer of every namespace's defaults.yaml. */
-  const treeDefaultValues = useMemo(
-    () => buildValues(draft.defaults?.features ?? {}, draft.defaults?.extraValues),
-    [draft.defaults]
+  const nsName = namespace?.name.trim() || "this namespace";
+  const scopeLabel = editingDefaults ? `every microservice in ${nsName}` : layer === BASE ? "base" : nsName;
+  /** This namespace's defaults as values — `<ns>/defaults.yaml`, layered over base. */
+  const nsDefaultValues = useMemo(
+    () => buildValues(namespace?.defaults?.features ?? {}, namespace?.defaults?.extraValues),
+    [namespace?.defaults]
   );
-  const defaultsCount = Object.keys(treeDefaultValues).length;
+  const defaultsCount = Object.keys(nsDefaultValues).length;
 
   /**
    * What each release rectangle says. Every figure on it comes from the *built*
@@ -290,9 +291,9 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   const overriding = useMemo<Set<string>>(() => {
     const out = new Set<string>();
     if (layer === BASE || !release) return out;
-    // Everything below this layer, in the order the chart reads it: the tree's
-    // defaults, then this microservice's base over them.
-    const below = deepMerge(treeDefaultValues, buildValues(release.features, release.extraValues));
+    // Everything below this layer, in the order the chart reads it: this
+    // microservice's base, then the namespace's defaults over it.
+    const below = deepMerge(buildValues(release.features, release.extraValues), nsDefaultValues);
     Object.entries(features).forEach(([id, state]) => {
       if (!state?.on) return;
       // The light means "this feature puts something in the override file",
@@ -304,31 +305,27 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       if (Object.keys(subtractDefaults(buildValues({ [id]: state }), below)).length) out.add(id);
     });
     return out;
-  }, [features, release, layer, treeDefaultValues]);
+  }, [features, release, layer, nsDefaultValues]);
 
   /**
-   * What this layer inherits from the ones under it, so the whole deployed
-   * document is readable in one place: base inherits the tree's defaults, a
-   * namespace override inherits those *and* the microservice's base.
+   * What a microservice in a namespace inherits, so the whole deployed document
+   * is readable in one place: its base, then the namespace's defaults over it.
+   * Base and a namespace's defaults inherit nothing — base is the bottom, and
+   * the defaults apply to every microservice rather than to one base.
    */
-  const inherited = useMemo<Record<string, Inherited> | undefined>(() => {
-    if (editingDefaults) return undefined;
-    const out: Record<string, Inherited> = {};
-    Object.entries(draft.defaults?.features ?? {}).forEach(([id, state]) => {
-      out[id] = { state, from: "defaults" };
-    });
-    if (layer === BASE) return out;
-    if (!release) return undefined;
-    // Each fragment says where it is editable, rather than the layer saying it
-    // once: in a namespace override most of what shows comes from base, but a
-    // feature only the tree's defaults set is not base's to change, and a link
-    // that lands on the wrong scope is worse than no link.
+  const inherited = useMemo<Record<string, Inherited[]> | undefined>(() => {
+    if (editingDefaults || layer === BASE || !release) return undefined;
+    const out: Record<string, Inherited[]> = {};
+    // One block per layer, in chain order, never merged: a merged block under
+    // one label said a base value came from the namespace's defaults.
     Object.entries(release.features).forEach(([id, state]) => {
-      const under = out[id];
-      out[id] = under ? { state: { on: under.state.on || state.on, v: deepMerge(under.state.v, state.v) }, from: "base" } : { state, from: "base" };
+      out[id] = [{ state, from: "base", label: "the base values" }];
+    });
+    Object.entries(namespace?.defaults?.features ?? {}).forEach(([id, state]) => {
+      out[id] = [...(out[id] ?? []), { state, from: "nsDefaults", label: `${nsName} defaults` }];
     });
     return out;
-  }, [editingDefaults, layer, draft.defaults, release]);
+  }, [editingDefaults, layer, namespace?.defaults, nsName, release]);
 
   /**
    * The checks run on the document that is actually deployed for this scope —
@@ -338,11 +335,12 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
    */
   const problems = useMemo(() => {
     if (!release) return [];
-    // The tree's defaults are under the base file in the chart's chain, so they
-    // deploy here too — a check run without them misses the one nobody typed
-    // on this card, which is exactly the kind this list exists to catch.
-    const base = deepMerge(treeDefaultValues, buildValues(release.features, release.extraValues));
-    const effective = layer === BASE ? base : deepMerge(base, buildValues(features, extraValues));
+    // In a namespace the chain is base, then that namespace's defaults, then the
+    // override — the defaults deploy here too, and a check run without them
+    // misses the value nobody typed on this card.
+    const base = buildValues(release.features, release.extraValues);
+    const effective =
+      layer === BASE ? base : deepMerge(deepMerge(base, nsDefaultValues), buildValues(features, extraValues));
     const found = checkValues(parseValues(toYaml(effective)) ?? {});
     // Cluster-scoped objects belong to one release in the cluster, so a tree
     // that fans the same release out over several namespaces owns them twice.
@@ -361,8 +359,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     // they are problems like any other, shown in base and in each namespace
     // still taking base's value, which are the layers they are true of.
     const env = envSpecific.find((e) => e.releaseId === release.id);
-    const nsName = namespace?.name.trim();
-    if (env && (layer === BASE || (nsName && env.namespaces.includes(nsName))))
+    if (env && (layer === BASE || (namespace && env.namespaces.includes(namespace.name.trim()))))
       env.paths.forEach((path) =>
         found.push({
           level: "warn",
@@ -373,11 +370,21 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         })
       );
     return found;
-  }, [release, features, extraValues, layer, draft.namespaces.length, treeDefaultValues, envSpecific, namespace?.name]);
+  }, [release, features, extraValues, layer, draft.namespaces.length, nsDefaultValues, envSpecific, namespace?.name]);
 
-  function handleOpen(tree: ArgocdTree) {
-    log("argocd", "opening tree", tree.id);
-    localStorage.setItem(LAST_OPENED_KEY, tree.id);
+  function handleOpen(saved: ArgocdTree) {
+    log("argocd", "opening tree", saved.id);
+    localStorage.setItem(LAST_OPENED_KEY, saved.id);
+    // Defaults used to be tree-wide; each namespace now takes a copy. A copied
+    // default a base file also sets used to lose to it and now wins, which is a
+    // deployment change — said out loud rather than made silently.
+    const { tree, overridesBase } = migrateTreeDefaults(saved);
+    if (overridesBase.length)
+      onError(
+        `This tree's Defaults were copied into each namespace. They now layer over base, so ${overridesBase
+          .map((id) => BY_ID[id]?.name ?? id)
+          .join(", ")} from Defaults now wins over the microservices that set it in base — check before committing.`
+      );
     setDraft(tree);
     setReleaseId(tree.releases[0]?.id ?? "");
     setLayer(BASE);
@@ -433,7 +440,6 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       values: { repoUrl, revision, path },
       releases: imported.releases,
       namespaces: imported.namespaces,
-      defaults: imported.defaults,
     });
     setReleaseId(imported.releases[0]?.id ?? "");
     setLayer(BASE);
@@ -462,7 +468,6 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         ...(imported.chart ? { chart: imported.chart } : {}),
         releases: imported.releases,
         namespaces: imported.namespaces,
-        defaults: imported.defaults,
       }));
       setReleaseId(imported.releases[0]?.id ?? "");
       setLayer(BASE);
@@ -518,7 +523,12 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     extraValues?: string;
   }) {
     if (editingDefaults) {
-      return setDraft((prev) => ({ ...prev, defaults: { ...fn(prev.defaults ?? { features: {} }) } }));
+      return setDraft((prev) => ({
+        ...prev,
+        namespaces: prev.namespaces.map((ns, i) =>
+          i === layer ? { ...ns, defaults: { ...fn(ns.defaults ?? { features: {} }) } } : ns
+        ),
+      }));
     }
     if (!release) return;
     setDraft((prev) => {
@@ -580,14 +590,9 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     setLayer(BASE);
   }
 
-  /**
-   * Open the tree's defaults. They are merged into the *base* file, so the
-   * layer follows — editing "every microservice" from inside one namespace's
-   * override would be two different scopes claiming one form.
-   */
+  /** Open the selected namespace's defaults — every microservice in it. */
   function openDefaults() {
     setReleaseId(DEFAULTS);
-    setLayer(BASE);
   }
 
   function renameRelease(id: string, name: string) {
@@ -866,11 +871,12 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 layer={layer}
                 namespaces={layerCards}
                 releaseCount={draft.releases.length}
-                // Picking a namespace is asking to edit an override, which the
-                // defaults are not — so it leaves them for the first release.
+                // Another namespace's defaults are a different file, so the form
+                // stays on defaults when switching namespace — but base has none,
+                // so choosing it goes back to the microservice.
                 onSelect={(next) => {
                   setLayer(next);
-                  if (editingDefaults && next !== BASE) setReleaseId("");
+                  if (releaseId === DEFAULTS && next === BASE) setReleaseId("");
                 }}
                 onRename={renameNamespace}
                 onRemove={askRemoveNamespace}
@@ -903,10 +909,9 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 onRename={renameRelease}
                 onRemove={askRemoveRelease}
                 onAdd={addRelease}
-                onOpenDefaults={openDefaults}
-                defaultsOpen={editingDefaults}
-                defaultsCount={defaultsCount}
-                defaultsDisabled={layer !== BASE}
+                nsDefaults={
+                  namespace && { name: nsName, count: defaultsCount, open: editingDefaults, onOpen: openDefaults }
+                }
                 onAddShared={
                   draft.releases.some((r) => r.name.trim() === SHARED_RELEASE_NAME) ? undefined : addSharedRelease
                 }
@@ -946,26 +951,32 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
               <div className="ag-section">
                 <div className="ag-scope-actions">
                   <h3 className="ag-grid-head">
-                    {editingDefaults ? "Defaults for every microservice" : layer === BASE ? "Base values" : `${scopeLabel} overrides`}
+                    {editingDefaults
+                      ? `${nsName} defaults`
+                      : layer === BASE
+                        ? `Base — ${release?.name.trim() || "this microservice"}`
+                        : `${release?.name.trim() || "this microservice"} in ${nsName}`}
                     <Help
                       label={
-                        editingDefaults
-                          ? "the tree's defaults"
-                          : layer === BASE
-                            ? "the base values"
-                            : "this namespace's overrides"
+                        editingDefaults ? "namespace defaults" : layer === BASE ? "the base values" : "this microservice here"
                       }
                     >
+                      <p>
+                        Three files deploy each microservice, and the later one wins:{" "}
+                        <code>base/&lt;ms&gt;.yaml → &lt;ns&gt;/defaults.yaml → &lt;ns&gt;/values/&lt;ms&gt;.yaml</code>.
+                      </p>
                       {editingDefaults ? (
                         <p>
-                          Written into every namespace's <code>defaults.yaml</code>, the first file the chart layers. A
-                          microservice that sets the same thing wins, and what it takes from here shows greyed on its
-                          own card.
+                          <code>{nsName}/defaults.yaml</code> — set once for every microservice in {nsName}, over each
+                          one's base. A monorepo image tag, an environment label.
                         </p>
                       ) : layer === BASE ? (
-                        <p>Environment-agnostic values, shared by every namespace that runs this microservice.</p>
+                        <p>The microservice's own values, the same in every namespace — like a chart's values.yaml.</p>
                       ) : (
-                        <p>Only what differs in {scopeLabel} — anything identical to base is left out of the file.</p>
+                        <p>
+                          Only what differs for this microservice in {nsName}. Its base and {nsName}'s defaults show
+                          greyed; anything identical to them is left out of the file.
+                        </p>
                       )}
                     </Help>
                   </h3>
@@ -988,7 +999,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   jump={jump}
                   onJumped={() => setJump(undefined)}
                   inherited={inherited}
-                  onOpenInherited={(from) => (from === "defaults" ? openDefaults() : setLayer(BASE))}
+                  onOpenInherited={(from) => (from === "nsDefaults" ? openDefaults() : setLayer(BASE))}
                   problems={problems}
                   onChange={setFeatures}
                   onExtraChange={setExtra}

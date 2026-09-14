@@ -176,62 +176,38 @@ describe("buildTree", () => {
   });
 });
 
-describe("the tree's defaults", () => {
-  const withDefaults = () =>
-    tree({
-      defaults: { features: { serviceaccount: on({ create: true, imagePullSecrets: "regcred" }) } },
-      releases: [
-        { id: "r1", name: "api-gateway", features: { workload: on({ type: "deployment" }) } },
-        {
-          id: "r2",
-          name: "storefront",
-          features: { workload: on({ type: "deployment" }), serviceaccount: on({ create: true, name: "storefront-sa" }) },
-        },
-      ],
-      namespaces: [
-        { name: "shop-dev", releases: [] },
-        { name: "shop-prod", releases: [] },
-      ],
-    });
+describe("a namespace's defaults", () => {
+  const releases = [
+    { id: "r1", name: "api-gateway", features: { workload: on({ type: "deployment" }), image: on({ repository: "r/gw", tag: "1.0.0" }) } },
+    { id: "r2", name: "storefront", features: { workload: on({ type: "deployment" }), image: on({ repository: "r/sf" }) } },
+  ];
 
   const fileAt = (files: { path: string; text: string }[], path: string) =>
     parseYaml(files.find((f) => f.path === path)!.text);
 
-  it("is written into every namespace's defaults.yaml, and nowhere else", () => {
-    const files = buildTree(withDefaults());
-    // Not at the tree root: the chart's chain starts at <ns>/defaults.yaml, so
-    // a file above that is a layer nothing reads.
-    expect(files.some((f) => f.path === "defaults.yaml")).toBe(false);
-    ["shop-dev", "shop-prod"].forEach((ns) => {
-      expect(fileAt(files, `${ns}/defaults.yaml`).serviceAccount).toEqual({
-        create: true,
-        imagePullSecrets: [{ name: "regcred" }],
-      });
-    });
-    // And not copied into the base files — that layer is the microservice's.
-    expect(fileAt(files, "base/api-gateway.yaml").serviceAccount).toBeUndefined();
-  });
-
-  it("loses to what the microservice sets itself, by layer order alone", () => {
-    const files = buildTree(withDefaults());
-    // Nothing subtracts it: base/ is layered after <ns>/defaults.yaml, so the
-    // microservice's own value wins where it has one and inherits where it
-    // does not. Both files say what they say.
-    expect(fileAt(files, "base/storefront.yaml").serviceAccount).toEqual({ create: true, name: "storefront-sa" });
-    expect(fileAt(files, "shop-dev/defaults.yaml").serviceAccount.imagePullSecrets).toEqual([{ name: "regcred" }]);
-  });
-
-  it("still leaves the namespace's own promoted values in that file", () => {
+  it("writes exactly what that namespace set, into its own defaults.yaml only", () => {
     const files = buildTree(
       tree({
-        defaults: { features: { serviceaccount: on({ create: true, imagePullSecrets: "regcred" }) } },
-        releases: [
-          { id: "r1", name: "api-gateway", features: { workload: on({ type: "deployment" }) } },
-          { id: "r2", name: "storefront", features: { workload: on({ type: "deployment" }) } },
+        releases,
+        namespaces: [
+          { name: "shop-dev", releases: [] },
+          { name: "shop-prod", defaults: { features: { podmeta: on({ podLabels: [{ k: "env", v: "prod" }] }) } }, releases: [] },
         ],
+      })
+    );
+    expect(fileAt(files, "shop-prod/defaults.yaml").podLabels).toEqual({ env: "prod" });
+    expect(fileAt(files, "shop-dev/defaults.yaml")).toEqual({});
+    expect(fileAt(files, "base/api-gateway.yaml").podLabels).toBeUndefined();
+    // No tree-root defaults: base is the same in every namespace and has none.
+    expect(files.some((f) => f.path === "defaults.yaml")).toBe(false);
+  });
+
+  it("promotes nothing on its own — a value every microservice shares stays where it was set", () => {
+    const files = buildTree(
+      tree({
+        releases,
         namespaces: [
           {
-
             name: "shop-dev",
             releases: [
               { release: "r1", features: { replicas: on({ replicaCount: 3 }) } },
@@ -241,8 +217,28 @@ describe("the tree's defaults", () => {
         ],
       })
     );
-    const doc = fileAt(files, "shop-dev/defaults.yaml");
-    expect(doc.serviceAccount.create).toBe(true);
-    expect(doc.replicaCount).toBe(3);
+    expect(fileAt(files, "shop-dev/defaults.yaml")).toEqual({});
+    expect(fileAt(files, "shop-dev/values/api-gateway.yaml").replicaCount).toBe(3);
+    expect(fileAt(files, "shop-dev/values/storefront.yaml").replicaCount).toBe(3);
+  });
+
+  it("layers over base — a monorepo tag reaches a microservice whose base has its own", () => {
+    const files = buildTree(
+      tree({
+        releases,
+        namespaces: [
+          {
+            name: "shop-prod",
+            defaults: { features: { image: on({ tag: "7.0.0" }) } },
+            releases: [{ release: "r1", features: { image: on({ tag: "7.0.0" }) } }],
+          },
+        ],
+      })
+    );
+    expect(fileAt(files, "shop-prod/defaults.yaml").image).toEqual({ tag: "7.0.0" });
+    // base says 1.0.0, the defaults say 7.0.0 over it — so restating 7.0.0 in
+    // api-gateway's own file is a no-op, and subtracting against base *then*
+    // the defaults drops it.
+    expect(fileAt(files, "shop-prod/values/api-gateway.yaml")).toEqual({});
   });
 });

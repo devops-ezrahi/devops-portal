@@ -535,7 +535,7 @@ describe("ArgocdView", () => {
 
     // The card's own warning takes you back to base, where the warning is.
     fireEvent.click(document.querySelector(".ag-card-warn")!);
-    expect(screen.getByText("Base values", { selector: "h3" })).toBeInTheDocument();
+    expect(screen.getByText("Base — storefront", { selector: "h3" })).toBeInTheDocument();
     await waitFor(() => expect(scroll).toHaveBeenCalledTimes(2));
     delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
   });
@@ -561,43 +561,65 @@ describe("ArgocdView", () => {
     vi.useRealTimers();
   });
 
-  it("sets a value once for every microservice, and says where it came from", async () => {
+  it("sets a namespace's defaults once, for every microservice in it", async () => {
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
     rename("microservice", "checkout");
     // Leave the name field, or the card is still an <input> and not a button.
     fireEvent.blur(screen.getByLabelText("Microservice name"));
-    // A namespace, because <ns>/defaults.yaml is where the defaults are written.
+    // Base is the same everywhere, so it has no defaults to offer.
+    expect(screen.queryByRole("button", { name: /defaults/ })).toBeNull();
+
     fireEvent.click(screen.getByRole("button", { name: /Namespace/ }));
     rename("namespace", "prod");
     fireEvent.blur(screen.getByLabelText("Namespace name"));
 
-    // The defaults sit under every namespace, so they are not offered from one.
-    expect(screen.getByRole("button", { name: /^Defaults/ })).toBeDisabled();
-    fireEvent.click(card("Layers", /Base/));
-    // The defaults are a scope of their own, opened from the grid.
-    fireEvent.click(screen.getByRole("button", { name: /^Defaults/ }));
+    // One bar above the microservices, for every one of them in prod.
+    fireEvent.click(screen.getByRole("button", { name: /^prod defaults/ }));
+    expect(screen.getByText("prod defaults", { selector: "h3" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Identity & Observability/ }));
     const sa = feature("ServiceAccount");
     fireEvent.click(sa.querySelector("input[type=checkbox]")!);
     fireEvent.click(within(feature("ServiceAccount")).getByRole("button", { name: /imagePullSecrets/ }));
     fireEvent.change(screen.getByLabelText("imagePullSecrets"), { target: { value: "regcred" } });
 
-    // It lands in the one file the chart layers first — every namespace's
-    // defaults.yaml — and not in the microservice's own base file.
+    // It lands in prod's own defaults.yaml, not in the microservice's base.
     const shown = () => document.querySelector(".ag-file-body")?.textContent ?? "";
     fireEvent.click(screen.getByLabelText("base/checkout.yaml"));
     expect(shown()).not.toContain("regcred");
     fireEvent.click(screen.getByLabelText("prod/defaults.yaml"));
     expect(shown()).toContain("regcred");
 
-    // ...and the microservice says so, with the way back to where it is set.
+    // ...and checkout in prod shows it greyed, with the way back to where it is set.
     fireEvent.click(card("Microservices", /checkout/));
     const inherited = feature("ServiceAccount").querySelector(".ag-inherited")!;
     expect(inherited.textContent).toContain("regcred");
-    fireEvent.click(within(inherited as HTMLElement).getByRole("button", { name: /Defaults/ }));
-    expect(screen.getByText("Defaults for every microservice", { selector: "h3" })).toBeInTheDocument();
+    fireEvent.click(within(inherited as HTMLElement).getByRole("button", { name: /prod defaults/ }));
+    expect(screen.getByText("prod defaults", { selector: "h3" })).toBeInTheDocument();
+
+    // Choosing Base leaves the defaults, which base does not have.
+    fireEvent.click(card("Layers", /Base/));
+    expect(screen.queryByRole("button", { name: /^prod defaults/ })).toBeNull();
+  });
+
+  it("moves Defaults saved tree-wide onto each namespace", async () => {
+    const tree = saved({
+      releases: [{ id: "r1", name: "checkout", features: { workload: { on: true, v: { type: "deployment" } } } }],
+      namespaces: [
+        { name: "dev", releases: [] },
+        { name: "prod", releases: [] },
+      ],
+      defaults: { features: { serviceaccount: { on: true, v: { create: true, imagePullSecrets: "regcred" } } } },
+    });
+    listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
+    view();
+    fireEvent.click(await screen.findByText("Dev User #1"));
+    const shown = () => document.querySelector(".ag-file-body")?.textContent ?? "";
+    ["dev", "prod"].forEach((ns) => {
+      fireEvent.click(screen.getByLabelText(`${ns}/defaults.yaml`));
+      expect(shown()).toContain("regcred");
+    });
   });
 
   it("puts a field back on the optional list", async () => {

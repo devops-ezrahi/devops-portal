@@ -443,6 +443,12 @@ export type ArgocdRelease = {
 /** One namespace's overrides: only what differs from the release's base. */
 export type ArgocdNamespace = {
   name: string;
+  /**
+   * Set once for this namespace, applied to every microservice in it — written
+   * as `<ns>/defaults.yaml`, which the chart layers over `base/<file>` and under
+   * `<ns>/values/<file>`. A monorepo image tag, an environment label.
+   */
+  defaults?: { features: Record<string, ArgocdFeatureState>; extraValues?: string };
   releases: {
     /** The release id (not the name) this overrides. */
     release: string;
@@ -469,11 +475,9 @@ export type ArgocdTree = {
   releases: ArgocdRelease[];
   namespaces: ArgocdNamespace[];
   /**
-   * Set once, applied to every microservice's base file.
-   *
-   * It is folded in at generate time rather than written as a file of its own:
-   * the chart's chain starts at `<ns>/defaults.yaml`, so a tree-root defaults
-   * file is a layer nothing reads. Each release's own value wins over it.
+   * Legacy: tree-wide defaults from before they were per namespace. Only ever
+   * read — `migrateTreeDefaults` copies them into each namespace on open, and
+   * the server's schema no longer accepts the field, so the next save drops it.
    */
   defaults?: { features: Record<string, ArgocdFeatureState>; extraValues?: string };
   createdBy: string;

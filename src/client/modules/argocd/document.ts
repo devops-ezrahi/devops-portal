@@ -34,7 +34,35 @@ export const newSharedRelease = (): ArgocdRelease =>
     workload: { on: true, v: { type: "none" } },
     service: { on: true, v: { enabled: false } },
   });
-export const newNamespace = (name = ""): ArgocdNamespace => ({ name, releases: [] });
+export const newNamespace = (name = ""): ArgocdNamespace => ({ name, releases: [], defaults: { features: {} } });
+
+/**
+ * A tree saved when Defaults were tree-wide, moved onto its namespaces.
+ *
+ * Each namespace takes a copy, its own settings winning where both exist. The
+ * returned keys are what now deploys differently: the chart layers a
+ * namespace's defaults *over* base, so a copied default a base file also sets
+ * used to lose to it and now wins — the caller says so rather than letting it
+ * change silently.
+ */
+export function migrateTreeDefaults(tree: ArgocdTree): { tree: ArgocdTree; overridesBase: string[] } {
+  const legacy = tree.defaults;
+  if (!legacy || (!Object.keys(legacy.features ?? {}).length && !legacy.extraValues?.trim()))
+    return { tree: { ...tree, defaults: undefined }, overridesBase: [] };
+  const overridesBase = [
+    ...new Set(
+      tree.releases.flatMap((r) => Object.keys(legacy.features).filter((id) => legacy.features[id]?.on && r.features[id]?.on))
+    ),
+  ];
+  const namespaces = tree.namespaces.map((ns) => ({
+    ...ns,
+    defaults: {
+      features: { ...legacy.features, ...(ns.defaults?.features ?? {}) },
+      extraValues: ns.defaults?.extraValues?.trim() ? ns.defaults.extraValues : legacy.extraValues,
+    },
+  }));
+  return { tree: { ...tree, namespaces, defaults: undefined }, overridesBase };
+}
 
 export function newTree(defaults?: TreeDefaults): DraftTree {
   return {
@@ -50,7 +78,6 @@ export function newTree(defaults?: TreeDefaults): DraftTree {
     rootAppName: "platform-root",
     releases: [],
     namespaces: [],
-    defaults: { features: {} },
     createdBy: "",
     createdByName: "",
     createdAt: "",
@@ -67,7 +94,6 @@ export function toInput(tree: DraftTree): TreeInput {
     rootAppName: tree.rootAppName,
     releases: tree.releases,
     namespaces: tree.namespaces,
-    defaults: tree.defaults,
   };
 }
 
@@ -75,5 +101,4 @@ export function toInput(tree: DraftTree): TreeInput {
 export const initialFeature = (id: string) => ({ on: true, v: defaultValues(id) });
 
 /** A tree nobody has typed into — autosave must not litter the list with these. */
-export const isEmptyTree = (tree: DraftTree) =>
-  !tree.releases.length && !tree.namespaces.length && !Object.keys(tree.defaults?.features ?? {}).length;
+export const isEmptyTree = (tree: DraftTree) => !tree.releases.length && !tree.namespaces.length;

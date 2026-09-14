@@ -51,6 +51,12 @@ const treeBody = z.object({
     .array(
       z.object({
         name: z.string().trim().max(80),
+        defaults: z
+          .object({
+            features: z.record(z.string(), featureState),
+            extraValues: z.string().max(100_000).optional(),
+          })
+          .optional(),
         releases: z
           .array(
             z.object({
@@ -63,12 +69,6 @@ const treeBody = z.object({
       })
     )
     .max(50),
-  defaults: z
-    .object({
-      features: z.record(z.string(), featureState),
-      extraValues: z.string().max(100_000).optional(),
-    })
-    .optional(),
 });
 
 /**

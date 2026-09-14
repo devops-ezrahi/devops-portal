@@ -47,13 +47,11 @@ type Props = {
   onAdd: () => string | void;
   /** Add the namespace-shared release. Absent once the tree already has one. */
   onAddShared?: () => void;
-  /** The tree's own defaults: the tile that edits them, and whether it is open. */
-  onOpenDefaults: () => void;
-  defaultsOpen: boolean;
-  /** How many top-level values the defaults set — nothing to say when none. */
-  defaultsCount: number;
-  /** A namespace layer is open. Defaults sit under every namespace, so they are edited from Base only. */
-  defaultsDisabled?: boolean;
+  /**
+   * The selected namespace's defaults — one per namespace, for every
+   * microservice in it. Absent in Base, which has none.
+   */
+  nsDefaults?: { name: string; count: number; open: boolean; onOpen: () => void };
 };
 
 /** `ConfigMap ×2`, with the objects' own names and what kind of thing it is on hover. */
@@ -107,57 +105,46 @@ export function ReleaseGrid({
   onRemove,
   onAdd,
   onAddShared,
-  onOpenDefaults,
-  defaultsOpen,
-  defaultsCount,
-  defaultsDisabled,
+  nsDefaults,
 }: Props) {
   /** Which card's name is being typed into. Local — nothing above needs to know. */
   const [editing, setEditing] = useState<string | null>(null);
 
   return (
-    <div className="ag-card-grid" aria-label="Microservices">
-      {/* First, and the same shape the Layers grid's Base tile has, because it
-          is the same idea in the other direction: Base is every namespace,
-          Defaults is every microservice. */}
-      <span className="ag-card-shell">
-        <button
-          type="button"
-          aria-pressed={defaultsOpen}
-          className={`ag-card ag-defaults-card${defaultsOpen ? " selected" : ""}`}
-          disabled={defaultsDisabled}
-          title={defaultsDisabled ? "Defaults sit under every namespace — select Base to edit them" : undefined}
-          onClick={onOpenDefaults}
-        >
-          <span className="ag-card-name">Defaults</span>
-          <span className="ag-card-foot">
-            {defaultsCount
-              ? `${defaultsCount} value${defaultsCount === 1 ? "" : "s"} in every defaults.yaml`
-              : "every microservice"}
-          </span>
-        </button>
-        <span className="ag-card-tools">
-          <Help label="the tree's defaults">
+    <>
+      {/* One per namespace, above the squares rather than among them: it is not
+          a microservice, it is what every microservice here starts from. */}
+      {nsDefaults && (
+        <div className="ag-ns-defaults-shell">
+          <button
+            type="button"
+            aria-pressed={nsDefaults.open}
+            className={`ag-ns-defaults${nsDefaults.open ? " selected" : ""}`}
+            onClick={nsDefaults.onOpen}
+          >
+            <span className="ag-card-name">{nsDefaults.name} defaults</span>
+            <span className="ag-card-foot">
+              every microservice in {nsDefaults.name}
+              {nsDefaults.count ? ` · ${nsDefaults.count} value${nsDefaults.count === 1 ? "" : "s"}` : ""}
+            </span>
+          </button>
+          <Help label="namespace defaults">
             <p>
-              Values set once here are written into every <code>&lt;ns&gt;/defaults.yaml</code> — the first file the
-              chart layers, so every microservice in every namespace starts from them.
+              Set once for every microservice in <strong>{nsDefaults.name}</strong> — a monorepo image tag, an
+              environment label. Written to <code>{nsDefaults.name}/defaults.yaml</code>.
             </p>
             <p>
-              A microservice that sets the same thing wins: its <code>base/</code> file is layered after, and what it
-              takes from here shows greyed on its card, with a way back.
+              The chain is <code>base/&lt;ms&gt;.yaml → &lt;ns&gt;/defaults.yaml → &lt;ns&gt;/values/&lt;ms&gt;.yaml</code>,
+              later wins: these beat each microservice's base, and one microservice's own file here beats them.
             </p>
             <p>
-              The <strong>shared</strong> release is in that namespace too, and it runs no pods — so keep anything
-              that only makes sense for a workload (a Route, an HPA, replicas) on the microservices themselves.
-            </p>
-            <p>
-              There is no defaults file at the tree root. The chain is{" "}
-              <code>&lt;ns&gt;/defaults.yaml → base/&lt;release&gt;.yaml → &lt;ns&gt;/values/&lt;release&gt;.yaml</code>
-              , so a file above it is a layer nothing reads.
+              The <strong>shared</strong> release takes them too, and it runs no pods — keep workload-only settings (a
+              Route, an HPA, replicas) off defaults.
             </p>
           </Help>
-        </span>
-      </span>
+        </div>
+      )}
+      <div className="ag-card-grid" aria-label="Microservices">
 
       {cards.map((card) => {
         // Grouped by what each thing *is*, not just listed: the workload, the
@@ -354,6 +341,7 @@ export function ReleaseGrid({
           </Help>
         </span>
       )}
-    </div>
+      </div>
+    </>
   );
 }
