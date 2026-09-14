@@ -1142,7 +1142,11 @@ defaults of its own.
   do: a value that deploys must be visible. `mapRows`/`bodyRows`/`kvText`/
   `portsText`/`yamlText` in `catalog.ts` are the inverses of `mapOf`/`raw`/
   `kvOf`/`parsePorts`, and `importRoundTrip.test.ts` is the check — one document
-  holding every such key, in, and **nothing** left over.
+  holding every such key, in, and **nothing** left over. **A `kv` or `yaml`
+  field needs a `load` too**, rows or not: neither has a `path` to read back
+  through. ServiceMonitor's `labels` and Scheduling's `nodeSelector`/
+  `tolerations` had none, so a repo carrying them connected "with 4
+  warnings" — both are in that test now.
 - **`load` is merged over the path-derived read, not a replacement for it**, so
   a feature with both rows and plain fields (`volumeClaimTemplates`, its two
   retention selects) needs only say what `path` cannot. And **a feature that

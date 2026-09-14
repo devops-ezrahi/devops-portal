@@ -242,6 +242,26 @@ initContainers:
   init-db:
     image: busybox:1.36
     command: [sh, "-c", "until nc -z db 5432; do sleep 2; done"]
+serviceMonitor:
+  enabled: true
+  port: http
+  labels:
+    release: prometheus
+  tlsConfig:
+    insecureSkipVerify: true
+  relabelings:
+    - sourceLabels: [__meta_kubernetes_pod_name]
+      targetLabel: pod
+nodeSelector:
+  disktype: ssd
+tolerations:
+  - key: nvidia.com/gpu
+    operator: Exists
+    effect: NoSchedule
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: DoNotSchedule
 `;
 
 describe("importing every rows-based feature", () => {
@@ -272,6 +292,9 @@ describe("importing every rows-based feature", () => {
       "scc",
       "rbac",
       "sidecars",
+      // Not rows, but the same gap: `kv` and `yaml` fields have no path to read through.
+      "servicemonitor",
+      "scheduling",
     ]) {
       expect(result.features[id]?.on, id).toBe(true);
       expect(Object.values(result.features[id].v).some((v) => (Array.isArray(v) ? v.length : v)), id).toBeTruthy();

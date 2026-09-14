@@ -1789,6 +1789,11 @@ F({
     put(o, "schedulerName", v.schedulerName);
     return some(o);
   },
+  load: (doc) => ({
+    nodeSelector: pairsOf(doc.nodeSelector),
+    tolerations: yamlText(doc.tolerations),
+    topology: yamlText(doc.topologySpreadConstraints),
+  }),
   notes: [
     "whenUnsatisfiable: DoNotSchedule keeps pods Pending rather than breaking the spread. ScheduleAnyway is a preference, not a rule.",
   ],
@@ -2094,6 +2099,17 @@ F({
     if (nz(v.relabelings)) o.relabelings = raw(v.relabelings);
     if (nz(v.metricRelabelings)) o.metricRelabelings = raw(v.metricRelabelings);
     return { serviceMonitor: o };
+  },
+  // A `kv` or `yaml` field has no `path` to read back through, so without this
+  // an imported ServiceMonitor's labels landed in extra values with a warning.
+  load: (doc) => {
+    const sm = isRecord(doc.serviceMonitor) ? doc.serviceMonitor : {};
+    return {
+      labels: pairsOf(sm.labels),
+      tlsConfig: yamlText(sm.tlsConfig),
+      relabelings: yamlText(sm.relabelings),
+      metricRelabelings: yamlText(sm.metricRelabelings),
+    };
   },
   notes: [
     "The labels must match your Prometheus Operator's serviceMonitorSelector — usually release: prometheus. Without it the object exists and is never picked up, which looks exactly like a broken exporter.",
