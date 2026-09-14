@@ -1048,7 +1048,13 @@ defaults of its own.
     next save drops it.
   - `findEnvSpecific` counts a namespace's defaults as that namespace answering
     for itself: a monorepo tag set there means base's tag is no longer taken
-    as-is.
+    as-is. It names namespaces **per path** (`takenBy`) — one list for all
+    paths put shop-prod under `replicaCount` because it took base's
+    `image.tag`, which was a false warning on a namespace that overrides it.
+  - **`findPromotions` never offers an `ENV_SPECIFIC_PATHS` value**, even when
+    every namespace agrees. Moving orders-db's `postgres:16.3` out of base as
+    the per-namespace warning asked made all six namespaces identical, which
+    offered it straight back — the two findings undid each other forever.
 - **What a microservice inherits in a namespace is on its own card, greyed,
   with the way back**: its base, then that namespace's defaults over it — one
   block per layer, in chain order, labelled *from the base values* / *from

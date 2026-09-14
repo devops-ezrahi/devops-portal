@@ -358,17 +358,20 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     // the microservice's card above, never beside the field holding them — so
     // they are problems like any other, shown in base and in each namespace
     // still taking base's value, which are the layers they are true of.
+    // Per path: a namespace that overrides replicaCount but not the tag is
+    // named under the tag only.
     const env = envSpecific.find((e) => e.releaseId === release.id);
-    if (env && (layer === BASE || (namespace && env.namespaces.includes(namespace.name.trim()))))
-      env.paths.forEach((path) =>
-        found.push({
-          level: "warn",
-          text: `${path} is set in base, so ${env.namespaces.join(", ")} ${
-            env.namespaces.length === 1 ? "takes" : "take"
-          } it as-is. Base is environment-agnostic — this usually belongs in each namespace's own file.`,
-          feature: featureForPath(path),
-        })
-      );
+    env?.paths.forEach((path) => {
+      const takers = env.takenBy[path] ?? [];
+      if (layer !== BASE && !(namespace && takers.includes(namespace.name.trim()))) return;
+      found.push({
+        level: "warn",
+        text: `${path} is set in base, so ${takers.join(", ")} ${
+          takers.length === 1 ? "takes" : "take"
+        } it as-is. Base is environment-agnostic — this usually belongs in each namespace's own file.`,
+        feature: featureForPath(path),
+      });
+    });
     return found;
   }, [release, features, extraValues, layer, draft.namespaces.length, nsDefaultValues, envSpecific, namespace?.name]);
 

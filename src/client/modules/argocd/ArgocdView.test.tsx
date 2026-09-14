@@ -391,7 +391,8 @@ describe("ArgocdView", () => {
   });
 
   it("offers to move a value every namespace repeats down into the base", async () => {
-    const pinned = { on: true, v: { tag: "9.9.9" } };
+    // Not a tag: those stay per namespace even when every namespace agrees.
+    const pinned = { on: true, v: { pullPolicy: "Always" } };
     const tree = saved({
       releases: [{ id: "r1", name: "storefront", features: { image: { on: true, v: { repository: "nginx" } } } }],
       namespaces: [
@@ -408,9 +409,9 @@ describe("ArgocdView", () => {
 
     // The base file gained it and both namespace files lost it.
     fireEvent.click(screen.getByLabelText("base/storefront.yaml"));
-    expect(document.querySelector(".ag-file-body")!.textContent).toContain("9.9.9");
+    expect(document.querySelector(".ag-file-body")!.textContent).toContain("Always");
     fireEvent.click(screen.getByLabelText("prod/values/storefront.yaml"));
-    expect(document.querySelector(".ag-file-body")!.textContent).not.toContain("9.9.9");
+    expect(document.querySelector(".ag-file-body")!.textContent).not.toContain("Always");
     // ...and the offer is gone, because there is nothing left to move.
     expect(screen.queryByText(/written out 2 times/)).not.toBeInTheDocument();
   });

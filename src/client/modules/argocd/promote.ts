@@ -66,7 +66,10 @@ export function findPromotions(tree: ArgocdTree): Promotion[] {
     const shared = commonSubtree(fragments);
     // Anything base already says is not a promotion — it is a no-op restated.
     const base = buildValues(release.features, release.extraValues);
-    const novel = subtractDefaults(shared, base);
+    // Never a path `findEnvSpecific` asks to keep per namespace: six namespaces
+    // agreeing on postgres:16.3 today is not a reason to put the tag back in
+    // base, and offering it made the two findings undo each other forever.
+    const novel = withoutPaths(subtractDefaults(shared, base), ENV_SPECIFIC_PATHS);
     if (!Object.keys(novel).length) continue;
 
     out.push({
@@ -158,8 +161,13 @@ export type EnvSpecific = {
   values: Values;
   /** `image.tag`, `route.host` — the paths, for the sentence on screen. */
   paths: string[];
-  /** The namespaces still taking base's value, i.e. the ones this is about. */
+  /** The namespaces still taking base's value for *any* of the paths — the card's sentence. */
   namespaces: string[];
+  /**
+   * The same, per path. A namespace can override `replicaCount` and still take
+   * base's `image.tag`; one list for all paths named it under both.
+   */
+  takenBy: Record<string, string[]>;
 };
 
 /**
@@ -187,6 +195,20 @@ export const ENV_SPECIFIC_PATHS = [
   "ingress.hosts",
   "route.host",
 ];
+
+/** A copy of `doc` without the given dotted paths, dropping any map they leave empty. */
+function withoutPaths(doc: Values, drop: string[], prefix = ""): Values {
+  const out: Values = {};
+  for (const [k, v] of Object.entries(doc)) {
+    const path = prefix ? `${prefix}.${k}` : k;
+    if (drop.includes(path)) continue;
+    if (isPlainObject(v)) {
+      const sub = withoutPaths(v, drop, path);
+      if (Object.keys(sub).length) out[k] = sub;
+    } else out[k] = v;
+  }
+  return out;
+}
 
 /** One dotted path out of a document, or `undefined` if no layer of it is there. */
 export function atPath(doc: Values, path: string): unknown {
@@ -228,6 +250,7 @@ export function findEnvSpecific(tree: ArgocdTree): EnvSpecific[] {
     const paths: string[] = [];
     const values: Values = {};
     const taking = new Set<string>();
+    const takenBy: Record<string, string[]> = {};
     for (const path of ENV_SPECIFIC_PATHS) {
       const value = atPath(base, path);
       if (value === undefined) continue;
@@ -235,6 +258,7 @@ export function findEnvSpecific(tree: ArgocdTree): EnvSpecific[] {
       if (!plain.length) continue;
       paths.push(path);
       putPath(values, path, value);
+      takenBy[path] = plain.map((ns) => ns.name);
       plain.forEach((ns) => taking.add(ns.name));
     }
     if (paths.length)
@@ -246,6 +270,7 @@ export function findEnvSpecific(tree: ArgocdTree): EnvSpecific[] {
         // In the tree's own order, not the order the paths happened to add
         // them — the sentence lists namespaces, not findings.
         namespaces: namespaces.filter((n) => taking.has(n.name)).map((n) => n.name),
+        takenBy,
       });
   }
   return out;

@@ -21,12 +21,12 @@ const tree = (over: Partial<ArgocdTree> = {}): ArgocdTree => ({
   ...over,
 });
 
-/** Two namespaces that both pin the same tag, and disagree on replicas. */
+/** Two namespaces that both set the same pull policy, and disagree on replicas. */
 const shared = () =>
   tree({
     namespaces: [
-      { name: "dev", releases: [{ release: "r1", features: { image: on({ tag: "2.0.0" }), replicas: on({ replicaCount: "1" }) } }] },
-      { name: "prod", releases: [{ release: "r1", features: { image: on({ tag: "2.0.0" }), replicas: on({ replicaCount: "6" }) } }] },
+      { name: "dev", releases: [{ release: "r1", features: { image: on({ pullPolicy: "Always" }), replicas: on({ replicaCount: "1" }) } }] },
+      { name: "prod", releases: [{ release: "r1", features: { image: on({ pullPolicy: "Always" }), replicas: on({ replicaCount: "6" }) } }] },
     ],
   });
 
@@ -35,8 +35,20 @@ describe("findPromotions", () => {
     const found = findPromotions(shared());
     expect(found).toHaveLength(1);
     expect(found[0].releaseName).toBe("checkout");
-    expect(found[0].paths).toEqual(["image.tag"]);
+    expect(found[0].paths).toEqual(["image.pullPolicy"]);
     expect(found[0].namespaces).toEqual(["dev", "prod"]);
+  });
+
+  it("never offers a value findEnvSpecific keeps per namespace, even when every namespace agrees", () => {
+    // Six namespaces on postgres:16.3 is not a reason to put the tag back in
+    // base — offering it made this and findEnvSpecific undo each other.
+    const t = tree({
+      namespaces: ["dev", "prod"].map((name) => ({
+        name,
+        releases: [{ release: "r1", features: { image: on({ tag: "16.3" }), replicas: on({ replicaCount: "2" }) } }],
+      })),
+    });
+    expect(findPromotions(t)).toEqual([]);
   });
 
   it("says nothing when a namespace does not override the microservice at all", () => {
@@ -49,7 +61,7 @@ describe("findPromotions", () => {
 
   it("says nothing when base already carries the value", () => {
     const t = shared();
-    t.releases[0].features.image = on({ repository: "shop/checkout", tag: "2.0.0" });
+    t.releases[0].features.image = on({ repository: "shop/checkout", tag: "1.0.0", pullPolicy: "Always" });
     expect(findPromotions(t)).toEqual([]);
   });
 
@@ -65,9 +77,9 @@ describe("applyPromotion", () => {
     const before = shared();
     const after = applyPromotion(before, findPromotions(before)[0]);
 
-    // Base gained the tag...
+    // Base gained the pull policy...
     expect(buildValues(after.releases[0].features, after.releases[0].extraValues)).toMatchObject({
-      image: { repository: "shop/checkout", tag: "2.0.0" },
+      image: { repository: "shop/checkout", tag: "1.0.0", pullPolicy: "Always" },
     });
     // ...and both namespaces lost it, keeping what they actually disagree on.
     after.namespaces.forEach((ns) => {
@@ -140,6 +152,25 @@ describe("findEnvSpecific", () => {
     expect(found[0].paths).toEqual(["image.tag", "route.host"]);
     // dev pinned its own tag, but both are still taking base's route host.
     expect(found[0].namespaces).toEqual(["dev", "prod"]);
+  });
+
+  it("names each path's own namespaces, not every namespace any path has", () => {
+    // The first namespace pins its own tag but still takes base's route host —
+    // it must be named under the host only, never under the tag.
+    const t = pinned();
+    const first = t.namespaces[0].name;
+    t.namespaces[0].releases = [{ release: "r1", features: { image: on({ tag: "9.9.9" }) } }];
+    const found = findEnvSpecific(t)[0];
+    expect(found.takenBy["image.tag"]).not.toContain(first);
+    expect(found.takenBy["route.host"]).toContain(first);
+  });
+
+  it("counts a namespace's defaults as that namespace answering for itself", () => {
+    // A monorepo tag set once for the namespace: base's tag is no longer taken there.
+    const t = pinned();
+    const first = t.namespaces[0].name;
+    t.namespaces[0].defaults = { features: { image: on({ tag: "7.0.0" }) } };
+    expect(findEnvSpecific(t)[0].takenBy["image.tag"] ?? []).not.toContain(first);
   });
 
   it("needs a namespace to recommend anything into", () => {
