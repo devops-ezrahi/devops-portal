@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Copy, Download, FileText, Folder, FolderOpen } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, Download, FileText, Folder, FolderOpen, TriangleAlert } from "lucide-react";
 import { useMemo, useState } from "react";
 import { diffLines, diffTree, type FileStatus, type TreeEntry } from "../diff";
 import type { RepoFile } from "../api";
@@ -50,9 +50,11 @@ type Props = {
   comparing?: boolean;
   /** Whether the push deletes what it does not regenerate. See `diffTree`. */
   deletes?: boolean;
+  /** Why that read failed, when it did. A missing diff has to say why it is missing. */
+  error?: string;
 };
 
-export function FilePreview({ files, onDownload, repo, comparing, deletes = false }: Props) {
+export function FilePreview({ files, onDownload, repo, comparing, deletes = false, error }: Props) {
   const [selected, setSelected] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
@@ -156,6 +158,14 @@ export function FilePreview({ files, onDownload, repo, comparing, deletes = fals
           </button>
         </div>
       </div>
+      {/* A diff that is simply absent reads as a feature that does not work, so
+          the read that failed says so here rather than only in the console. */}
+      {error && (
+        <p className="ag-compare-note">
+          <TriangleAlert size={13} aria-hidden="true" /> Showing the generated files only — the repository could not be
+          read, so there is nothing to compare against. {error}
+        </p>
+      )}
       <div className="ag-preview-body">
         <ul className="ag-file-list" aria-label={diffing ? "Changed files" : "Generated files"}>
           {render(tree, 0)}

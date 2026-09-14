@@ -5005,6 +5005,24 @@ input.jf-title {
 .ag-file-gutter.st-modified { color: #e6b455 }
 .ag-file-gutter.st-removed { color: #e0736d }
 
+/* Why there is no diff, when there was meant to be one. Quiet: the tree itself
+   is fine, it is the comparison that is missing. */
+.ag-compare-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 7px 10px;
+  border: 1px solid #4a3a1e;
+  border-radius: 8px;
+  background: rgba(230, 180, 85, 0.07);
+  color: #d9b877;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.ag-compare-note svg { flex: 0 0 auto; margin-top: 2px }
+
 /* A unified diff: the sign column is part of the line, so it copies with it. */
 .ag-diff .add { display: block; color: #a8f0cb; background: rgba(85, 209, 141, 0.1) }
 .ag-diff .del { display: block; color: #ffb8b2; background: rgba(224, 115, 109, 0.1) }

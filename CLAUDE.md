@@ -1029,9 +1029,18 @@ files in the preview and no way to see that this press moves two of them.
   one clone rather than two.
 - **The read is keyed on the connection and debounced**, not on the draft: the
   repo URL is a text field, and one clone per keystroke is not a thing to do to
-  a git server. A branch that cannot be read leaves the baseline unknown and
-  the preview falls back to the plain file list — the error belongs to the Pull
-  button, which is the press that asked for it.
+  a git server.
+- **It is not gated on `gitEnabled`, unlike the two buttons.** Reading a public
+  repo needs no credential, and gating it meant a portal without
+  `ARGOCD_VALUES_TOKEN` silently never diffed anything — which is how this
+  first shipped, and it read as a feature that did not work.
+- **A read that fails says why, on the page.** `Showing the generated files
+  only — the repository could not be read…` carries git's own sentence
+  (`Authentication failed for …`, `Remote branch main not found`), because the
+  two things that actually go wrong here — a private values repo with no token,
+  and a `master` branch behind a `main` default — are both invisible otherwise.
+  A missing diff has to name what is missing; the alternative is the user
+  reporting that nothing happened.
 - **`pushValuesTree` rebuilds its branch from `values.revision` every time**
   (`clone --branch <rev>` then `checkout -B`), so diffing against that revision
   is exactly what the commit will do, not an approximation of it.

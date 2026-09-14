@@ -86,6 +86,8 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   /** What the connected branch holds right now — the preview diffs against it. */
   const [repoFiles, setRepoFiles] = useState<RepoFile[] | undefined>();
   const [comparing, setComparing] = useState(false);
+  /** Why there is no diff, when there was meant to be one. */
+  const [baselineError, setBaselineError] = useState("");
   /** Set by a press on a card's chip; the editor opens that feature and scrolls to it. */
   const [jump, setJump] = useState<{ feature: string; n: number } | undefined>();
   /** A delete that would lose values, held until it is confirmed. */
@@ -125,15 +127,20 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
    *
    * Keyed on the connection rather than on the draft, so editing values does
    * not re-clone — and debounced, because the repo URL is a text field and one
-   * clone per keystroke is not a thing to do to a git server. A repo that
-   * cannot be read leaves the baseline unknown: the preview falls back to the
-   * plain file list, and the Pull button is where that error belongs.
+   * clone per keystroke is not a thing to do to a git server.
+   *
+   * Deliberately *not* gated on `gitEnabled`, unlike the two buttons: reading a
+   * public repo needs no credential, and gating it meant a portal with no
+   * `ARGOCD_VALUES_TOKEN` never diffed anything. A read that fails carries its
+   * reason to the preview — a diff that silently is not there reads as a
+   * feature that does not work.
    */
   const { repoUrl, revision } = draft.values;
   const subPath = draft.values.path ?? "";
   useEffect(() => {
     setRepoFiles(undefined);
-    if (!gitEnabled || !repoUrl.trim() || !revision.trim()) {
+    setBaselineError("");
+    if (!repoUrl.trim() || !revision.trim()) {
       setComparing(false);
       return;
     }
@@ -145,7 +152,9 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
           const result = await pullValues(repoUrl, revision, subPath);
           if (live) setRepoFiles(result.files);
         } catch (err) {
-          log("argocd", "no baseline to diff against", { message: err instanceof Error ? err.message : String(err) });
+          const message = err instanceof Error ? err.message : String(err);
+          log("argocd", "no baseline to diff against", { message });
+          if (live) setBaselineError(message);
         } finally {
           if (live) setComparing(false);
         }
@@ -155,7 +164,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       live = false;
       clearTimeout(timer);
     };
-  }, [repoUrl, revision, subPath, gitEnabled]);
+  }, [repoUrl, revision, subPath]);
 
   // Admins get every tree from the server; the toggle narrows it back
   // client-side, same as every other list in the portal.
@@ -864,6 +873,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 onDownload={handleDownload}
                 repo={repoFiles}
                 comparing={comparing}
+                error={baselineError}
                 deletes={!!subPath.trim()}
               />
             </div>
