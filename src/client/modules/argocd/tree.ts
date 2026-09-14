@@ -120,8 +120,13 @@ export function buildTree(tree: ArgocdTree): GeneratedFile[] {
   // Written whole. There is no tree-root defaults.yaml to subtract against any
   // more — the chart's chain starts at <ns>/defaults.yaml, and subtracting
   // against a layer nobody applies silently drops the value.
+  // The tree's own defaults are folded into every base file rather than written
+  // as a file of their own: the chart's chain starts at `<ns>/defaults.yaml`, so
+  // a tree-root defaults file is a layer nothing reads. A release's own value
+  // merges over it, which is why it is the left argument.
+  const treeDefaults = buildValues(tree.defaults?.features ?? {}, tree.defaults?.extraValues);
   const base = new Map<string, Values>();
-  releases.forEach((r) => base.set(r.id, buildValues(r.features, r.extraValues)));
+  releases.forEach((r) => base.set(r.id, deepMerge(treeDefaults, buildValues(r.features, r.extraValues))));
 
   const claimed = new Set<string>();
   base.forEach((doc) => paths(doc).forEach((p) => claimed.add(p)));

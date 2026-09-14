@@ -5,7 +5,10 @@ import type { ArgocdTree } from "../../../server/types";
  * What the server accepts. Its own id, owner, timestamps — and `name`, which it
  * mints from the author — are its business, not the builder's.
  */
-export type TreeInput = Pick<ArgocdTree, "name" | "chart" | "values" | "rootAppName" | "releases" | "namespaces">;
+export type TreeInput = Pick<
+  ArgocdTree,
+  "name" | "chart" | "values" | "rootAppName" | "releases" | "namespaces" | "defaults"
+>;
 
 /** Where the chart and the values repo live — configured, and only a starting point. */
 export type TreeDefaults = {

@@ -1,6 +1,7 @@
 import { Help } from "../../../Help";
-import { Plus, X } from "lucide-react";
-import type { FieldSpec, KvPair } from "../catalog";
+import { Link2, Plus, X } from "lucide-react";
+import { useId } from "react";
+import type { FieldSpec, KvPair, RowCol } from "../catalog";
 import type { Values } from "../values";
 
 /**
@@ -12,11 +13,14 @@ export function FeatureField({
   spec,
   value,
   onChange,
+  rowsFor,
+  onMount,
+  mounted,
 }: {
   spec: FieldSpec;
   value: unknown;
   onChange: (value: unknown) => void;
-}) {
+} & RowExtras) {
   const id = `ag-field-${spec.key}`;
   // A list, a map or a block of YAML gets the whole width of the feature; only
   // the one-line fields sit in the column grid beside each other.
@@ -35,7 +39,7 @@ export function FeatureField({
           </Help>
         )}
       </span>
-      <Control spec={spec} id={id} value={value} onChange={onChange} />
+      <Control spec={spec} id={id} value={value} onChange={onChange} rowsFor={rowsFor} onMount={onMount} mounted={mounted} />
     </div>
   );
 }
@@ -43,17 +47,34 @@ export function FeatureField({
 /** Rows a textarea needs for `text`, plus one to show there is room to type. */
 const lineCount = (text: unknown): number => String(text ?? "").split("\n").length + 1;
 
+/**
+ * What a row needs beyond its own value: the names this release already
+ * declares elsewhere (so a mount can offer them), and the one-press wiring that
+ * turns a claim into a volume and a mount.
+ */
+export type RowExtras = {
+  /** Row names declared by another feature of this release — for `RowCol.suggest`. */
+  rowsFor?: (featureId: string) => string[];
+  /** Wire this named object up as a volume plus a mount. Absent = not mountable. */
+  onMount?: (name: string) => void;
+  /** What is already mounted, so the offer disappears once taken. */
+  mounted?: Set<string>;
+};
+
 function Control({
   spec,
   id,
   value,
   onChange,
+  rowsFor,
+  onMount,
+  mounted,
 }: {
   spec: FieldSpec;
   id: string;
   value: unknown;
   onChange: (value: unknown) => void;
-}) {
+} & RowExtras) {
   switch (spec.kind) {
     case "boolean":
       return (
@@ -100,7 +121,16 @@ function Control({
     case "kv":
       return <KvRows rows={(value as KvPair[]) ?? []} onChange={onChange} />;
     case "rows":
-      return <ObjectRows spec={spec} rows={(value as Values[]) ?? []} onChange={onChange} />;
+      return (
+        <ObjectRows
+          spec={spec}
+          rows={(value as Values[]) ?? []}
+          onChange={onChange}
+          rowsFor={rowsFor}
+          onMount={onMount}
+          mounted={mounted}
+        />
+      );
     default:
       return (
         <input
@@ -155,8 +185,16 @@ function entryTitle(spec: FieldSpec, row: Values, index: number): string {
 }
 
 /** A list of maps is a list of boxes — three bare inputs say nothing about which is which. */
-function ObjectRows({ spec, rows, onChange }: { spec: FieldSpec; rows: Values[]; onChange: (rows: Values[]) => void }) {
+function ObjectRows({
+  spec,
+  rows,
+  onChange,
+  rowsFor,
+  onMount,
+  mounted,
+}: { spec: FieldSpec; rows: Values[]; onChange: (rows: Values[]) => void } & RowExtras) {
   const cols = spec.cols ?? [];
+  const listId = useId();
   const shown = rows.length ? rows : [{}];
   const set = (i: number, patch: Values) => onChange(shown.map((r, n) => (n === i ? { ...r, ...patch } : r)));
   return (
@@ -167,6 +205,14 @@ function ObjectRows({ spec, rows, onChange }: { spec: FieldSpec; rows: Values[];
             {/* An entry names itself once it has a name — a column of
                 "Variables 1, Variables 2" says nothing about which is which. */}
             <span className="ag-entry-title">{entryTitle(spec, row, i)}</span>
+            {/* A claim nothing mounts is storage the pod never sees, and wiring
+                it up by hand means a volume in one feature and a mount in
+                another. The offer goes away once it is taken. */}
+            {onMount && nameOf(row) && !mounted?.has(nameOf(row)) && (
+              <button type="button" className="ghost-button ag-mount" onClick={() => onMount(nameOf(row))}>
+                <Link2 size={13} aria-hidden="true" /> Mount this
+              </button>
+            )}
             <button
               type="button"
               className="icon-button"
@@ -203,11 +249,12 @@ function ObjectRows({ spec, rows, onChange }: { spec: FieldSpec; rows: Values[];
                   onChange={(e) => set(i, { [col.key]: e.target.value })}
                 />
               ) : (
-                <input
-                  type={col.kind === "number" ? "number" : "text"}
+                <Suggested
+                  col={col}
+                  listId={`${listId}-${col.key}`}
+                  options={col.suggest && rowsFor ? rowsFor(col.suggest(row)) : []}
                   value={String(row[col.key] ?? "")}
-                  placeholder={col.placeholder}
-                  onChange={(e) => set(i, { [col.key]: e.target.value })}
+                  onChange={(v) => set(i, { [col.key]: v })}
                 />
               )}
             </label>
@@ -218,5 +265,49 @@ function ObjectRows({ spec, rows, onChange }: { spec: FieldSpec; rows: Values[];
         <Plus size={15} aria-hidden="true" /> {spec.addLabel ?? "Add"}
       </button>
     </div>
+  );
+}
+
+/** A row's own name, trimmed — what the mount offer is keyed on. */
+const nameOf = (row: Values): string => String(row.name ?? "").trim();
+
+/**
+ * A text box that offers what this release already declares.
+ *
+ * A native `datalist`, not a `<select>` and not the Jenkinsfile builder's
+ * combobox: the list is one column of names, and typing a name that is not on
+ * it has to keep working — a ConfigMap the platform team owns is mounted the
+ * same way as one this release creates.
+ */
+function Suggested({
+  col,
+  listId,
+  options,
+  value,
+  onChange,
+}: {
+  col: RowCol;
+  listId: string;
+  options: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <>
+      <input
+        type={col.kind === "number" ? "number" : "text"}
+        value={value}
+        placeholder={col.placeholder}
+        list={options.length ? listId : undefined}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {options.length > 0 && (
+        <datalist id={listId}>
+          {options.map((name) => (
+            <option key={name} value={name} />
+          ))}
+        </datalist>
+      )}
+    </>
   );
 }

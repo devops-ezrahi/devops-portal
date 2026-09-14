@@ -4594,6 +4594,28 @@ input.jf-title {
 
 .ag-add-card:hover { color: #d7fbf8 }
 
+/* The tree's defaults sit in the microservices grid as its first tile — the
+   same idea as the Layers grid's Base tile, in the other direction. Smaller
+   than a release card: it carries one fact, not a list of objects. */
+.ag-defaults-card {
+  align-content: center;
+  gap: 4px;
+}
+
+/* The shared release's add button carries the one `?` that explains what it is
+   — it is a convention, not a mode, and nobody meets it anywhere else. The `?`
+   sits beside the button rather than inside it: a button cannot hold one. */
+.ag-add-shared {
+  position: relative;
+  display: grid;
+}
+
+.ag-add-shared > .help {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
 /* A card's own rename and delete. They sit *beside* the card rather than in it
    — the card is a <button>, and a button cannot contain one — so the shell is
    what the grid lays out and the card fills it. */
@@ -4889,12 +4911,57 @@ input.jf-title {
    thing that wants the whole row. */
 .ag-entry-field:has(textarea) { grid-column: 1 / -1 }
 
+/* What a microservice inherits from the tree's defaults: shown, not editable,
+   with the way back to where it is editable. Greyed, because it is not this
+   microservice's decision — but it is in this microservice's file. */
+.ag-inherited {
+  grid-column: 1 / -1;
+  border: 1px dashed #26333a;
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: #0d1418;
+}
+
+.ag-inherited-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  color: #7d8f97;
+}
+
+.ag-inherited-link:hover { color: #9fe4dc }
+
+.ag-inherited pre {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #7d8f97;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .ag-entry-title {
   font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 12px;
   font-weight: 700;
   color: #9fe4dc;
   overflow-wrap: anywhere;
+  /* Takes the slack, so the entry's own controls stay together on the right. */
+  margin-right: auto;
+}
+
+/* The offer to wire a claim, ConfigMap or Secret into the container. Quiet: it
+   sits on every named row of those three features until it has been taken. */
+.ag-mount {
+  padding: 2px 8px;
+  font-size: 11px;
+  gap: 4px;
 }
 
 .ag-entry-field {

@@ -41,6 +41,19 @@ function fieldValue(spec: FieldSpec, raw: unknown): unknown {
   }
 }
 
+/** Every field the catalog can invert on its own — the ones with a `path`. */
+function fromPaths(spec: { fields: FieldSpec[] }, doc: Values): Record<string, unknown> {
+  return Object.fromEntries(
+    spec.fields
+      .filter((f) => f.path)
+      .map((f) => [f.key, fieldValue(f, at(doc, f.path!))])
+      .filter(([, value]) => value !== undefined)
+  );
+}
+
+/** Whether a loaded field says anything. `false` does; an empty list does not. */
+const holds = (v: unknown): boolean => (Array.isArray(v) ? v.length > 0 : v !== undefined && v !== null && v !== "");
+
 export function importValues(text: string): ImportResult {
   const docs = parseAllDocuments(text);
   const warnings: string[] = [];
@@ -57,14 +70,15 @@ export function importValues(text: string): ImportResult {
   const features: Record<string, FeatureState> = {};
   FEATURES.forEach((spec) => {
     if (!spec.keys.some((k) => k in doc)) return;
-    const v = spec.load
-      ? spec.load(doc)
-      : Object.fromEntries(
-          spec.fields
-            .filter((f) => f.path)
-            .map((f) => [f.key, fieldValue(f, at(doc, f.path!))])
-            .filter(([, value]) => value !== undefined)
-        );
+    // `load` says only what a field's `path` cannot, so it is merged *over* the
+    // path-derived read rather than replacing it — volumeClaimTemplates has both
+    // rows and two plain fields, and replacing dropped the plain half.
+    const v = { ...fromPaths(spec, doc), ...(spec.load?.(doc) ?? {}) };
+    // A feature that read nothing back would be a ticked, empty card whose real
+    // content sits invisibly in `extraValues` — the one thing this module does
+    // not do. Leave it off, and let the warning below be the only claim made
+    // about that key.
+    if (!Object.values(v).some(holds)) return;
     features[spec.id] = { on: true, v };
   });
 

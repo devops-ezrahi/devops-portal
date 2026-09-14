@@ -1,5 +1,6 @@
-import { AlertTriangle, Pencil, Plus, X } from "lucide-react";
+import { AlertTriangle, Pencil, Plus, Share2, X } from "lucide-react";
 import { useState } from "react";
+import { Help } from "../../../Help";
 import { SCOPE_NOTE, type Resource, type Scope } from "../resources";
 
 /**
@@ -39,6 +40,13 @@ type Props = {
   onRemove: (releaseId: string) => void;
   /** Returns the new release's id, so its name field opens immediately. */
   onAdd: () => string | void;
+  /** Add the namespace-shared release. Absent once the tree already has one. */
+  onAddShared?: () => void;
+  /** The tree's own defaults: the tile that edits them, and whether it is open. */
+  onOpenDefaults: () => void;
+  defaultsOpen: boolean;
+  /** How many top-level values the defaults set — nothing to say when none. */
+  defaultsCount: number;
 };
 
 /** `ConfigMap ×2`, with the objects' own names and what kind of thing it is on hover. */
@@ -83,12 +91,55 @@ const chipTitle = (r: Resource) => [r.names?.join(", "), SCOPE_NOTE[r.scope]].fi
  */
 const SCOPES: Scope[] = ["workload", "pod", "object", "cluster"];
 
-export function ReleaseGrid({ cards, selectedId, onSelect, onJump, onRename, onRemove, onAdd }: Props) {
+export function ReleaseGrid({
+  cards,
+  selectedId,
+  onSelect,
+  onJump,
+  onRename,
+  onRemove,
+  onAdd,
+  onAddShared,
+  onOpenDefaults,
+  defaultsOpen,
+  defaultsCount,
+}: Props) {
   /** Which card's name is being typed into. Local — nothing above needs to know. */
   const [editing, setEditing] = useState<string | null>(null);
 
   return (
     <div className="ag-card-grid" aria-label="Microservices">
+      {/* First, and the same shape the Layers grid's Base tile has, because it
+          is the same idea in the other direction: Base is every namespace,
+          Defaults is every microservice. */}
+      <span className="ag-card-shell">
+        <button
+          type="button"
+          aria-pressed={defaultsOpen}
+          className={`ag-card ag-defaults-card${defaultsOpen ? " selected" : ""}`}
+          onClick={onOpenDefaults}
+        >
+          <span className="ag-card-name">Defaults</span>
+          <span className="ag-card-foot">
+            {defaultsCount ? `${defaultsCount} value${defaultsCount === 1 ? "" : "s"} in every base file` : "every microservice"}
+          </span>
+        </button>
+        <span className="ag-card-tools">
+          <Help label="the tree's defaults">
+            <p>Values set once here are merged into every microservice's base file.</p>
+            <p>
+              A microservice that sets the same thing wins — its own value merges over this one — and everything that
+              came from here shows greyed on its card, with a way back.
+            </p>
+            <p>
+              There is no defaults file in the repository: the chart's layering starts at{" "}
+              <code>&lt;ns&gt;/defaults.yaml</code>, so a tree-root one would be a layer nothing reads. This is folded
+              in when the files are written.
+            </p>
+          </Help>
+        </span>
+      </span>
+
       {cards.map((card) => {
         // Grouped by what each thing *is*, not just listed: the workload, the
         // parts of its pod template, the objects beside it, and the
@@ -253,6 +304,33 @@ export function ReleaseGrid({ cards, selectedId, onSelect, onJump, onRename, onR
       >
         <Plus size={15} aria-hidden="true" /> Microservice
       </button>
+
+      {/* One per tree, so it disappears once there is one. It is a release like
+          any other after this — the converter's own convention, not a mode. */}
+      {onAddShared && (
+        <span className="ag-add-shared">
+          <button type="button" className="ag-card ag-add-card" onClick={onAddShared}>
+            <Share2 size={15} aria-hidden="true" /> Shared
+          </button>
+          <Help label="the shared microservice">
+            <p>
+              A release named <code>shared</code> that runs no pods (<code>workload.type: none</code>) and exists only
+              to own the objects several microservices in a namespace use — a ConfigMap, a Secret, a claim, a
+              NetworkPolicy, a Role.
+            </p>
+            <p>
+              Two Helm releases cannot both create an object of the same name, and these kinds are rendered under their
+              raw map key with no release prefix. Declaring them once here is what lets every microservice beside it
+              just reference them.
+            </p>
+            <p>
+              It is an ordinary release otherwise — <code>base/shared.yaml</code> and <code>&lt;ns&gt;/values/shared.yaml</code>{" "}
+              — which is the same shape <code>convert_to_universal_chart.py</code> writes, so a converted tree and one
+              built here read alike.
+            </p>
+          </Help>
+        </span>
+      )}
     </div>
   );
 }

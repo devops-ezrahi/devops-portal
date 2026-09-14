@@ -175,3 +175,36 @@ describe("buildTree", () => {
     expect(root.spec.source.directory).toEqual({ recurse: false, include: "root-applicationSet.yaml" });
   });
 });
+
+describe("the tree's defaults", () => {
+  const withDefaults = () =>
+    tree({
+      defaults: { features: { serviceaccount: on({ create: true, imagePullSecrets: "regcred" }) } },
+      releases: [
+        { id: "r1", name: "api-gateway", features: { workload: on({ type: "deployment" }) } },
+        {
+          id: "r2",
+          name: "storefront",
+          features: { workload: on({ type: "deployment" }), serviceaccount: on({ create: true, name: "storefront-sa" }) },
+        },
+      ],
+      namespaces: [],
+    });
+
+  const baseOf = (files: { path: string; text: string }[], name: string) =>
+    parseYaml(files.find((f) => f.path === `base/${name}.yaml`)!.text);
+
+  it("reaches every base file, with no defaults file of its own", () => {
+    const files = buildTree(withDefaults());
+    expect(files.some((f) => /defaults\.yaml$/.test(f.path) && !f.path.includes("/"))).toBe(false);
+    expect(baseOf(files, "api-gateway").serviceAccount.imagePullSecrets).toEqual([{ name: "regcred" }]);
+    expect(baseOf(files, "storefront").serviceAccount.imagePullSecrets).toEqual([{ name: "regcred" }]);
+  });
+
+  it("loses to what the microservice sets itself", () => {
+    const doc = baseOf(buildTree(withDefaults()), "storefront");
+    // Its own key wins; the rest of the default is still merged in beside it.
+    expect(doc.serviceAccount.name).toBe("storefront-sa");
+    expect(doc.serviceAccount.imagePullSecrets).toEqual([{ name: "regcred" }]);
+  });
+});

@@ -468,6 +468,14 @@ export type ArgocdTree = {
   rootAppName: string;
   releases: ArgocdRelease[];
   namespaces: ArgocdNamespace[];
+  /**
+   * Set once, applied to every microservice's base file.
+   *
+   * It is folded in at generate time rather than written as a file of its own:
+   * the chart's chain starts at `<ns>/defaults.yaml`, so a tree-root defaults
+   * file is a layer nothing reads. Each release's own value wins over it.
+   */
+  defaults?: { features: Record<string, ArgocdFeatureState>; extraValues?: string };
   createdBy: string;
   createdByName: string;
   createdAt: string;

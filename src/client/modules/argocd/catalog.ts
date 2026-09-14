@@ -30,6 +30,13 @@ export type RowCol = {
   placeholder?: string;
   /** Only shown when the row says so — an exec probe has no `path`, a `value` env var has no `key`. */
   when?: (row: Values) => boolean;
+  /**
+   * The feature whose row names this column suggests — a mount offers the
+   * volumes this release declares. A suggestion, not a constraint: an object
+   * the chart does not create (a ConfigMap the platform team owns) is mounted
+   * by typing its name, so this renders a `datalist` and never a `<select>`.
+   */
+  suggest?: (row: Values) => string;
 };
 
 export type FieldSpec = {
@@ -86,6 +93,13 @@ export type FeatureSpec = {
   req?: true;
   /** Cluster-scoped objects: only one release in a cluster may own them. */
   cluster?: boolean;
+  /**
+   * An object of this kind reaches the container only through a volume and a
+   * mount, which is two more features away from where it was created. Set to
+   * the `volumes` kind a row of this feature becomes, and each named row offers
+   * to wire both up itself.
+   */
+  mountable?: "configMap" | "secret" | "persistentVolumeClaim";
   fields: FieldSpec[];
   notes?: string[];
   /** Feature state -> a values fragment. Pure; `null` means "contributes nothing". */
@@ -152,6 +166,24 @@ export const mapOf = (rows: unknown, fn: (r: Values) => Values | null, key = "na
   return Object.keys(m).length ? m : null;
 };
 
+/** The inverse of `mapOf`: a `name`-keyed map back into the rows the form edits. */
+export const mapRows = (map: unknown, fn: (body: Values) => Values = (b) => b): Values[] =>
+  isRecord(map) ? Object.entries(map).map(([name, body]) => ({ name, ...fn(isRecord(body) ? body : {}) })) : [];
+
+/** A parsed node written back as the YAML text a `body`/`rules`/`provider` column holds. */
+export const yamlText = (node: unknown): string => (nz(node) ? emitNode(node, 0, []).join("\n") : "");
+
+/** Rows whose one column is the object itself, written back as YAML — the `raw` features. */
+export const bodyRows = (map: unknown, key = "body"): Values[] => mapRows(map, (b) => ({ [key]: yamlText(b) }));
+
+/** The inverse of `parseKV`/`kvOf`: a values map as `key=value` lines. */
+export const kvText = (map: unknown): string =>
+  isRecord(map)
+    ? Object.entries(map)
+        .map(([k, v]) => `${k}=${String(v ?? "")}`)
+        .join("\n")
+    : "";
+
 /** `name=port[:targetPort]` per line — the shape the Service and Route fields take. */
 export const parsePorts = (text: unknown): Values | null => {
   const m: Values = {};
@@ -165,6 +197,17 @@ export const parsePorts = (text: unknown): Values | null => {
   });
   return Object.keys(m).length ? m : null;
 };
+
+/** The inverse of `parsePorts`. */
+export const portsText = (map: unknown): string =>
+  isRecord(map)
+    ? Object.entries(map)
+        .map(([name, body]) => {
+          const b = isRecord(body) ? body : {};
+          return `${name}=${String(b.port ?? "")}${nz(b.targetPort) ? `:${String(b.targetPort)}` : ""}`;
+        })
+        .join("\n")
+    : "";
 
 /** `key=value` per line. */
 export const parseKV = (text: unknown): Values | null => {
@@ -643,7 +686,13 @@ F({
       [
         { key: "name", label: "name", placeholder: "nginx-conf" },
         { key: "kind", label: "Type", kind: "select", options: ["configMap", "secret", "emptyDir", "emptyDir (memory)", "persistentVolumeClaim", "hostPath", "nfs", "custom"] },
-        { key: "src", label: "Source name", placeholder: "nginx-config", when: (r) => ["configMap", "secret", "persistentVolumeClaim"].includes(String(r.kind || "configMap")) },
+        {
+          key: "src",
+          label: "Source name",
+          placeholder: "nginx-config",
+          when: (r) => ["configMap", "secret", "persistentVolumeClaim"].includes(String(r.kind || "configMap")),
+          suggest: (r) => (r.kind === "secret" ? "secrets" : r.kind === "persistentVolumeClaim" ? "pvc" : "configmaps"),
+        },
         { key: "defaultMode", label: "defaultMode", placeholder: "0644", when: (r) => ["configMap", "secret"].includes(String(r.kind || "configMap")) },
         { key: "sizeLimit", label: "sizeLimit", placeholder: "512Mi", when: (r) => String(r.kind ?? "").startsWith("emptyDir") },
         { key: "path", label: "path", placeholder: "/exports/myapp", when: (r) => ["hostPath", "nfs"].includes(String(r.kind)) },
@@ -660,7 +709,9 @@ F({
         const mode = nz(r.defaultMode) ? Number(r.defaultMode) : undefined;
         if (k === "configMap") return { configMap: clean({ name: r.src, defaultMode: mode }) };
         if (k === "secret") return { secret: clean({ secretName: r.src, defaultMode: mode }) };
-        if (k === "emptyDir") return { emptyDir: nz(r.sizeLimit) ? { sizeLimit: r.sizeLimit } : {} };
+        // An emptyDir with no sizeLimit is `{}`, and `clean` drops an empty
+        // object — written plainly it came out as a volume with no source at all.
+        if (k === "emptyDir") return { emptyDir: nz(r.sizeLimit) ? { sizeLimit: r.sizeLimit } : (raw("{}") as unknown as Values) };
         if (k === "emptyDir (memory)") return { emptyDir: clean({ medium: "Memory", sizeLimit: r.sizeLimit }) };
         if (k === "persistentVolumeClaim") return { persistentVolumeClaim: { claimName: r.src } };
         if (k === "hostPath") return { hostPath: { path: r.path } };
@@ -668,6 +719,22 @@ F({
         return nz(r.body) ? (raw(r.body) as unknown as Values) : null;
       }),
     }),
+  load: (doc) => ({
+    items: mapRows(doc.volumes, (b) => {
+      const of = (k: string, f: string) => (isRecord(b[k]) ? (b[k] as Values)[f] : undefined);
+      if (isRecord(b.configMap)) return { kind: "configMap", src: of("configMap", "name"), defaultMode: of("configMap", "defaultMode") };
+      if (isRecord(b.secret)) return { kind: "secret", src: of("secret", "secretName"), defaultMode: of("secret", "defaultMode") };
+      if (b.emptyDir !== undefined) {
+        const e = isRecord(b.emptyDir) ? b.emptyDir : {};
+        return { kind: e.medium === "Memory" ? "emptyDir (memory)" : "emptyDir", sizeLimit: e.sizeLimit };
+      }
+      if (isRecord(b.persistentVolumeClaim)) return { kind: "persistentVolumeClaim", src: of("persistentVolumeClaim", "claimName") };
+      if (isRecord(b.hostPath)) return { kind: "hostPath", path: of("hostPath", "path") };
+      if (isRecord(b.nfs)) return { kind: "nfs", server: of("nfs", "server"), path: of("nfs", "path") };
+      // ponytail: the form models six sources, the chart passes thirty through — anything else comes back as itself.
+      return { kind: "custom", body: yamlText(b) };
+    }),
+  }),
   notes: ["defaultMode is octal in Kubernetes but a number in YAML — 0644 is written unquoted so it stays one."],
 });
 
@@ -682,7 +749,7 @@ F({
       "items",
       "Mounts",
       [
-        { key: "name", label: "name", placeholder: "nginx-conf" },
+        { key: "name", label: "name", placeholder: "nginx-conf", suggest: () => "volumes" },
         { key: "mountPath", label: "mountPath", placeholder: "/etc/nginx/conf.d" },
         { key: "subPath", label: "subPath", placeholder: "nginx.conf" },
         { key: "readOnly", label: "readOnly", kind: "boolean" },
@@ -700,18 +767,14 @@ F({
         return Object.keys(o).length ? o : null;
       }),
     }),
-  load: (doc) => ({
-    items: Object.entries(isRecord(doc.volumeMounts) ? doc.volumeMounts : {}).map(([name, body]) => ({
-      name,
-      ...(isRecord(body) ? body : {}),
-    })),
-  }),
+  load: (doc) => ({ items: mapRows(doc.volumeMounts) }),
   notes: ["Mounting a whole ConfigMap over /etc/nginx hides everything already in that directory. Use subPath to drop in one file."],
 });
 
 F({
   id: "pvc",
   cat: "storage",
+  mountable: "persistentVolumeClaim",
   name: "PersistentVolumeClaims",
   keys: ["pvc"],
   blurb: "Standalone claims created as their own objects — the Deployment pattern. One PVC shared by every replica.",
@@ -741,6 +804,15 @@ F({
         return o;
       }),
     }),
+  load: (doc) => ({
+    items: mapRows(doc.pvc, (b) => ({
+      size: b.size,
+      accessMode: rowsOf(b.accessModes)[0],
+      storageClassName: b.storageClassName,
+      volumeMode: b.volumeMode,
+      volumeName: b.volumeName,
+    })),
+  }),
   notes: [
     "ReadWriteOnce with more than one replica means the second pod never schedules. Use ReadWriteMany (NFS/CephFS) or a StatefulSet with volumeClaimTemplates.",
   ],
@@ -777,6 +849,13 @@ F({
       }),
       persistentVolumeClaimRetentionPolicy: some({ whenDeleted: v.whenDeleted, whenScaled: v.whenScaled }),
     }),
+  load: (doc) => ({
+    items: mapRows(doc.volumeClaimTemplates, (b) => ({
+      size: b.size,
+      accessMode: rowsOf(b.accessModes)[0],
+      storageClassName: b.storageClassName,
+    })),
+  }),
   notes: [
     "Kubernetes' own default is Delete on both — scale a StatefulSet down and the data goes with it. Set Retain for anything you cannot re-create.",
     "The chart leaves the retention policy empty on purpose, so the rendered StatefulSet omits the field rather than inventing one.",
@@ -819,6 +898,12 @@ F({
         return raw(t.join("\n")) as unknown as Values;
       }),
     }),
+  load: (doc) => ({
+    items: mapRows(doc.persistentVolumes, (b) => {
+      const { capacity, accessModes, reclaimPolicy, storageClassName, ...rest } = b;
+      return { capacity, accessMode: rowsOf(accessModes)[0], reclaimPolicy, storageClassName, body: yamlText(rest) };
+    }),
+  }),
   notes: [
     "Cluster-scoped. Two releases in different namespaces defining the same PV name are fighting over one object — deploy it once, from a shared release.",
   ],
@@ -859,6 +944,15 @@ F({
         return some(o);
       }),
     }),
+  load: (doc) => ({
+    items: mapRows(doc.storageClasses, (b) => ({
+      provisioner: b.provisioner,
+      reclaimPolicy: b.reclaimPolicy,
+      volumeBindingMode: b.volumeBindingMode,
+      allowVolumeExpansion: !!b.allowVolumeExpansion,
+      parameters: kvText(b.parameters),
+    })),
+  }),
   notes: [
     "WaitForFirstConsumer delays provisioning until a pod is scheduled, so the volume lands in the same zone as the pod. On a multi-AZ cluster, Immediate is how you get a pod that can never schedule.",
   ],
@@ -901,17 +995,11 @@ F({
   },
   load: (doc) => {
     const s = isRecord(doc.service) ? doc.service : {};
-    const ports = isRecord(s.ports) ? s.ports : {};
     return {
       enabled: s.enabled !== false,
       type: s.type ?? "",
       name: s.name ?? "",
-      ports: Object.entries(ports)
-        .map(([name, body]) => {
-          const b = isRecord(body) ? body : {};
-          return `${name}=${b.port ?? ""}${nz(b.targetPort) ? `:${b.targetPort}` : ""}`;
-        })
-        .join("\n"),
+      ports: portsText(s.ports),
       clusterIP: s.clusterIP ?? "",
       externalName: s.externalName ?? "",
       sessionAffinity: s.sessionAffinity ?? "",
@@ -963,6 +1051,15 @@ F({
         return o;
       }),
     }),
+  load: (doc) => ({
+    items: mapRows(doc.services, (b) => ({
+      type: b.type,
+      ports: portsText(b.ports),
+      clusterIP: b.clusterIP,
+      publishNotReadyAddresses: !!b.publishNotReadyAddresses,
+      selector: kvText(b.selector),
+    })),
+  }),
   notes: ["The map key is the object name verbatim, so it has to be unique in the namespace."],
 });
 
@@ -1124,6 +1221,15 @@ F({
         return o;
       }),
     }),
+  load: (doc) => ({
+    items: mapRows(doc.routes, (b) => ({
+      host: b.host,
+      path: b.path,
+      targetPort: b.targetPort,
+      serviceName: b.serviceName,
+      termination: isRecord(b.tls) ? b.tls.termination : "",
+    })),
+  }),
   notes: [
     "serviceName defaults to this release's own Service; targetPort defaults to the first port on it. wildcardPolicy defaults to None.",
   ],
@@ -1147,6 +1253,7 @@ F({
     ),
   ],
   emit: (v) => some({ networkPolicies: mapOf(v.items, (r) => (nz(r.body) ? (raw(r.body) as unknown as Values) : null)) }),
+  load: (doc) => ({ items: bodyRows(doc.networkPolicies) }),
   notes: [
     "An egress policy that forgets UDP 53 breaks DNS for the whole pod, which looks like every dependency being down at once.",
   ],
@@ -1157,6 +1264,7 @@ F({
 F({
   id: "configmaps",
   cat: "config",
+  mountable: "configMap",
   name: "ConfigMaps",
   keys: ["configMaps"],
   blurb: "Real ConfigMap objects. Key-value settings, whole config files, or both in the same object.",
@@ -1181,6 +1289,19 @@ F({
         return Object.keys(d).length ? { data: d } : null;
       }),
     }),
+  load: (doc) => ({
+    items: mapRows(doc.configMaps, (b) => {
+      const data = isRecord(b.data) ? b.data : {};
+      // The form splits one multi-line entry out as the file half. A value with
+      // a line break in it could not have come from a key=value line anyway.
+      const file = Object.entries(data).find(([, v]) => String(v ?? "").includes("\n"));
+      return {
+        data: kvText(Object.fromEntries(Object.entries(data).filter(([k]) => k !== file?.[0]))),
+        fileName: file?.[0] ?? "",
+        fileBody: file?.[1] ?? "",
+      };
+    }),
+  }),
   notes: [
     'Every value is a string. MAX_CONNECTIONS=100 is written as "100" — Kubernetes rejects a bare number here.',
     "Changing a ConfigMap does not restart pods by default — see Checksums.",
@@ -1190,6 +1311,7 @@ F({
 F({
   id: "secrets",
   cat: "config",
+  mountable: "secret",
   name: "Secrets",
   keys: ["secrets"],
   blurb: "Real Secret objects. stringData takes plain text and Kubernetes base64s it for you.",
@@ -1218,6 +1340,9 @@ F({
         return Object.keys(o).length ? o : null;
       }),
     }),
+  load: (doc) => ({
+    items: mapRows(doc.secrets, (b) => ({ type: b.type, stringData: kvText(b.stringData), data: kvText(b.data) })),
+  }),
   notes: [
     "These values live in the values file, which is in git. For anything that belongs in a secrets manager use ExternalSecrets instead — the chart renders the CRs and ESO produces the Secret.",
   ],
@@ -1260,6 +1385,12 @@ F({
       clusterSecretStores: Object.keys(cs).length ? cs : null,
     });
   },
+  load: (doc) => ({
+    items: [
+      ...mapRows(doc.secretStores, (b) => ({ scope: "SecretStore", body: yamlText(b.provider) })),
+      ...mapRows(doc.clusterSecretStores, (b) => ({ scope: "ClusterSecretStore", body: yamlText(b.provider) })),
+    ],
+  }),
   notes: [
     "The ESO CRDs must already be installed. This chart renders the custom resources; it does not install the operator.",
     "ClusterSecretStore is cluster-scoped — one owner only. Declaring it per microservice means every release fights over the same object.",
@@ -1308,6 +1439,26 @@ F({
         return Object.keys(o).length ? o : null;
       }),
     }),
+  load: (doc) => ({
+    items: mapRows(doc.externalSecrets, (b) => {
+      const ref = isRecord(b.secretStoreRef) ? b.secretStoreRef : {};
+      const first = rowsOf(b.dataFrom)[0];
+      const extract = first && isRecord(first.extract) ? first.extract : {};
+      return {
+        store: ref.name,
+        storeKind: ref.kind,
+        refreshInterval: b.refreshInterval,
+        target: isRecord(b.target) ? b.target.name : "",
+        data: rowsOf(b.data)
+          .map((d) => {
+            const r = isRecord(d.remoteRef) ? d.remoteRef : {};
+            return `${String(d.secretKey ?? "")}=${String(r.key ?? "")}${nz(r.property) ? `#${String(r.property)}` : ""}`;
+          })
+          .join("\n"),
+        dataFrom: extract.key,
+      };
+    }),
+  }),
   notes: [
     "target.name defaults to the map key — set it only when the Secret should be named something other than the ExternalSecret.",
     'ESO will not adopt a Secret it did not create unless that Secret carries reconcile.external-secrets.io/managed: "true". Migrating an existing Secret means labelling it first, or the ExternalSecret sits in error while the stale copy stays put.',
@@ -1332,6 +1483,36 @@ F({
 /* ---------- jobs ---------- */
 
 /** `NAME=value` or `NAME@secret:secretName/key`, one per line. */
+/** The inverse of `jobEnv`: env entries back into one line each. */
+const envText = (map: unknown): string =>
+  isRecord(map)
+    ? Object.entries(map)
+        .map(([name, body]) => {
+          const b = isRecord(body) ? body : {};
+          const from = isRecord(b.valueFrom) && isRecord(b.valueFrom.secretKeyRef) ? b.valueFrom.secretKeyRef : null;
+          return from ? `${name}@secret:${String(from.name ?? "")}/${String(from.key ?? "")}` : `${name}=${String(b.value ?? "")}`;
+        })
+        .join("\n")
+    : "";
+
+/** A Job — or a CronJob's `jobTemplate`, which is the same shape — back into its row. */
+const jobRow = (b: Values): Values => {
+  const im = isRecord(b.image) ? b.image : {};
+  return {
+    restartPolicy: b.restartPolicy,
+    backoffLimit: b.backoffLimit,
+    activeDeadlineSeconds: b.activeDeadlineSeconds,
+    ttl: b.ttlSecondsAfterFinished,
+    containerName: b.containerName,
+    serviceAccountName: b.serviceAccountName,
+    command: rowsOf(b.command).join("\n"),
+    env: envText(b.env),
+    imageRepo: im.repository,
+    imageTag: im.tag,
+    imagePull: im.pullPolicy,
+  };
+};
+
 const jobEnv = (text: unknown): Values | null => {
   const m: Values = {};
   listOf(text).forEach((line) => {
@@ -1407,6 +1588,17 @@ F({
         return Object.keys(o).length ? o : null;
       }),
     }),
+  load: (doc) => ({
+    items: mapRows(doc.cronjobs, (b) => ({
+      schedule: b.schedule,
+      concurrencyPolicy: b.concurrencyPolicy,
+      suspend: !!b.suspend,
+      successfulJobsHistoryLimit: b.successfulJobsHistoryLimit,
+      failedJobsHistoryLimit: b.failedJobsHistoryLimit,
+      startingDeadlineSeconds: b.startingDeadlineSeconds,
+      ...jobRow(isRecord(b.jobTemplate) ? b.jobTemplate : {}),
+    })),
+  }),
   notes: [
     "The name is verbatim. The chart used to prepend the release name; it no longer does.",
     "backoffLimit: 0 and successfulJobsHistoryLimit: 0 mean what they say — an explicit zero is honoured, not treated as unset.",
@@ -1464,6 +1656,12 @@ F({
         return Object.keys(o).length ? o : null;
       }),
     }),
+  load: (doc) => ({
+    items: mapRows(doc.jobs, (b) => {
+      const an = isRecord(b.annotations) ? b.annotations : {};
+      return { ...jobRow(b), hook: an["argocd.argoproj.io/hook"], hookDelete: an["argocd.argoproj.io/hook-delete-policy"] };
+    }),
+  }),
   notes: [
     "A Job's spec is immutable. Edit one and the next apply fails unless the old Job is deleted first — which is exactly what hook-delete-policy: BeforeHookCreation does on every sync.",
   ],
@@ -1682,6 +1880,7 @@ F({
     ),
   ],
   emit: (v) => some({ scc: mapOf(v.items, (r) => (nz(r.body) ? (raw(r.body) as unknown as Values) : null)) }),
+  load: (doc) => ({ items: bodyRows(doc.scc) }),
   notes: [
     "Strategy types: MustRunAsRange (project default), MustRunAs, MustRunAsNonRoot, RunAsAny.",
     "Cluster-scoped. Grant it to a ServiceAccount through users:, and own it from one release only.",
@@ -1839,6 +2038,23 @@ F({
       }),
     });
   },
+  load: (doc) => {
+    const r = isRecord(doc.rbac) ? doc.rbac : {};
+    const roles = (m: unknown) => mapRows(m, (b) => ({ rules: yamlText(b.rules) }));
+    const bindings = (m: unknown) =>
+      mapRows(m, (b) => ({
+        roleRef: b.roleRef,
+        subjects: rowsOf(b.subjects)
+          .map((x) => `${String(x.kind ?? "")}=${String(x.name ?? "")}${nz(x.namespace) ? `:${String(x.namespace)}` : ""}`)
+          .join("\n"),
+      }));
+    return {
+      roles: roles(r.roles),
+      roleBindings: bindings(r.roleBindings),
+      clusterRoles: roles(r.clusterRoles),
+      clusterRoleBindings: bindings(r.clusterRoleBindings),
+    };
+  },
   notes: [
     "roleRef is just the name of a Role in the same values file — the chart wires up the apiGroup and kind.",
     "ClusterRoles and ClusterRoleBindings are cluster-scoped. Two namespaces deploying the same name are one object, last write wins.",
@@ -1963,6 +2179,7 @@ F({
       sidecars: mapOf(v.sidecars, (r) => (nz(r.body) ? (raw(r.body) as unknown as Values) : null)),
       initContainers: mapOf(v.initContainers, (r) => (nz(r.body) ? (raw(r.body) as unknown as Values) : null)),
     }),
+  load: (doc) => ({ sidecars: bodyRows(doc.sidecars), initContainers: bodyRows(doc.initContainers) }),
   notes: [
     "restartPolicy: Always on an init container is what makes it a native sidecar (Kubernetes 1.29+) — it starts before the main container and keeps running.",
   ],

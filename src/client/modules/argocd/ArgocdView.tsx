@@ -29,7 +29,16 @@ import { checkValues } from "./checks";
 import { BY_ID } from "./catalog";
 import { deepMerge, obj } from "./values";
 import { buildTree } from "./tree";
-import { isEmptyTree, newNamespace, newRelease, newTree, toInput, type DraftTree } from "./document";
+import {
+  SHARED_RELEASE_NAME,
+  isEmptyTree,
+  newNamespace,
+  newRelease,
+  newSharedRelease,
+  newTree,
+  toInput,
+  type DraftTree,
+} from "./document";
 import { Help } from "../../Help";
 import { addedKinds, resourcesOf } from "./resources";
 import { applyPromotion, findEnvSpecific, findPromotions } from "./promote";
@@ -62,6 +71,14 @@ type SaveState = "idle" | "saving" | "saved" | "error";
  * after it is added, and an unnamed one has to be selectable to be named.
  */
 const BASE = -1;
+
+/**
+ * `releaseId` when the form is editing the tree's defaults rather than a
+ * microservice. A sentinel rather than a third piece of state: the defaults are
+ * a scope like any other to everything downstream of `patchScope`, and a second
+ * flag would have to be cleared everywhere the release is set.
+ */
+const DEFAULTS = "__defaults";
 
 /** The repo's own name, and nothing if it has none to give. */
 const repoLabel = (url: string): string => {
@@ -173,13 +190,25 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     [trees, showAll, isAdmin, user.id]
   );
   const files = useMemo(() => buildTree(draft), [draft]);
-  const release = draft.releases.find((r) => r.id === releaseId) ?? draft.releases[0];
+  const editingDefaults = releaseId === DEFAULTS;
+  const release = editingDefaults ? undefined : (draft.releases.find((r) => r.id === releaseId) ?? draft.releases[0]);
   const namespace = layer === BASE ? undefined : draft.namespaces[layer];
   const nsEntry = namespace?.releases.find((e) => e.release === release?.id);
-  const features = (layer === BASE ? release?.features : nsEntry?.features) ?? {};
-  const extraValues = (layer === BASE ? release?.extraValues : nsEntry?.extraValues) ?? "";
+  const features =
+    (editingDefaults ? draft.defaults?.features : layer === BASE ? release?.features : nsEntry?.features) ?? {};
+  const extraValues =
+    (editingDefaults ? draft.defaults?.extraValues : layer === BASE ? release?.extraValues : nsEntry?.extraValues) ?? "";
   const extraError = extraValuesError(extraValues);
-  const scopeLabel = layer === BASE ? "base" : namespace?.name.trim() || "this namespace";
+  const scopeLabel = editingDefaults
+    ? "every microservice"
+    : layer === BASE
+      ? "base"
+      : namespace?.name.trim() || "this namespace";
+  /** How many top-level values the defaults put into every base file. */
+  const defaultsCount = useMemo(
+    () => Object.keys(buildValues(draft.defaults?.features ?? {}, draft.defaults?.extraValues)).length,
+    [draft.defaults]
+  );
 
   /**
    * What each release rectangle says. Every figure on it comes from the *built*
@@ -437,6 +466,9 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     features: Record<string, FeatureState>;
     extraValues?: string;
   }) {
+    if (editingDefaults) {
+      return setDraft((prev) => ({ ...prev, defaults: { ...fn(prev.defaults ?? { features: {} }) } }));
+    }
     if (!release) return;
     setDraft((prev) => {
       if (layer === BASE) {
@@ -483,6 +515,28 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     setLayer(BASE);
     // Returned so the grid opens the new card's name field straight away.
     return created.id;
+  }
+
+  /**
+   * The shared release. Not returned for renaming like the one above: its name
+   * is the convention — the converter writes `shared` and the consumers of
+   * those objects reference it by that name — so it opens on its fields.
+   */
+  function addSharedRelease() {
+    const created = newSharedRelease();
+    setDraft((prev) => ({ ...prev, releases: [...prev.releases, created] }));
+    setReleaseId(created.id);
+    setLayer(BASE);
+  }
+
+  /**
+   * Open the tree's defaults. They are merged into the *base* file, so the
+   * layer follows — editing "every microservice" from inside one namespace's
+   * override would be two different scopes claiming one form.
+   */
+  function openDefaults() {
+    setReleaseId(DEFAULTS);
+    setLayer(BASE);
   }
 
   function renameRelease(id: string, name: string) {
@@ -764,7 +818,12 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 layer={layer}
                 namespaces={layerCards}
                 releaseCount={draft.releases.length}
-                onSelect={setLayer}
+                // Picking a namespace is asking to edit an override, which the
+                // defaults are not — so it leaves them for the first release.
+                onSelect={(next) => {
+                  setLayer(next);
+                  if (editingDefaults && next !== BASE) setReleaseId("");
+                }}
                 onRename={renameNamespace}
                 onRemove={askRemoveNamespace}
                 onAdd={addNamespace}
@@ -795,6 +854,12 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 onRename={renameRelease}
                 onRemove={askRemoveRelease}
                 onAdd={addRelease}
+                onOpenDefaults={openDefaults}
+                defaultsOpen={editingDefaults}
+                defaultsCount={defaultsCount}
+                onAddShared={
+                  draft.releases.some((r) => r.name.trim() === SHARED_RELEASE_NAME) ? undefined : addSharedRelease
+                }
               />
 
 
@@ -827,13 +892,26 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
 
             </div>
 
-            {release && (
+            {(release || editingDefaults) && (
               <div className="ag-section">
                 <div className="ag-scope-actions">
                   <h3 className="ag-grid-head">
-                    {layer === BASE ? "Base values" : `${scopeLabel} overrides`}
-                    <Help label={layer === BASE ? "the base values" : "this namespace's overrides"}>
-                      {layer === BASE ? (
+                    {editingDefaults ? "Defaults for every microservice" : layer === BASE ? "Base values" : `${scopeLabel} overrides`}
+                    <Help
+                      label={
+                        editingDefaults
+                          ? "the tree's defaults"
+                          : layer === BASE
+                            ? "the base values"
+                            : "this namespace's overrides"
+                      }
+                    >
+                      {editingDefaults ? (
+                        <p>
+                          Merged into every microservice's base file. A microservice that sets the same thing wins, and
+                          what it takes from here shows greyed on its own card.
+                        </p>
+                      ) : layer === BASE ? (
                         <p>Environment-agnostic values, shared by every namespace that runs this microservice.</p>
                       ) : (
                         <p>Only what differs in {scopeLabel} — anything identical to base is left out of the file.</p>
@@ -849,7 +927,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 <FeatureEditor
                   // Remounted per scope, so which categories are open is
                   // decided by what that layer actually holds.
-                  key={`${release.id}:${layer}`}
+                  key={`${editingDefaults ? DEFAULTS : release!.id}:${layer}`}
                   features={features}
                   scopeLabel={layer === BASE ? "the base file" : `${scopeLabel}'s override file`}
                   extraValues={extraValues}
@@ -857,6 +935,9 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   extraError={extraError}
                   overriding={overriding}
                   jump={jump}
+                  // Base only, and never while editing the defaults themselves.
+                  inherited={editingDefaults || layer !== BASE ? undefined : draft.defaults?.features}
+                  onOpenDefaults={openDefaults}
                   onChange={setFeatures}
                   onExtraChange={setExtra}
                 />

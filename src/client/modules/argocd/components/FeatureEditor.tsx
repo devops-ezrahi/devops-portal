@@ -1,9 +1,12 @@
-import { ChevronDown, ChevronRight, Plus } from "lucide-react";
+import { ArrowUpRight, ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { BY_ID, CATEGORIES, FEATURES, defaultValues, primaryFields } from "../catalog";
+import { buildValues } from "../build";
+import { toYaml } from "../yaml";
 import { Help } from "../../../Help";
 import { FeatureField } from "./FeatureField";
 import type { FeatureSpec, FeatureState, FieldSpec } from "../catalog";
+import type { Values } from "../values";
 
 /** The features a release is not a release without — pinned above the categories. */
 const REQUIRED = FEATURES.filter((f) => f.req);
@@ -31,6 +34,8 @@ export function FeatureEditor({
   extraError,
   overriding,
   jump,
+  inherited,
+  onOpenDefaults,
   onChange,
   onExtraChange,
 }: {
@@ -44,6 +49,14 @@ export function FeatureEditor({
   overriding?: Set<string>;
   /** A feature to open and scroll to, from a press on a microservice card's chip. */
   jump?: { feature: string; n: number };
+  /**
+   * What the tree's defaults contribute to this layer — base only, since that
+   * is where they are merged. Shown, not editable: it is in this microservice's
+   * file but it is not this microservice's decision.
+   */
+  inherited?: Record<string, FeatureState>;
+  /** Where that is editable. Pressing the note on an inherited feature goes here. */
+  onOpenDefaults?: () => void;
   onChange: (features: Record<string, FeatureState>) => void;
   onExtraChange: (text: string) => void;
 }) {
@@ -55,7 +68,7 @@ export function FeatureEditor({
    * you start.
    */
   const [open, setOpen] = useState<Set<string>>(
-    () => new Set(OPTIONAL.filter((f) => features[f.id]?.on).map((f) => f.cat))
+    () => new Set(OPTIONAL.filter((f) => features[f.id]?.on || inherited?.[f.id]?.on).map((f) => f.cat))
   );
 
   /**
@@ -108,6 +121,45 @@ export function FeatureEditor({
     onChange(next);
   }
 
+  /** The rows one feature holds, whichever `rows` field it keeps them in. */
+  function rowsIn(id: string): Values[] {
+    const v = features[id]?.v ?? {};
+    return (BY_ID[id]?.fields ?? [])
+      .filter((f) => f.kind === "rows")
+      .flatMap((f) => (Array.isArray(v[f.key]) ? (v[f.key] as Values[]) : []));
+  }
+
+  /** The names it declares — what a mount, or a volume's source, offers. */
+  const rowsFor = (id: string): string[] =>
+    rowsIn(id)
+      .map((r) => String(r.name ?? "").trim())
+      .filter(Boolean);
+
+  /**
+   * Wire a claim, ConfigMap or Secret into the container: the volume that
+   * carries it and the mount that lands it, in one press.
+   *
+   * It is two features away from where the object was created, and a claim
+   * nothing mounts is storage the pod never sees — so the offer sits on the row
+   * itself. The `mountPath` is deliberately left empty: where it lands is the
+   * one thing nobody can guess, and it is the next field on screen.
+   */
+  function mountObject(kind: string, name: string) {
+    const next = { ...features };
+    const add = (id: string, row: Values) => {
+      const v = next[id]?.v ?? defaultValues(id);
+      const rows = Array.isArray(v.items) ? (v.items as Values[]) : [];
+      if (rows.some((r) => String(r.name ?? "").trim() === name)) return;
+      next[id] = { on: true, v: { ...v, items: [...rows, row] } };
+    };
+    add("volumes", { name, kind, src: name });
+    add("mounts", { name, mountPath: "" });
+    onChange(next);
+  }
+
+  /** What is already mounted, so the offer disappears once it has been taken. */
+  const mountedNames = new Set(rowsFor("mounts"));
+
   function setField(id: string, key: string, value: unknown) {
     const state = features[id] ?? { on: true, v: defaultValues(id) };
     onChange({ ...features, [id]: { ...state, on: true, v: { ...state.v, [key]: value } } });
@@ -126,7 +178,17 @@ export function FeatureEditor({
                 <OverrideLight name={spec.name} onRemove={() => removeOverride(spec.id)} />
               )}
             </div>
-            <FeatureBody spec={spec} state={features[spec.id]} isBase={isBase} onField={setField} />
+            <FeatureBody
+              spec={spec}
+              state={features[spec.id]}
+              isBase={isBase}
+              onField={setField}
+              rowsFor={rowsFor}
+              mounted={mountedNames}
+              onMount={mountObject}
+              inherited={inherited?.[spec.id]}
+              onOpenDefaults={onOpenDefaults}
+            />
           </div>
         ))}
       </section>
@@ -134,7 +196,7 @@ export function FeatureEditor({
       {CATEGORIES.map((cat) => {
         const specs = OPTIONAL.filter((f) => f.cat === cat.id);
         if (!specs.length) return null;
-        const count = specs.filter((spec) => features[spec.id]?.on).length;
+        const count = specs.filter((spec) => features[spec.id]?.on || inherited?.[spec.id]?.on).length;
         const shown = open.has(cat.id);
         return (
           <section className="ag-category" key={cat.id} aria-label={cat.name}>
@@ -150,8 +212,13 @@ export function FeatureEditor({
             {shown && specs.map((spec) => {
               const state = features[spec.id];
               const on = !!state?.on;
+              // A feature nothing here sets but the tree's defaults do is still
+              // in this microservice's file, so the card has to be open — an
+              // unticked box beside a value that deploys is the invisible-value
+              // problem `enabled` already taught this module about.
+              const fromDefaults = !!inherited?.[spec.id]?.on;
               return (
-                <div className={`ag-feature${on ? " on" : ""}`} key={spec.id} data-feature-card={spec.id}>
+                <div className={`ag-feature${on || fromDefaults ? " on" : ""}`} key={spec.id} data-feature-card={spec.id}>
                   {/* The `?` sits beside the label, never inside it: a button
                       is a labelable element, so a label wrapping one names the
                       button as well as the field — and a press on it would
@@ -166,7 +233,19 @@ export function FeatureEditor({
                       <OverrideLight name={spec.name} onRemove={() => removeOverride(spec.id)} />
                     )}
                   </div>
-                  {on && <FeatureBody spec={spec} state={state} isBase={isBase} onField={setField} />}
+                  {(on || fromDefaults) && (
+                    <FeatureBody
+                      spec={spec}
+                      state={state}
+                      isBase={isBase}
+                      onField={setField}
+                      rowsFor={rowsFor}
+                      mounted={mountedNames}
+                      onMount={mountObject}
+                      inherited={inherited?.[spec.id]}
+                      onOpenDefaults={onOpenDefaults}
+                    />
+                  )}
                 </div>
               );
             })}
@@ -253,11 +332,21 @@ function FeatureBody({
   state,
   isBase,
   onField,
+  rowsFor,
+  mounted,
+  onMount,
+  inherited,
+  onOpenDefaults,
 }: {
   spec: FeatureSpec;
   state: FeatureState | undefined;
   isBase: boolean;
   onField: (id: string, key: string, value: unknown) => void;
+  rowsFor: (featureId: string) => string[];
+  mounted: Set<string>;
+  onMount: (kind: string, name: string) => void;
+  inherited?: FeatureState;
+  onOpenDefaults?: () => void;
 }) {
   // Local, and keyed by field: pressing "add" is a request to see the field,
   // not a value, so it must not be written into the document.
@@ -286,14 +375,30 @@ function FeatureBody({
   // `false` — an imported document saying so must not become an invisible value.
   const rest = fields.filter((f) => !isShown(f) && f.key !== "enabled");
 
+  // What the tree's defaults put in this file, as the values themselves rather
+  // than as a second set of controls: every field kind is covered by one block,
+  // and a disabled input still reads as something you might be able to type in.
+  const fromDefaults = inherited?.on ? toYaml(buildValues({ [spec.id]: inherited })) : "";
+
   return (
     <div className="ag-feature-body">
+      {fromDefaults && (
+        <div className="ag-inherited">
+          <button type="button" className="ag-inherited-link" onClick={onOpenDefaults}>
+            <ArrowUpRight size={12} aria-hidden="true" /> from the tree's Defaults
+          </button>
+          <pre>{fromDefaults}</pre>
+        </div>
+      )}
       {fields.filter(isShown).map((field) => (
         <FeatureField
           key={field.key}
           spec={field}
           value={state?.v?.[field.key]}
           onChange={(value) => onField(spec.id, field.key, value)}
+          rowsFor={rowsFor}
+          mounted={mounted}
+          onMount={spec.mountable ? (name) => onMount(spec.mountable!, name) : undefined}
         />
       ))}
       {rest.length > 0 && (

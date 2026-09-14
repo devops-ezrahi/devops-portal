@@ -984,6 +984,56 @@ across namespaces is repeated per namespace instead.
   kind of thing — which is the exact confusion `Scope` was introduced to end,
   undone by the layout. Kinds a namespace override adds keep their own row
   below, rather than reading as more objects in the base file.
+- **A claim offers to mount itself.** A PVC, ConfigMap or Secret reaches the
+  container only through a `volumes` entry *and* a `volumeMounts` entry — two
+  features away from the one that created it, and storage nothing mounts is
+  storage the pod never sees. So each named row of those three carries a **Mount
+  this** button (`FeatureSpec.mountable` names the volume kind it becomes) that
+  adds both in one press, and the offer disappears once taken. The `mountPath`
+  is deliberately left empty: where it lands is the one thing nobody can guess,
+  and it is the next field on screen.
+- **A column that names another feature's object suggests them.**
+  `RowCol.suggest` returns the feature whose row names to offer — a mount offers
+  this release's volumes, a volume's source offers its ConfigMaps, Secrets or
+  claims, by kind. A native `<datalist>`, never a `<select>` and not the
+  Jenkinsfile builder's combobox: the list is one column of names, and an object
+  the chart does not create (a ConfigMap the platform team owns) has to stay
+  typable.
+- **The shared release is the converter's own, not an invention.**
+  `convert_to_universal_chart.py` writes one release per namespace called
+  `shared` — `workload.type: none`, no Service — that owns the objects several
+  microservices in that namespace use: a ConfigMap, a Secret, a claim, a
+  NetworkPolicy, a Role. Those kinds render under their raw map key with **no
+  release-name prefix**, so two Helm releases declaring the same name collide;
+  declaring them once there is what lets everything beside it just reference
+  them. The grid's **Shared** button adds exactly that, and disappears once the
+  tree has one — after which it is an ordinary release
+  (`base/shared.yaml`, `<ns>/values/shared.yaml`) and the fan-out and layering
+  already cover it. The `?` beside the button is the only place that is
+  explained, because it is a convention nobody meets anywhere else.
+- **`cluster-shared/` is a different thing and is still not generated.** That is
+  the converter's *global* release for cluster-scoped kinds, with its own
+  `cluster-shared-application.yaml` outside the per-namespace fan-out.
+  `NON_NAMESPACE_DIRS` already excludes the directory so a portal tree committed
+  beside converter output keeps the same root ApplicationSet; building one is a
+  second feature, and the per-feature `cluster` scope is what warns about the
+  collision in the meantime.
+- **The tree's defaults are merged in, not written out.** A **Defaults** tile
+  leads the microservices grid — the same idea as the Layers grid's **Base**
+  tile, in the other direction: Base is every namespace, Defaults is every
+  microservice. `buildTree` folds them under each release's own values
+  (`deepMerge(treeDefaults, releaseDoc)`, so the release wins) and **there is no
+  defaults file in the repository**: the chart's chain starts at
+  `<ns>/defaults.yaml`, so a tree-root one would be a layer nothing reads —
+  the same reason that file was removed in the first place.
+- **What a microservice inherits is on its own card, greyed, with the way
+  back.** A feature only the defaults set still opens (an unticked box beside a
+  value that deploys is the invisible-value problem `enabled` already taught
+  this module about) and shows the inherited fragment as YAML behind a *from the
+  tree's Defaults* link. YAML rather than a second set of disabled inputs: one
+  block covers all eight field kinds, and a greyed-out input still reads as
+  something you might be able to type into. Ticking the feature and setting it
+  here is what overrides it.
 - **Adding a microservice opens its name.** `addRelease` returns the new id and
   the grid starts editing it. An unnamed release generates `release.yaml` and is
   indistinguishable from the last one, so naming it later means finding it again.
@@ -1022,6 +1072,21 @@ across namespaces is repeated per namespace instead.
   — merged last, so it wins — and is named in the warnings the dialog shows
   before anything is replaced. `jenkinsfile/parse.ts`'s rule, and the
   round-trip is what `import.test.ts` pins.
+- **Every `mapOf` has a `load` that inverts it.** Seventeen features keep their
+  value as a `name`-keyed map edited as rows, and a row is exactly what a
+  field's `path` cannot read back — so a pull ticked ConfigMaps, Volumes,
+  volumeClaimTemplates and fourteen others *on* with an empty form while their
+  real content sat in `extraValues`. That is the one thing this module does not
+  do: a value that deploys must be visible. `mapRows`/`bodyRows`/`kvText`/
+  `portsText`/`yamlText` in `catalog.ts` are the inverses of `mapOf`/`raw`/
+  `kvOf`/`parsePorts`, and `importRoundTrip.test.ts` is the check — one document
+  holding every such key, in, and **nothing** left over.
+- **`load` is merged over the path-derived read, not a replacement for it**, so
+  a feature with both rows and plain fields (`volumeClaimTemplates`, its two
+  retention selects) needs only say what `path` cannot. And **a feature that
+  read nothing back is left off**: ticked-and-empty is a card that lies about
+  where its content is, so the import warning becomes the only claim made about
+  that key — which is a true one.
 - **`checks.ts` runs on the merged document, not on catalog state**, so a value
   that arrived through `extraValues` or an import is checked exactly like one
   typed into a field. It is the cookbook's cross-checks, ported from
@@ -1069,6 +1134,14 @@ files in the preview and no way to see that this press moves two of them.
   and a `master` branch behind a `main` default — are both invisible otherwise.
   A missing diff has to name what is missing; the alternative is the user
   reporting that nothing happened.
+- **The comparison is between the parsed documents, not the two texts.** The
+  builder writes every key in catalog order and heads each file with its own
+  comment, so a file authored anywhere else — by hand, or by
+  `convert_to_universal_chart.py` — differed on every line that moved and on the
+  line nobody wrote. None of that changes what deploys, and a listing full of it
+  hides the one value that did change. A file whose values match is `unchanged`
+  and carries the note *same values, written in a different order*; either side
+  failing to parse is a real difference and is reported as one.
 - **`pushValuesTree` rebuilds its branch from `values.revision` every time**
   (`clone --branch <rev>` then `checkout -B`), so diffing against that revision
   is exactly what the commit will do, not an approximation of it.

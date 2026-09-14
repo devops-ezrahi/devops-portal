@@ -21,6 +21,20 @@ describe("diffTree", () => {
     expect(diffTree(files, repo, true).every((e) => e.status === "unchanged")).toBe(true);
   });
 
+  it("does not call a file changed when only its key order and comments differ", () => {
+    const tree = [gen("base/a.yaml", "# written by the builder\nimage:\n  tag: 1.0\nreplicaCount: 2\n")];
+    const repo = [{ path: "base/a.yaml", text: "# written by hand\nreplicaCount: 2\nimage:\n  tag: 1.0\n" }];
+    const [entry] = diffTree(tree, repo, false);
+    expect(entry.status).toBe("unchanged");
+    expect(entry.note).toMatch(/different order/);
+  });
+
+  it("still reports a file whose values really moved", () => {
+    const tree = [gen("base/a.yaml", "replicaCount: 3\n")];
+    const repo = [{ path: "base/a.yaml", text: "replicaCount: 2\n" }];
+    expect(diffTree(tree, repo, false)[0].status).toBe("modified");
+  });
+
   it("only reports a removal when the push would actually delete it", () => {
     const repo = [{ path: "base/gone.yaml", text: "old\n" }];
     expect(diffTree(files, repo, false).some((e) => e.status === "removed")).toBe(false);

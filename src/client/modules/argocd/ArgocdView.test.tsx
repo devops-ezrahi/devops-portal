@@ -451,6 +451,87 @@ describe("ArgocdView", () => {
     expect(document.querySelectorAll(".ag-file")).toHaveLength(generated.length);
     vi.useRealTimers();
   });
+  it("wires a claim into the pod in one press, and then suggests it to a mount", async () => {
+    view();
+    await waitFor(() => expect(listTrees).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Storage/ }));
+
+    const pvc = feature("PersistentVolumeClaims");
+    fireEvent.click(pvc.querySelector("input[type=checkbox]")!);
+    // `name` is the entry's first column.
+    fireEvent.change(pvc.querySelector(".ag-entry input")!, { target: { value: "app-data" } });
+
+    // A claim nothing mounts is storage the pod never sees, and wiring it up by
+    // hand is a volume in one feature and a mount in another.
+    fireEvent.click(within(feature("PersistentVolumeClaims")).getByRole("button", { name: /Mount this/ }));
+
+    const volume = within(feature("Volumes"));
+    expect(volume.getByText("app-data", { selector: ".ag-entry-title" })).toBeInTheDocument();
+    expect(volume.getByDisplayValue("persistentVolumeClaim")).toBeInTheDocument();
+
+    const mount = within(feature("Volume mounts"));
+    expect(mount.getByText("app-data", { selector: ".ag-entry-title" })).toBeInTheDocument();
+    // The offer goes away once it has been taken.
+    expect(within(feature("PersistentVolumeClaims")).queryByRole("button", { name: /Mount this/ })).toBeNull();
+
+    // And the mount's name offers what this release declares — a suggestion, so
+    // an object the chart does not create can still be typed in.
+    const name = mount.getAllByDisplayValue("app-data")[0] as HTMLInputElement;
+    const list = document.getElementById(name.getAttribute("list") ?? "");
+    expect([...(list?.querySelectorAll("option") ?? [])].map((o) => o.getAttribute("value"))).toEqual(["app-data"]);
+  });
+
+  it("adds the shared release once, and it runs no pods", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    view();
+    await waitFor(() => expect(listTrees).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: /Shared/ }));
+    // Its name is the convention — the converter writes `shared`, and the
+    // microservices beside it reference those objects by that name.
+    expect(screen.getByLabelText("workload.type")).toHaveValue("none");
+    expect(screen.queryByRole("button", { name: /Shared/ })).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(createTree.mock.calls[0][0].releases[0]).toMatchObject({
+      name: "shared",
+      features: { workload: { on: true, v: { type: "none" } }, service: { on: true, v: { enabled: false } } },
+    });
+    vi.useRealTimers();
+  });
+
+  it("sets a value once for every microservice, and says where it came from", async () => {
+    view();
+    await waitFor(() => expect(listTrees).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
+    rename("microservice", "checkout");
+    // Leave the name field, or the card is still an <input> and not a button.
+    fireEvent.blur(screen.getByLabelText("Microservice name"));
+
+    // The defaults are a scope of their own, opened from the grid.
+    fireEvent.click(screen.getByRole("button", { name: /^Defaults/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Identity & Observability/ }));
+    const sa = feature("ServiceAccount");
+    fireEvent.click(sa.querySelector("input[type=checkbox]")!);
+    fireEvent.click(within(feature("ServiceAccount")).getByRole("button", { name: /imagePullSecrets/ }));
+    fireEvent.change(screen.getByLabelText("imagePullSecrets"), { target: { value: "regcred" } });
+
+    // It lands in the microservice's own base file...
+    expect(screen.getByLabelText("base/checkout.yaml")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("base/checkout.yaml"));
+    expect(document.querySelector(".ag-file-body")!.textContent).toContain("regcred");
+
+    // ...and the microservice says so, with the way back to where it is set.
+    fireEvent.click(card("Microservices", /checkout/));
+    const inherited = feature("ServiceAccount").querySelector(".ag-inherited")!;
+    expect(inherited.textContent).toContain("regcred");
+    fireEvent.click(within(inherited as HTMLElement).getByRole("button", { name: /Defaults/ }));
+    expect(screen.getByText("Defaults for every microservice", { selector: "h3" })).toBeInTheDocument();
+  });
+
   it("offers nameOverride per namespace, not in base — but still shows one base already has", async () => {
     const tree = saved({
       releases: [{ id: "r1", name: "storefront", features: { identity: { on: true, v: {} } } }],

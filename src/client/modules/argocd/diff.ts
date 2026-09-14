@@ -1,3 +1,5 @@
+import { parseValues } from "./build";
+import { deepEqual } from "./values";
 import type { RepoFile } from "./api";
 import type { GeneratedFile } from "./tree";
 
@@ -34,11 +36,16 @@ export function diffTree(files: GeneratedFile[], repo: RepoFile[], deletes: bool
   const inRepo = new Map(repo.map((f) => [f.path, f.text]));
   const entries: TreeEntry[] = files.map((file) => {
     const repoText = inRepo.get(file.path);
-    return {
-      ...file,
-      repoText,
-      status: repoText === undefined ? "added" : repoText === file.text ? "unchanged" : "modified",
-    };
+    if (repoText === undefined) return { ...file, status: "added" as const };
+    if (repoText === file.text) return { ...file, repoText, status: "unchanged" as const };
+    // The builder writes every key in catalog order and heads each file with
+    // its own comment, so a file authored anywhere else differs on every line
+    // that moved and on the line nobody wrote. None of that changes what
+    // deploys, and a listing of it hides the one value that did change — so
+    // the comparison is between the parsed documents, not the two texts.
+    if (sameValues(repoText, file.text))
+      return { ...file, repoText, status: "unchanged" as const, note: "same values, written in a different order" };
+    return { ...file, repoText, status: "modified" as const };
   });
   if (deletes) {
     const generated = new Set(files.map((f) => f.path));
@@ -54,6 +61,14 @@ export function diffTree(files: GeneratedFile[], repo: RepoFile[], deletes: bool
     }
   }
   return entries;
+}
+
+/** Whether two YAML files say the same thing, whatever order they say it in. */
+function sameValues(a: string, b: string): boolean {
+  const pa = parseValues(a);
+  const pb = parseValues(b);
+  // Either side unreadable is a real difference to report, not one to hide.
+  return !!pa && !!pb && deepEqual(pa, pb);
 }
 
 /**
