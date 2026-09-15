@@ -106,7 +106,15 @@ export async function pushValuesTree(opts: {
 
   try {
     await git(["clone", "--depth", "1", "--branch", revision, "--", withCredentials(repoUrl, token, username), dir]);
-    await git(["checkout", "-B", branch], dir);
+    // Continue this tree's branch when the remote has one — `pushJenkinsfile`'s
+    // rule. Rebuilt from `revision` every time, the same files always read as a
+    // change, so "nothing to commit" was unreachable and each press churned the
+    // PR. No branch yet is the normal first push, so that failure is quiet.
+    const existing = await git(["fetch", "--depth", "1", "origin", branch], dir).then(
+      () => true,
+      () => false
+    );
+    await git(["checkout", "-B", branch, existing ? "FETCH_HEAD" : "HEAD"], dir);
 
     // ponytail: at the repo root this only writes, never deletes — a namespace
     // removed in the builder keeps its directory in the PR, because at the root

@@ -872,8 +872,8 @@ the pipeline's branch and continues it when the remote already has one, where
 `pushValuesTree` does `clone --branch <base>` then `checkout -B` and so rebuilds
 the branch from the base branch every time. That makes a second press of Commit
 a real no-op ("the repository already matches this pipeline") instead of a fresh
-commit with identical content. ArgoCD's own test asserts the same thing and
-currently fails on it; this is what that test is asking for, not a divergence.
+commit with identical content. `pushValuesTree` now does the same, which is what
+its own test was asking for.
 
 Left out on purpose: **Bitbucket pull requests**. Whitening's `BitbucketApi` can
 open one and the dispatch would be a second `if`, but that is ArgoCD's semantics
@@ -1241,9 +1241,10 @@ files in the preview and no way to see that this press moves two of them.
   whatever it was typed in — which is why both are rewritten rather than one
   being normalised towards the other. Sequences keep their order; there it is
   the value. A side that will not parse falls back to the raw text.
-- **`pushValuesTree` rebuilds its branch from `values.revision` every time**
-  (`clone --branch <rev>` then `checkout -B`), so diffing against that revision
-  is exactly what the commit will do, not an approximation of it.
+- **The preview diffs against `values.revision`, while the commit continues the
+  tree's own branch** when the remote has one (`pushJenkinsfile`'s rule), so a
+  second Commit with nothing new is a real no-op. Those only differ by what an
+  earlier push left on the branch, which the pull request already shows.
 - **A removal is only shown when the push would actually make one** — that is,
   when `values.path` names a subdirectory this tree owns. At the repository root
   the commit only adds and updates, and a shared root holds other trees' files;
