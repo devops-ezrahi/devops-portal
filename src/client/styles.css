@@ -1592,6 +1592,14 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   animation: modal-in 240ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+/* A dialog's buttons, primary last — the same spacing as a topbar's. */
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .modal-heading {
   position: sticky;
   top: 0;
