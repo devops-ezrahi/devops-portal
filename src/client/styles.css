@@ -25,6 +25,10 @@
 
 * {
   box-sizing: border-box;
+  /* One dark scrollbar for every scroller, so a new one cannot ship with the
+     browser's light default (the ArgoCD file tree did). */
+  scrollbar-width: thin;
+  scrollbar-color: #2a3940 transparent;
 }
 
 /* Links inherit the app accent instead of the browser's default blue/purple.
@@ -1527,6 +1531,9 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 .modal .request-form {
   gap: 14px;
   padding: 18px;
+  /* The modal animates in already. The form's own 8px slide overflowed the
+     modal's scrollport and flashed a scrollbar for the length of it. */
+  animation: none;
 }
 
 .modal .request-form input,
