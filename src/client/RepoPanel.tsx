@@ -1,4 +1,12 @@
-import { ChevronDown, ChevronRight, CloudDownload, ExternalLink, GitPullRequestArrow, TriangleAlert } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  CloudDownload,
+  ExternalLink,
+  GitBranch,
+  GitPullRequestArrow,
+  TriangleAlert,
+} from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 /**
@@ -104,6 +112,17 @@ export function RepoPanel({ role, repoUrl, revision, sub, blocked, error, onPull
    */
   const [confirming, setConfirming] = useState(false);
 
+  // Unconnected and folded: a bar reading "not set @main" beside a disabled
+  // Pull says nothing useful, so the whole bar is one offer to connect.
+  if (!repoUrl.trim() && !open)
+    return (
+      <div className="git-repo-panel git-repo-empty">
+        <button type="button" className="ghost-button git-repo-connect" onClick={() => setOpen(true)}>
+          <GitBranch size={14} aria-hidden="true" /> Connect repo
+        </button>
+      </div>
+    );
+
   return (
     <div className="git-repo-panel">
       {error && (
@@ -116,10 +135,12 @@ export function RepoPanel({ role, repoUrl, revision, sub, blocked, error, onPull
           {open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
           <span className="git-repo-summary">
             <span className="git-repo-role">{role}</span>
-            <span className="git-repo-ref">
-              {repoName(repoUrl)}
-              <span className="git-repo-rev">@{revision || "?"}</span>
-            </span>
+            {repoUrl.trim() && (
+              <span className="git-repo-ref">
+                {repoName(repoUrl)}
+                <span className="git-repo-rev">@{revision || "?"}</span>
+              </span>
+            )}
             {sub && <span className="git-repo-sub">{sub}</span>}
           </span>
         </button>

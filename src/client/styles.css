@@ -4171,7 +4171,8 @@ input.jf-title {
 
 .ag-editor input,
 .ag-editor select,
-.ag-editor textarea {
+.ag-editor textarea,
+.git-repo input {
   width: 100%;
   border: 1px solid #2a3940;
   border-radius: 6px;
@@ -4199,7 +4200,8 @@ input.jf-title {
 
 .ag-editor input:focus,
 .ag-editor select:focus,
-.ag-editor textarea:focus {
+.ag-editor textarea:focus,
+.git-repo input:focus {
   outline: none;
   border-color: #20c7bd;
   box-shadow: 0 0 0 2px rgba(32, 199, 189, 0.15);
@@ -4231,6 +4233,20 @@ input.jf-title {
   border: 1px solid #2a3940;
   border-radius: 9px;
   background: #0b1114;
+}
+
+/* No repo yet: just the offer, no box around it. */
+.git-repo-empty {
+  padding: 0;
+  border: none;
+  background: none;
+  justify-items: start;
+}
+
+.git-repo-connect {
+  font-size: 12.5px;
+  padding: 5px 10px;
+  min-height: 0;
 }
 
 .git-repo-bar {
