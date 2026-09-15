@@ -84,6 +84,18 @@ export function createWhiteningRouter(api: WhiteningApi): express.Router {
     }
   });
 
+  router.delete("/api/whitening/jobs/:id", async (req, res, next) => {
+    try {
+      if (!(await api.deleteJob(req.params.id, req.user!, isAdmin(req.user!)))) {
+        res.status(404).json({ error: "Job not found" });
+        return;
+      }
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.get("/api/whitening/jobs", async (req, res, next) => {
     try {
       const jobs = await api.listJobs(req.user!, isAdmin(req.user!));

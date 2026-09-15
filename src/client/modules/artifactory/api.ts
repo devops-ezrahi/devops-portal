@@ -62,6 +62,10 @@ export function cancelJob(id: string) {
   return request<{ job: ArtifactoryJob }>(`/api/artifactory/jobs/${id}/cancel`, { method: "POST" });
 }
 
+export function deleteJob(id: string) {
+  return request<{ ok: true }>(`/api/artifactory/jobs/${id}`, { method: "DELETE" });
+}
+
 /** Dev only — the server route exists only when SSO is off. */
 export function simulateJob(scenario: ArtifactoryScenario) {
   return request<{ job: ArtifactoryJob }>("/api/artifactory/jobs/simulate", {

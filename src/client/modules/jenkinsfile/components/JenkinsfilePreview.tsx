@@ -1,5 +1,5 @@
 import { AlertTriangle, Check, Copy, Download, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { highlightGroovy } from "../highlight";
 import { log, error as logError } from "../../../log";
 
@@ -12,9 +12,13 @@ type Props = {
    * exactly the one worth warning about on the way out.
    */
   problemCount: number;
+  /** The primary action on this file — Commit — placed last in the head, as ArgoCD's preview does. */
+  actions?: ReactNode;
+  /** What that action last did, under the head. */
+  notice?: ReactNode;
 };
 
-export function JenkinsfilePreview({ code, problems, problemCount }: Props) {
+export function JenkinsfilePreview({ code, problems, problemCount, actions, notice }: Props) {
   const [copied, setCopied] = useState(false);
   /** Which action is waiting on the "it has problems" dialog, if any. */
   const [pending, setPending] = useState<null | "Copy" | "Download">(null);
@@ -76,8 +80,10 @@ export function JenkinsfilePreview({ code, problems, problemCount }: Props) {
           <button type="button" className="ghost-button" onClick={() => ask("Download")}>
             <Download size={16} aria-hidden="true" /> Download
           </button>
+          {actions}
         </div>
       </div>
+      {notice}
 
       {(problems.length > 0 || problemCount > 0) && (
         <ul className="jf-errors" aria-label="Pipeline problems">

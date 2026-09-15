@@ -1,4 +1,5 @@
 import { Archive, Plus, Send, Sparkles, Square } from "lucide-react";
+import { ListSizeToggle } from "../../ListSizeToggle";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getPortalConfig } from "../../api";
 import { log, warn, error as logError } from "../../log";
@@ -13,6 +14,7 @@ import {
   fetchConversations,
   pollJob,
   submitQuestion,
+  deleteConversation,
 } from "./api";
 import { CategoryPicker } from "./components/CategoryPicker";
 import { ConversationList } from "./components/ConversationList";
@@ -47,7 +49,7 @@ export function AiView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) 
   const [showPicker, setShowPicker] = useState(false);
   // Admins get every user's chats from the server; the toggle narrows it back
   // client-side, same as Artifactory and the ticketing queue.
-  const [showAll, setShowAll] = useState(true);
+  const [showAll, setShowAll] = useState(false);
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -143,6 +145,21 @@ export function AiView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) 
     } catch (err) {
       logError("ai", "archive failed", err);
       onError(err instanceof Error ? err.message : "Failed to archive chat");
+    }
+  }
+
+  async function handleDeleteConversation(id: string) {
+    try {
+      await deleteConversation(id);
+      log("ai", "chat deleted", id);
+      setConversations((prev) => prev.filter((c) => c.id !== id));
+      if (activeConversationId === id) {
+        setActiveConversationId(null);
+        setJobs([]);
+      }
+    } catch (err) {
+      logError("ai", "delete failed", err);
+      onError(err instanceof Error ? err.message : "Failed to delete chat");
     }
   }
 
@@ -270,6 +287,7 @@ export function AiView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) 
       <div className="workspace-grid">
         <div className="ticket-column">
           <div className="ticket-list-header">
+            <ListSizeToggle />
             <h2>{isAdmin && showAll ? "All Chats" : "My Chats"}</h2>
             {isAdmin && (
               <button
@@ -288,6 +306,7 @@ export function AiView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) 
             conversations={visibleConversations}
             activeId={activeConversationId}
             onSwitchTo={selectConversation}
+            onDelete={(id) => void handleDeleteConversation(id)}
           />
         </div>
 

@@ -164,6 +164,35 @@ export const config = {
     // to whichever level holds the names a stage's `image` argument takes.
     // Unset = the builder's image field stays plain free text.
     imagesPath: (requireEnv("JENKINS_IMAGES_PATH") ?? "").replace(/^\/+|\/+$/g, ""),
+    // Token for Jenkinsfile repos on github.com, when GIT_URL is the on-prem
+    // Bitbucket. Only ever sent to github.com — see `jenkinsfileTokenFor`.
+    githubToken: (requireEnv("GITHUB_TOKEN") ?? "").trim(),
+  },
+  argocd: {
+    // Where the universal chart lives, and where the generated tree gets
+    // committed. Both are deployment facts, so they pre-fill a new tree rather
+    // than being typed out every time — but unlike the Jenkins shared library
+    // they stay editable per document, since one portal may publish into more
+    // than one values repo. Defaults match convert_to_universal_chart.py's own
+    // CLI defaults, so a tree built here lands where the converter's would.
+    chartRepoUrl: (requireEnv("ARGOCD_CHART_REPO_URL") ?? "https://github.com/devops-ezrahi/universal-chart.git").trim(),
+    chartPath: (requireEnv("ARGOCD_CHART_PATH") ?? ".").trim(),
+    // The second chart in the same repo: one ApplicationSet per namespace,
+    // deployed by the tree's root ApplicationSet. Same default as the
+    // converter's --appset-chart-path.
+    appsetChartPath: (requireEnv("ARGOCD_APPSET_CHART_PATH") ?? "ms-applicationSet").trim(),
+    chartRevision: (requireEnv("ARGOCD_CHART_REVISION") ?? "main").trim(),
+    // ponytail: no default — a placeholder host here pre-fills every new tree
+    // with a repo that does not exist, and the preview's diff read then fails
+    // on it. Empty means a scratch tree reads nothing until a repo is typed.
+    valuesRepoUrl: (requireEnv("ARGOCD_VALUES_REPO_URL") ?? "").trim(),
+    valuesRevision: (requireEnv("ARGOCD_VALUES_REVISION") ?? "main").trim(),
+    // Credential for the values repo, used only by the module's pull and push.
+    // Separate from GIT_TOKEN because that one is the Bitbucket credential and
+    // the values repo is usually somewhere else — and `values.repoUrl` is a
+    // field the user can edit, so a token is only ever sent to the host it was
+    // issued for. See `valuesTokenFor`.
+    valuesToken: (requireEnv("ARGOCD_VALUES_TOKEN") ?? "").trim(),
   },
   jira: {
     baseUrl: jiraUrl ?? "",

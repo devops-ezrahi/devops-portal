@@ -8,6 +8,7 @@ import { RealArtifactoryApi } from "./modules/artifactory/RealArtifactoryApi";
 import { createArtifactoryRouter } from "./modules/artifactory/router";
 import { RealAiApi } from "./modules/ai/RealAiApi";
 import { createAiRouter } from "./modules/ai/router";
+import { createArgocdRouter } from "./modules/argocd/router";
 import { createJenkinsfileRouter } from "./modules/jenkinsfile/router";
 import { InMemoryTicketingApi } from "./modules/ticketing/InMemoryTicketingApi";
 import { JiraTicketingApi } from "./modules/ticketing/JiraTicketingApi";
@@ -90,7 +91,9 @@ export function createApp(
   // cross-origin response unless it is named here, and the browser console's
   // correlation id (`ref`) is read straight off it.
   app.use(cors({ exposedHeaders: ["X-Request-Id"] }));
-  app.use(express.json());
+  // Express's 100kb default refuses an ArgoCD tree of a few dozen microservices
+  // — the autosave of every saved document goes through here.
+  app.use(express.json({ limit: "5mb" }));
   app.use(requestLogger);
 
   // Public config — no secrets, no auth required. The 401 body carries ssoUrl,
@@ -120,6 +123,7 @@ export function createApp(
   // One implementation and no config to select on, so the router owns its store
   // rather than taking an injected API like the four above.
   app.use(createJenkinsfileRouter());
+  app.use(createArgocdRouter());
 
   app.use((error: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
     const where = { id: req.id, user: req.user?.id ?? "-", route: `${req.method} ${req.originalUrl}` };

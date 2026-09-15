@@ -68,7 +68,7 @@ export function createArtifactoryRouter(api: ArtifactoryApi): express.Router {
   router.post("/api/artifactory/jobs/url-copy", async (req, res, next) => {
     try {
       const input = urlCopySchema.parse(req.body);
-      const job = await api.submitUrlCopy(input, req.user!);
+      const job = await api.submitUrlCopy(input, req.user!, isAdmin(req.user!));
       res.status(201).json({ job });
     } catch (err) {
       next(err);
@@ -222,6 +222,18 @@ export function createArtifactoryRouter(api: ArtifactoryApi): express.Router {
         return;
       }
       res.json({ job });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.delete("/api/artifactory/jobs/:id", async (req, res, next) => {
+    try {
+      if (!(await api.deleteJob(req.params.id, req.user!, isAdmin(req.user!)))) {
+        res.status(404).json({ error: "Job not found" });
+        return;
+      }
+      res.json({ ok: true });
     } catch (err) {
       next(err);
     }

@@ -1,10 +1,11 @@
 import { FlaskConical, Plus } from "lucide-react";
+import { ListSizeToggle } from "../../ListSizeToggle";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { idFromPath, useDeepLink } from "../../deepLink";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { WhiteningJob, WhiteningScenario } from "../../../server/types";
 import { log, error as logError } from "../../log";
-import { cancelJob, getJob, listJobs, resolvePreserve, simulateJob } from "./api";
+import { cancelJob, deleteJob, getJob, listJobs, resolvePreserve, simulateJob } from "./api";
 import { JobDetail } from "./components/JobDetail";
 import { JobList } from "./components/JobList";
 import { ArchiveDropZone } from "./components/ArchiveDropZone";
@@ -88,6 +89,19 @@ export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleView
     setSelectedJobId(job.id);
   }
 
+  function handleDelete(id: string) {
+    log("whitening", "deleting job", id);
+    deleteJob(id)
+      .then(() => {
+        setJobs((prev) => prev.filter((j) => j.id !== id));
+        setSelectedJobId((prev) => (prev === id ? null : prev));
+      })
+      .catch((err: Error) => {
+        logError("whitening", "delete failed", err);
+        onError(err.message);
+      });
+  }
+
   function handleStop(job: WhiteningJob) {
     log("whitening", "stopping job", job.id);
     cancelJob(job.id).then(fetchJobs).catch((err: Error) => {
@@ -130,6 +144,7 @@ export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleView
       <div className="workspace-grid">
         <div className="ticket-column">
           <div className="ticket-list-header">
+            <ListSizeToggle />
             <h2>{isAdmin && showAll ? "All Jobs" : "My Jobs"}</h2>
             {isAdmin && (
               <button
@@ -149,6 +164,7 @@ export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleView
             <div className="ticket-list">
               <JobList
                 jobs={visibleJobs}
+                onDelete={handleDelete}
                 selectedJobId={selectedJobId}
                 isAdmin={isAdmin}
                 onSelect={(id) => {

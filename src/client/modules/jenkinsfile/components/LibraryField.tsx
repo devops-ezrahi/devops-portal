@@ -1,4 +1,5 @@
 import { Library, Plus, X } from "lucide-react";
+import { Help } from "../../../Help";
 
 type Props = {
   /** What goes inside `@Library('…')` — empty means no import line at all. */
@@ -44,6 +45,12 @@ export function LibraryField({ value, name, onChange }: Props) {
       <div className="jf-arg-head">
         <Library size={15} aria-hidden="true" className="jf-library-icon" />
         <label htmlFor="jf-library-branch">{name}</label>
+        <Help label="the library branch">
+          <p>
+            Branch, tag or version to pin — leave empty for the library&rsquo;s default. Emitted as{" "}
+            <code>@Library(&apos;{value}&apos;) _</code>.
+          </p>
+        </Help>
         <button
           type="button"
           className="icon-button"
@@ -64,10 +71,6 @@ export function LibraryField({ value, name, onChange }: Props) {
         // one the Jenkins controller actually has configured.
         onChange={(e) => onChange(e.target.value.trim() ? `${name}@${e.target.value.trim()}` : name)}
       />
-      <span className="field-hint">
-        Branch, tag or version to pin — leave empty for the library's default. Emitted as{" "}
-        <code>@Library('{value}') _</code>.
-      </span>
     </div>
   );
 }

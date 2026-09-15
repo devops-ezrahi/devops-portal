@@ -1,5 +1,6 @@
 import { Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ListSizeToggle } from "../../ListSizeToggle";
 import { log, error as logError } from "../../log";
 import { getRequestTypes, getTicket, listTickets } from "./api";
 import { NewTicketModal } from "./components/NewTicketModal";
@@ -142,6 +143,7 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
       <div className="workspace-grid">
         <div className="ticket-column">
           <div className="ticket-list-header">
+            <ListSizeToggle />
             <h2>My Tickets</h2>
           </div>
           <section className="ticket-list-panel" aria-label="Tickets">

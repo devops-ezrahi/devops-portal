@@ -1,10 +1,11 @@
 import { FlaskConical, FolderOpen, Link, Plus } from "lucide-react";
+import { ListSizeToggle } from "../../ListSizeToggle";
 import { useEffect, useMemo, useState } from "react";
 import { idFromPath, useDeepLink } from "../../deepLink";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ArtifactoryJob, ArtifactoryScenario } from "../../../server/types";
 import { log, error as logError } from "../../log";
-import { cancelJob, getJob, listJobs, simulateJob } from "./api";
+import { cancelJob, deleteJob, getJob, listJobs, simulateJob } from "./api";
 import { JobDetail } from "./components/JobDetail";
 import { JobList } from "./components/JobList";
 import { FolderUploadForm } from "./components/FolderUploadForm";
@@ -96,6 +97,19 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
     setSelectedJobId(job.id);
   }
 
+  function handleDelete(id: string) {
+    log("artifactory", "deleting job", id);
+    deleteJob(id)
+      .then(() => {
+        setJobs((prev) => prev.filter((j) => j.id !== id));
+        setSelectedJobId((prev) => (prev === id ? null : prev));
+      })
+      .catch((err: Error) => {
+        logError("artifactory", "delete failed", err);
+        onError(err.message);
+      });
+  }
+
   function handleStop(job: ArtifactoryJob) {
     log("artifactory", "stopping job", job.id);
     cancelJob(job.id).then(fetchJobs).catch((err: Error) => {
@@ -129,6 +143,7 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
         {/* Left: job history */}
         <div className="ticket-column">
           <div className="ticket-list-header">
+            <ListSizeToggle />
             <h2>{isAdmin && showAll ? "All Jobs" : "My Jobs"}</h2>
             {isAdmin && (
               <button
@@ -148,6 +163,7 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
             <div className="ticket-list">
               <JobList
                 jobs={visibleJobs}
+                onDelete={handleDelete}
                 selectedJobId={selectedJobId}
                 isAdmin={isAdmin}
                 onSelect={(id) => {
@@ -220,7 +236,7 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
                   and progress bar — which read as "switching tabs stops the
                   run" even though nothing was ever cancelled. */}
               <div className="tab-panel" hidden={activeTab !== "url-copy"}>
-                <UrlCopyForm onSubmitted={handleSubmitted} onError={onError} />
+                <UrlCopyForm isAdmin={isAdmin} onSubmitted={handleSubmitted} onError={onError} />
               </div>
               <div className="tab-panel" hidden={activeTab !== "folder-upload"}>
                 <FolderUploadForm onSubmitted={handleSubmitted} onError={onError} />

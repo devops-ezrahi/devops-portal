@@ -1,4 +1,5 @@
 import { Plus, X } from "lucide-react";
+import { Help } from "../../../Help";
 import { PARAM_TYPES, newParam, type ParamTypeSpec } from "../params";
 import type { JenkinsfileParam, JenkinsfileParamType } from "../../../../server/types";
 
@@ -93,6 +94,9 @@ export function ParamsEditor({ params, used, touched, onLeave, onChange }: Props
               >
                 <div className="jf-arg-head">
                   <label htmlFor={`${id}-name`}>{param.name.trim() || `parameter ${i + 1}`}</label>
+                  <Help label={`a ${spec.label} parameter`}>
+                    <p>{spec.hint}</p>
+                  </Help>
                   <span className="jf-kind">{spec.label}</span>
                   <button
                     type="button"
@@ -147,15 +151,14 @@ export function ParamsEditor({ params, used, touched, onLeave, onChange }: Props
                 </div>
 
                 <ParamValue id={id} index={i} param={param} spec={spec} onSet={(patch) => set(i, patch)} />
-                <span className="field-hint">
-                  {unused ? (
-                    <>
-                      No stage reads <code>params.{param.name.trim()}</code> — declaring it changes nothing.
-                    </>
-                  ) : (
-                    spec.hint
-                  )}
-                </span>
+                {/* What the parameter *is* moved behind the `?` beside its
+                    name; this line is a problem, not a description, so it stays
+                    on screen. */}
+                {unused && (
+                  <span className="field-hint">
+                    No stage reads <code>params.{param.name.trim()}</code> — declaring it changes nothing.
+                  </span>
+                )}
               </div>
             );
         })}

@@ -24,13 +24,37 @@ const updatePipeline = vi.fn((id: string, input: unknown) =>
   Promise.resolve({ pipeline: { ...saved, ...(input as object), id } as JenkinsfilePipeline })
 );
 
+const pullJenkinsfile = vi.fn(() =>
+  Promise.resolve({
+    path: "ci/Jenkinsfile",
+    text: "@Library('jenkins-k8s-shared-library@main') _\n\ngenStage(title: 'Build', image: 'ubi8', commands: ['npm ci'])",
+    candidates: ["ci/Jenkinsfile"],
+    repoUrl: "https://github.com/org/checkout-service.git",
+    revision: "main",
+  })
+);
+const pushPipeline = vi.fn(() =>
+  Promise.resolve({
+    branch: "portal/jenkinsfile-jf-0002",
+    changed: true,
+    prUrl: "https://github.com/org/checkout-service/pull/7",
+  })
+);
+
+/** A `vi.fn` rather than a plain stub: one test needs a portal with no credential. */
+const listPipelines = vi.fn(() =>
+  Promise.resolve({ pipelines: [saved], sharedLibrary: "jenkins-k8s-shared-library", gitEnabled: true })
+);
+
 vi.mock("./api", () => ({
-  listPipelines: () => Promise.resolve({ pipelines: [saved] }),
+  listPipelines,
   getImages: () =>
     Promise.resolve({ images: [{ name: "python311", info: "JDK=17" }, { name: "ubi8", info: "OS=ubi8" }] }),
   createPipeline,
   updatePipeline,
   deletePipeline: vi.fn(),
+  pullJenkinsfile,
+  pushPipeline,
 }));
 
 const { JenkinsfileView } = await import("./JenkinsfileView");
@@ -109,6 +133,8 @@ describe("JenkinsfileView", () => {
   beforeEach(() => {
     createPipeline.mockClear();
     updatePipeline.mockClear();
+    pullJenkinsfile.mockClear();
+    pushPipeline.mockClear();
     // The view reopens the last pipeline it was left on; each test starts fresh.
     localStorage.clear();
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -372,6 +398,67 @@ genStage(title: 'Build', image: 'python311', commands: ['npm ci'])`,
     fireEvent.click(screen.getByRole("button", { name: "Import anyway" }));
     expect(code()).toContain("genStage(");
     expect(code()).not.toContain("deployToMars");
+  });
+
+  it("connects a repository, builds from its Jenkinsfile and commits back to it", async () => {
+    const { code } = renderView();
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole("button", { name: /New/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Connect a repository/ }));
+    fireEvent.change(screen.getByLabelText(/Repository URL/), {
+      target: { value: "git@github.com:org/checkout-service.git" },
+    });
+    // The SSH form is rewritten before it is sent — the portal holds a token,
+    // not a key, and the field says so as you type.
+    expect(screen.getByText(/becomes/)).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    });
+
+    expect(pullJenkinsfile).toHaveBeenCalledWith("https://github.com/org/checkout-service.git", "main", "");
+    // The file is the pipeline now: its stage is on screen and in the preview.
+    expect(code()).toContain("genStage(");
+    // And the panel names the repo it came from, including the path the server
+    // found rather than the empty one that was sent.
+    expect(screen.getByText("ci/Jenkinsfile")).toBeTruthy();
+    expect(screen.getByText(/checkout-service/)).toBeTruthy();
+
+    // The connection is saved with the pipeline, which is what Commit pushes to.
+    await settle();
+    expect(createPipeline.mock.calls[0][0]).toMatchObject({
+      repo: { repoUrl: "https://github.com/org/checkout-service.git", revision: "main", path: "ci/Jenkinsfile" },
+    });
+
+    // One more edit, then Commit straight away: the push writes the *stored*
+    // pipeline, so the pending autosave has to land first or the commit is a
+    // keystroke behind.
+    fireEvent.click(screen.getByRole("button", { name: "Add stage" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Sonar scan" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Commit/ }));
+    });
+
+    expect(updatePipeline).toHaveBeenCalled();
+    const [, committed] = pushPipeline.mock.calls[0] as unknown as [string, string];
+    expect(committed).toContain("sonarStage");
+    expect(committed).toBe(code());
+    // The pull request is a link, not a sentence to copy out of a log.
+    expect(screen.getByRole("link", { name: /Open the pull request/ })).toHaveAttribute(
+      "href",
+      "https://github.com/org/checkout-service/pull/7"
+    );
+  });
+
+  it("says why the repository buttons cannot work when no credential is configured", async () => {
+    // The choice stays visible and explains itself — vanishing would leave the
+    // feature undiscoverable and the reason unknowable.
+    listPipelines.mockResolvedValueOnce({ pipelines: [], sharedLibrary: "", gitEnabled: false });
+    renderView();
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole("button", { name: /New/ }));
+    expect(screen.getByRole("button", { name: /Connect a repository/ })).toBeDisabled();
   });
 
   it("starts an empty pipeline when that is the choice", async () => {

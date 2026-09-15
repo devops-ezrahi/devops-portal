@@ -1,3 +1,4 @@
+import { RowDelete } from "../../../RowDelete";
 import type { WhiteningJob, WhiteningJobStatus } from "../../../../server/types";
 
 type Props = {
@@ -5,6 +6,7 @@ type Props = {
   selectedJobId: string | null;
   isAdmin: boolean;
   onSelect: (id: string) => void;
+  onDelete: (id: string) => void;
 };
 
 function statusClass(status: WhiteningJobStatus): string {
@@ -27,7 +29,7 @@ function statusLabel(status: WhiteningJobStatus): string {
   }
 }
 
-export function JobList({ jobs, selectedJobId, isAdmin, onSelect }: Props) {
+export function JobList({ jobs, selectedJobId, isAdmin, onSelect, onDelete }: Props) {
   if (jobs.length === 0) {
     return <div className="empty-state">No jobs yet. Drop a pack above.</div>;
   }
@@ -40,6 +42,10 @@ export function JobList({ jobs, selectedJobId, isAdmin, onSelect }: Props) {
           className={`ticket-row${selectedJobId === job.id ? " selected" : ""}`}
           onClick={() => onSelect(job.id)}
         >
+          {/* A running job is Stopped first, not deleted out from under its log. */}
+          {job.status !== "pending" && job.status !== "in-progress" && (
+            <RowDelete label={job.id} onDelete={() => onDelete(job.id)} />
+          )}
           <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
           <strong>{job.team}/{job.project}</strong>
           <div className="ticket-row-meta">

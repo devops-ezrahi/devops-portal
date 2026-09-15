@@ -49,6 +49,18 @@ export function createAiRouter(api: AiApi): express.Router {
     }
   });
 
+  router.delete("/api/ai/conversations/:id", async (req, res, next) => {
+    try {
+      if (!(await api.deleteConversation(req.params.id, req.user!, isAdmin(req.user!)))) {
+        res.status(404).json({ error: "Conversation not found" });
+        return;
+      }
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.post("/api/ai/conversations/:id/jobs", async (req, res, next) => {
     try {
       const { question } = questionSchema.parse(req.body);

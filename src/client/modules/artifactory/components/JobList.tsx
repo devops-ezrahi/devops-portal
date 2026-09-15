@@ -1,3 +1,4 @@
+import { RowDelete } from "../../../RowDelete";
 import { jobStatusClass, jobStatusLabel } from "../jobStatus";
 import type { ArtifactoryJob } from "../../../../server/types";
 
@@ -6,6 +7,7 @@ type Props = {
   selectedJobId: string | null;
   isAdmin: boolean;
   onSelect: (id: string) => void;
+  onDelete: (id: string) => void;
 };
 
 function jobSubtitle(job: ArtifactoryJob): string {
@@ -17,7 +19,7 @@ function jobSubtitle(job: ArtifactoryJob): string {
   return job.folderName ?? "";
 }
 
-export function JobList({ jobs, selectedJobId, isAdmin, onSelect }: Props) {
+export function JobList({ jobs, selectedJobId, isAdmin, onSelect, onDelete }: Props) {
   if (jobs.length === 0) {
     return <div className="empty-state">No jobs yet. Submit a copy or upload above.</div>;
   }
@@ -30,6 +32,10 @@ export function JobList({ jobs, selectedJobId, isAdmin, onSelect }: Props) {
           className={`ticket-row${selectedJobId === job.id ? " selected" : ""}`}
           onClick={() => onSelect(job.id)}
         >
+          {/* A running job is Stopped first, not deleted out from under its log. */}
+          {job.status !== "pending" && job.status !== "in-progress" && (
+            <RowDelete label={job.id} onDelete={() => onDelete(job.id)} />
+          )}
           <span className={jobStatusClass(job)}>{jobStatusLabel(job)}</span>
           <strong>{job.name ?? (job.kind === "url-copy" ? "URL Copy" : "Folder Upload")}</strong>
           <div className="ticket-row-meta">

@@ -218,7 +218,8 @@ export type ArtifactoryScenario =
   | "dependency-fallback";
 
 export interface ArtifactoryApi {
-  submitUrlCopy(input: UrlCopyInput, submitter: PortalUser): Promise<ArtifactoryJob>;
+  /** `allowMultiple` lets a folder URL holding more than one package through — admin only. */
+  submitUrlCopy(input: UrlCopyInput, submitter: PortalUser, allowMultiple?: boolean): Promise<ArtifactoryJob>;
   submitFolderUpload(input: FolderUploadInput, submitter: PortalUser): Promise<ArtifactoryJob>;
   /** Dev-only scripted run — the routers only expose it when SSO is off. */
   simulate(submitter: PortalUser, scenario?: ArtifactoryScenario): Promise<ArtifactoryJob>;
@@ -226,6 +227,8 @@ export interface ArtifactoryApi {
   getJob(jobId: string): Promise<ArtifactoryJob | null>;
   /** `null` when there is no such job; already-finished jobs are left alone. */
   cancelJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<ArtifactoryJob | null>;
+  /** `false` when there is no such job; a running one is refused. */
+  deleteJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<boolean>;
 }
 
 // ---- Whitening Module ----
@@ -276,6 +279,8 @@ export interface WhiteningApi {
   getJob(jobId: string): Promise<WhiteningJob | null>;
   /** `null` when there is no such job; already-finished jobs are left alone. */
   cancelJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<WhiteningJob | null>;
+  /** `false` when there is no such job; a running one is refused. */
+  deleteJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<boolean>;
   /** Answer a job's preserve prompt with the paths to keep from the repo; `null` when nothing is pending. */
   resolvePreserve(jobId: string, keep: string[], user: PortalUser, allUsers?: boolean): Promise<WhiteningJob | null>;
 }
@@ -346,6 +351,8 @@ export interface AiApi {
   listConversations(user: PortalUser, allUsers?: boolean): Promise<AiConversation[]>;
   /** `null` when there is no such chat; asking in it again un-archives it. */
   archiveConversation(conversationId: string, user: PortalUser, allUsers?: boolean): Promise<AiConversation | null>;
+  /** The chat and every question asked in it. `false` when there is no such chat; a running question is refused. */
+  deleteConversation(conversationId: string, user: PortalUser, allUsers?: boolean): Promise<boolean>;
   submitQuestion(conversationId: string, question: string, submitter: PortalUser): Promise<AiJob>;
   listJobs(conversationId: string, user: PortalUser, allUsers?: boolean): Promise<AiJob[]>;
   getJob(jobId: string): Promise<AiJob | null>;
@@ -400,7 +407,85 @@ export type JenkinsfilePipeline = {
   envVars: Record<string, string>;
   /** Build parameters, referenced from skip conditions and commands as `params.<name>`. */
   params?: JenkinsfileParam[];
+  /**
+   * The repository this pipeline was read from and commits back to, absent
+   * until one is connected. `path` is where the Jenkinsfile sits in it — found
+   * by searching the clone, or typed when the search has more than one answer.
+   * Kept on the record rather than sent with each push, so a commit's
+   * destination is the one the owner connected and not the one a request asks
+   * for.
+   */
+  repo?: { repoUrl: string; revision: string; path: string };
   stages: JenkinsfileStage[];
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/**
+ * ArgoCD / universal-chart builder — one saved document is a whole GitOps tree.
+ *
+ * A tree holds N releases (microservices) x M namespaces. `features` is the
+ * builder's catalog state, keyed by feature id, and is deliberately `unknown`
+ * inside: the shape of a feature's fields is the chart's business, described by
+ * the client's catalog, and pinning it here would mean editing the server every
+ * time `values.yaml` grows a key — the same reason a Jenkinsfile stage's `args`
+ * stays open.
+ */
+export type ArgocdFeatureState = { on: boolean; v: Record<string, unknown> };
+
+/** The environment-agnostic values for one release — what `base/<release>.yaml` is built from. */
+export type ArgocdRelease = {
+  /** Stable across renames, so the editor's tabs and React keys survive one. */
+  id: string;
+  /** The release-slug: the file name under `base/` and the ApplicationSet's `{{release}}`. */
+  name: string;
+  features: Record<string, ArgocdFeatureState>;
+  /** Raw YAML merged last — the escape hatch, and where an import's leftovers land. */
+  extraValues?: string;
+};
+
+/** One namespace's overrides: only what differs from the release's base. */
+export type ArgocdNamespace = {
+  name: string;
+  /**
+   * Set once for this namespace, applied to every microservice in it — written
+   * as `<ns>/defaults.yaml`, which the chart layers over `base/<file>` and under
+   * `<ns>/values/<file>`. A monorepo image tag, an environment label.
+   */
+  defaults?: { features: Record<string, ArgocdFeatureState>; extraValues?: string };
+  releases: {
+    /** The release id (not the name) this overrides. */
+    release: string;
+    features: Record<string, ArgocdFeatureState>;
+    extraValues?: string;
+  }[];
+};
+
+export type ArgocdTree = {
+  id: string;
+  /** Assigned by the server as `<author> #<n>`, exactly like a pipeline's. */
+  name: string;
+  /**
+   * Where the universal chart lives. `path` is the chart each release renders;
+   * `appsetPath` is the `ms-applicationSet` chart in the same repo that the root
+   * ApplicationSet deploys once per namespace, and which owns the per-release
+   * fan-out and the three-file value layering.
+   */
+  chart: { repoUrl: string; path: string; appsetPath: string; revision: string };
+  /** Where this generated tree is committed — the `$values` ref source. */
+  values: { repoUrl: string; revision: string; path: string };
+  /** The app-of-apps' name; `platform-root` unless someone renames it. */
+  rootAppName: string;
+  releases: ArgocdRelease[];
+  namespaces: ArgocdNamespace[];
+  /**
+   * Legacy: tree-wide defaults from before they were per namespace. Only ever
+   * read — `migrateTreeDefaults` copies them into each namespace on open, and
+   * the server's schema no longer accepts the field, so the next save drops it.
+   */
+  defaults?: { features: Record<string, ArgocdFeatureState>; extraValues?: string };
   createdBy: string;
   createdByName: string;
   createdAt: string;

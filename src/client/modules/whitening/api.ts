@@ -19,6 +19,10 @@ export function cancelJob(id: string) {
   return request<{ job: WhiteningJob }>(`/api/whitening/jobs/${id}/cancel`, { method: "POST" });
 }
 
+export function deleteJob(id: string) {
+  return request<{ ok: true }>(`/api/whitening/jobs/${id}`, { method: "DELETE" });
+}
+
 /** Answers a held job's preserve prompt: the paths whose repository version wins. */
 export function resolvePreserve(id: string, keep: string[]) {
   return request<{ job: WhiteningJob }>(`/api/whitening/jobs/${id}/preserve`, {

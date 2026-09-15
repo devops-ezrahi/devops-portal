@@ -1,6 +1,7 @@
 import { Zip, ZipDeflate, ZipPassThrough } from "fflate";
 import { FolderOpen, Upload, X } from "lucide-react";
 import { useState } from "react";
+import { Help } from "../../../Help";
 import { log, warn, error as logError } from "../../../log";
 import { beginFolderUpload, completeFolderUpload, uploadArchivePart, type FileEntry } from "../api";
 import type { ArtifactoryJob } from "../../../../server/types";
@@ -21,7 +22,7 @@ const MAX_ARCHIVE_BYTES = 500 * 1024 * 1024;
  * the whole wait to save nothing. Most of what this form takes (a folder of
  * .tgz / .whl / .rpm / .conda, an ~/.m2 tree of jars) is exactly this.
  */
-const STORED = /\.(tgz|gz|zip|jar|war|whl|rpm|conda|bz2|xz|zst|7z|png|jpe?g|gif|webp|avif|woff2?|mp4|mp3)$/i;
+const STORED = /\.(tgz|gz|zip|rar|jar|war|whl|rpm|conda|bz2|xz|zst|7z|png|jpe?g|gif|webp|avif|woff2?|mp4|mp3)$/i;
 
 /**
  * Cut a part every 8 MB. Small enough that the first one is on the wire seconds
@@ -385,11 +386,23 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
             <span>Scanning folder...</span>
           ) : (
             <>
-              <span>Drop a folder or files here</span>
-              <small>
-                node_modules, a ~/.m2/repository tree or a flat folder of jars, or any number of
-                .tgz / .jar / .whl / .rpm / .conda files
-              </small>
+              <span>
+                Drop a folder or files here{" "}
+                <Help label="what can be dropped">
+                  <p>
+                    A <code>node_modules</code>, a <code>~/.m2/repository</code> tree or a flat folder of jars.
+                  </p>
+                  <p>
+                    Or any number of loose <code>.tgz</code> / <code>.jar</code> / <code>.whl</code> /{" "}
+                    <code>.rpm</code> / <code>.conda</code> files.
+                  </p>
+                  <p>
+                    A <code>.zip</code> / <code>.tar</code> / <code>.tar.gz</code> / <code>.rar</code> of any
+                    of those works too — one that is not itself a package is unpacked on the server and
+                    whatever it holds is routed the same way.
+                  </p>
+                </Help>
+              </span>
               <label className="ghost-button file-picker">
                 Choose files
                 <input type="file" multiple onChange={handlePicked} />

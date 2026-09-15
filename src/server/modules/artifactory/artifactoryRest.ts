@@ -3,6 +3,7 @@ import { stat } from "fs/promises";
 import { Readable } from "stream";
 import { config } from "../../config";
 import { describeError, log } from "../../log";
+import { sourceTokenFor } from "./npmDependencies";
 
 /**
  * Artifactory wants the service URL (https://host/artifactory), not the JFrog
@@ -229,4 +230,87 @@ export async function listImages(repoPath: string): Promise<ImageInfo[] | null> 
 
   log.info("artifactory", `found ${byName.size} image(s) under ${repoPath}`, { ms: Date.now() - started });
   return [...byName].map(([name, labels]) => ({ name, labels })).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** One file found under a folder URL: where to fetch it, and its repo-relative path. */
+export type SourceFile = { url: string; repoPath: string };
+
+/**
+ * Every file under a pasted URL that names a **folder**, or `null` when it names
+ * a file (which is the ordinary case, and what the caller falls back to).
+ *
+ * Artifactory serves a folder's bytes as an HTML browse page, so fetching a
+ * folder URL "succeeds" and writes junk to disk — there is no status code that
+ * says "that was a directory". `api/storage/<repo>/<path>?list` is the only
+ * thing that answers the question: it lists a folder's children and refuses a
+ * file, so a non-OK response *is* the "this is a file" signal. Deep, because a
+ * package's files are not always in one directory — a Maven version folder is
+ * flat but an npm scope folder is not.
+ *
+ * Only `/artifactory/<repo>/…` URLs are asked; a public mirror has no such API,
+ * and a pasted file URL from one still works exactly as before.
+ */
+export async function listSourceFolder(sourceUrl: string, signal?: AbortSignal): Promise<SourceFile[] | null> {
+  let url: URL;
+  try {
+    url = new URL(sourceUrl);
+  } catch {
+    return null;
+  }
+  const segments = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+  // <repo> plus at least one path segment: a bare repo root is a listing nobody
+  // means to copy, and `?list&deep=1` on one would walk the whole repository.
+  if (segments[0] !== "artifactory" || segments.length < 3) return null;
+  const repoPath = segments.slice(1).join("/");
+  const token = sourceTokenFor(url.origin, config.artifactory.url, config.artifactory.token, "");
+
+  let res: Response;
+  try {
+    res = await fetch(`${url.origin}/artifactory/api/storage/${repoPath}?list&deep=1&listFolders=0`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal,
+    });
+  } catch (err) {
+    if (!signal?.aborted) log.debug("artifactory", `folder listing for ${sourceUrl} could not be sent: ${describeError(err)}`);
+    return null;
+  }
+  if (!res.ok) {
+    log.debug("artifactory", `${sourceUrl} is not a folder (api/storage answered ${res.status})`);
+    return null;
+  }
+
+  const body = await res.json().catch(() => null);
+  const files = (body as { files?: unknown } | null)?.files;
+  if (!Array.isArray(files)) return null;
+
+  // The repo name is not part of a repo-relative path — `classify` reads the
+  // Maven group off exactly these segments, so an extra leading folder would be
+  // folded into the groupId.
+  const insideRepo = segments.slice(2).join("/");
+  return files.flatMap((entry) => {
+    const uri = (entry as { uri?: unknown })?.uri;
+    if (typeof uri !== "string" || (entry as { folder?: unknown }).folder === true) return [];
+    const tail = uri.replace(/^\//, "");
+    return [{
+      url: `${url.origin}/artifactory/${repoPath}/${tail.split("/").map(encodeURIComponent).join("/")}`,
+      repoPath: `${insideRepo}/${tail}`,
+    }];
+  });
+}
+
+/**
+ * Auth for fetching a file *out of* a source repository. Same rule as the
+ * dependency resolvers use: a source on the same host as `ARTIFACTORY_URL` is
+ * ours, so it reuses `ARTIFACTORY_TOKEN`; anything else is anonymous, which is
+ * how the single-file URL copy has always fetched.
+ */
+export function sourceHeaders(sourceUrl: string): Record<string, string> {
+  let origin: string;
+  try {
+    origin = new URL(sourceUrl).origin;
+  } catch {
+    return {};
+  }
+  const token = sourceTokenFor(origin, config.artifactory.url, config.artifactory.token, "");
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }

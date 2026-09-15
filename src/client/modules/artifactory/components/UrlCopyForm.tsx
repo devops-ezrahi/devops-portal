@@ -1,15 +1,17 @@
 import { Upload } from "lucide-react";
+import { Help } from "../../../Help";
 import { useState } from "react";
 import { log, error as logError } from "../../../log";
 import { submitUrlCopy } from "../api";
 import type { ArtifactoryJob } from "../../../../server/types";
 
 type Props = {
+  isAdmin: boolean;
   onSubmitted: (job: ArtifactoryJob) => void;
   onError: (msg: string) => void;
 };
 
-export function UrlCopyForm({ onSubmitted, onError }: Props) {
+export function UrlCopyForm({ isAdmin, onSubmitted, onError }: Props) {
   const [sourceUrl, setSourceUrl] = useState("");
   const [includeDependencies, setIncludeDependencies] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -36,6 +38,23 @@ export function UrlCopyForm({ onSubmitted, onError }: Props) {
     <form className="art-form" onSubmit={handleSubmit}>
       <div className="form-field">
         <label htmlFor="source-url">Package URL</label>
+        <Help label="the package URL">
+          <p>
+            URL of the artifact in the source repository, or the Artifactory page for it (the
+            <code> /ui/repos/…</code> link from your address bar).
+          </p>
+          <p>
+            The package type is detected from the file — .jar, .rpm, .whl and .conda each go to their own repo, and a
+            .tgz is read to see whether it is an npm package or a Helm chart.
+          </p>
+          <p>
+            A <strong>folder</strong> works too: its contents are read and copied as the package they make up, so a
+            Maven package&rsquo;s pom and jar travel together.
+            {isAdmin
+              ? " A folder holding several packages copies all of them."
+              : " A folder holding more than one package is an admin copy — paste one package's folder."}
+          </p>
+        </Help>
         <input
           id="source-url"
           type="url"
@@ -44,12 +63,6 @@ export function UrlCopyForm({ onSubmitted, onError }: Props) {
           value={sourceUrl}
           onChange={(e) => setSourceUrl(e.target.value)}
         />
-        <span className="field-hint">
-          URL of the artifact in the source repository, or the Artifactory page for it (the
-          <code> /ui/repos/…</code> link from your address bar). The package type is detected from
-          the file &mdash; .jar, .rpm, .whl and .conda each go to their own repo, and a .tgz is
-          read to see whether it is an npm package or a Helm chart.
-        </span>
       </div>
 
       <div className="form-field checkbox-field">
@@ -62,12 +75,14 @@ export function UrlCopyForm({ onSubmitted, onError }: Props) {
           />
           Include dependencies <span className="field-note">(takes longer)</span>
         </label>
-        <span className="field-hint">
-          Resolves the full runtime tree for npm, Maven and PyPI and copies every artifact in it
-          (PyPI is wheels only). A tree that won&rsquo;t resolve still copies the single artifact and
-          says why in the job log. RPM, conda and Helm have no resolver &mdash; those copy the one
-          artifact.
-        </span>
+        <Help label="including dependencies">
+          <p>
+            Resolves the full runtime tree for npm, Maven and PyPI and copies every artifact in it (PyPI is wheels
+            only).
+          </p>
+          <p>A tree that won&rsquo;t resolve still copies the single artifact and says why in the job log.</p>
+          <p>RPM, conda and Helm have no resolver — those copy the one artifact.</p>
+        </Help>
       </div>
 
       <button type="submit" className="primary" disabled={submitting}>

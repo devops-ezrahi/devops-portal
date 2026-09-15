@@ -25,6 +25,10 @@
 
 * {
   box-sizing: border-box;
+  /* One dark scrollbar for every scroller, so a new one cannot ship with the
+     browser's light default (the ArgoCD file tree did). */
+  scrollbar-width: thin;
+  scrollbar-color: #2a3940 transparent;
 }
 
 /* Links inherit the app accent instead of the browser's default blue/purple.
@@ -573,6 +577,64 @@ h3 {
   min-width: 0;
 }
 
+/* Minimized list (ListSizeToggle): nothing left of it but the button, so the
+   content column takes the whole width. */
+.list-narrow .workspace-grid {
+  grid-template-columns: 40px minmax(0, 1fr);
+}
+
+.list-narrow .ticket-column > :not(.ticket-list-header),
+.list-narrow .ticket-list-header > :not(.list-size-toggle) {
+  display: none;
+}
+
+.list-size-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  /* One size open and minimized — minimized, it is the only way back to the
+     list, so it is sized like a real button rather than a header icon. */
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid #2a3940;
+  border-radius: 6px;
+  background: none;
+  color: #84949b;
+}
+
+.list-size-toggle svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* The header is space-between; the heading stays against the button, not centred. */
+.list-size-toggle + h2 {
+  margin-right: auto;
+}
+
+.list-size-toggle:hover {
+  border-color: #3a4c55;
+  color: #dce5e8;
+}
+
+.list-size-toggle .when-narrow,
+.list-narrow .list-size-toggle .when-wide {
+  display: none;
+}
+
+.list-narrow .list-size-toggle .when-narrow {
+  display: block;
+}
+
+/* One column on a narrow window already — there is nothing to minimize. */
+@media (max-width: 980px) {
+  .list-size-toggle {
+    display: none;
+  }
+}
+
 .create-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -681,13 +743,19 @@ textarea::placeholder {
   color: #6f8088;
 }
 
+/* The ring hugs the control instead of floating 2px off it. An offset outline
+   plus a 5px halo read as two separate borders drawn around the element — worse
+   the more rounded the control is, since the outline's corners no longer follow
+   its own. At offset 0 the outline lands on the border itself, so the control's
+   own edge is what lights up, and one soft glow sits outside it. */
 input:focus,
 select:focus,
 textarea:focus,
 button:focus-visible {
-  outline: 2px solid rgb(32 199 189 / 75%);
-  outline-offset: 2px;
-  box-shadow: 0 0 0 5px rgb(32 199 189 / 10%);
+  outline: 1px solid #20c7bd;
+  outline-offset: 0;
+  border-color: #20c7bd;
+  box-shadow: 0 0 0 3px rgb(32 199 189 / 16%);
 }
 
 /* A clicked checkbox keeps the ring until you click elsewhere, which reads as a
@@ -754,6 +822,34 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   border-bottom: 0;
 }
 
+/* RowDelete. `span.` so it outranks `.ticket-row span:not(...)`'s grey. */
+.ticket-row span.row-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #8d9ba2;
+  opacity: 0;
+  transition: opacity 120ms var(--ease-out), background 120ms var(--ease-out);
+}
+
+.ticket-row:hover span.row-delete,
+.ticket-row span.row-delete:focus-visible,
+.ticket-row span.row-delete.armed {
+  opacity: 1;
+}
+
+.ticket-row span.row-delete:hover,
+.ticket-row span.row-delete.armed {
+  color: #ff8d95;
+  background: #2a1418;
+}
+
 .ticket-list-header {
   display: flex;
   align-items: center;
@@ -765,6 +861,17 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 .ticket-list-header h1,
 .ticket-list-header h2 {
   margin-bottom: 0;
+  /* One line beside the minimize button: "Mine & Unassigned" wrapped to two
+     and pushed "All tickets" into a two-line button of its own. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ticket-list-header > button {
+  flex: none;
+  white-space: nowrap;
 }
 
 .ticket-row-meta {
@@ -1424,6 +1531,9 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 .modal .request-form {
   gap: 14px;
   padding: 18px;
+  /* The modal animates in already. The form's own 8px slide overflowed the
+     modal's scrollport and flashed a scrollbar for the length of it. */
+  animation: none;
 }
 
 .modal .request-form input,
@@ -1480,6 +1590,14 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   border: 1px solid #2a3940;
   border-radius: 8px;
   animation: modal-in 240ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* A dialog's buttons, primary last — the same spacing as a topbar's. */
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .modal-heading {
@@ -1843,6 +1961,18 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 .form-field {
   display: grid;
   gap: 6px;
+}
+
+/* A label and its `?` share one row; whatever follows (the input) spans below.
+   As plain grid children the `?` took a row of its own. */
+.form-field:has(> label + .help) {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 6px;
+}
+
+.form-field:has(> label + .help) > :not(label, .help) {
+  grid-column: 1 / -1;
 }
 
 /* The first checkbox in the client, so none of the form rules above fit it:
@@ -2734,40 +2864,40 @@ code {
   font-weight: 700;
 }
 
-.jf-entry-field .field-hint {
-  margin: 0;
-}
+/* ---- the shared `?` (src/client/Help.tsx) ----
+   The one `?` in the portal: every module's field explanations live behind it
+   rather than under the field as a sentence. Opened by hover, press or focus. */
 
-/* ---- The ? beside an entry field ---- */
-
-.jf-help {
+.help {
   position: relative;
   display: inline-flex;
+  vertical-align: middle;
 }
 
-.jf-help-toggle {
+.help-toggle {
   display: inline-flex;
   padding: 1px;
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: #6f8088;
-  cursor: pointer;
+  color: #56666e;
+  cursor: help;
   transition: color 140ms var(--ease-out);
 }
 
-.jf-help-toggle:hover,
-.jf-help-toggle[aria-expanded="true"] {
+.help-toggle:hover,
+.help-toggle:focus-visible,
+.help-toggle[aria-expanded="true"] {
   color: #20c7bd;
 }
 
-.jf-help-body {
+.help-body {
   position: absolute;
   top: calc(100% + 6px);
   left: -8px;
-  z-index: 15;
+  z-index: 30;
   width: max-content;
-  max-width: min(340px, 70vw);
+  max-width: min(360px, 70vw);
   padding: 8px 10px;
   border: 1px solid #2a3940;
   border-radius: 7px;
@@ -2776,9 +2906,38 @@ code {
   color: #cfd8dc;
   font-size: 11.5px;
   font-weight: 400;
+  font-style: normal;
+  /* A `?` usually sits in an uppercase, letter-spaced section label; without
+     these the explanation inherits that and reads as shouting. */
+  text-transform: none;
+  letter-spacing: normal;
   line-height: 1.55;
+  text-align: left;
   white-space: normal;
+  /* Pointer events off: the popover hangs below its `?`, and a mouse moving
+     onto it would otherwise leave the `?` and close the thing it is over. */
+  pointer-events: none;
 }
+
+/* A popover holding a button has to be reachable, and the 6px it hangs below
+   its trigger is a gap the pointer would leave the whole thing through — so it
+   bridges that gap with a pseudo-element rather than sitting flush against it. */
+.help-body.interactive { pointer-events: auto }
+.help-body.interactive::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 0;
+  right: 0;
+  height: 6px;
+}
+
+/* Near the right edge a left-anchored popover runs off the panel. */
+.help-body.right { left: auto; right: -8px }
+
+.help-body p { margin: 0 }
+.help-body p + p { margin-top: 6px }
+.help-body code { font-size: 11px; color: #9fe4dc }
 
 /* ---- Autosave state ---- */
 
@@ -2865,7 +3024,8 @@ code {
 
 .jf-card-head {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  /* grip, index, the toggle, its `?`, the problem marker, the actions. */
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: 8px;
   padding: 9px 8px 9px 6px;
@@ -3132,7 +3292,18 @@ code {
   border: 1px solid #1c262b;
   border-radius: 10px;
   background: #0e1417;
-  overflow: hidden;
+  /* No `overflow: hidden` — it would clip the `?` popover in the head row. The
+     head rounds its own corners instead. */
+}
+
+.jf-group-head-row {
+  display: flex;
+  border-radius: 9px 9px 0 0;
+  align-items: center;
+  gap: 8px;
+  padding-right: 12px;
+  border-bottom: 1px solid #1c262b;
+  background: #111a1e;
 }
 
 .jf-group-head {
@@ -3142,8 +3313,7 @@ code {
   width: 100%;
   padding: 9px 12px;
   border: 0;
-  border-bottom: 1px solid #1c262b;
-  background: #111a1e;
+  background: transparent;
   color: #cfd8dc;
   cursor: pointer;
   text-align: left;
@@ -3876,6 +4046,33 @@ input.jf-title {
   width: 100%;
 }
 
+/* A size: the number takes the room, the unit menu sits beside it. */
+.ag-quantity {
+  display: flex;
+  gap: 10px;
+}
+
+/* Scoped under .ag-editor: its `input, select { width: 100% }` otherwise wins
+   and the unit menu takes the whole row, squeezing the number out of sight. */
+.ag-editor .ag-quantity input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 72px;
+  appearance: textfield;
+}
+
+.ag-editor .ag-quantity input::-webkit-outer-spin-button,
+.ag-editor .ag-quantity input::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.ag-editor .ag-quantity select {
+  flex: 0 0 auto;
+  width: 76px;
+  padding: 8px 10px;
+}
+
 /* A module-level empty state: centred in its panel and sized by its content,
    rather than the chat panel's fill-the-window variant. */
 .module-empty {
@@ -3946,4 +4143,1435 @@ input.jf-title {
     transition-duration: 1ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* =========================================================================
+   ArgoCD builder — the universal-chart GitOps tree editor.
+   Same shapes as the Jenkinsfile builder (one .detail-panel, sections split by
+   a rule, a dark preview block); only the prefix differs.
+   ========================================================================= */
+
+.ag-topbar-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.ag-save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 74px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #6f8088;
+}
+
+.ag-save-state.error { color: #ff8d95 }
+
+.ag-editor {
+  display: grid;
+  gap: 16px;
+}
+
+.ag-editor > .ag-section + .ag-section {
+  border-top: 1px solid #202b31;
+  padding-top: 16px;
+}
+
+.ag-title {
+  margin: 0;
+  font-size: 18px;
+}
+
+.ag-editor input,
+.ag-editor select,
+.ag-editor textarea,
+.git-repo input {
+  width: 100%;
+  border: 1px solid #2a3940;
+  border-radius: 6px;
+  min-height: 36px;
+  padding: 8px 10px;
+  background: #0d1316;
+  color: #f4f7f8;
+  font-weight: 400;
+  color-scheme: dark;
+}
+
+/* The popup a select opens is drawn by the platform, and `color-scheme: dark`
+   is what repaints it on Windows and macOS. GTK/Chromium ignores that for the
+   option rows themselves, so they are painted here too — otherwise the open
+   list is black text on the page's near-black. */
+.ag-editor select option {
+  background: #0d1316;
+  color: #f4f7f8;
+}
+
+.ag-editor input[type="checkbox"] {
+  width: auto;
+  min-height: 0;
+}
+
+.ag-editor input:focus,
+.ag-editor select:focus,
+.ag-editor textarea:focus,
+.git-repo input:focus {
+  outline: none;
+  border-color: #20c7bd;
+  box-shadow: 0 0 0 2px rgba(32, 199, 189, 0.15);
+}
+
+.ag-textarea {
+  resize: none;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12.5px;
+}
+
+/* ---- repositories ---- */
+
+/* Two repos with different jobs, so the summary names both rather than
+   reporting two branch names and leaving the reader to work out whose. */
+/* ---- the repository panel, and the chart line under it ----
+   The values repo is the tree's destination and carries the two git buttons;
+   the chart is one quiet line, because it is set once and read forever. */
+
+.ag-wiring {
+  display: grid;
+  gap: 8px;
+}
+
+.git-repo-panel {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #2a3940;
+  border-radius: 9px;
+  background: #0b1114;
+}
+
+/* No repo yet: just the offer, no box around it. */
+.git-repo-empty {
+  padding: 0;
+  border: none;
+  background: none;
+  justify-items: start;
+}
+
+.git-repo-connect {
+  font-size: 12.5px;
+  padding: 5px 10px;
+  min-height: 0;
+}
+
+.git-repo-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.git-repo-bar .git-repo-toggle {
+  flex: 1;
+  min-width: 200px;
+  border: none;
+  background: none;
+  padding: 0;
+}
+
+.git-repo-bar .git-repo-toggle:hover { border: none }
+
+.git-repo-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.git-repo-sub {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: #6f8088;
+}
+
+.git-push-result {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: #9fe4dc;
+}
+
+.git-push-result code {
+  font-size: 11.5px;
+  color: #d7fbf8;
+}
+
+.git-push-result a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #20c7bd;
+}
+
+.git-push-result.quiet { color: #8ea0a8 }
+.git-push-result.warn  { color: #f0c674 }
+.git-push-result.error { color: #ff8d95 }
+
+.ag-chart-line {
+  display: grid;
+  gap: 8px;
+}
+
+.ag-chart-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-left: 12px;
+  font-size: 12px;
+  color: #6f8088;
+}
+
+.ag-chart-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ag-chart-ref {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #b9c6cc;
+}
+
+.ag-chart-paths {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+}
+
+/* The pencil earns its 38px box only on hover, the way `.jf-title-row` does —
+   a permanent bordered button next to one quiet line reads as stuck to it. */
+.ag-chart-summary .edit-toggle {
+  width: auto;
+  min-width: 0;
+  height: auto;
+  padding: 2px;
+  border-color: transparent;
+  background: none;
+  color: #4a5a62;
+}
+
+.ag-chart-summary:hover .edit-toggle,
+.ag-chart-summary .edit-toggle[aria-expanded="true"] { color: #b9c6cc }
+
+/* ---- the New tree dialog ---- */
+
+.ag-new-modal .ag-new-choices {
+  display: grid;
+  gap: 10px;
+  padding: 16px 20px 20px;
+}
+
+.ag-new-choice {
+  display: grid;
+  gap: 5px;
+  justify-items: start;
+  text-align: left;
+  padding: 14px 16px;
+  border: 1px dashed #2a3940;
+  border-radius: 9px;
+  background: #0d1316;
+  color: #b9c6cc;
+  cursor: pointer;
+}
+
+.ag-new-choice:hover { border-color: #20c7bd; background: rgba(32, 199, 189, 0.07) }
+.ag-new-choice svg { color: #20c7bd }
+.ag-new-choice strong { font-size: 14px; color: #f2f6f7 }
+.ag-new-choice small { font-size: 12px; color: #8ea0a8; line-height: 1.5 }
+
+.ag-new-error {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: #ff8d95;
+}
+
+.ag-new-modal code {
+  font-size: 11.5px;
+  color: #9fe4dc;
+  overflow-wrap: anywhere;
+}
+
+.git-repo-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #223037;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: #0f1519;
+  color: #7f9199;
+  text-align: left;
+}
+
+.git-repo-toggle:hover { border-color: #2a3940; color: #b9c6cc }
+
+.git-repo-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.git-repo-pair {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+
+.git-repo-role {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7f9199;
+}
+
+.git-repo-ref {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #f2f6f7;
+  overflow-wrap: anywhere;
+}
+
+.git-repo-rev { color: #9fe4dc }
+
+.git-repo-arrow { display: inline-flex; color: #4a5a62 }
+
+.git-repo {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+/* Each half of the box says what its four fields are for before they start. */
+.git-repo-note {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: #8ea0a8;
+}
+
+.git-repo-note strong { color: #f2f6f7 }
+
+/* A field whose caption carries a `?`. It is not a <label>, because a label
+   wrapping a button names the button too — the input carries its own
+   aria-label instead. */
+.field-block {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  align-self: start;
+  font-size: 13px;
+  font-weight: 700;
+  color: #f2f6f7;
+}
+
+.field-block > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.git-repo .field-block,
+.git-repo label {
+  display: grid;
+  gap: 4px;
+  /* Both are needed, and neither is cosmetic. A grid row stretches its items to
+     the tallest one, so a label whose neighbour carries a hint was itself
+     stretched — and then its own auto rows shared the slack out, leaving the
+     field floating well below its own caption. `align-self` stops the label
+     growing; `align-content` stops its rows spreading if it ever does. */
+  align-content: start;
+  align-self: start;
+  font-size: 13px;
+  font-weight: 700;
+  color: #f2f6f7;
+}
+
+/* A hint is prose, not part of the caption it sits under. */
+.git-repo .field-hint,
+.ag-new-modal .field-hint {
+  font-weight: 400;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #8ea0a8;
+}
+
+/* ---- release / layer tabs ---- */
+
+/* ---- release / layer cards ----
+   One rectangle per release, so what a microservice deploys is legible before
+   it is selected. The layer strip below is the same card at half the size. */
+
+.ag-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  gap: 10px;
+  align-items: stretch;
+  /* Grid rows size themselves independently, so a fourth microservice wrapping
+     onto a second row made that row as short as its own content while the
+     first stayed tall — the same cards, two different sizes. `1fr` makes every
+     row the height of the tallest card in the grid. */
+  grid-auto-rows: 1fr;
+}
+
+/* A namespace's defaults: one wide bar above the microservice squares — what
+   every one of them starts from, not another one of them. */
+.ag-ns-defaults-shell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.ag-ns-defaults {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  text-align: left;
+  border: 1px solid #2f4a50;
+  border-radius: 10px;
+  padding: 18px 18px;
+  background: #0f171b;
+  color: inherit;
+  cursor: pointer;
+}
+
+.ag-ns-defaults .ag-card-name { font-size: 15px }
+
+.ag-ns-defaults:hover { border-color: #20c7bd88 }
+.ag-ns-defaults.selected { border-color: #20c7bd; background: rgba(32, 199, 189, 0.08) }
+
+.ag-layer-grid {
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+}
+
+/* Base is what every namespace layers over, so it gets its own row above them. */
+.ag-layer-base { grid-column: 1 / -1 }
+
+.ag-card {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 11px 12px;
+  border: 1px solid #2a3940;
+  border-radius: 9px;
+  background: #0d1316;
+  color: #b9c6cc;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.ag-card:hover { border-color: #3a4c55 }
+
+.ag-card.selected {
+  border-color: #20c7bd;
+  background: rgba(32, 199, 189, 0.12);
+}
+
+.ag-card-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #f2f6f7;
+  overflow-wrap: anywhere;
+}
+
+.ag-card-image {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: #8ea0a8;
+  overflow-wrap: anywhere;
+}
+
+.ag-card-image b { color: #9fe4dc; font-weight: 700 }
+.ag-card-image i { font-style: normal; color: #e2883c }
+
+/* One row per scope, so the card is read top to bottom: the workload, what is
+   inside its pod template, the objects beside it, the cluster-scoped ones. */
+.ag-card-chips {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  margin-top: 1px;
+}
+
+.ag-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* Indented and hung off a rule, because these are stanzas inside the workload
+   above them rather than objects of their own. */
+.ag-chip-row.pod {
+  position: relative;
+  margin-left: 9px;
+  padding-left: 8px;
+}
+
+.ag-chip-row.pod::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -2px;
+  bottom: 7px;
+  width: 7px;
+  border-left: 1px solid #2a3940;
+  border-bottom: 1px solid #2a3940;
+  border-bottom-left-radius: 4px;
+}
+
+.ag-card-foot {
+  font-size: 11px;
+  color: #6f8088;
+}
+
+.help-toggle.interactive {
+  color: inherit;
+  cursor: pointer;
+}
+
+.ag-override-remove {
+  margin-top: 8px;
+  padding: 3px 9px;
+  font-size: 11px;
+}
+
+.ag-chip {
+  border: 1px solid #2a3940;
+  border-radius: 5px;
+  padding: 2px 6px;
+  background: #111a1e;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: #9fb0b8;
+  white-space: nowrap;
+}
+
+.ag-chip b { color: #d7fbf8; font-weight: 700 }
+
+/* A chip that knows which feature made it takes you there when pressed. */
+.ag-chip.linked { cursor: pointer }
+.ag-chip.linked:hover { border-color: #20c7bd; color: #d7fbf8 }
+
+/* Where a chip lands: the feature card says so for a moment, because a smooth
+   scroll that ends on an unremarkable row leaves you wondering what moved. */
+@keyframes ag-flash {
+  from { border-color: #20c7bd; background: rgba(32, 199, 189, 0.16) }
+}
+
+.ag-feature.flash {
+  animation: ag-flash 1.4s ease-out;
+}
+
+/* "Every namespace says the same thing" — an offer, not a problem, so it is
+   the accent rather than the amber a check uses. */
+.ag-promote {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid #20c7bd44;
+  border-radius: 8px;
+  background: rgba(32, 199, 189, 0.06);
+  font-size: 12.5px;
+  color: #b9c6cc;
+}
+
+.ag-promote > svg { color: #20c7bd; flex: 0 0 auto }
+.ag-promote > span { flex: 1; min-width: 220px }
+.ag-promote code { font-size: 11.5px; color: #9fe4dc }
+.ag-promote strong { color: #f2f6f7 }
+.ag-promote .ghost-button { margin-left: auto }
+
+/* The other direction — a base value only an environment can answer — is not a
+   row under the grid but a line on the microservice's own card: it is a fact
+   about that one release, and a stack of rows made you match a name back to a
+   tile. Orange, because that is what an override is coloured everywhere else in
+   this module (the tile dot, the override light), and because this one is an
+   observation rather than the offer a teal row makes. */
+.ag-card-warn {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #e2883c;
+}
+
+.ag-card-warn > svg { flex: 0 0 auto; align-self: center }
+.ag-card-warn code { font-size: 10.5px; color: #f0c08a }
+
+/* The workload is what the release *is*; the rest is what it brings with it. */
+.ag-chip.workload {
+  border-color: #20c7bd66;
+  background: rgba(32, 199, 189, 0.1);
+  color: #9fe4dc;
+}
+
+/* Part of the workload's pod template, not an object of its own — a
+   `volumeClaimTemplates` entry is a stanza inside the StatefulSet, and reading
+   exactly like a standalone PersistentVolumeClaim was the confusion this
+   removes. Set back and joined to the workload chip by a leading tick. */
+.ag-chip.pod {
+  border-color: transparent;
+  background: rgba(159, 228, 220, 0.05);
+  color: #7d8e96;
+  font-weight: 400;
+}
+
+.ag-chip.pod::before {
+  content: "↳";
+  margin-right: 4px;
+  color: #4a5a62;
+}
+
+/* Cluster-scoped: exactly one release in the cluster may own it, which is a
+   fact about the object and not about this tree. */
+.ag-chip.cluster {
+  border-color: #4a3f2a;
+  background: rgba(224, 179, 65, 0.08);
+  color: #e0b341;
+}
+
+/* Only a namespace override creates this one — see the note under the grid.
+   The border is lighter than a plain chip's, not darker: a 1px dash at #2a3940
+   reads as a solid line, which is the whole distinction. */
+.ag-chip.added {
+  border: 1px dashed #465a64;
+  background: none;
+  color: #7d8e96;
+}
+
+.ag-add-card {
+  align-content: center;
+  justify-content: center;
+  grid-auto-flow: column;
+  gap: 6px;
+  border-style: dashed;
+  color: #8ea0a8;
+  font-size: 12.5px;
+  font-weight: 700;
+  min-height: 54px;
+}
+
+.ag-add-card:hover { color: #d7fbf8 }
+
+/* The tree's defaults sit in the microservices grid as its first tile — the
+   same idea as the Layers grid's Base tile, in the other direction. Smaller
+   than a release card: it carries one fact, not a list of objects. */
+.ag-defaults-card {
+  align-content: center;
+  gap: 4px;
+}
+
+/* The shared release's add button carries the one `?` that explains what it is
+   — it is a convention, not a mode, and nobody meets it anywhere else. The `?`
+   sits beside the button rather than inside it: a button cannot hold one. */
+.ag-add-shared {
+  position: relative;
+  display: grid;
+}
+
+.ag-add-shared > .help {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
+/* A card's own rename and delete. They sit *beside* the card rather than in it
+   — the card is a <button>, and a button cannot contain one — so the shell is
+   what the grid lays out and the card fills it. */
+.ag-card-shell {
+  position: relative;
+  display: grid;
+}
+
+.ag-card-tools {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 2px;
+  /* Dimmed rather than hidden until hover: a control revealed only by a pointer
+     is a control a touch screen does not have, and these are the only way to
+     delete a card. */
+  opacity: 0.45;
+  transition: opacity 0.12s;
+}
+
+.ag-card-shell:hover .ag-card-tools,
+.ag-card-shell:focus-within .ag-card-tools {
+  opacity: 1;
+}
+
+.ag-card-tools .icon-button {
+  width: 22px;
+  min-height: 22px;
+  padding: 0;
+  color: #8ea0a8;
+}
+
+/* So a long name does not run underneath them — except while it is being
+   typed, where a layer tile is only ~148px wide and 46px of reserved gutter is
+   the difference between seeing the name and seeing the end of it. Renaming is
+   over the moment the field blurs, so the tools are one press away regardless. */
+.ag-card-shell .ag-card-name {
+  padding-right: 46px;
+}
+
+.ag-card-name:has(.title-edit-input) { padding-right: 0 }
+.ag-card-shell:has(.title-edit-input) .ag-card-tools { display: none }
+
+/* The portal's editable-title field, at the card's own type size. */
+.ag-card-name .title-edit-input {
+  width: 100%;
+  min-width: 0;
+  font-size: 13.5px;
+  padding: 2px 6px;
+}
+
+.ag-confirm {
+  max-width: 440px;
+}
+
+.ag-confirm-detail {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #b9c6cc;
+}
+
+.ag-confirm-detail > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: #e2883c;
+}
+
+.ag-scope-note {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  color: #8ea0a8;
+}
+
+/* ---- feature catalog ---- */
+
+.ag-features {
+  display: grid;
+  gap: 18px;
+  margin-top: 14px;
+}
+
+.ag-category-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+  padding: 4px 2px;
+  border: 0;
+  border-bottom: 1px solid #1b262c;
+  background: none;
+  cursor: pointer;
+  color: #7f9199;
+}
+
+.ag-category-head:hover { color: #b9c6cc }
+
+.ag-category-name:has(.help) { display: inline-flex; align-items: center; gap: 6px }
+
+.ag-category-name {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.ag-category-count {
+  margin-left: auto;
+  border-radius: 999px;
+  padding: 1px 8px;
+  background: rgba(32, 199, 189, 0.12);
+  color: #9fe4dc;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.ag-feature {
+  border: 1px solid #1e2a30;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: #0f1519;
+}
+
+.ag-feature.on { border-color: #20c7bd66 }
+
+/* What a card is warning about is the card itself, outlined — worst first. */
+.ag-feature.overridden { border-color: #e2883c }
+.ag-feature.has-warn { border-color: #e0aa54 }
+.ag-feature.has-bad { border-color: #ff8d95 }
+.ag-category-head.overridden { box-shadow: inset 3px 0 0 #e2883c }
+.ag-layer-card.overridden { border-color: #e2883c }
+
+/* The handle on an override's popover, now the border carries the signal. */
+.ag-override-tag {
+  border: 1px solid #e2883c88;
+  border-radius: 999px;
+  padding: 0 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #f0b27a;
+}
+
+.ag-mount.done { opacity: 0.7; cursor: default }
+.ag-card-warn.linked { cursor: pointer }
+.ag-card-warn.linked:hover span { text-decoration: underline }
+
+/* The three a release cannot be built without. Pinned above the categories,
+   always open, no checkbox — so the first thing on screen is the workload and
+   the image, not forty-five collapsed sections. */
+.ag-required-head {
+  display: block;
+  margin: 0 0 8px;
+  padding: 4px 2px;
+  border-bottom: 1px solid #1b262c;
+  color: #9fe4dc;
+}
+
+.ag-feature-required {
+  border-color: #20c7bd66;
+  background: #101a1d;
+}
+
+/* Nothing to tick, so the name starts at the edge instead of in the checkbox's
+   column, and the blurb follows it. */
+
+
+/* Everything the chart already answers for you, one press away. */
+.ag-more {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ag-more-label {
+  font-size: 12px;
+  color: #6f8088;
+  margin-right: 2px;
+}
+
+.ag-more-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px dashed #2a3940;
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: none;
+  color: #8ea0a8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ag-more-chip:hover {
+  border-style: solid;
+  border-color: #20c7bd66;
+  color: #d7fbf8;
+}
+
+/* A checkbox, a name and its `?`. The blurb that used to fill a second column
+   lives behind that `?` now, so this is one row rather than a grid. */
+.ag-feature-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.ag-feature-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.ag-feature-name {
+  font-weight: 800;
+  font-size: 13.5px;
+  color: #f2f6f7;
+}
+
+.ag-feature-blurb {
+  margin: 0;
+  font-size: 12.5px;
+  color: #8ea0a8;
+}
+
+.ag-feature-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+/* `align-content: start` because the fields in a row are stretched to the
+   tallest of them: without it, a field with no hint under it has its two rows
+   stretched to fill that height — a taller input, sitting lower than the one
+   beside it. */
+.ag-field { display: grid; gap: 4px; min-width: 0; align-content: start }
+
+/* A list, a map or a block of YAML is never a column in the field grid — it
+   needs the width, and a one-column list beside an empty half-panel is what
+   made these read as broken. */
+.ag-field-wide { grid-column: 1 / -1 }
+
+.ag-field-label-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ag-field-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f2f6f7;
+}
+
+.ag-hint,
+.ag-note {
+  margin: 0;
+  font-size: 12px;
+  color: #8ea0a8;
+}
+
+.ag-note { grid-column: 1 / -1 }
+
+.ag-error {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #ff8d95;
+}
+
+.ag-rows { display: grid; gap: 6px }
+
+.ag-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 6px;
+}
+
+.ag-entry {
+  border: 1px solid #223037;
+  border-radius: 8px;
+  padding: 10px 12px 12px;
+  background: #0c1216;
+  display: grid;
+  /* The fields sit side by side across the box; only the header spans it. */
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px 12px;
+  align-items: start;
+}
+
+.ag-entry-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid #1b262c;
+  padding-bottom: 6px;
+}
+
+/* A textarea inside an entry (a manifest, a policy body, a command) is the one
+   thing that wants the whole row. */
+.ag-entry-field:has(textarea) { grid-column: 1 / -1 }
+
+/* What a microservice inherits from the tree's defaults: shown, not editable,
+   with the way back to where it is editable. Greyed, because it is not this
+   microservice's decision — but it is in this microservice's file. */
+.ag-inherited {
+  grid-column: 1 / -1;
+  border: 1px dashed #26333a;
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: #0d1418;
+}
+
+.ag-inherited-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  color: #7d8f97;
+}
+
+.ag-inherited-link:hover { color: #9fe4dc }
+
+.ag-inherited pre {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #7d8f97;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The same problem the list under the form shows, repeated on the card it is
+   about: pressing it there lands here, and a card with no sign of why is the
+   other half of that complaint. */
+.ag-feature-problems {
+  grid-column: 1 / -1;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.ag-feature-problems li {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  border-left: 2px solid;
+  border-radius: 0 6px 6px 0;
+  padding: 6px 9px;
+  font-size: 12px;
+}
+
+.ag-feature-problems li svg { flex: 0 0 auto; margin-top: 1px }
+
+.ag-feature-problems li.bad {
+  border-color: #ff8d95;
+  background: rgba(255, 141, 149, 0.08);
+  color: #ffc9cd;
+}
+
+.ag-feature-problems li.warn {
+  border-color: #e0aa54;
+  background: rgba(224, 170, 84, 0.08);
+  color: #f0d7a8;
+}
+
+/* The way back out of an add-list chip, shown on hover so a form of a dozen
+   fields is not a row of a dozen crosses. */
+.ag-field-remove {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: #55656d;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.ag-field:hover .ag-field-remove,
+.ag-field-remove:focus-visible { opacity: 1 }
+.ag-field-remove:hover { color: #ff8d95 }
+
+.ag-entry-title {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  font-weight: 700;
+  color: #9fe4dc;
+  overflow-wrap: anywhere;
+  /* Takes the slack, so the entry's own controls stay together on the right. */
+  margin-right: auto;
+}
+
+/* The offer to wire a claim, ConfigMap or Secret into the container. Quiet: it
+   sits on every named row of those three features until it has been taken. */
+.ag-mount {
+  padding: 2px 8px;
+  font-size: 11px;
+  gap: 4px;
+}
+
+.ag-entry-field {
+  display: grid;
+  gap: 4px;
+  font-size: 12.5px;
+  color: #b9c6cc;
+  min-width: 0;
+}
+
+/* A checkbox reads as a checkbox: the box first, its words beside it, on one
+   line — not a label stranded above an empty-looking square. */
+.ag-entry-field:has(input[type="checkbox"]),
+.ag-field:has(> input[type="checkbox"]) {
+  display: flex;
+  flex-direction: row-reverse;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  align-self: end;
+  min-height: 36px;
+}
+
+.ag-field:has(> input[type="checkbox"]) .ag-field-label-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ag-field-label { font-weight: 700 }
+
+.ag-add { justify-self: start }
+
+/* ---- generated files ---- */
+
+.ag-preview { display: grid; gap: 10px; min-width: 0 }
+
+.ag-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ag-preview-head h3 { margin: 0; font-size: 15px }
+
+.ag-preview-actions { display: flex; gap: 8px }
+
+.ag-preview-body {
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) 1fr;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ag-file-list,
+.ag-file-children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  align-content: start;
+}
+
+/* Sized to the window below the sticky header, so a scroller's own bottom edge
+   (and the horizontal bar on it) is on screen at the same time as its top. */
+.ag-file-list {
+  max-height: max(240px, calc(100vh - 220px));
+  overflow: auto;
+  border: 1px solid #1b262c;
+  border-radius: 8px;
+  padding: 6px 4px;
+  background: #0c1216;
+}
+
+.ag-file,
+.ag-folder {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: none;
+  color: #b9c6cc;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+
+.ag-file:hover,
+.ag-folder:hover { background: rgba(159, 228, 220, 0.06) }
+
+.ag-folder-name {
+  font-weight: 700;
+  color: #cfe0e5;
+}
+
+.ag-file svg,
+.ag-folder svg { flex: 0 0 auto; color: #6f8088 }
+
+.ag-file.selected {
+  border-color: #20c7bd66;
+  background: rgba(32, 199, 189, 0.1);
+  color: #d7fbf8;
+}
+
+.ag-file.selected svg { color: #20c7bd }
+
+.ag-file-name {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  overflow-wrap: anywhere;
+}
+
+/* What the file is for, beside its path above the file itself. */
+.ag-file-note {
+  font-family: var(--sans, inherit);
+  font-size: 11.5px;
+  color: #7f9199;
+}
+
+/* A file has no chevron, so it needs the space one would have taken to line up
+   with the folders around it. That space is also where its status letter goes,
+   so a changed file is marked without a badge widening every row. */
+.ag-file-gutter {
+  width: 13px;
+  flex: 0 0 auto;
+  text-align: center;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.ag-file-gutter.st-added { color: #55d18d }
+.ag-file-gutter.st-modified { color: #e6b455 }
+.ag-file-gutter.st-removed { color: #e0736d }
+
+/* Why there is no diff, when there was meant to be one. Quiet: the tree itself
+   is fine, it is the comparison that is missing. */
+.ag-compare-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 7px 10px;
+  border: 1px solid #4a3a1e;
+  border-radius: 8px;
+  background: rgba(230, 180, 85, 0.07);
+  color: #d9b877;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.ag-compare-note svg { flex: 0 0 auto; margin-top: 2px }
+
+/* A unified diff: the sign column is part of the line, so it copies with it. */
+.ag-diff .add { display: block; color: #a8f0cb; background: rgba(85, 209, 141, 0.1) }
+.ag-diff .del { display: block; color: #ffb8b2; background: rgba(224, 115, 109, 0.1) }
+.ag-diff .same { display: block; color: #8fa2aa }
+
+/* The global `code` rule paints a chip background, which turns a whole file
+   into a striped block. The preview is one plain document. */
+.ag-file-body code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+.ag-file-pane {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  align-content: start;
+}
+
+.ag-file-path {
+  margin: 0;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  color: #9fe4dc;
+  overflow-wrap: anywhere;
+}
+
+.ag-file-body {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #203238;
+  border-radius: 8px;
+  background: #0d1316;
+  overflow: auto;
+  max-height: max(240px, calc(100vh - 220px));
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+@media (max-width: 900px) {
+  .ag-preview-body { grid-template-columns: 1fr }
+}
+
+/* ---- ArgoCD builder: import, problems ---- */
+
+/* A section's name, with its explanation behind the `?` beside it. */
+.ag-grid-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6f8088;
+}
+
+.ag-scope-actions .ag-grid-head { margin: 0; margin-right: auto }
+
+.ag-scope-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ag-problems {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.ag-problems li {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  border-left: 2px solid;
+  border-radius: 0 6px 6px 0;
+  padding: 7px 10px;
+  font-size: 12.5px;
+}
+
+/* A problem that names a feature is a button to it — the row itself, so the
+   whole line is the target rather than a link buried in the sentence. */
+.ag-problems li.linked { padding: 0 }
+
+.ag-problems li.linked > button {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 0 6px 6px 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ag-problems li.linked > button svg { flex: 0 0 auto; margin-top: 1px }
+.ag-problems li.linked:hover { filter: brightness(1.25) }
+
+.ag-problems li.bad {
+  border-color: #ff8d95;
+  background: rgba(255, 141, 149, 0.08);
+  color: #ffc9cd;
+}
+
+.ag-problems li.warn {
+  border-color: #e0aa54;
+  background: rgba(224, 170, 84, 0.08);
+  color: #f0d7a8;
+}
+
+.ag-import-modal {
+  width: min(760px, 92vw);
+  display: grid;
+  gap: 12px;
+}
+
+.ag-import-text {
+  width: 100%;
+  border: 1px solid #2a3940;
+  border-radius: 6px;
+  padding: 10px;
+  background: #0d1316;
+  color: #f4f7f8;
+  color-scheme: dark;
+}
+
+.ag-import-warnings {
+  border: 1px solid #e0aa5466;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(224, 170, 84, 0.08);
+  font-size: 12.5px;
+}
+
+.ag-import-warnings p {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  font-weight: 700;
+}
+
+.ag-import-warnings ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+/* Jenkinsfile: the connected repository.
+   Deliberately the ArgoCD repo panel's shape and colours — the two builders do
+   the same thing with the same two buttons, so they read as one feature rather
+   than two. Appended here rather than folded into the .ag-* rules above so a
+   change to either module's panel cannot silently restyle the other's. */
+
+/* Why Connect could not be read, in the dialog that asked. */
+.jf-new-error {
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12.5px;
+  color: #ff8d95;
+}
+
+/* No git credential: the choice stays visible and says why, rather than
+   vanishing and leaving the feature undiscoverable. */
+.jf-new-choice:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.jf-new-choice:disabled:hover {
+  border-color: #223038;
+  background: #101a1e;
 }
