@@ -206,6 +206,15 @@ describe("ArgocdView", () => {
     const route = [...tile.querySelectorAll(".ag-chip")].find((c) => c.textContent === "Route")!;
     expect(route).toHaveClass("added");
     expect(route).toHaveAttribute("title", expect.stringContaining("prod"));
+    // From base there is nothing of it to open, so it is not pressable there…
+    expect(route).not.toHaveClass("linked");
+
+    // …but it is from prod, where the Route's fields are.
+    fireEvent.click(card("Layers", /prod/));
+    const inProd = card("Microservices", /storefront/);
+    expect([...inProd.querySelectorAll(".ag-chip")].find((c) => c.textContent === "Route")).toHaveClass("linked");
+    // prod deploys base's tag; a namespace is where the tag is worth showing.
+    expect(inProd).toHaveTextContent("ghcr.io/shop/storefront:2.1.0");
   });
 
   it("connects a repository, reads the chart out of it, and commits back", async () => {

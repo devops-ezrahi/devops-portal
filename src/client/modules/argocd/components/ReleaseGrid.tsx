@@ -16,12 +16,22 @@ import { SCOPE_NOTE, type Resource, type Scope } from "../resources";
 export type ReleaseCard = {
   id: string;
   name: string;
-  /** `repo:tag`, or empty when no image is set yet. */
+  /** `image.repository`, or empty when none is set yet. */
   image: string;
+  /**
+   * The tag the open layer deploys. `null` = a namespace deploys none, which is
+   * worth saying; `undefined` = base sets none, which is normal (tags are
+   * usually per-namespace) and shows nothing.
+   */
+  tag?: string | null;
   /** What the base file creates. */
   resources: Resource[];
-  /** Kinds only a namespace override adds — drawn dashed, hovering as the namespaces that add them. */
-  extras: { kind: string; namespaces: string[] }[];
+  /**
+   * Kinds only a namespace override adds — drawn dashed, hovering as the
+   * namespaces that add them. `feature` is set only while one of those
+   * namespaces is open, which is what makes the chip pressable.
+   */
+  extras: { kind: string; namespaces: string[]; feature?: string }[];
   /** How many namespaces override this release, out of how many there are. */
   overrides: { count: number; total: number };
   /**
@@ -179,7 +189,12 @@ export function ReleaseGrid({
             {/* "no image" is a nudge for a release that runs pods and has not
                 been given one yet — `checks.ts` refuses that outright. A release
                 with no workload is not missing anything. */}
-            {(card.image || workload) && <span className="ag-card-image">{card.image || "no image"}</span>}
+            {(card.image || card.tag || workload) && (
+              <span className="ag-card-image">
+                {card.image || "no image"}
+                {card.tag ? <b>:{card.tag}</b> : card.tag === null && workload && <i> · no tag</i>}
+              </span>
+            )}
             <span className="ag-card-chips">
               {SCOPES.map((scope) => {
                 const inScope = card.resources.filter((r) => r.scope === scope);
@@ -208,7 +223,10 @@ export function ReleaseGrid({
                       key={e.kind}
                       kind={e.kind}
                       variant="added"
-                      title={`Added by ${e.namespaces.join(", ")} — not in the base file`}
+                      feature={e.feature}
+                      title={`Added by ${e.namespaces.join(", ")} — not in the base file${
+                        e.feature ? "" : ". Select that namespace to open it."
+                      }`}
                     />
                   ))}
                 </span>

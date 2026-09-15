@@ -573,25 +573,15 @@ h3 {
   min-width: 0;
 }
 
-/* Minimized list (ListSizeToggle): two widths, not a drag. */
+/* Minimized list (ListSizeToggle): nothing left of it but the button, so the
+   content column takes the whole width. */
 .list-narrow .workspace-grid {
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: 28px minmax(0, 1fr);
 }
 
-/* At that width the heading and its All/My button still fit on one line — but
-   only if neither is allowed to wrap onto two. */
-.list-narrow .ticket-list-header {
-  gap: 6px;
-}
-
-.list-narrow .ticket-list-header h2 {
-  font-size: 15px;
-  white-space: nowrap;
-}
-
-.list-narrow .ticket-list-header .ghost-button {
-  white-space: nowrap;
-  padding-inline: 8px;
+.list-narrow .ticket-column > :not(.ticket-list-header),
+.list-narrow .ticket-list-header > :not(.list-size-toggle) {
+  display: none;
 }
 
 .list-size-toggle {
@@ -4533,6 +4523,9 @@ input.jf-title {
   overflow-wrap: anywhere;
 }
 
+.ag-card-image b { color: #9fe4dc; font-weight: 700 }
+.ag-card-image i { font-style: normal; color: #e2883c }
+
 /* One row per scope, so the card is read top to bottom: the workload, what is
    inside its pod template, the objects beside it, the cluster-scoped ones. */
 .ag-card-chips {
@@ -5218,8 +5211,10 @@ input.jf-title {
   align-content: start;
 }
 
+/* Sized to the window below the sticky header, so a scroller's own bottom edge
+   (and the horizontal bar on it) is on screen at the same time as its top. */
 .ag-file-list {
-  max-height: 520px;
+  max-height: max(240px, calc(100vh - 220px));
   overflow: auto;
   border: 1px solid #1b262c;
   border-radius: 8px;
@@ -5344,7 +5339,7 @@ input.jf-title {
   border-radius: 8px;
   background: #0d1316;
   overflow: auto;
-  max-height: 520px;
+  max-height: max(240px, calc(100vh - 220px));
   font-size: 12.5px;
   line-height: 1.6;
 }

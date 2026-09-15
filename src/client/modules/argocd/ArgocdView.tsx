@@ -236,33 +236,47 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         const image = obj(base.image);
         // Which namespaces add an object the base does not have. The card draws
         // those chips dashed rather than counting them as the release's own.
-        const extras = new Map<string, string[]>();
+        const extras = new Map<string, { namespaces: string[]; feature?: string }>();
         let overridden = 0;
-        draft.namespaces.forEach((ns) => {
+        /** The image the open namespace deploys — base, then its defaults, then its own file. */
+        let here: Record<string, unknown> | undefined;
+        draft.namespaces.forEach((ns, i) => {
           const entry = ns.releases.find((e) => e.release === r.id);
           const override = entry ? buildValues(entry.features, entry.extraValues) : {};
+          const nsDefaults = buildValues(ns.defaults?.features ?? {}, ns.defaults?.extraValues);
+          // Before the early return: a namespace that overrides nothing still deploys an image.
+          if (i === layer) here = obj(deepMerge(deepMerge(base, nsDefaults), override).image);
           // An entry exists from the first keystroke in that layer; an empty
           // one writes an empty file and overrides nothing.
           if (!Object.keys(override).length) return;
           // "Overridden" counts second copies only — see `shadowing`.
-          const nsDefaults = buildValues(ns.defaults?.features ?? {}, ns.defaults?.extraValues);
           if (Object.keys(shadowing(override, deepMerge(base, nsDefaults))).length) overridden += 1;
           const nsName = ns.name.trim() || "unnamed";
-          addedKinds(resources, resourcesOf(deepMerge(base, override))).forEach((kind) =>
-            extras.set(kind, [...(extras.get(kind) ?? []), nsName])
-          );
+          const withOverride = resourcesOf(deepMerge(base, override));
+          addedKinds(resources, withOverride).forEach((kind) => {
+            const extra = extras.get(kind) ?? { namespaces: [] };
+            extra.namespaces.push(nsName);
+            // Pressable only from a namespace that adds it: that override is
+            // where its fields are, so a jump from anywhere else lands on nothing.
+            if (i === layer) extra.feature = withOverride.find((x) => x.kind === kind)?.feature;
+            extras.set(kind, extra);
+          });
         });
+        // In a namespace, the tag that namespace actually deploys — it is usually
+        // set there, not in base, so base's image alone read as "no tag".
+        const shown = here ?? image;
         return {
           id: r.id,
           name: r.name,
-          image: [image.repository, image.tag].filter(Boolean).join(":"),
+          image: String(shown.repository ?? ""),
+          tag: shown.tag ? String(shown.tag) : here ? null : undefined,
           resources,
-          extras: [...extras].map(([kind, namespaces]) => ({ kind, namespaces })),
+          extras: [...extras].map(([kind, extra]) => ({ kind, ...extra })),
           overrides: { count: overridden, total: draft.namespaces.length },
           envSpecific: env && { paths: env.paths, namespaces: env.namespaces },
         };
       }),
-    [draft.releases, draft.namespaces, envSpecific]
+    [draft.releases, draft.namespaces, envSpecific, layer]
   );
 
   const layerCards = useMemo<LayerCard[]>(
@@ -922,7 +936,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                     A chip set back behind <code>↳</code> is part of the workload's pod template rather than an object
                     of its own; an amber one is cluster-scoped, so only one microservice may own it.
                   </p>
-                  <p>A dashed chip is added by a namespace override, not by the base file.</p>
+                  <p>A dashed chip is added by a namespace override, not by the base file — select that namespace to press it.</p>
                   <p>Press any chip to jump to the fields that set it.</p>
                 </Help>
               </h3>
