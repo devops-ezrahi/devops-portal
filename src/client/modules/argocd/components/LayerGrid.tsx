@@ -40,7 +40,7 @@ export function LayerGrid({ layer, namespaces, releaseCount, onSelect, onRename,
       <button
         type="button"
         aria-pressed={layer === BASE}
-        className={`ag-card ag-layer-card${layer === BASE ? " selected" : ""}`}
+        className={`ag-card ag-layer-card ag-layer-base${layer === BASE ? " selected" : ""}`}
         onClick={() => onSelect(BASE)}
       >
         <span className="ag-card-name">Base</span>
