@@ -40,7 +40,30 @@ describe("checkValues", () => {
 
   it("catches a mount with no volume behind it", () => {
     expect(say(withImage({ volumeMounts: { data: { mountPath: "/var/data" } } }))).toContain("has no matching volume");
-    expect(say(withImage({ volumes: { data: { emptyDir: {} } }, volumeMounts: { data: { mountPath: "/var/data" } } }))).toBe("");
+    expect(say(withImage({ volumes: { data: { emptyDir: { sizeLimit: "1Gi" } } }, volumeMounts: { data: { mountPath: "/var/data" } } }))).toBe("");
+  });
+
+  it("catches a nodePort on a ClusterIP Service, primary or extra", () => {
+    const ports = { http: { port: 80, nodePort: 30080 } };
+    expect(say(withImage({ service: { enabled: true, ports } }))).toContain("is ClusterIP but sets a nodePort");
+    expect(say(withImage({ services: { admin: { enabled: true, ports } } }))).toContain("Service admin is ClusterIP");
+    expect(say(withImage({ service: { enabled: true, type: "NodePort", ports } }))).toBe("");
+  });
+
+  it("catches an emptyDir with no sizeLimit", () => {
+    expect(say(withImage({ volumes: { scratch: { emptyDir: {} } } }))).toContain("emptyDir scratch has no sizeLimit");
+  });
+
+  it("catches a PVC bound to a PersistentVolume nothing creates", () => {
+    expect(say(withImage({ pvc: { data: { volumeName: "pv-data" } } }))).toContain("stays Pending");
+    expect(say(withImage({ pvc: { data: { volumeName: "pv-data" } }, persistentVolumes: { "pv-data": {} } }))).toBe("");
+  });
+
+  it("catches the Redis settings that lose data or flap", () => {
+    const cm = (conf: string) => withImage({ configMaps: { redis: { data: { "redis.conf": conf } } } });
+    expect(say(cm("port 6379\ndir /tmp\n"))).toContain("lost on restart");
+    expect(say(cm("sentinel down-after-milliseconds mymaster 1000\n"))).toContain("triggers a failover");
+    expect(say(cm("dir /data\nsentinel down-after-milliseconds mymaster 30000\n"))).toBe("");
   });
 
   it("catches a ReadWriteOnce claim shared by several replicas", () => {
@@ -98,6 +121,9 @@ describe("checkValues", () => {
       withImage({ volumeMounts: { data: { mountPath: "/data" } } }),
       withImage({ jobs: { migrate: { serviceAccountName: "seeder-sa" } } }),
       { workload: { type: "statefulset" }, service: { enabled: true } },
+      withImage({ service: { ports: { http: { port: 80, nodePort: 30080 } } }, services: { admin: { ports: { a: { port: 1, nodePort: 30081 } } } } }),
+      withImage({ volumes: { scratch: { emptyDir: {} } }, pvc: { data: { volumeName: "pv" } } }),
+      withImage({ configMaps: { redis: { data: { conf: "dir /tmp" } } } }),
       {},
     ];
     const seen = new Set<string>();

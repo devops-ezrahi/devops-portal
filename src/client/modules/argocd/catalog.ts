@@ -153,6 +153,14 @@ export const kvOf = (rows: unknown): Values | null => {
 /** The inverse of `kvOf`, for import: a values map back into editable rows. */
 export const pairsOf = (map: unknown): KvPair[] =>
   isRecord(map) ? Object.entries(map).map(([k, v]) => ({ k, v: String(v ?? "") })) : [];
+/** One item per line into a list, written only when there is at least one. */
+export const putList = (o: Values, k: string, text: unknown): Values => {
+  const items = listOf(text);
+  if (items.length) o[k] = items;
+  return o;
+};
+/** The inverse of `putList`. */
+export const linesOf = (v: unknown): string => (Array.isArray(v) ? v.map(String).join("\n") : "");
 export const rowsOf = (v: unknown): Values[] => (Array.isArray(v) ? (v as Values[]) : []);
 export const isRecord = (v: unknown): v is Values => !!v && typeof v === "object" && !Array.isArray(v);
 /** `name`-keyed map built from rows — the shape most of the chart's lists take. */
@@ -977,6 +985,9 @@ F({
     SE("sessionAffinity", "sessionAffinity", ["", "None", "ClientIP"], { path: "service.sessionAffinity" }),
     SE("externalTrafficPolicy", "externalTrafficPolicy", ["", "Cluster", "Local"], { path: "service.externalTrafficPolicy" }),
     B("publishNotReadyAddresses", "publishNotReadyAddresses", { path: "service.publishNotReadyAddresses" }),
+    S("loadBalancerIP", "loadBalancerIP", { path: "service.loadBalancerIP", placeholder: "203.0.113.10" }),
+    TX("loadBalancerSourceRanges", "loadBalancerSourceRanges", { placeholder: "10.0.0.0/8\n192.168.0.0/16", hint: "One CIDR per line." }),
+    TX("externalIPs", "externalIPs", { placeholder: "198.51.100.7", hint: "One IP per line." }),
     KV("annotations", "annotations"),
   ],
   emit: (v) => {
@@ -990,6 +1001,9 @@ F({
     put(o, "sessionAffinity", v.sessionAffinity);
     put(o, "externalTrafficPolicy", v.externalTrafficPolicy);
     if (v.publishNotReadyAddresses) o.publishNotReadyAddresses = true;
+    put(o, "loadBalancerIP", v.loadBalancerIP);
+    putList(o, "loadBalancerSourceRanges", v.loadBalancerSourceRanges);
+    putList(o, "externalIPs", v.externalIPs);
     const a = kvOf(v.annotations);
     if (a) o.annotations = a;
     return { service: o };
@@ -1006,6 +1020,9 @@ F({
       sessionAffinity: s.sessionAffinity ?? "",
       externalTrafficPolicy: s.externalTrafficPolicy ?? "",
       publishNotReadyAddresses: !!s.publishNotReadyAddresses,
+      loadBalancerIP: s.loadBalancerIP ?? "",
+      loadBalancerSourceRanges: linesOf(s.loadBalancerSourceRanges),
+      externalIPs: linesOf(s.externalIPs),
       annotations: pairsOf(s.annotations),
     };
   },
@@ -1032,6 +1049,9 @@ F({
         { key: "clusterIP", label: "clusterIP", placeholder: "None" },
         { key: "publishNotReadyAddresses", label: "publishNotReadyAddresses", kind: "boolean" },
         { key: "selector", label: "selector", kind: "text", placeholder: "app=legacy-app" },
+        { key: "loadBalancerIP", label: "loadBalancerIP", placeholder: "203.0.113.10", when: (r) => r.type === "LoadBalancer" },
+        { key: "loadBalancerSourceRanges", label: "loadBalancerSourceRanges", kind: "text", placeholder: "10.0.0.0/8", when: (r) => r.type === "LoadBalancer" },
+        { key: "externalIPs", label: "externalIPs", kind: "text", placeholder: "198.51.100.7" },
       ],
       { addLabel: "Add Service" }
     ),
@@ -1049,6 +1069,9 @@ F({
         if (r.publishNotReadyAddresses) o.publishNotReadyAddresses = true;
         const s = parseKV(r.selector);
         if (s) o.selector = s;
+        put(o, "loadBalancerIP", r.loadBalancerIP);
+        putList(o, "loadBalancerSourceRanges", r.loadBalancerSourceRanges);
+        putList(o, "externalIPs", r.externalIPs);
         return o;
       }),
     }),
@@ -1059,6 +1082,9 @@ F({
       clusterIP: b.clusterIP,
       publishNotReadyAddresses: !!b.publishNotReadyAddresses,
       selector: kvText(b.selector),
+      loadBalancerIP: b.loadBalancerIP,
+      loadBalancerSourceRanges: linesOf(b.loadBalancerSourceRanges),
+      externalIPs: linesOf(b.externalIPs),
     })),
   }),
   notes: ["The map key is the object name verbatim, so it has to be unique in the namespace."],
@@ -2169,7 +2195,7 @@ F({
   id: "sidecars",
   cat: "container",
   name: "Sidecars & init containers",
-  keys: ["sidecars", "initContainers"],
+  keys: ["sidecars", "initContainers", "initContainerOrder"],
   blurb: "Extra containers beside the main one, keyed by container name. The body is a container spec, passed through as written.",
   fields: [
     RW(
@@ -2191,13 +2217,25 @@ F({
       { addLabel: "Add init container" }
     ),
   ],
-  emit: (v) =>
-    some({
+  emit: (v) => {
+    const initContainers = mapOf(v.initContainers, (r) => (nz(r.body) ? (raw(r.body) as unknown as Values) : null));
+    // The chart ranges a map in sorted key order, but init containers run one
+    // after another — so the row order is written out whenever it could matter.
+    const order = Object.keys(initContainers ?? {});
+    return some({
       sidecars: mapOf(v.sidecars, (r) => (nz(r.body) ? (raw(r.body) as unknown as Values) : null)),
-      initContainers: mapOf(v.initContainers, (r) => (nz(r.body) ? (raw(r.body) as unknown as Values) : null)),
-    }),
-  load: (doc) => ({ sidecars: bodyRows(doc.sidecars), initContainers: bodyRows(doc.initContainers) }),
+      initContainers,
+      initContainerOrder: order.length > 1 ? flow(order) : undefined,
+    });
+  },
+  load: (doc) => {
+    const order = rowsOf(doc.initContainerOrder).map(String);
+    const rank = (name: unknown) => (order.includes(String(name)) ? order.indexOf(String(name)) : order.length);
+    const initContainers = bodyRows(doc.initContainers).sort((a, b) => rank(a.name) - rank(b.name));
+    return { sidecars: bodyRows(doc.sidecars), initContainers };
+  },
   notes: [
+    "Init containers run top to bottom in the order listed here — initContainerOrder is written for you, since the chart would otherwise sort them by name.",
     "restartPolicy: Always on an init container is what makes it a native sidecar (Kubernetes 1.29+) — it starts before the main container and keeps running.",
   ],
 });

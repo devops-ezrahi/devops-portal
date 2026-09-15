@@ -89,6 +89,18 @@ describe("catalog", () => {
     expect(doc.podAnnotations).toEqual({ a: "b" });
   });
 
+  it("writes init containers in row order, and reads that order back", () => {
+    // The chart sorts a map by key; without initContainerOrder z-migrate would run last.
+    const yaml = toYaml(
+      buildValues(on("sidecars", { initContainers: [{ name: "z-migrate", body: "image: a" }, { name: "a-wait", body: "image: b" }] }))
+    );
+    expect(yaml).toContain("initContainerOrder: [z-migrate, a-wait]");
+    const rows = BY_ID.sidecars.load!({ initContainers: { "a-wait": { image: "b" }, "z-migrate": { image: "a" } }, initContainerOrder: ["z-migrate", "a-wait"] });
+    expect((rows.initContainers as { name: string }[]).map((r) => r.name)).toEqual(["z-migrate", "a-wait"]);
+    // One init container has no order to keep.
+    expect(toYaml(buildValues(on("sidecars", { initContainers: [{ name: "only", body: "image: a" }] })))).not.toContain("initContainerOrder");
+  });
+
   it("round-trips every feature that claims it can read a document back", () => {
     // A `load` is the inverse of an `emit`, and the importer leans on that.
     const cases: Record<string, Record<string, unknown>> = {
@@ -97,7 +109,8 @@ describe("catalog", () => {
       env: { items: [{ name: "LOG_LEVEL", kind: "value", value: "debug" }] },
       ports: { items: [{ name: "http", port: "8080", protocol: "TCP" }] },
       resources: { rcpu: "200m", rmem: "256Mi", lcpu: "1", lmem: "1Gi" },
-      service: { enabled: true, type: "ClusterIP", ports: "http=80:http" },
+      service: { enabled: true, type: "LoadBalancer", ports: "http=80:http", loadBalancerIP: "203.0.113.10", loadBalancerSourceRanges: "10.0.0.0/8\n192.168.0.0/16" },
+      services: { items: [{ name: "public", type: "LoadBalancer", ports: "https=443:8443", loadBalancerSourceRanges: "10.0.0.0/8", externalIPs: "198.51.100.7" }] },
       podmeta: { podLabels: [{ k: "tier", v: "backend" }] },
     };
     for (const [id, v] of Object.entries(cases)) {

@@ -886,7 +886,7 @@ copied or downloaded. It runs no jobs, holds no credentials and never touches
 git — you paste the result into your values repo.
 
 A saved **tree** holds N releases x M namespaces and generates the layout
-`gitops-factory`'s `convert_to_universal_chart.py` already writes, so a tree
+`universal-chart/gitops-factory`'s `convert_to_universal_chart.py` already writes, so a tree
 authored here and one converted there land in the same repo and are read by the
 same wiring:
 
@@ -897,6 +897,16 @@ base/<release>.yaml              # the microservice, the same in every namespace
 root-applicationSet.yaml         # one Application per namespace directory
 root-application.yaml            # app-of-apps: the one object applied by hand
 ```
+
+The converter writes the two root files only with `--argocd-manifests` (flat
+`base/` + `<ns>/` is its default since the fork merge). This builder always
+writes them, and `importTree` reads a tree with or without them.
+
+`checkValues` carries the converter's per-release findings from that merge
+(nodePort on ClusterIP, emptyDir without sizeLimit, a PVC `volumeName` with no
+PV, Redis `dir /tmp` / short sentinel `down-after-milliseconds`). Its
+namespace-wide ones (dangling ConfigMap/Secret/SA references, missing NADs) are
+left to the converter — one release's document cannot see its namespace.
 
 **The deployment wiring is two files plus a chart**, and the per-namespace half
 is no longer generated at all:
@@ -926,7 +936,7 @@ defaults of its own.
 
 - **The merge/diff logic is carried over, not reinvented.** `values.ts`'s
   `deepMerge` / `commonSubtree` / `subtractDefaults` come from
-  `gitops-factory/ui/core-logic.test.js` — which exists so this logic cannot
+  `universal-chart/gitops-factory/ui/core-logic.test.js` — which exists so this logic cannot
   drift from the converter's `deep_merge` / `common_subtree` /
   `subtract_defaults`. That file's own assertions came across with it into
   `values.test.ts`. **Change one side and change the other**, or a tree the

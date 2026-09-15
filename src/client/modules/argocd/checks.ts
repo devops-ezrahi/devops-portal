@@ -121,6 +121,41 @@ export function checkValues(doc: Values): Problem[] {
       warn(`${dangling.join(", ")} is named as a serviceAccountName but nothing in this release creates it — it has to come from extraDeploy or another release.`, "serviceaccount");
   }
 
+  // The findings `convert_to_universal_chart.py` reports since the fork merge,
+  // so a release typed here is warned about what a converted one would be.
+  const services: [string, Values, string][] = [
+    ["service", service, "service"],
+    ...Object.entries(obj(doc.services)).map(([name, s]): [string, Values, string] => [name, obj(s), "services"]),
+  ];
+  services.forEach(([name, s, feature]) => {
+    if (String(s.type ?? "ClusterIP") === "ClusterIP" && Object.values(obj(s.ports)).some((p) => obj(p).nodePort !== undefined))
+      bad(`Service ${name} is ClusterIP but sets a nodePort — the API server rejects it. Use type: NodePort, or drop the nodePort.`, feature);
+  });
+
+  const unbounded = Object.entries(obj(doc.volumes))
+    .filter(([, v]) => "emptyDir" in obj(v) && !obj(obj(v).emptyDir).sizeLimit)
+    .map(([name]) => name);
+  if (unbounded.length)
+    warn(`emptyDir ${unbounded.join(", ")} has no sizeLimit — one runaway writer fills the node's disk and every pod on it is evicted.`, "volumes");
+
+  const pvs = Object.keys(obj(doc.persistentVolumes));
+  Object.entries(obj(doc.pvc)).forEach(([name, p]) => {
+    const volumeName = obj(p).volumeName;
+    if (volumeName && !pvs.includes(String(volumeName)))
+      warn(`PVC ${name} binds volumeName ${volumeName}, which this release does not create. Unless that PersistentVolume already exists, the claim stays Pending.`, "pvc");
+  });
+
+  Object.entries(obj(doc.configMaps)).forEach(([name, cm]) => {
+    Object.values(obj(obj(cm).data)).forEach((body) => {
+      const text = String(body ?? "");
+      if (/^\s*dir\s+"?\/(var\/)?tmp\b/m.test(text))
+        warn(`ConfigMap ${name} sets Redis dir to /tmp — the dump is written to scratch space and lost on restart.`, "configmaps");
+      for (const m of text.matchAll(/^\s*sentinel\s+down-after-milliseconds\s+\S+\s+(\d+)/gm))
+        if (Number(m[1]) < 5000)
+          warn(`ConfigMap ${name} sets sentinel down-after-milliseconds to ${m[1]} — under 5000 a GC pause or a slow network triggers a failover.`, "configmaps");
+    });
+  });
+
   if (!obj(doc.image).repository && workload !== "none")
     bad("No image.repository. The chart's schema requires it for any workload that runs pods.", "image");
 

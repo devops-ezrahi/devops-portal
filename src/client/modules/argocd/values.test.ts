@@ -20,7 +20,7 @@ describe("shadowing", () => {
 });
 
 /**
- * These are `gitops-factory/ui/core-logic.test.js`'s own assertions, carried
+ * These are `universal-chart/gitops-factory/ui/core-logic.test.js`'s own assertions, carried
  * over. They exist so this logic does not drift from
  * `convert_to_universal_chart.py`'s `deep_merge` / `common_subtree` /
  * `subtract_defaults` — a tree authored in the portal and one produced by the

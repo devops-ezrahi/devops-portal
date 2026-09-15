@@ -1,7 +1,7 @@
 /**
  * Merge / diff over values documents.
  *
- * Ported from `gitops-factory/ui/core-logic.test.js`, which exists so this
+ * Ported from `universal-chart/gitops-factory/ui/core-logic.test.js`, which exists so this
  * logic does not drift from `convert_to_universal_chart.py`'s `deep_merge` /
  * `common_subtree` / `subtract_defaults` (`convert_to_universal_chart.py:2792`).
  * The layered tree only works if all three agree: a key promoted into a
