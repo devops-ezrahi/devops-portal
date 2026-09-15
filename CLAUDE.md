@@ -1066,13 +1066,24 @@ defaults of its own.
   field kinds, and a greyed-out input still reads as something you might be
   able to type into. Ticking the feature and setting it here is what overrides
   it.
-- **The override light means "this puts something in the override file"**, not
-  "this feature is ticked here". Ticking one on writes the chart's own answers
-  into the layer, so comparing catalog state against base lit up a feature
-  nobody had touched — *OpenShift Route is set differently here* on a Route
-  nothing differs on. It is `subtractDefaults` against everything below (base,
-  then the namespace's defaults) that decides: the same call that writes the file,
-  so a light means a file with something in it.
+- **"Overridden" means a second copy of one value** — a key this namespace sets
+  that base or the namespace's defaults *also* set, to something else
+  (`shadowing` in `values.ts`). That drives the orange card, its `override`
+  tag, the orange namespace tile, and "overridden in N of M namespaces" on a
+  microservice card. A key only the namespace sets is not an override: it is
+  that value's one source of truth, and it is exactly the layout the builder
+  recommends for a tag, a replica count or a host. Marking it orange flagged
+  the page's own advice — following *image.tag belongs per-namespace* turned
+  every namespace orange. It used to be "puts anything in the override file"
+  (`subtractDefaults` against what is below), and before that "is ticked here",
+  which lit a Route nothing differed on.
+  - **The override popover offers both ways to keep one copy**: *Remove
+    override* (this namespace falls back to base) and *Move out of base*
+    (`applyDemotion` in `promote.ts`, the inverse of `applyPromotion`) — the
+    shadowed paths leave base, every namespace still taking base's value gets
+    its own copy, and nothing deploys differently. That is the fix a real
+    per-environment difference wants (perf's bigger requests, prod's bigger
+    claim), and it is what cleared the example tree's 31 second copies.
 - **A problem is shown twice: in the list under the form, and on the card it
   names.** Pressing it in the list is what scrolls to the card — and arriving at
   a card with no sign of why is the other half of the same complaint. Same

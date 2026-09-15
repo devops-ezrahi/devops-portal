@@ -115,6 +115,46 @@ export function applyPromotion(tree: ArgocdTree, promotion: Promotion): ArgocdTr
   return { ...tree, releases, namespaces };
 }
 
+/**
+ * The other way out of a second copy: take the value out of base, and give
+ * every namespace that was still taking base's value its own copy — so each
+ * namespace holds that value once and base holds none. The namespace that
+ * started this keeps its own value. Nothing deploys differently.
+ *
+ * `shadowed` is what the namespace sets over base (`shadowing`); only those
+ * leaf paths move, not the whole feature.
+ */
+export function applyDemotion(tree: ArgocdTree, releaseId: string, shadowed: Values): ArgocdTree {
+  const paths = leafPaths(shadowed);
+  const release = tree.releases.find((r) => r.id === releaseId);
+  if (!release || !paths.length) return tree;
+  const base = buildValues(release.features, release.extraValues);
+
+  const namespaces = tree.namespaces.map((ns) => {
+    const defaults = buildValues(ns.defaults?.features ?? {}, ns.defaults?.extraValues);
+    const existing = ns.releases.find((e) => e.release === releaseId);
+    const doc = existing ? buildValues(existing.features, existing.extraValues) : {};
+    let changed = false;
+    for (const path of paths) {
+      const value = atPath(base, path);
+      // Already answered here — by its own file, or by the namespace's defaults.
+      if (value === undefined || atPath(doc, path) !== undefined || atPath(defaults, path) !== undefined) continue;
+      putPath(doc, path, value);
+      changed = true;
+    }
+    if (!changed) return ns;
+    const imported = importValues(toYaml(doc));
+    const entry = { release: releaseId, features: imported.features, extraValues: imported.extraValues };
+    return {
+      ...ns,
+      releases: existing ? ns.releases.map((e) => (e.release === releaseId ? entry : e)) : [...ns.releases, entry],
+    };
+  });
+
+  const releases = tree.releases.map((r) => (r.id === releaseId ? withValues(r, withoutPaths(base, paths)) : r));
+  return { ...tree, releases, namespaces };
+}
+
 /** `deepMerge` with the override winning, but returning the same object shape the catalog reads. */
 function deepMergeInto(base: Values, over: Values): Values {
   const out: Values = { ...base };

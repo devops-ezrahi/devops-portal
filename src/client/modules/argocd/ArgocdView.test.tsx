@@ -197,7 +197,9 @@ describe("ArgocdView", () => {
     expect(tile).toHaveTextContent("ghcr.io/shop/storefront:2.1.0");
     // The workload nobody typed: the chart defaults to a Deployment.
     ["Deployment", "Service", "ConfigMap"].forEach((kind) => expect(tile).toHaveTextContent(kind));
-    expect(tile).toHaveTextContent("overridden in 1 of 1 namespaces");
+    // A Route only prod sets is prod's one source of truth, not a second copy
+    // of anything base says — so it is not counted as an override.
+    expect(tile).not.toHaveTextContent("overridden in");
 
     // The Route exists only in prod, so it is on the card as an override —
     // dashed, and naming the namespace that adds it.
@@ -334,7 +336,7 @@ describe("ArgocdView", () => {
     const imageCard = feature("Image & pull secrets");
     // The light is the button — the explanation and the way out hang off it.
     fireEvent.click(within(imageCard).getByRole("button", { name: /What is the override on Image & pull secrets/ }));
-    expect(within(imageCard).getByText(/deploys its own value instead of the base one/)).toBeInTheDocument();
+    expect(within(imageCard).getByText(/two sources for one value/)).toBeInTheDocument();
 
     fireEvent.mouseDown(within(imageCard).getByRole("button", { name: "Remove override" }));
 

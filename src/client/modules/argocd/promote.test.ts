@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyPromotion, findEnvSpecific, findPromotions } from "./promote";
+import { applyDemotion, applyPromotion, findEnvSpecific, findPromotions } from "./promote";
 import { buildValues } from "./build";
 import { deepMerge } from "./values";
 import type { ArgocdTree } from "../../../server/types";
@@ -102,6 +102,39 @@ describe("applyPromotion", () => {
       // a shallow spread would replace the whole `image` block.
       return JSON.stringify(deepMerge(base, over));
     };
+    expect(deployed(after, 0)).toBe(deployed(before, 0));
+    expect(deployed(after, 1)).toBe(deployed(before, 1));
+  });
+});
+
+describe("applyDemotion", () => {
+  const twoCopies = () =>
+    tree({
+      releases: [
+        { id: "r1", name: "checkout", features: { image: on({ repository: "shop/checkout" }), replicas: on({ replicaCount: "2" }) } },
+      ],
+      namespaces: [
+        { name: "dev", releases: [] },
+        { name: "prod", releases: [{ release: "r1", features: { replicas: on({ replicaCount: "6" }) } }] },
+      ],
+    });
+  const docIn = (t: ArgocdTree, ns: number) => {
+    const e = t.namespaces[ns].releases.find((x) => x.release === "r1");
+    return e ? buildValues(e.features, e.extraValues) : {};
+  };
+
+  it("takes the value out of base and gives each namespace still taking it its own copy", () => {
+    const after = applyDemotion(twoCopies(), "r1", { replicaCount: 6 });
+    expect(buildValues(after.releases[0].features, after.releases[0].extraValues).replicaCount).toBeUndefined();
+    expect(docIn(after, 0).replicaCount).toBe(2);
+    expect(docIn(after, 1).replicaCount).toBe(6);
+  });
+
+  it("leaves what every namespace deploys unchanged", () => {
+    const before = twoCopies();
+    const after = applyDemotion(before, "r1", { replicaCount: 6 });
+    const deployed = (t: ArgocdTree, i: number) =>
+      JSON.stringify(deepMerge(buildValues(t.releases[0].features, t.releases[0].extraValues), docIn(t, i)));
     expect(deployed(after, 0)).toBe(deployed(before, 0));
     expect(deployed(after, 1)).toBe(deployed(before, 1));
   });

@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { commonSubtree, deepMerge, subtractDefaults } from "./values";
+import { commonSubtree, deepMerge, shadowing, subtractDefaults } from "./values";
+
+describe("shadowing", () => {
+  const below = { image: { repository: "shop/api", tag: "1.0.0" }, replicaCount: 2 };
+
+  it("keeps a key a lower layer also sets, to something else — a second copy", () => {
+    expect(shadowing({ image: { tag: "2.0.0" } }, below)).toEqual({ image: { tag: "2.0.0" } });
+    expect(shadowing({ replicaCount: 5 }, below)).toEqual({ replicaCount: 5 });
+  });
+
+  it("drops a key only this layer sets — that is its one source of truth", () => {
+    expect(shadowing({ route: { enabled: true, host: "shop.example.com" } }, below)).toEqual({});
+    expect(shadowing({ image: { pullPolicy: "Always" } }, below)).toEqual({});
+  });
+
+  it("drops a value identical to the one below — restating it is not a copy that can drift", () => {
+    expect(shadowing({ image: { tag: "1.0.0" } }, below)).toEqual({});
+  });
+});
 
 /**
  * These are `gitops-factory/ui/core-logic.test.js`'s own assertions, carried

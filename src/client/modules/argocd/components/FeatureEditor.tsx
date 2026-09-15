@@ -52,6 +52,7 @@ export function FeatureEditor({
   overriding,
   jump,
   onJumped,
+  onMoveOutOfBase,
   inherited,
   onOpenInherited,
   problems,
@@ -73,6 +74,8 @@ export function FeatureEditor({
    * microservice press, and a jump still held would replay its scroll on each.
    */
   onJumped?: () => void;
+  /** Resolve an override by taking the value out of base instead — see `applyDemotion`. */
+  onMoveOutOfBase?: (id: string) => void;
   /**
    * What the layers under this one already say — the tree's defaults in base,
    * those plus the microservice's base in a namespace override. Shown greyed,
@@ -231,7 +234,11 @@ export function FeatureEditor({
               <span className="ag-feature-name">{spec.name}</span>
               <FeatureHelp spec={spec} />
               {overriding?.has(spec.id) && (
-                <OverrideLight name={spec.name} onRemove={() => removeOverride(spec.id)} />
+                <OverrideLight
+                  name={spec.name}
+                  onRemove={() => removeOverride(spec.id)}
+                  onMoveOut={onMoveOutOfBase && (() => onMoveOutOfBase(spec.id))}
+                />
               )}
             </div>
             <FeatureBody
@@ -295,7 +302,11 @@ export function FeatureEditor({
                     </label>
                     <FeatureHelp spec={spec} />
                     {overriding?.has(spec.id) && (
-                      <OverrideLight name={spec.name} onRemove={() => removeOverride(spec.id)} />
+                      <OverrideLight
+                  name={spec.name}
+                  onRemove={() => removeOverride(spec.id)}
+                  onMoveOut={onMoveOutOfBase && (() => onMoveOutOfBase(spec.id))}
+                />
                     )}
                   </div>
                   {(on || fromBelow) && (
@@ -353,19 +364,28 @@ export function FeatureEditor({
  * step with base forever, so the popover says to drop it if it is not earning
  * that, and does it in one press.
  */
-function OverrideLight({ name, onRemove }: { name: string; onRemove: () => void }) {
+function OverrideLight({ name, onRemove, onMoveOut }: { name: string; onRemove: () => void; onMoveOut?: () => void }) {
   return (
     <Help label={`the override on ${name}`} interactive trigger={<span className="ag-override-tag">override</span>}>
       <p>
-        <strong>{name}</strong> is set differently here, so this namespace deploys its own value instead of the base
-        one.
+        <strong>{name}</strong> is set both here and in base (or this namespace's defaults), to different values — two
+        sources for one value, and this one wins.
       </p>
-      <p>Every override is a second copy to keep in step. Drop it unless this namespace really needs to differ.</p>
+      <p>
+        Keep one. If every namespace needs its own, take it out of base; if this namespace does not really differ,
+        remove it here.
+      </p>
       {/* Both, and it is idempotent: the press closes the popover by removing
           the light it hangs off, so the click half often never arrives. */}
       <button type="button" className="ghost-button ag-override-remove" onMouseDown={onRemove} onClick={onRemove}>
         Remove override
-      </button>
+      </button>{" "}
+      {/* The other way to keep one: each namespace holds its own, base none. */}
+      {onMoveOut && (
+        <button type="button" className="ghost-button ag-override-remove" onMouseDown={onMoveOut} onClick={onMoveOut}>
+          Move out of base
+        </button>
+      )}
     </Help>
   );
 }

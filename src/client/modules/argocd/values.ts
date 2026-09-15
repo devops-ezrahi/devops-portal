@@ -37,6 +37,26 @@ export const present = (v: unknown): boolean => isPlainObject(v) && Object.keys(
 
 export const list = (v: unknown): Values[] => (Array.isArray(v) ? (v as Values[]) : []);
 
+/**
+ * The part of `values` that a lower layer *also* sets, to something else — a
+ * real second copy of one value, which is what "overridden" means. A key only
+ * `values` sets is not a copy of anything: it is that key's one source of
+ * truth, and marking it as an override flagged exactly the layout the builder
+ * recommends (a tag or a replica count set per namespace, not in base).
+ */
+export function shadowing(values: Values, below: Values): Values {
+  const out: Values = {};
+  for (const [key, val] of Object.entries(values)) {
+    if (!(key in below)) continue;
+    const under = below[key];
+    if (isPlainObject(val) && isPlainObject(under)) {
+      const sub = shadowing(val, under);
+      if (Object.keys(sub).length) out[key] = sub;
+    } else if (!deepEqual(val, under)) out[key] = val;
+  }
+  return out;
+}
+
 export function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (isPlainObject(a) && isPlainObject(b)) {

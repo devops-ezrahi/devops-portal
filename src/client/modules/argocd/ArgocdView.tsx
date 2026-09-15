@@ -27,7 +27,7 @@ import {
 import { buildValues, extraValuesError, parseValues } from "./build";
 import { checkValues } from "./checks";
 import { BY_ID, featureForPath } from "./catalog";
-import { deepMerge, obj, subtractDefaults } from "./values";
+import { deepMerge, obj, shadowing } from "./values";
 import { buildTree } from "./tree";
 import {
   SHARED_RELEASE_NAME,
@@ -42,7 +42,7 @@ import {
 } from "./document";
 import { Help } from "../../Help";
 import { addedKinds, resourcesOf } from "./resources";
-import { applyPromotion, findEnvSpecific, findPromotions } from "./promote";
+import { applyDemotion, applyPromotion, findEnvSpecific, findPromotions } from "./promote";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { FeatureEditor, type Inherited } from "./components/FeatureEditor";
 import { FilePreview } from "./components/FilePreview";
@@ -243,7 +243,9 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
           // An entry exists from the first keystroke in that layer; an empty
           // one writes an empty file and overrides nothing.
           if (!Object.keys(override).length) return;
-          overridden += 1;
+          // "Overridden" counts second copies only — see `shadowing`.
+          const nsDefaults = buildValues(ns.defaults?.features ?? {}, ns.defaults?.extraValues);
+          if (Object.keys(shadowing(override, deepMerge(base, nsDefaults))).length) overridden += 1;
           const nsName = ns.name.trim() || "unnamed";
           addedKinds(resources, resourcesOf(deepMerge(base, override))).forEach((kind) =>
             extras.set(kind, [...(extras.get(kind) ?? []), nsName])
@@ -265,14 +267,20 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   const layerCards = useMemo<LayerCard[]>(
     () =>
       draft.namespaces.map((ns) => {
-        const overriding = ns.releases.filter((e) => Object.keys(buildValues(e.features, e.extraValues)).length);
+        // A second copy, not merely an entry — see `shadowing`.
+        const nsDefaults = buildValues(ns.defaults?.features ?? {}, ns.defaults?.extraValues);
+        const overriding = ns.releases.filter((e) => {
+          const r = draft.releases.find((x) => x.id === e.release);
+          const below = deepMerge(r ? buildValues(r.features, r.extraValues) : {}, nsDefaults);
+          return Object.keys(shadowing(buildValues(e.features, e.extraValues), below)).length > 0;
+        });
         return {
           name: ns.name,
           overrides: overriding.length,
           overridesSelected: !!release && overriding.some((e) => e.release === release.id),
         };
       }),
-    [draft.namespaces, release?.id]
+    [draft.namespaces, draft.releases, release?.id]
   );
   /**
    * Values every namespace sets the same way. They are not overrides — they are
@@ -302,7 +310,10 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       // that writes the file — drops every one of them again when what is
       // below already says so. A light on a feature whose override file is
       // empty warns about a second copy that does not exist.
-      if (Object.keys(subtractDefaults(buildValues({ [id]: state }), below)).length) out.add(id);
+      // And only a *second copy*: a key base or the namespace's defaults also
+      // set, to something else. A key only this namespace sets is that value's
+      // one source of truth, not an override of anything.
+      if (Object.keys(shadowing(buildValues({ [id]: state }), below)).length) out.add(id);
     });
     return out;
   }, [features, release, layer, nsDefaultValues]);
@@ -511,6 +522,19 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       logError("argocd", "push failed", err);
       setPush({ kind: "error", message: err instanceof Error ? err.message : "Could not commit to that repository" });
     }
+  }
+
+  /**
+   * An override resolved the other way: the value leaves base, and every
+   * namespace still taking base's value gets its own copy. Only the paths this
+   * namespace actually shadows move.
+   */
+  function moveOutOfBase(id: string) {
+    if (!release || layer === BASE || !features[id]) return;
+    const below = deepMerge(buildValues(release.features, release.extraValues), nsDefaultValues);
+    const shadowed = shadowing(buildValues({ [id]: features[id] }), below);
+    log("argocd", "moved out of base", { release: release.name, feature: id });
+    setDraft((prev) => applyDemotion(prev, release.id, shadowed));
   }
 
   /** Write the edited feature map back into whichever layer is on screen. */
@@ -1001,6 +1025,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   overriding={overriding}
                   jump={jump}
                   onJumped={() => setJump(undefined)}
+                  onMoveOutOfBase={moveOutOfBase}
                   inherited={inherited}
                   onOpenInherited={(from) => (from === "nsDefaults" ? openDefaults() : setLayer(BASE))}
                   problems={problems}
