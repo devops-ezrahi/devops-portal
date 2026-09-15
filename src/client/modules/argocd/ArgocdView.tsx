@@ -901,7 +901,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 <Help label="a namespace">
                   <p>Which layer the form below edits: the shared base, or one namespace's overrides.</p>
                   <p>A namespace runs every microservice in the tree; its entry carries only what it changes.</p>
-                  <p>A dot marks a namespace that overrides the microservice you have open.</p>
+                  <p>An orange border marks a namespace that overrides the microservice you have open.</p>
                 </Help>
               </h3>
               {/* Renamed and removed on the tile itself. The strip that used to
