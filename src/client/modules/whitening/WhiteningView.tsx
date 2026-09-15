@@ -1,4 +1,5 @@
 import { FlaskConical, Plus } from "lucide-react";
+import { ListSizeToggle } from "../../ListSizeToggle";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { idFromPath, useDeepLink } from "../../deepLink";
 import type { ModuleViewProps } from "../../moduleTypes";
@@ -130,6 +131,7 @@ export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleView
       <div className="workspace-grid">
         <div className="ticket-column">
           <div className="ticket-list-header">
+            <ListSizeToggle />
             <h2>{isAdmin && showAll ? "All Jobs" : "My Jobs"}</h2>
             {isAdmin && (
               <button

@@ -1,4 +1,5 @@
 import { FlaskConical, FolderOpen, Link, Plus } from "lucide-react";
+import { ListSizeToggle } from "../../ListSizeToggle";
 import { useEffect, useMemo, useState } from "react";
 import { idFromPath, useDeepLink } from "../../deepLink";
 import type { ModuleViewProps } from "../../moduleTypes";
@@ -129,6 +130,7 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
         {/* Left: job history */}
         <div className="ticket-column">
           <div className="ticket-list-header">
+            <ListSizeToggle />
             <h2>{isAdmin && showAll ? "All Jobs" : "My Jobs"}</h2>
             {isAdmin && (
               <button

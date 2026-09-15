@@ -11,6 +11,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ListSizeToggle } from "../../ListSizeToggle";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ArgocdTree } from "../../../server/types";
 import { log, error as logError } from "../../log";
@@ -93,7 +94,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   const [draft, setDraft] = useState<DraftTree>(() => newTree());
   const [releaseId, setReleaseId] = useState("");
   const [layer, setLayer] = useState<number>(BASE);
-  const [showAll, setShowAll] = useState(true);
+  const [showAll, setShowAll] = useState(false);
   const [naming, setNaming] = useState(false);
   const [repoOpen, setRepoOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -798,6 +799,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       <div className="workspace-grid">
         <div className="ticket-column">
           <div className="ticket-list-header">
+            <ListSizeToggle />
             <h2>{isAdmin && showAll ? "All Trees" : "My Trees"}</h2>
             {isAdmin && (
               <button className="ghost-button" onClick={() => setShowAll((v) => !v)}>

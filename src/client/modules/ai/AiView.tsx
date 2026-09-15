@@ -1,4 +1,5 @@
 import { Archive, Plus, Send, Sparkles, Square } from "lucide-react";
+import { ListSizeToggle } from "../../ListSizeToggle";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getPortalConfig } from "../../api";
 import { log, warn, error as logError } from "../../log";
@@ -47,7 +48,7 @@ export function AiView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) 
   const [showPicker, setShowPicker] = useState(false);
   // Admins get every user's chats from the server; the toggle narrows it back
   // client-side, same as Artifactory and the ticketing queue.
-  const [showAll, setShowAll] = useState(true);
+  const [showAll, setShowAll] = useState(false);
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -270,6 +271,7 @@ export function AiView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) 
       <div className="workspace-grid">
         <div className="ticket-column">
           <div className="ticket-list-header">
+            <ListSizeToggle />
             <h2>{isAdmin && showAll ? "All Chats" : "My Chats"}</h2>
             {isAdmin && (
               <button

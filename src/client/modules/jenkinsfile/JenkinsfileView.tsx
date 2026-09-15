@@ -1,4 +1,5 @@
 import { Check, Pencil, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { ListSizeToggle } from "../../ListSizeToggle";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { JenkinsfileParam, JenkinsfilePipeline, JenkinsfileStage } from "../../../server/types";
@@ -93,7 +94,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
    * PIPELINE_SCOPE for the parameters.
    */
   const [touched, setTouched] = useState<Set<string>>(new Set());
-  const [showAll, setShowAll] = useState(true);
+  const [showAll, setShowAll] = useState(false);
   /** The configured library name, which the server sends alongside the list. */
   const [sharedLibrary, setSharedLibrary] = useState(DEFAULT_LIBRARY);
   const [images, setImages] = useState<PickableImage[]>([]);
@@ -442,6 +443,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
       <div className="workspace-grid">
         <div className="ticket-column">
           <div className="ticket-list-header">
+            <ListSizeToggle />
             <h2>{isAdmin && showAll ? "All Pipelines" : "My Pipelines"}</h2>
             {isAdmin && (
               <button className="ghost-button" onClick={() => setShowAll((v) => !v)}>

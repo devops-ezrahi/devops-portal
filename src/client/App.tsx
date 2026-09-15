@@ -9,6 +9,7 @@ import {
 import { log, warn, error as logError } from "./log";
 import { AccessDeniedScreen } from "./AccessDeniedScreen";
 import { ErrorScreen } from "./ErrorScreen";
+import { restoreListSize } from "./ListSizeToggle";
 import { LoginScreen } from "./LoginScreen";
 import { argocdModule } from "./modules/argocd";
 import { artifactoryModule } from "./modules/artifactory";
@@ -25,8 +26,6 @@ import { version } from "../../package.json";
 // AI is off for now — add `aiModule` (./modules/ai) back to this array to
 // bring the tab back. The server keeps serving /api/ai/*; nothing calls it.
 const modules: PortalModule[] = [ticketingModule, artifactoryModule, whiteningModule, jenkinsfileModule, argocdModule];
-
-const LIST_WIDTH_KEY = "portalListWidth";
 
 function slugFor(mod: PortalModule) {
   return mod.userNav.label.toLowerCase();
@@ -131,42 +130,8 @@ export function App() {
   // Refresh clears stale banners along with the data behind them.
   useEffect(() => setErrors({}), [refreshKey]);
 
-  // Every module's list column is resized by dragging its right edge (the
-  // `.ticket-column::after` strip). One listener here rather than a handle in
-  // each view; the width is one CSS variable, so all modules share it.
-  useEffect(() => {
-    const root = document.documentElement;
-    try {
-      const saved = localStorage.getItem(LIST_WIDTH_KEY);
-      if (saved) root.style.setProperty("--list-width", saved);
-    } catch {
-      /* no storage — the default width */
-    }
-    function onDown(e: PointerEvent) {
-      const col = e.target instanceof HTMLElement && e.target.matches(".workspace-grid > .ticket-column") ? e.target : null;
-      // A press on the column itself only counts past its right edge, i.e. on the strip.
-      if (!col || e.clientX < col.getBoundingClientRect().right) return;
-      e.preventDefault();
-      const left = col.getBoundingClientRect().left;
-      let width = "";
-      const move = (m: PointerEvent) => {
-        width = `${Math.round(Math.min(Math.max(m.clientX - left, 160), window.innerWidth * 0.5))}px`;
-        root.style.setProperty("--list-width", width);
-      };
-      const up = () => {
-        window.removeEventListener("pointermove", move);
-        try {
-          if (width) localStorage.setItem(LIST_WIDTH_KEY, width);
-        } catch {
-          /* not remembered, still applied */
-        }
-      };
-      window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", up, { once: true });
-    }
-    document.addEventListener("pointerdown", onDown);
-    return () => document.removeEventListener("pointerdown", onDown);
-  }, []);
+  // The list column's minimized/maximized choice, shared by every module.
+  useEffect(restoreListSize, []);
 
   useEffect(() => {
     log("app", "rendering module", activeModule.id, { isAdmin, refreshKey });

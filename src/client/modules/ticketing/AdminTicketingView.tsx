@@ -1,5 +1,6 @@
 import { Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ListSizeToggle } from "../../ListSizeToggle";
 import {
   addAdminComment,
   getAdminTicket,
@@ -249,6 +250,7 @@ export function AdminTicketingView({
                 right-anchored, so its label has to keep the same width across both
                 states or it leaps sideways on every switch; "Mine & Unassigned" against
                 "All tickets" moved it 84px. Same pair as every other module. */}
+            <ListSizeToggle />
             <h2>{showAll ? "All Tickets" : "Mine & Unassigned"}</h2>
             <button
               className="ghost-button"
