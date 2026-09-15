@@ -576,7 +576,20 @@ h3 {
 /* Minimized list (ListSizeToggle): nothing left of it but the button, so the
    content column takes the whole width. */
 .list-narrow .workspace-grid {
-  grid-template-columns: 28px minmax(0, 1fr);
+  grid-template-columns: 40px minmax(0, 1fr);
+}
+
+/* Alone in its column, it is the only way back to the list — so it is sized
+   like a real button, not a header icon. */
+.list-narrow .list-size-toggle {
+  width: 40px;
+  height: 40px;
+  border-color: #2a3940;
+}
+
+.list-narrow .list-size-toggle svg {
+  width: 20px;
+  height: 20px;
 }
 
 .list-narrow .ticket-column > :not(.ticket-list-header),
