@@ -55,6 +55,11 @@ export async function pollJob(jobId: string): Promise<AiJob> {
   return body.job;
 }
 
+/** The chat and every question asked in it. */
+export async function deleteConversation(conversationId: string): Promise<void> {
+  await requestJson<{ ok: true }>(`/api/ai/conversations/${conversationId}`, { method: "DELETE" });
+}
+
 export async function cancelJob(jobId: string): Promise<AiJob> {
   const body = await requestJson<{ job: AiJob }>(`/api/ai/jobs/${jobId}/cancel`, { method: "POST" });
   return body.job;

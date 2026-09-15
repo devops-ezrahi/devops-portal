@@ -1,14 +1,16 @@
 import type { ArgocdTree } from "../../../../server/types";
+import { RowDelete } from "../../../RowDelete";
 
 type Props = {
   trees: ArgocdTree[];
   selectedId: string;
   isAdmin: boolean;
   onSelect: (id: string) => void;
+  onDelete: (id: string) => void;
 };
 
 /** Same row shape and size as every other module's list panel. */
-export function TreeList({ trees, selectedId, isAdmin, onSelect }: Props) {
+export function TreeList({ trees, selectedId, isAdmin, onSelect, onDelete }: Props) {
   if (trees.length === 0) {
     return <div className="empty-state">No trees yet. Add a microservice and this fills in — saving is automatic.</div>;
   }
@@ -21,6 +23,7 @@ export function TreeList({ trees, selectedId, isAdmin, onSelect }: Props) {
           className={`ticket-row${selectedId === tree.id ? " selected" : ""}`}
           onClick={() => onSelect(tree.id)}
         >
+          <RowDelete label={tree.name} onDelete={() => onDelete(tree.id)} />
           <strong>{tree.name}</strong>
           <div className="ticket-row-meta">
             <small>

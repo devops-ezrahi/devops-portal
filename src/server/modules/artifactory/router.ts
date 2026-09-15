@@ -227,6 +227,18 @@ export function createArtifactoryRouter(api: ArtifactoryApi): express.Router {
     }
   });
 
+  router.delete("/api/artifactory/jobs/:id", async (req, res, next) => {
+    try {
+      if (!(await api.deleteJob(req.params.id, req.user!, isAdmin(req.user!)))) {
+        res.status(404).json({ error: "Job not found" });
+        return;
+      }
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.get("/api/artifactory/jobs", async (req, res, next) => {
     try {
       const jobs = await api.listJobs(req.user!, isAdmin(req.user!));

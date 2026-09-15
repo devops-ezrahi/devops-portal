@@ -322,6 +322,15 @@ export class RealArtifactoryApi implements ArtifactoryApi {
     return this.jobs.read(jobId);
   }
 
+  async deleteJob(jobId: string, user: PortalUser, allUsers = false): Promise<boolean> {
+    const job = this.jobs.get(jobId) ?? (await this.jobs.read(jobId));
+    if (!job) return false;
+    if (!allUsers && job.submittedBy !== user.id) throw new Error("Forbidden: not your job");
+    const removed = await this.jobs.remove(jobId);
+    if (removed) log.info("artifactory", "job deleted", { id: jobId, by: user.id });
+    return removed;
+  }
+
   async cancelJob(jobId: string, user: PortalUser, allUsers = false): Promise<ArtifactoryJob | null> {
     // Live first, disk second: cancelling a job that just finished returns it
     // rather than 404ing, which is what it did while everything was in memory.

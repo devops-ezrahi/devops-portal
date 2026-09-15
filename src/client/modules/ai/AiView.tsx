@@ -14,6 +14,7 @@ import {
   fetchConversations,
   pollJob,
   submitQuestion,
+  deleteConversation,
 } from "./api";
 import { CategoryPicker } from "./components/CategoryPicker";
 import { ConversationList } from "./components/ConversationList";
@@ -144,6 +145,21 @@ export function AiView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) 
     } catch (err) {
       logError("ai", "archive failed", err);
       onError(err instanceof Error ? err.message : "Failed to archive chat");
+    }
+  }
+
+  async function handleDeleteConversation(id: string) {
+    try {
+      await deleteConversation(id);
+      log("ai", "chat deleted", id);
+      setConversations((prev) => prev.filter((c) => c.id !== id));
+      if (activeConversationId === id) {
+        setActiveConversationId(null);
+        setJobs([]);
+      }
+    } catch (err) {
+      logError("ai", "delete failed", err);
+      onError(err instanceof Error ? err.message : "Failed to delete chat");
     }
   }
 
@@ -290,6 +306,7 @@ export function AiView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) 
             conversations={visibleConversations}
             activeId={activeConversationId}
             onSwitchTo={selectConversation}
+            onDelete={(id) => void handleDeleteConversation(id)}
           />
         </div>
 

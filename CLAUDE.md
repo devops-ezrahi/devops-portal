@@ -154,10 +154,13 @@ stripped — which is what the list endpoints serve.
 - `GET /api/<module>/jobs` returns log-free jobs; the drawer fetches the full one
   from `GET /api/<module>/jobs/:id`. That is why both Views hold the open job in
   its own state instead of reading it out of the list array.
-- **Nothing is ever deleted.** Artifactory's old `MAX_JOBS` cap and the AI
+- **Nothing is deleted on its own.** Artifactory's old `MAX_JOBS` cap and the AI
   module's 48h delete are both gone. A chat is ~40 KB and opencode's own session
-  is ~5-10 KB, so the volume holds tens of thousands. If it ever fills, delete
-  files on it.
+  is ~5-10 KB, so the volume holds tens of thousands. The only delete is a
+  person's: every list row but a ticket shows a hover `×` (`RowDelete`, two
+  presses), backed by `JobStore.remove` / `DELETE /api/<module>/jobs/:id` (AI:
+  `DELETE /api/ai/conversations/:id`, which takes the chat's jobs with it). A
+  running job is refused — Stop it first.
 
 opencode's session store must live on the same volume: the portal keeps only
 `conversation.opencodeSessionId`, and the transcript that id points at is

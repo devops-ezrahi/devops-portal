@@ -51,7 +51,7 @@ import { ImportDialog } from "./components/ImportDialog";
 import { ChartLine } from "./components/ChartLine";
 import { LayerGrid, type LayerCard } from "./components/LayerGrid";
 import { NewTreeDialog } from "./components/NewTreeDialog";
-import { CommitButton, PushResult, RepoPanel, repoName, type PushState } from "./components/RepoPanel";
+import { CommitButton, gitBlocked, PushResult, RepoPanel, repoName, type PushState } from "./components/RepoPanel";
 import { ReleaseGrid, type ReleaseCard } from "./components/ReleaseGrid";
 import { TreeList } from "./components/TreeList";
 import type { FeatureState } from "./catalog";
@@ -96,7 +96,8 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   const [layer, setLayer] = useState<number>(BASE);
   const [showAll, setShowAll] = useState(false);
   const [naming, setNaming] = useState(false);
-  const [repoOpen, setRepoOpen] = useState(false);
+  /** Why the last Pull failed — shown on the repo panel, where the URL or branch can be fixed. */
+  const [pullError, setPullError] = useState("");
   const [importOpen, setImportOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [gitEnabled, setGitEnabled] = useState(false);
@@ -159,6 +160,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   useEffect(() => {
     setRepoFiles(undefined);
     setBaselineError("");
+    setPullError("");
     if (!repoUrl.trim() || !revision.trim()) {
       setComparing(false);
       return;
@@ -483,6 +485,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   /** Re-read the connected repo, replacing this tree's contents with what is in it. */
   async function handlePull() {
     setPulling(true);
+    setPullError("");
     try {
       const result = await pullValues(draft.values.repoUrl, draft.values.revision, draft.values.path ?? "");
       const imported = importTree(result.files);
@@ -504,7 +507,9 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         onError(`Pulled with ${imported.warnings.length} warning(s). First: ${imported.warnings[0]}`);
     } catch (err) {
       logError("argocd", "pull failed", err);
-      onError(err instanceof Error ? err.message : "Could not read that repository");
+      const message = err instanceof Error ? err.message : "Could not read that repository";
+      setPullError(message);
+      onError(message);
     } finally {
       setPulling(false);
     }
@@ -761,14 +766,14 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     }
   }
 
-  async function handleDelete() {
-    if (!draft.id) return;
-    const id = draft.id;
+  /** The open tree from the topbar, or any row's × from the list. */
+  async function handleDelete(id = draft.id) {
+    if (!id) return;
     try {
       await deleteTree(id);
       log("argocd", "deleted", id);
       setTrees((prev) => prev.filter((t) => t.id !== id));
-      handleScratch();
+      if (id === draft.id) handleScratch();
     } catch (err) {
       logError("argocd", "delete failed", err);
       onError(err instanceof Error ? err.message : "Failed to delete");
@@ -825,6 +830,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
             <div className="ticket-list">
               <TreeList
                 trees={visibleTrees}
+                onDelete={(id) => void handleDelete(id)}
                 selectedId={draft.id}
                 isAdmin={isAdmin}
                 onSelect={(id) => {
@@ -882,8 +888,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
               />
               <RepoPanel
                 tree={draft}
-                open={repoOpen}
-                onToggle={() => setRepoOpen((v) => !v)}
+                error={pullError || baselineError}
                 onChange={(values) => setDraft((p) => ({ ...p, values }))}
                 onPull={() => void handlePull()}
                 pulling={pulling}
@@ -1083,14 +1088,14 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 deletes={!!subPath.trim()}
                 actions={
                   <CommitButton
-                    tree={draft}
-                    gitEnabled={gitEnabled}
+                    blocked={gitBlocked(draft, gitEnabled)}
                     saved={!!draft.id}
                     push={push}
+                    what="tree"
                     onCommit={() => void handleCommit()}
                   />
                 }
-                notice={<PushResult push={push} />}
+                notice={<PushResult push={push} what="tree" />}
               />
             </div>
           </section>

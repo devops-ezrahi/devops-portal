@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "fs";
-import { readFile, rename, writeFile } from "fs/promises";
+import { readFile, rename, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { log } from "./log";
 
@@ -45,7 +45,7 @@ function isTerminal(status: string): boolean {
  * `settle()` when it ends. Writing on every `appendLog` would rewrite a growing
  * file per subprocess stdout line — quadratic on an artifactory upload.
  *
- * Nothing is ever deleted. If the volume ever fills, delete files on it.
+ * Nothing is deleted on its own — only by a user pressing a row's × (`remove`).
  */
 export class JobStore<T extends StoredJob> {
   /** In flight, full object. The synchronous mutation path. */
@@ -173,6 +173,22 @@ export class JobStore<T extends StoredJob> {
       log.warn("jobStore", `could not read ${id}`, { error: err instanceof Error ? err.message : String(err) });
       return this.index.get(id) ?? null;
     }
+  }
+
+  /**
+   * Forget a finished job and delete its file — only ever because a user asked.
+   * A running job is refused rather than stopped out from under whoever is
+   * watching it: Stop it first. Goes through the write queue, so it cannot race
+   * the `settle` that is still writing the same file.
+   */
+  async remove(id: string): Promise<boolean> {
+    if (this.live.has(id)) throw new Error("Stop the job before deleting it");
+    if (!this.index.delete(id)) return false;
+    this.queue = this.queue.then(() =>
+      rm(join(this.dir, `${id}.json`), { force: true }).catch((err) => log.error("jobStore", `could not delete ${id}`, err))
+    );
+    await this.queue;
+    return true;
   }
 
   /** Every job ever, logs stripped. What the list endpoints serve. */

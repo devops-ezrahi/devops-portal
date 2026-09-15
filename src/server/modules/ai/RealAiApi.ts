@@ -1,6 +1,6 @@
 import { execFile, spawn } from "child_process";
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "fs";
-import { mkdir, stat } from "fs/promises";
+import { mkdir, rm, stat } from "fs/promises";
 import { platform, tmpdir } from "os";
 import { dirname, join } from "path";
 import { promisify } from "util";
@@ -343,6 +343,19 @@ export class RealAiApi implements AiApi {
 
   async getJob(jobId: string): Promise<AiJob | null> {
     return this.jobs.read(jobId);
+  }
+
+  async deleteConversation(conversationId: string, user: PortalUser, allUsers = false): Promise<boolean> {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return false;
+    if (!allUsers && conversation.submittedBy !== user.id) throw new Error("Forbidden: not your chat");
+    const jobs = this.jobs.all().filter((j) => j.conversationId === conversationId);
+    if (jobs.some((j) => this.jobs.get(j.id))) throw new Error("Stop the running question before deleting this chat");
+    for (const job of jobs) await this.jobs.remove(job.id);
+    this.conversations.delete(conversationId);
+    await rm(join(this.conversationsDir, `${conversationId}.json`), { force: true });
+    log.info("ai", "chat deleted", { id: conversationId, by: user.id, jobs: jobs.length });
+    return true;
   }
 
   async cancelJob(jobId: string, user: PortalUser, allUsers = false): Promise<AiJob | null> {

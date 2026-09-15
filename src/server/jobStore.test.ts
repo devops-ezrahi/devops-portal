@@ -98,4 +98,20 @@ describe("JobStore", () => {
     const store = new JobStore<TestJob>(newDir(), "ART");
     expect(await store.read("ART-4242")).toBeNull();
   });
+
+  it("deletes a finished job, refuses a running one", async () => {
+    const dir = newDir();
+    const store = new JobStore<TestJob>(dir, "ART");
+    const running = newJob(store.nextId(), "in-progress");
+    store.add(running);
+    await expect(store.remove(running.id)).rejects.toThrow(/Stop the job/);
+
+    running.status = "completed";
+    await store.settle(running.id);
+    expect(await store.remove(running.id)).toBe(true);
+    expect(store.all()).toEqual([]);
+    // Gone from disk too, so the next boot does not bring it back.
+    expect(new JobStore<TestJob>(dir, "ART").all()).toEqual([]);
+    expect(await store.remove(running.id)).toBe(false);
+  });
 });

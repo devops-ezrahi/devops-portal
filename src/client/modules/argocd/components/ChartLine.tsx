@@ -38,7 +38,7 @@ export function ChartLine({
         </span>
         <span className="ag-chart-ref">
           {repoName(tree.chart.repoUrl)}
-          <span className="ag-repo-rev">@{tree.chart.revision || "?"}</span>
+          <span className="git-repo-rev">@{tree.chart.revision || "?"}</span>
         </span>
         <span className="ag-chart-paths">
           {tree.chart.path || "."} · {tree.chart.appsetPath || "ms-applicationSet"}
@@ -55,7 +55,7 @@ export function ChartLine({
       </div>
 
       {editing && (
-        <div className="ag-repo">
+        <div className="git-repo">
           <label>
             <span>Chart repo URL</span>
             <input

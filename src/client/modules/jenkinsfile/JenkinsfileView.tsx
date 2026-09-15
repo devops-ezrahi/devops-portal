@@ -32,7 +32,8 @@ import { ParamsEditor, paramScope } from "./components/ParamsEditor";
 import { PipelineList } from "./components/PipelineList";
 import { ImagesContext } from "./components/ArgField";
 import { NewPipelineDialog } from "./components/NewPipelineDialog";
-import { RepoPanel, type PushState } from "./components/RepoPanel";
+import { CommitButton, PushResult, type PushState } from "../../RepoPanel";
+import { EMPTY_REPO, gitBlocked, RepoPanel } from "./components/RepoPanel";
 import { StageList } from "./components/StageList";
 
 /** The `touched` key standing for the pipeline itself rather than one stage. */
@@ -105,6 +106,8 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
   const [gitEnabled, setGitEnabled] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [push, setPush] = useState<PushState>({ kind: "idle" });
+  /** Why the connected repository could not be read — shown on the repo panel, where it can be fixed. */
+  const [repoError, setRepoError] = useState("");
   /** The id the next write should PUT to. A ref, because the write queue reads it after an await. */
   const idRef = useRef("");
   /**
@@ -146,6 +149,29 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
       .then((result) => setImages(result.images))
       .catch((err: Error) => logError("jenkinsfile", "getImages failed", err));
   }, [refreshKey]);
+
+  /**
+   * Check the connection whenever it changes, so a repo or branch that does not
+   * exist says so on the panel while it is being typed — not three screens
+   * later when Commit fails. Debounced like ArgoCD's baseline read, and for the
+   * same reason: one clone per keystroke is not a thing to do to a git server.
+   */
+  // ponytail: a full clone just to check; a `git ls-remote` endpoint if it ever gets slow.
+  const repo = draft.repo ?? EMPTY_REPO;
+  useEffect(() => {
+    setRepoError("");
+    if (!repo.repoUrl.trim() || !repo.revision.trim()) return;
+    let live = true;
+    const timer = setTimeout(() => {
+      pullJenkinsfile(repo.repoUrl, repo.revision, repo.path).catch((err: unknown) => {
+        if (live) setRepoError(err instanceof Error ? err.message : String(err));
+      });
+    }, AUTOSAVE_MS);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [repo.repoUrl, repo.revision, repo.path]);
 
   // Admins get every pipeline from the server; the toggle narrows it back
   // client-side, same as the ticketing queue and the whitening job list.
@@ -238,6 +264,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
     const repo = draft.repo;
     if (!repo) return;
     setPulling(true);
+    setRepoError("");
     try {
       const result = await pullJenkinsfile(repo.repoUrl, repo.revision, repo.path);
       const parsed = parseJenkinsfile(result.text);
@@ -248,6 +275,8 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
       // this is the same document, re-read.
       setDraft((prev) => ({
         ...prev,
+        // An empty path meant "find it"; what was found is where Commit writes.
+        repo: prev.repo && !prev.repo.path ? { ...prev.repo, path: result.path } : prev.repo,
         library: parsed.pipeline.library,
         params: parsed.pipeline.params,
         stages: parsed.pipeline.stages,
@@ -263,7 +292,9 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
         onError(`Pulled with ${parsed.warnings.length} warning(s). First: ${parsed.warnings[0]}`);
     } catch (err) {
       logError("jenkinsfile", "pull failed", err);
-      onError(err instanceof Error ? err.message : "Could not read that repository");
+      const message = err instanceof Error ? err.message : "Could not read that repository";
+      setRepoError(message);
+      onError(message);
     } finally {
       setPulling(false);
     }
@@ -399,14 +430,14 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
     }
   }
 
-  async function handleDelete() {
-    if (!draft.id) return;
-    const id = draft.id;
+  /** The open pipeline from the topbar, or any row's × from the list. */
+  async function handleDelete(id = draft.id) {
+    if (!id) return;
     try {
       await deletePipeline(id);
       log("jenkinsfile", "deleted", id);
       setPipelines((prev) => prev.filter((p) => p.id !== id));
-      handleNew();
+      if (id === draft.id) handleNew();
     } catch (err) {
       logError("jenkinsfile", "delete failed", err);
       onError(err instanceof Error ? err.message : "Failed to delete");
@@ -455,6 +486,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
             <div className="ticket-list">
               <PipelineList
                 pipelines={visiblePipelines}
+                onDelete={(id) => void handleDelete(id)}
                 selectedId={draft.id}
                 isAdmin={isAdmin}
                 onSelect={(id) => {
@@ -506,23 +538,19 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
               </button>
             </div>
 
-            {/* Only once connected. A pipeline that was never read out of git
-                has nothing to pull and nowhere to commit, and a permanently
-                disabled panel would be furniture explaining itself. */}
-            {draft.repo && (
-              <div className="jf-section">
-                <RepoPanel
-                  repo={draft.repo}
-                  onPull={() => void handlePull()}
-                  onCommit={() => void handleCommit()}
-                  pulling={pulling}
-                  push={push}
-                  gitEnabled={gitEnabled}
-                  saved={saveState !== "saving"}
-                  stageCount={draft.stages.length}
-                />
-              </div>
-            )}
+            {/* Always there, as in ArgoCD: unfolding it is how a pipeline is
+                connected — or re-pointed — mid-edit. */}
+            <div className="jf-section">
+              <RepoPanel
+                repo={repo}
+                onChange={(next) => patchDraft({ repo: next })}
+                onPull={() => void handlePull()}
+                pulling={pulling}
+                gitEnabled={gitEnabled}
+                stageCount={draft.stages.length}
+                error={repoError}
+              />
+            </div>
 
             <div className="jf-section">
               <LibraryField
@@ -563,7 +591,21 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
             </div>
 
             <div className="jf-section">
-              <JenkinsfilePreview code={code} problems={errors.pipeline} problemCount={problemCount} />
+              <JenkinsfilePreview
+                code={code}
+                problems={errors.pipeline}
+                problemCount={problemCount}
+                actions={
+                  <CommitButton
+                    blocked={gitBlocked(repo, gitEnabled)}
+                    saved={saveState !== "saving"}
+                    push={push}
+                    what="pipeline"
+                    onCommit={() => void handleCommit()}
+                  />
+                }
+                notice={<PushResult push={push} what="pipeline" />}
+              />
               <p className="jf-credit">Idea and system design by Yuval Danilovich.</p>
             </div>
           </section>

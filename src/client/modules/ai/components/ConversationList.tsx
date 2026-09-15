@@ -1,4 +1,5 @@
 import type { AiConversation } from "../../../../server/types";
+import { RowDelete } from "../../../RowDelete";
 
 /**
  * Same two-panel shape ticketing uses for open vs done tickets: the live list in
@@ -11,10 +12,12 @@ export function ConversationList({
   conversations,
   activeId,
   onSwitchTo,
+  onDelete,
 }: {
   conversations: AiConversation[];
   activeId: string | null;
   onSwitchTo: (id: string) => void;
+  onDelete: (id: string) => void;
 }) {
   const active = conversations.filter((c) => !c.archivedAt);
   const archived = conversations.filter((c) => c.archivedAt);
@@ -26,6 +29,7 @@ export function ConversationList({
       onClick={() => onSwitchTo(c.id)}
       title={c.title || "New chat"}
     >
+      <RowDelete label={c.title || c.id} onDelete={() => onDelete(c.id)} />
       {/* The project is on the meta line already — repeating it as the title too
           just reads as the same word twice on a chat with no question yet. */}
       <strong>{c.title || "New chat"}</strong>

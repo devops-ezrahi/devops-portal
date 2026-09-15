@@ -818,6 +818,34 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   border-bottom: 0;
 }
 
+/* RowDelete. `span.` so it outranks `.ticket-row span:not(...)`'s grey. */
+.ticket-row span.row-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #8d9ba2;
+  opacity: 0;
+  transition: opacity 120ms var(--ease-out), background 120ms var(--ease-out);
+}
+
+.ticket-row:hover span.row-delete,
+.ticket-row span.row-delete:focus-visible,
+.ticket-row span.row-delete.armed {
+  opacity: 1;
+}
+
+.ticket-row span.row-delete:hover,
+.ticket-row span.row-delete.armed {
+  color: #ff8d95;
+  background: #2a1418;
+}
+
 .ticket-list-header {
   display: flex;
   align-items: center;
@@ -829,6 +857,17 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 .ticket-list-header h1,
 .ticket-list-header h2 {
   margin-bottom: 0;
+  /* One line beside the minimize button: "Mine & Unassigned" wrapped to two
+     and pushed "All tickets" into a two-line button of its own. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ticket-list-header > button {
+  flex: none;
+  white-space: nowrap;
 }
 
 .ticket-row-meta {
@@ -3995,7 +4034,7 @@ input.jf-title {
 /* A size: the number takes the room, the unit menu sits beside it. */
 .ag-quantity {
   display: flex;
-  gap: 6px;
+  gap: 10px;
 }
 
 /* Scoped under .ag-editor: its `input, select { width: 100% }` otherwise wins
@@ -4003,7 +4042,7 @@ input.jf-title {
 .ag-editor .ag-quantity input {
   flex: 1 1 auto;
   width: auto;
-  min-width: 56px;
+  min-width: 72px;
   appearance: textfield;
 }
 
@@ -4015,8 +4054,8 @@ input.jf-title {
 
 .ag-editor .ag-quantity select {
   flex: 0 0 auto;
-  width: 62px;
-  padding: 8px 4px;
+  width: 76px;
+  padding: 8px 10px;
 }
 
 /* A module-level empty state: centred in its panel and sized by its content,
@@ -4185,7 +4224,7 @@ input.jf-title {
   gap: 8px;
 }
 
-.ag-repo-panel {
+.git-repo-panel {
   display: grid;
   gap: 8px;
   padding: 10px 12px;
@@ -4194,14 +4233,14 @@ input.jf-title {
   background: #0b1114;
 }
 
-.ag-repo-bar {
+.git-repo-bar {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
 }
 
-.ag-repo-bar .ag-repo-toggle {
+.git-repo-bar .git-repo-toggle {
   flex: 1;
   min-width: 200px;
   border: none;
@@ -4209,21 +4248,21 @@ input.jf-title {
   padding: 0;
 }
 
-.ag-repo-bar .ag-repo-toggle:hover { border: none }
+.git-repo-bar .git-repo-toggle:hover { border: none }
 
-.ag-repo-actions {
+.git-repo-actions {
   display: flex;
   gap: 8px;
   margin-left: auto;
 }
 
-.ag-repo-sub {
+.git-repo-sub {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11.5px;
   color: #6f8088;
 }
 
-.ag-push-result {
+.git-push-result {
   margin: 0;
   display: flex;
   align-items: center;
@@ -4233,21 +4272,21 @@ input.jf-title {
   color: #9fe4dc;
 }
 
-.ag-push-result code {
+.git-push-result code {
   font-size: 11.5px;
   color: #d7fbf8;
 }
 
-.ag-push-result a {
+.git-push-result a {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   color: #20c7bd;
 }
 
-.ag-push-result.quiet { color: #8ea0a8 }
-.ag-push-result.warn  { color: #f0c674 }
-.ag-push-result.error { color: #ff8d95 }
+.git-push-result.quiet { color: #8ea0a8 }
+.git-push-result.warn  { color: #f0c674 }
+.git-push-result.error { color: #ff8d95 }
 
 .ag-chart-line {
   display: grid;
@@ -4337,7 +4376,7 @@ input.jf-title {
   overflow-wrap: anywhere;
 }
 
-.ag-repo-toggle {
+.git-repo-toggle {
   width: 100%;
   display: flex;
   align-items: center;
@@ -4350,9 +4389,9 @@ input.jf-title {
   text-align: left;
 }
 
-.ag-repo-toggle:hover { border-color: #2a3940; color: #b9c6cc }
+.git-repo-toggle:hover { border-color: #2a3940; color: #b9c6cc }
 
-.ag-repo-summary {
+.git-repo-summary {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -4360,14 +4399,14 @@ input.jf-title {
   min-width: 0;
 }
 
-.ag-repo-pair {
+.git-repo-pair {
   display: inline-flex;
   align-items: baseline;
   gap: 7px;
   min-width: 0;
 }
 
-.ag-repo-role {
+.git-repo-role {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -4375,7 +4414,7 @@ input.jf-title {
   color: #7f9199;
 }
 
-.ag-repo-ref {
+.git-repo-ref {
   font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 12.5px;
   font-weight: 700;
@@ -4383,11 +4422,11 @@ input.jf-title {
   overflow-wrap: anywhere;
 }
 
-.ag-repo-rev { color: #9fe4dc }
+.git-repo-rev { color: #9fe4dc }
 
-.ag-repo-arrow { display: inline-flex; color: #4a5a62 }
+.git-repo-arrow { display: inline-flex; color: #4a5a62 }
 
-.ag-repo {
+.git-repo {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 12px;
@@ -4395,14 +4434,14 @@ input.jf-title {
 }
 
 /* Each half of the box says what its four fields are for before they start. */
-.ag-repo-note {
+.git-repo-note {
   grid-column: 1 / -1;
   margin: 4px 0 0;
   font-size: 12.5px;
   color: #8ea0a8;
 }
 
-.ag-repo-note strong { color: #f2f6f7 }
+.git-repo-note strong { color: #f2f6f7 }
 
 /* A field whose caption carries a `?`. It is not a <label>, because a label
    wrapping a button names the button too — the input carries its own
@@ -4423,8 +4462,8 @@ input.jf-title {
   gap: 6px;
 }
 
-.ag-repo .field-block,
-.ag-repo label {
+.git-repo .field-block,
+.git-repo label {
   display: grid;
   gap: 4px;
   /* Both are needed, and neither is cosmetic. A grid row stretches its items to
@@ -4440,7 +4479,7 @@ input.jf-title {
 }
 
 /* A hint is prose, not part of the caption it sits under. */
-.ag-repo .field-hint,
+.git-repo .field-hint,
 .ag-new-modal .field-hint {
   font-weight: 400;
   font-size: 11.5px;
@@ -5483,83 +5522,6 @@ input.jf-title {
    the same thing with the same two buttons, so they read as one feature rather
    than two. Appended here rather than folded into the .ag-* rules above so a
    change to either module's panel cannot silently restyle the other's. */
-.jf-repo-panel {
-  display: grid;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid #2a3940;
-  border-radius: 9px;
-  background: #0b1114;
-}
-
-.jf-repo-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.jf-repo-summary {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  flex-wrap: wrap;
-  min-width: 200px;
-}
-
-.jf-repo-role {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #7f9199;
-}
-
-.jf-repo-ref {
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 12.5px;
-  font-weight: 700;
-  color: #f2f6f7;
-  overflow-wrap: anywhere;
-}
-
-.jf-repo-rev { color: #9fe4dc }
-
-.jf-repo-file {
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 11.5px;
-  color: #6f8088;
-  overflow-wrap: anywhere;
-}
-
-.jf-repo-actions {
-  display: flex;
-  gap: 8px;
-  margin-left: auto;
-}
-
-.jf-push-result {
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  font-size: 12.5px;
-  color: #9fe4dc;
-}
-
-.jf-push-result code { font-size: 11.5px; color: #d7fbf8 }
-
-.jf-push-result a {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: #20c7bd;
-}
-
-.jf-push-result.quiet { color: #8ea0a8 }
-.jf-push-result.warn  { color: #f0c674 }
-.jf-push-result.error { color: #ff8d95 }
 
 /* Why Connect could not be read, in the dialog that asked. */
 .jf-new-error {

@@ -5,7 +5,7 @@ import { idFromPath, useDeepLink } from "../../deepLink";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ArtifactoryJob, ArtifactoryScenario } from "../../../server/types";
 import { log, error as logError } from "../../log";
-import { cancelJob, getJob, listJobs, simulateJob } from "./api";
+import { cancelJob, deleteJob, getJob, listJobs, simulateJob } from "./api";
 import { JobDetail } from "./components/JobDetail";
 import { JobList } from "./components/JobList";
 import { FolderUploadForm } from "./components/FolderUploadForm";
@@ -97,6 +97,19 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
     setSelectedJobId(job.id);
   }
 
+  function handleDelete(id: string) {
+    log("artifactory", "deleting job", id);
+    deleteJob(id)
+      .then(() => {
+        setJobs((prev) => prev.filter((j) => j.id !== id));
+        setSelectedJobId((prev) => (prev === id ? null : prev));
+      })
+      .catch((err: Error) => {
+        logError("artifactory", "delete failed", err);
+        onError(err.message);
+      });
+  }
+
   function handleStop(job: ArtifactoryJob) {
     log("artifactory", "stopping job", job.id);
     cancelJob(job.id).then(fetchJobs).catch((err: Error) => {
@@ -150,6 +163,7 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
             <div className="ticket-list">
               <JobList
                 jobs={visibleJobs}
+                onDelete={handleDelete}
                 selectedJobId={selectedJobId}
                 isAdmin={isAdmin}
                 onSelect={(id) => {

@@ -227,6 +227,8 @@ export interface ArtifactoryApi {
   getJob(jobId: string): Promise<ArtifactoryJob | null>;
   /** `null` when there is no such job; already-finished jobs are left alone. */
   cancelJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<ArtifactoryJob | null>;
+  /** `false` when there is no such job; a running one is refused. */
+  deleteJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<boolean>;
 }
 
 // ---- Whitening Module ----
@@ -277,6 +279,8 @@ export interface WhiteningApi {
   getJob(jobId: string): Promise<WhiteningJob | null>;
   /** `null` when there is no such job; already-finished jobs are left alone. */
   cancelJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<WhiteningJob | null>;
+  /** `false` when there is no such job; a running one is refused. */
+  deleteJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<boolean>;
   /** Answer a job's preserve prompt with the paths to keep from the repo; `null` when nothing is pending. */
   resolvePreserve(jobId: string, keep: string[], user: PortalUser, allUsers?: boolean): Promise<WhiteningJob | null>;
 }
@@ -347,6 +351,8 @@ export interface AiApi {
   listConversations(user: PortalUser, allUsers?: boolean): Promise<AiConversation[]>;
   /** `null` when there is no such chat; asking in it again un-archives it. */
   archiveConversation(conversationId: string, user: PortalUser, allUsers?: boolean): Promise<AiConversation | null>;
+  /** The chat and every question asked in it. `false` when there is no such chat; a running question is refused. */
+  deleteConversation(conversationId: string, user: PortalUser, allUsers?: boolean): Promise<boolean>;
   submitQuestion(conversationId: string, question: string, submitter: PortalUser): Promise<AiJob>;
   listJobs(conversationId: string, user: PortalUser, allUsers?: boolean): Promise<AiJob[]>;
   getJob(jobId: string): Promise<AiJob | null>;
