@@ -97,7 +97,8 @@ Key variables (see `.env.example`):
 | `ARTIFACTORY_DOCKER_REPO`                                    | —               | Docker repo the Whitening module pushes retagged images to via `skopeo`                                                     |
 | `ARTIFACTORY_MAVEN_REPO` / `_RPM_REPO` / `_PYPI_REPO` / `_CONDA_REPO` / `_HELM_REPO` | —       | Per-type repos the Artifactory module routes detected artifacts to (`packageTypes.ts`); unset = that type is skipped with a log line. Helm is the one that is not routed by filename: a chart is a `.tgz` exactly like an npm package, so `readTarballIdentity` decides from the manifest inside (`<chart>/Chart.yaml` vs `package/package.json`). |
 | `NPM_SOURCE_TOKEN`                                            | —               | Credential for the *source* npm registry when a URL copy is submitted with **Include dependencies** ticked. That path derives the registry from the pasted tarball URL (`<registry>/<name>/-/<file>.tgz`), writes it plus this token into a throwaway `.npmrc`, and runs a real `npm install` — once per target platform, since optional deps are platform-gated. Unset is normal: a public registry needs nothing, and a source registry on the same host as `ARTIFACTORY_URL` reuses `ARTIFACTORY_TOKEN` automatically. |
-| `GIT_URL` / `GIT_TOKEN`                                      | —               | Bitbucket Server base URL + HTTP access token; required for the Whitening module to open pull requests. The AI module reuses the same token to authenticate `git clone` for registered `ai-*` project repos (unset = clone stays unauthenticated, so public repos still work). The **Jenkinsfile** builder reuses it too — for reading a Jenkinsfile out of a repo and committing one back — and deliberately has no variable of its own: a Jenkinsfile lives in the application repos `GIT_URL` already names. Setting both is what enables that module's Connect/Pull/Commit; the token only ever reaches the `GIT_URL` host (`tokenFor`), so a repo elsewhere is cloned anonymously. |
+| `GIT_URL` / `GIT_TOKEN`                                      | —               | Bitbucket Server base URL + HTTP access token; required for the Whitening module to open pull requests. The AI module reuses the same token to authenticate `git clone` for registered `ai-*` project repos (unset = clone stays unauthenticated, so public repos still work). The **Jenkinsfile** builder reuses it too, for reading a Jenkinsfile out of a Bitbucket repo and committing one back. The token only ever reaches the `GIT_URL` host (`tokenFor`). |
+| `GITHUB_TOKEN`                                               | —               | The Jenkinsfile builder's credential for repos on **github.com** (`jenkinsfileTokenFor`), where `GIT_TOKEN` cannot go. Sent to github.com only; it pushes the branch and opens the PR through `openPullRequest`. Either this or `GIT_URL`+`GIT_TOKEN` enables Connect/Pull/Commit. Any other host clones anonymously. |
 | `GIT_USERNAME`                                               | —               | Empty (default) puts the token alone in the clone URL; set it only if Bitbucket wants `username:token` basic auth           |
 | `JENKINS_IMAGES_PATH`                                        | —               | Artifactory storage path whose child folders name the agent images the Jenkinsfile builder's `image` field suggests (e.g. `docker-local/jenkins-agents`). One AQL search per hour per pod returns the names *and* each image's `SCREAMING_CASE` Docker labels (`JDK=17`), which are shown beside the name. Unset, or unreachable, = the field is plain free text exactly as before. |
 | `ARGOCD_CHART_REPO_URL` / `_CHART_PATH` / `_CHART_REVISION`   | universal-chart repo, `.`, `main` | Where the universal chart lives — what each generated release renders. |
@@ -828,15 +829,15 @@ out of ArgoCD rather than copied:
   ArgoCD-specific; off GitHub both modules push the branch and say the pull
   request is a manual step, which is the same sentence.
 
-**No new environment variable: it reuses `GIT_URL`/`GIT_TOKEN`.** ArgoCD needed
-`ARGOCD_VALUES_TOKEN` because a *values* repo is a separate GitOps repo, usually
-on another host. A Jenkinsfile is not: it lives in the application repo, which is
-the same set of repos the Whitening module already opens PRs against and the AI
-module already clones with this exact credential. A variable no deployment is
-asking for is a variable to get wrong, so `gitEnabled` on the pipelines list is
-just `config.git.enabled`, and `tokenFor(url)` is called with no fallback — the
-token reaches the `GIT_URL` host and nowhere else, and a repo elsewhere is cloned
-anonymously, so a public one still reads and a private one says why it cannot.
+**Two credentials, each tied to one host.** On Bitbucket the builder reuses
+`GIT_URL`/`GIT_TOKEN`, the same credential Whitening and AI already use for
+application repos. On github.com it uses `GITHUB_TOKEN`. That variable exists
+because `GIT_TOKEN` only reaches the `GIT_URL` host, so a private GitHub repo
+could not be read or written at all. `jenkinsfileTokenFor` only offers the
+fallback when `githubRepo(url)` matches. Unlike ArgoCD's `ARGOCD_VALUES_TOKEN`,
+which is handed to any host that is not `GIT_URL`, editing the repo URL cannot
+send `GITHUB_TOKEN` anywhere else. Any other host clones anonymously.
+`gitEnabled` is `config.git.enabled || !!githubToken`.
 
 **Finding the Jenkinsfile is the one genuinely new part.** ArgoCD is pointed at a
 directory and takes everything in it; here there is one file whose name is a

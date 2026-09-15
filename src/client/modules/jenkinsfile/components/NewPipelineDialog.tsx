@@ -208,7 +208,7 @@ export function NewPipelineDialog({
               type="button"
               className="jf-new-choice"
               disabled={!gitEnabled}
-              title={gitEnabled ? undefined : "No git credential is configured for this portal (GIT_URL / GIT_TOKEN)."}
+              title={gitEnabled ? undefined : "No git credential is configured for this portal (GIT_URL / GIT_TOKEN, or GITHUB_TOKEN)."}
               onClick={() => setConnecting(true)}
             >
               <GitBranch size={18} aria-hidden="true" />

@@ -146,7 +146,7 @@ export function createJenkinsfileRouter(store: PipelineStore = new PipelineStore
       sharedLibrary: config.jenkinsfile.sharedLibrary,
       // So the two git buttons render disabled with a reason, instead of
       // failing on click. Same trick as `sharedLibrary`: no second request.
-      gitEnabled: config.git.enabled,
+      gitEnabled: config.git.enabled || !!config.jenkinsfile.githubToken,
     });
   });
 

@@ -16,6 +16,7 @@ export function redactSecrets(line: string): string {
     config.artifactory?.npmSourceToken,
     config.ai?.apiKey,
     config.argocd?.valuesToken,
+    config.jenkinsfile?.githubToken,
   ]) {
     if (secret) out = out.split(secret).join("***");
   }

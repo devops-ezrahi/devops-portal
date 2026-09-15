@@ -51,7 +51,7 @@ export function RepoPanel({ repo, onPull, onCommit, pulling, push, gitEnabled, s
   const [confirming, setConfirming] = useState(false);
   // Every reason a button cannot work, said on the button rather than found by
   // pressing it.
-  const why = !gitEnabled ? "No git credential is configured for this portal (GIT_URL / GIT_TOKEN)." : "";
+  const why = !gitEnabled ? "No git credential is configured for this portal (GIT_URL / GIT_TOKEN, or GITHUB_TOKEN)." : "";
 
   return (
     <div className="jf-repo-panel">

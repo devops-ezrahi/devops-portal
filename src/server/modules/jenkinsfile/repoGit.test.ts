@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { git } from "../../git";
 import { pickJenkinsfile, pullJenkinsfile, pushJenkinsfile } from "./repoGit";
 import type { JenkinsfilePipeline } from "../../types";
@@ -10,8 +10,9 @@ import type { JenkinsfilePipeline } from "../../types";
 // the whole clone -> write -> commit -> push chain run for real against a bare
 // repo on disk, with no network and nothing stubbed. Same trick as
 // `modules/argocd/valuesGit.test.ts`.
-vi.mock("../../github", async () => ({
-  githubRepo: () => null,
+// The real `githubRepo` is kept: a bare repo on disk is not a GitHub URL either.
+vi.mock("../../github", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../github")>()),
   openPullRequest: async () => "https://github.com/o/r/pull/1",
 }));
 
@@ -131,6 +132,28 @@ describe("pullJenkinsfile", () => {
   it("refuses to read outside the clone", async () => {
     const remote = await remoteWith("escape", { "Jenkinsfile": "x()\n" });
     await expect(pullJenkinsfile(remote, "main", "../../../etc/passwd")).rejects.toThrow(/Refusing to read/);
+  });
+});
+
+describe("jenkinsfileTokenFor", () => {
+  // config is frozen at import, so each case re-imports with its own env.
+  const env = { ...process.env };
+  afterEach(() => {
+    process.env = { ...env };
+    vi.resetModules();
+  });
+
+  async function tokenFor(repoUrl: string) {
+    vi.resetModules();
+    process.env = { ...env, GIT_URL: "https://bitbucket.corp", GIT_TOKEN: "bb-secret", GITHUB_TOKEN: "gh-secret" };
+    const { jenkinsfileTokenFor } = await import("./repoGit");
+    return jenkinsfileTokenFor(repoUrl).token;
+  }
+
+  it("sends each token to its own host and nowhere else", async () => {
+    expect(await tokenFor("https://bitbucket.corp/scm/app/checkout.git")).toBe("bb-secret");
+    expect(await tokenFor("https://github.com/devops-ezrahi/dummy-project.git")).toBe("gh-secret");
+    expect(await tokenFor("https://evil.example.com/o/r.git")).toBe("");
   });
 });
 

@@ -1,5 +1,6 @@
 import { mkdir, readFile, readdir, writeFile } from "fs/promises";
 import { dirname, join, resolve, sep } from "path";
+import { config } from "../../config";
 import { git, withCredentials } from "../../git";
 import { githubRepo, openPullRequest } from "../../github";
 import { log } from "../../log";
@@ -22,6 +23,15 @@ import type { JenkinsfilePipeline } from "../../types";
  * rather than a rule, and nobody wants to type the path of the file they are
  * about to import. So the repo is searched — see `pickJenkinsfile`.
  */
+
+/**
+ * Credential for this repo: GIT_TOKEN on the GIT_URL host (Bitbucket), GITHUB_TOKEN
+ * on github.com, nothing anywhere else. The fallback is only offered for a
+ * github.com URL, so an edited repo URL cannot carry GITHUB_TOKEN to another host.
+ */
+export function jenkinsfileTokenFor(repoUrl: string): { token: string; username: string } {
+  return tokenFor(repoUrl, githubRepo(repoUrl) ? config.jenkinsfile.githubToken : "");
+}
 
 /** A repo is searched, not walked: a monorepo would otherwise be read whole. */
 const MAX_ENTRIES = 4000;
@@ -123,7 +133,7 @@ export type PullResult =
 export async function pullJenkinsfile(repoUrl: string, revision: string, wanted: string): Promise<PullResult> {
   const dir = await createTmpDir("jf-");
   try {
-    const { token, username } = tokenFor(repoUrl);
+    const { token, username } = jenkinsfileTokenFor(repoUrl);
     await git(["clone", "--depth", "1", "--branch", revision, "--", withCredentials(repoUrl, token, username), dir]);
 
     const chosen = wanted ? { path: wanted, candidates: [wanted], problem: "" } : pickJenkinsfile(await listFiles(dir));
@@ -170,7 +180,7 @@ export async function pushJenkinsfile(opts: {
   const { pipeline, text, branch, message, authorName } = opts;
   const repo = pipeline.repo!;
   const path = repo.path;
-  const { token, username } = tokenFor(repo.repoUrl);
+  const { token, username } = jenkinsfileTokenFor(repo.repoUrl);
   const dir = await createTmpDir("jf-");
 
   try {

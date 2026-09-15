@@ -164,6 +164,9 @@ export const config = {
     // to whichever level holds the names a stage's `image` argument takes.
     // Unset = the builder's image field stays plain free text.
     imagesPath: (requireEnv("JENKINS_IMAGES_PATH") ?? "").replace(/^\/+|\/+$/g, ""),
+    // Token for Jenkinsfile repos on github.com, when GIT_URL is the on-prem
+    // Bitbucket. Only ever sent to github.com — see `jenkinsfileTokenFor`.
+    githubToken: (requireEnv("GITHUB_TOKEN") ?? "").trim(),
   },
   argocd: {
     // Where the universal chart lives, and where the generated tree gets
