@@ -182,7 +182,10 @@ export const config = {
     // converter's --appset-chart-path.
     appsetChartPath: (requireEnv("ARGOCD_APPSET_CHART_PATH") ?? "ms-applicationSet").trim(),
     chartRevision: (requireEnv("ARGOCD_CHART_REVISION") ?? "main").trim(),
-    valuesRepoUrl: (requireEnv("ARGOCD_VALUES_REPO_URL") ?? "https://git.example.com/gitops/microservices-values.git").trim(),
+    // ponytail: no default — a placeholder host here pre-fills every new tree
+    // with a repo that does not exist, and the preview's diff read then fails
+    // on it. Empty means a scratch tree reads nothing until a repo is typed.
+    valuesRepoUrl: (requireEnv("ARGOCD_VALUES_REPO_URL") ?? "").trim(),
     valuesRevision: (requireEnv("ARGOCD_VALUES_REVISION") ?? "main").trim(),
     // Credential for the values repo, used only by the module's pull and push.
     // Separate from GIT_TOKEN because that one is the Bitbucket credential and
