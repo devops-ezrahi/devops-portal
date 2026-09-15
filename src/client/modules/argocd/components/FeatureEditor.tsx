@@ -375,14 +375,16 @@ function OverrideLight({ name, onRemove, onMoveOut }: { name: string; onRemove: 
         Keep one. If every namespace needs its own, take it out of base; if this namespace does not really differ,
         remove it here.
       </p>
-      {/* Both, and it is idempotent: the press closes the popover by removing
-          the light it hangs off, so the click half often never arrives. */}
-      <button type="button" className="ghost-button ag-override-remove" onMouseDown={onRemove} onClick={onRemove}>
+      {/* Click only. These used to fire on mousedown as well, and the popover
+          opens on hover — so a press meant for something underneath, landing
+          as the popover appeared, deleted values with nothing on screen to say
+          so. A click needs the press and the release on the same button. */}
+      <button type="button" className="ghost-button ag-override-remove" onClick={onRemove}>
         Remove override
       </button>{" "}
       {/* The other way to keep one: each namespace holds its own, base none. */}
       {onMoveOut && (
-        <button type="button" className="ghost-button ag-override-remove" onMouseDown={onMoveOut} onClick={onMoveOut}>
+        <button type="button" className="ghost-button ag-override-remove" onClick={onMoveOut}>
           Move out of base
         </button>
       )}

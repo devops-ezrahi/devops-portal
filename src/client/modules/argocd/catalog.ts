@@ -25,7 +25,8 @@ export type FieldKind =
 export type RowCol = {
   key: string;
   label: string;
-  kind?: "string" | "number" | "boolean" | "select" | "text";
+  /** `quantity` is a Kubernetes size: a number box plus a unit menu, stored as one string (`50Gi`). */
+  kind?: "string" | "number" | "boolean" | "select" | "text" | "quantity";
   options?: string[];
   placeholder?: string;
   /** Only shown when the row says so — an exec probe has no `path`, a `value` env var has no `key`. */
@@ -784,7 +785,7 @@ F({
       "Claims",
       [
         { key: "name", label: "name", placeholder: "app-data" },
-        { key: "size", label: "size", placeholder: "50Gi" },
+        { key: "size", label: "size", kind: "quantity", placeholder: "50" },
         { key: "accessMode", label: "accessMode", kind: "select", options: ACCESS },
         { key: "storageClassName", label: "storageClassName", placeholder: "fast-ssd" },
         { key: "volumeMode", label: "volumeMode", kind: "select", options: ["", "Filesystem", "Block"] },
@@ -830,7 +831,7 @@ F({
       "Templates",
       [
         { key: "name", label: "name", placeholder: "data" },
-        { key: "size", label: "size", placeholder: "100Gi" },
+        { key: "size", label: "size", kind: "quantity", placeholder: "100" },
         { key: "accessMode", label: "accessMode", kind: "select", options: ACCESS },
         { key: "storageClassName", label: "storageClassName", placeholder: "fast-ssd" },
       ],
@@ -875,7 +876,7 @@ F({
       "Volumes",
       [
         { key: "name", label: "name", placeholder: "local-ssd-node1" },
-        { key: "capacity", label: "capacity", placeholder: "200Gi" },
+        { key: "capacity", label: "capacity", kind: "quantity", placeholder: "200" },
         { key: "accessMode", label: "accessMode", kind: "select", options: ACCESS },
         { key: "reclaimPolicy", label: "reclaimPolicy", kind: "select", options: ["", "Retain", "Delete", "Recycle"] },
         { key: "storageClassName", label: "storageClassName", placeholder: "local-storage" },

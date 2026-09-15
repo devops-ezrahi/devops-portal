@@ -267,6 +267,12 @@ function ObjectRows({
                   checked={!!row[col.key]}
                   onChange={(e) => set(i, { [col.key]: e.target.checked })}
                 />
+              ) : col.kind === "quantity" ? (
+                <Quantity
+                  value={String(row[col.key] ?? "")}
+                  placeholder={col.placeholder}
+                  onChange={(v) => set(i, { [col.key]: v })}
+                />
               ) : col.kind === "text" ? (
                 <textarea
                   className="ag-textarea"
@@ -293,6 +299,39 @@ function ObjectRows({
         <Plus size={15} aria-hidden="true" /> {spec.addLabel ?? "Add"}
       </button>
     </div>
+  );
+}
+
+const UNITS = ["Mi", "Gi", "Ti"];
+
+/**
+ * A Kubernetes size as a number and a unit, stored as the one string the chart
+ * takes (`50Gi`). A unit off the menu — `500M` from an import — is added to it
+ * rather than silently rewritten.
+ */
+function Quantity({ value, placeholder, onChange }: { value: string; placeholder?: string; onChange: (v: string) => void }) {
+  const [, num = "", unit = ""] = /^\s*([0-9.]*)\s*([A-Za-z]*)\s*$/.exec(value) ?? [];
+  const chosen = unit || "Gi";
+  const units = UNITS.includes(chosen) ? UNITS : [...UNITS, chosen];
+  // ponytail: a unit picked before any number is typed is not kept — there is no string to hold it yet.
+  return (
+    <span className="ag-quantity">
+      <input
+        type="number"
+        min={0}
+        step="any"
+        value={num}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value ? `${e.target.value}${chosen}` : "")}
+      />
+      <select aria-label="unit" value={chosen} onChange={(e) => onChange(num ? `${num}${e.target.value}` : "")}>
+        {units.map((u) => (
+          <option key={u} value={u}>
+            {u}
+          </option>
+        ))}
+      </select>
+    </span>
   );
 }
 

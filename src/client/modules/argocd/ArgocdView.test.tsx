@@ -338,7 +338,7 @@ describe("ArgocdView", () => {
     fireEvent.click(within(imageCard).getByRole("button", { name: /What is the override on Image & pull secrets/ }));
     expect(within(imageCard).getByText(/two sources for one value/)).toBeInTheDocument();
 
-    fireEvent.mouseDown(within(imageCard).getByRole("button", { name: "Remove override" }));
+    fireEvent.click(within(imageCard).getByRole("button", { name: "Remove override" }));
 
     // The light goes out, and prod's file no longer carries the tag.
     expect(feature("Image & pull secrets").querySelector(".ag-override-tag")).toBeNull();

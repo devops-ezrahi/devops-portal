@@ -558,7 +558,8 @@ h3 {
 
 .workspace-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  /* --list-width is set by dragging the list's right edge (App.tsx). */
+  grid-template-columns: var(--list-width, minmax(260px, 340px)) minmax(0, 1fr);
   gap: 14px;
   align-items: start;
   align-content: start;
@@ -571,6 +572,33 @@ h3 {
   display: grid;
   gap: 14px;
   min-width: 0;
+}
+
+/* The drag handle: a strip in the gap beside the list. A pseudo-element, so no
+   module had to render anything — the press is picked up in App.tsx. */
+.workspace-grid > .ticket-column {
+  position: relative;
+}
+
+.workspace-grid > .ticket-column::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -11px;
+  width: 8px;
+  border-radius: 4px;
+  cursor: col-resize;
+}
+
+.workspace-grid > .ticket-column:hover::after {
+  background: rgba(159, 228, 220, 0.14);
+}
+
+@media (max-width: 980px) {
+  .workspace-grid > .ticket-column::after {
+    display: none;
+  }
 }
 
 .create-grid {
@@ -3916,6 +3944,21 @@ input.jf-title {
    .workspace-grid lands in the narrow list column. */
 .workspace-single {
   width: 100%;
+}
+
+/* A size: the number takes the room, the unit menu sits beside it. */
+.ag-quantity {
+  display: flex;
+  gap: 6px;
+}
+
+.ag-quantity input {
+  flex: 1;
+  min-width: 0;
+}
+
+.ag-quantity select {
+  width: auto;
 }
 
 /* A module-level empty state: centred in its panel and sized by its content,
