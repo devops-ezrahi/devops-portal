@@ -579,19 +579,6 @@ h3 {
   grid-template-columns: 40px minmax(0, 1fr);
 }
 
-/* Alone in its column, it is the only way back to the list — so it is sized
-   like a real button, not a header icon. */
-.list-narrow .list-size-toggle {
-  width: 40px;
-  height: 40px;
-  border-color: #2a3940;
-}
-
-.list-narrow .list-size-toggle svg {
-  width: 20px;
-  height: 20px;
-}
-
 .list-narrow .ticket-column > :not(.ticket-list-header),
 .list-narrow .ticket-list-header > :not(.list-size-toggle) {
   display: none;
@@ -602,13 +589,20 @@ h3 {
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 28px;
-  height: 28px;
+  /* One size open and minimized — minimized, it is the only way back to the
+     list, so it is sized like a real button rather than a header icon. */
+  width: 40px;
+  height: 40px;
   padding: 0;
-  border: 1px solid transparent;
+  border: 1px solid #2a3940;
   border-radius: 6px;
   background: none;
   color: #84949b;
+}
+
+.list-size-toggle svg {
+  width: 20px;
+  height: 20px;
 }
 
 /* The header is space-between; the heading stays against the button, not centred. */
@@ -617,7 +611,7 @@ h3 {
 }
 
 .list-size-toggle:hover {
-  border-color: #2a3940;
+  border-color: #3a4c55;
   color: #dce5e8;
 }
 
