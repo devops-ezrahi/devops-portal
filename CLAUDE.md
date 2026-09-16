@@ -824,7 +824,7 @@ does, so the parts that are not about values trees or Jenkinsfiles were promoted
 out of ArgoCD rather than copied:
 
 - `src/server/repoGuards.ts` — `safeRepoUrl` (http(s) only, which is what rules
-  out git's `ext::` transport, whose "URL" is a shell command git runs),
+  out git's non-network transports),
   `safeRef`, `safeDirPath`, `safeFilePath`, and `tokenFor`. `valuesRepo.ts`
   re-exports the first three and keeps `safeTreePath`, because the `.yaml` suffix
   is a rule about a values tree and not about git.

@@ -241,7 +241,7 @@ sidecars:
 initContainers:
   init-db:
     image: busybox:1.36
-    command: [sh, "-c", "until nc -z db 5432; do sleep 2; done"]
+    command: [sh, "-c", "until pg_isready -h db; do sleep 2; done"]
 serviceMonitor:
   enabled: true
   port: http

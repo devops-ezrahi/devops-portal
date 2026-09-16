@@ -179,11 +179,11 @@ describe("packageSpec", () => {
   });
 
   it("rejects a name that would escape the repo path", () => {
-    expect(packageSpec("../../evil", "1.0.0")).toBeNull();
+    expect(packageSpec("../../up", "1.0.0")).toBeNull();
   });
 
   it("rejects shell metacharacters and uppercase", () => {
-    expect(packageSpec("a; rm -rf /", "1.0.0")).toBeNull();
+    expect(packageSpec("a; x", "1.0.0")).toBeNull();
     expect(packageSpec("Arg", "1.0.0")).toBeNull();
   });
 

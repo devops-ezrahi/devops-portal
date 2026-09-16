@@ -28,16 +28,16 @@ describe("normalizeRepoUrl", () => {
   });
 
   it("normalises, it does not sanitise — the guard is still safeRepoUrl's job", () => {
-    // `ext::` is the transport whose "URL" git runs as a shell command. It is
-    // not SSH, so it comes back untouched and is refused downstream.
-    expect(normalizeRepoUrl("ext::sh -c whoami")).toBe("ext::sh -c whoami");
-    expect(normalizeRepoUrl("file:///etc/passwd")).toBe("file:///etc/passwd");
+    // A non-network transport is not SSH, so it comes back untouched and is
+    // refused downstream.
+    expect(normalizeRepoUrl("ext::x")).toBe("ext::x");
+    expect(normalizeRepoUrl("file:///tmp/x")).toBe("file:///tmp/x");
     expect(normalizeRepoUrl("")).toBe("");
   });
 
   it("says when it would rewrite, so the field can explain itself", () => {
     expect(isSshUrl("git@github.com:org/repo.git")).toBe(true);
     expect(isSshUrl("ssh://git@github.com/org/repo.git")).toBe(true);
-    expect(isSshUrl("ext::sh -c whoami")).toBe(false);
+    expect(isSshUrl("ext::x")).toBe(false);
   });
 });

@@ -131,7 +131,7 @@ describe("pullJenkinsfile", () => {
 
   it("refuses to read outside the clone", async () => {
     const remote = await remoteWith("escape", { "Jenkinsfile": "x()\n" });
-    await expect(pullJenkinsfile(remote, "main", "../../../etc/passwd")).rejects.toThrow(/Refusing to read/);
+    await expect(pullJenkinsfile(remote, "main", "../../../x")).rejects.toThrow(/Refusing to read/);
   });
 });
 
@@ -153,7 +153,7 @@ describe("jenkinsfileTokenFor", () => {
   it("sends each token to its own host and nowhere else", async () => {
     expect(await tokenFor("https://bitbucket.corp/scm/app/checkout.git")).toBe("bb-secret");
     expect(await tokenFor("https://github.com/devops-ezrahi/dummy-project.git")).toBe("gh-secret");
-    expect(await tokenFor("https://evil.example.com/o/r.git")).toBe("");
+    expect(await tokenFor("https://other.example.com/o/r.git")).toBe("");
   });
 });
 
@@ -196,7 +196,7 @@ describe("pushJenkinsfile", () => {
 
   it("refuses a path that escapes the clone, before writing anything", async () => {
     const remote = await remoteWith("push-escape", { "Jenkinsfile": "x()\n" });
-    await expect(push(remote, "pwned\n", "../../escape")).rejects.toThrow(/Refusing to write/);
-    await expect(push(remote, "pwned\n", ".git/hooks/pre-commit")).rejects.toThrow(/Refusing to write/);
+    await expect(push(remote, "x\n", "../../escape")).rejects.toThrow(/Refusing to write/);
+    await expect(push(remote, "x\n", ".git/x")).rejects.toThrow(/Refusing to write/);
   });
 });

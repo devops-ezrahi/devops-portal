@@ -84,7 +84,7 @@ describe("pushValuesTree", () => {
 
   it("refuses a path that escapes the tree, before writing anything", async () => {
     await expect(push([{ path: "../../escape.yaml", text: "x: 1\n" }])).rejects.toThrow(/Refusing to write/);
-    await expect(push([{ path: ".git/hooks/pre-commit.yaml", text: "x: 1\n" }])).rejects.toThrow(/Refusing to write/);
+    await expect(push([{ path: ".git/x.yaml", text: "x: 1\n" }])).rejects.toThrow(/Refusing to write/);
   });
 
   it("removes what the tree no longer has, but only under a values subdirectory", async () => {

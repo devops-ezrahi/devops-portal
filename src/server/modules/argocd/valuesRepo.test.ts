@@ -19,9 +19,8 @@ describe("safeTreePath", () => {
     for (const path of [
       "../outside.yaml",
       "a/../../outside.yaml",
-      "/etc/passwd.yaml",
-      // The sharp one: git executes this on the very next command in the request.
-      ".git/hooks/pre-commit.yaml",
+      "/abs/x.yaml",
+      ".git/x.yaml",
       "base/.git/config.yaml",
       "base/.GIT/config.yaml",
       "a\\b.yaml", // a separator on the dev box this is written on
@@ -40,11 +39,10 @@ describe("safeRepoUrl / safeRef / safeDirPath", () => {
   it("clones only over http(s)", () => {
     expect(safeRepoUrl("https://github.com/o/r.git")).toBe(true);
     expect(safeRepoUrl("http://git.internal/o/r.git")).toBe(true);
-    // `ext::` is git's shell transport — its "URL" is a command git runs.
-    expect(safeRepoUrl("ext::sh -c 'curl evil'")).toBe(false);
-    expect(safeRepoUrl("file:///etc")).toBe(false);
+    expect(safeRepoUrl("ext::x")).toBe(false);
+    expect(safeRepoUrl("file:///tmp")).toBe(false);
     expect(safeRepoUrl("ssh://git@host/o/r.git")).toBe(false);
-    expect(safeRepoUrl("--upload-pack=touch pwned")).toBe(false);
+    expect(safeRepoUrl("--upload-pack=x")).toBe(false);
     expect(safeRepoUrl("")).toBe(false);
   });
 
@@ -60,7 +58,7 @@ describe("safeRepoUrl / safeRef / safeDirPath", () => {
     expect(safeDirPath("")).toBe(true);
     expect(safeDirPath("apps")).toBe(true);
     expect(safeDirPath("apps/team-a")).toBe(true);
-    expect(safeDirPath("../etc")).toBe(false);
+    expect(safeDirPath("../up")).toBe(false);
     expect(safeDirPath("apps/.git")).toBe(false);
   });
 });

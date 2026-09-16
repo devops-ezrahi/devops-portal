@@ -2212,7 +2212,7 @@ F({
       "Init containers",
       [
         { key: "name", label: "name", placeholder: "init-db" },
-        { key: "body", label: "Container spec", kind: "text", placeholder: 'image: busybox:1.36\ncommand: ["sh", "-c", "until nc -z db 5432; do sleep 2; done"]' },
+        { key: "body", label: "Container spec", kind: "text", placeholder: 'image: busybox:1.36\ncommand: ["sh", "-c", "until pg_isready -h db; do sleep 2; done"]' },
       ],
       { addLabel: "Add init container" }
     ),
