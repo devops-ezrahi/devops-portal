@@ -18,8 +18,8 @@ const REF_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 /**
  * A repo URL the portal is willing to clone.
  *
- * http(s) only — which is what rules out `file://`, `ssh://`, and above all
- * git's `ext::` transport, whose "URL" is a shell command git runs.
+ * http(s) only — which is what rules out `file://`, `ssh://`, and git's
+ * other non-network transports.
  */
 export function safeRepoUrl(url: string): boolean {
   if (url.startsWith("-")) return false;
@@ -45,9 +45,8 @@ export function safeDirPath(path: string): boolean {
 /**
  * A path the portal will read or write inside a clone.
  *
- * The `.git` rule is the sharp one: a file written to `.git/hooks/pre-commit`
- * or `.git/config` (`core.fsmonitor`) is executed by the *very next* git
- * command in the same request. Everything else here keeps a path inside the
+ * The `.git` rule is the sharp one: a file written inside `.git` can change
+ * what the *very next* git command in the same request does. Everything else here keeps a path inside the
  * worktree; this one keeps it out of the repository's own machinery.
  *
  * This is the readable half of the check. The guarantee is the `resolve()`

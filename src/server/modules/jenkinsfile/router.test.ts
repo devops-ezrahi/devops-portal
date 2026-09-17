@@ -172,11 +172,10 @@ describe("jenkinsfile pipelines", () => {
   it("refuses to be pointed at anything but an http(s) repository", async () => {
     const app = await appOn(mkdtempSync(join(tmpdir(), "jf-test-")));
 
-    // `ext::` is git's shell transport — its "URL" is a command git runs.
     await request(app)
       .post("/api/jenkinsfile/pull")
       .set(alex)
-      .send({ repoUrl: "ext::sh -c 'curl evil'", revision: "main", path: "" })
+      .send({ repoUrl: "ext::x", revision: "main", path: "" })
       .expect(400);
     await request(app)
       .post("/api/jenkinsfile/pull")
@@ -186,7 +185,7 @@ describe("jenkinsfile pipelines", () => {
     await request(app)
       .post("/api/jenkinsfile/pull")
       .set(alex)
-      .send({ repoUrl: "https://github.com/o/r.git", revision: "main", path: "../../etc/passwd" })
+      .send({ repoUrl: "https://github.com/o/r.git", revision: "main", path: "../../x" })
       .expect(400);
   });
 

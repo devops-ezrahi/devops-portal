@@ -129,10 +129,10 @@ describe("pypiSpec", () => {
   });
 
   it("refuses anything that would reach pip's argv as something else", () => {
-    expect(pypiSpec("-r/etc/passwd", "1.0")).toBeNull();
-    expect(pypiSpec("idna; rm -rf /", "3.6")).toBeNull();
-    expect(pypiSpec("../../etc", "3.6")).toBeNull();
-    expect(pypiSpec("idna", "3.6 --index-url=http://evil")).toBeNull();
+    expect(pypiSpec("-r/abs/x", "1.0")).toBeNull();
+    expect(pypiSpec("idna; x", "3.6")).toBeNull();
+    expect(pypiSpec("../../up", "3.6")).toBeNull();
+    expect(pypiSpec("idna", "3.6 --index-url=http://other")).toBeNull();
     expect(pypiSpec("", "3.6")).toBeNull();
   });
 });
@@ -143,7 +143,7 @@ describe("validMavenCoords", () => {
   });
 
   it("refuses a path or a shell metacharacter", () => {
-    expect(validMavenCoords({ ...coords, groupId: "../../etc" })).toBe(false);
+    expect(validMavenCoords({ ...coords, groupId: "../../up" })).toBe(false);
     expect(validMavenCoords({ ...coords, artifactId: "a b" })).toBe(false);
     expect(validMavenCoords({ ...coords, version: "1.0</version><x>" })).toBe(false);
   });
