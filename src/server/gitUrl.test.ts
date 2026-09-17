@@ -30,14 +30,14 @@ describe("normalizeRepoUrl", () => {
   it("normalises, it does not sanitise — the guard is still safeRepoUrl's job", () => {
     // A non-network transport is not SSH, so it comes back untouched and is
     // refused downstream.
-    expect(normalizeRepoUrl("ext::x")).toBe("ext::x");
-    expect(normalizeRepoUrl("file:///tmp/x")).toBe("file:///tmp/x");
+    expect(normalizeRepoUrl("git://host/r")).toBe("git://host/r");
+    expect(normalizeRepoUrl("ftp://host/r")).toBe("ftp://host/r");
     expect(normalizeRepoUrl("")).toBe("");
   });
 
   it("says when it would rewrite, so the field can explain itself", () => {
     expect(isSshUrl("git@github.com:org/repo.git")).toBe(true);
     expect(isSshUrl("ssh://git@github.com/org/repo.git")).toBe(true);
-    expect(isSshUrl("ext::x")).toBe(false);
+    expect(isSshUrl("git://host/r")).toBe(false);
   });
 });

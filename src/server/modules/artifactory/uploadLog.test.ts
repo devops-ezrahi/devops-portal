@@ -16,7 +16,7 @@ vi.mock("../../config", () => ({
       url: "https://art.example.com",
       repo: "npm-local",
       npmRepo: "npm-local",
-      token: "AKCp8-fake-token",
+      token: "art-token",
       mavenRepo: "maven-local",
       rpmRepo: "rpm-local",
     },

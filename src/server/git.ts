@@ -51,10 +51,10 @@ export function authenticatedRepoUrl(repoUrl: string): string {
  *
  * Two things here are load-bearing rather than tidy:
  *
- * - `GIT_TERMINAL_PROMPT=0` + `GIT_ASKPASS`. The pull path deliberately allows
- *   an anonymous clone, so it *will* meet repos it cannot read. Without these,
- *   git asks for a password on a stdin nobody is holding and the request hangs
- *   until the timeout instead of failing in a few hundred milliseconds.
+ * - `GIT_TERMINAL_PROMPT=0`. The pull path deliberately allows an anonymous
+ *   clone, so it *will* meet repos it cannot read. Without it, git prompts on a
+ *   stdin nobody is holding and the request hangs until the timeout instead of
+ *   failing in a few hundred milliseconds.
  * - `redactSecrets` on the thrown message. The job modules throw raw and rely on
  *   `appendLog` to scrub; this message travels through the HTTP error handler
  *   and onto the user's screen, and git quotes the remote — credential and all —
@@ -66,7 +66,7 @@ export async function git(args: string[], cwd?: string, timeoutMs = 60_000): Pro
       cwd,
       timeout: timeoutMs,
       maxBuffer: 20 * 1024 * 1024,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "echo", GIT_CONFIG_NOSYSTEM: "1" },
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_NOSYSTEM: "1" },
     });
     return stdout;
   } catch (err: unknown) {

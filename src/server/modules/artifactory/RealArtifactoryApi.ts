@@ -96,7 +96,7 @@ const MAX_FOLDER_FILES = 500;
  * here measures the expanded size — the outer archive is already capped at 500
  * MB by the upload route, which is the same bound the existing unzip runs under.
  */
-const ARCHIVE_RE = /\.(tar|tar\.gz|tgz|tar\.bz2|tbz2?|tar\.xz|txz|tar\.zst|zip|rar)$/i;
+const ARCHIVE_RE = /\.(tar|tar\.gz|tgz|tar\.bz2|tbz2?|tar\.xz|txz|tar\.zst|zip)$/i;
 const MAX_ARCHIVE_DEPTH = 2;
 
 function nowIso() {
@@ -1231,10 +1231,6 @@ async function mavenCoordsFromJar(file: string): Promise<MavenCoords | null> {
  * Both commands run *from* the destination with the archive named relative to
  * it: GNU tar reads a leading `C:` as a remote host spec, which is the same
  * reason `readTarballIdentity` works out of the file's own directory.
- *
- * `.rar` needs `unar`, which the image need not carry — a missing binary throws
- * ENOENT and comes back as `false`, so the caller reports the archive as
- * unrelated exactly as it reports one it could not read.
  */
 async function extractArchive(file: string, destDir: string): Promise<boolean> {
   await mkdir(destDir, { recursive: true });
@@ -1242,11 +1238,9 @@ async function extractArchive(file: string, destDir: string): Promise<boolean> {
   const lower = file.toLowerCase();
   const [cmd, args]: [string, string[]] = lower.endsWith(".zip")
     ? ["unzip", ["-q", "-o", from]]
-    : lower.endsWith(".rar")
-      ? ["unar", ["-q", "-D", from]]
-      : // No -z/-j/-J: every tar in play auto-detects the compression on extract,
-        // so one branch covers .tar through .tar.zst.
-        ["tar", ["-xf", from]];
+    : // No -z/-j/-J: every tar in play auto-detects the compression on extract,
+      // so one branch covers .tar through .tar.zst.
+      ["tar", ["-xf", from]];
   try {
     await execFileAsync(cmd, args, { cwd: destDir });
     return true;

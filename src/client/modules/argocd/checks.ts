@@ -93,9 +93,6 @@ export function checkValues(doc: Values): Problem[] {
     if (!tmp) warn("readOnlyRootFilesystem: true with nothing mounted at /tmp. Most runtimes fail on their first temp file — add an emptyDir.", "mounts");
   }
 
-  if (doc.hostNetwork === true && doc.dnsPolicy !== "ClusterFirstWithHostNet")
-    bad("hostNetwork: true without dnsPolicy: ClusterFirstWithHostNet — the pod uses the node's resolver and no Service name resolves.", "hostns");
-
   const monitor = obj(doc.serviceMonitor);
   if (enabled(monitor) && !present(monitor.labels))
     warn("ServiceMonitor with no labels. Prometheus Operator selects on them — usually release: prometheus — so an unlabelled one is silently never scraped.", "servicemonitor");

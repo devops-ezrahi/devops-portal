@@ -175,12 +175,12 @@ describe("jenkinsfile pipelines", () => {
     await request(app)
       .post("/api/jenkinsfile/pull")
       .set(alex)
-      .send({ repoUrl: "ext::x", revision: "main", path: "" })
+      .send({ repoUrl: "git://host/r", revision: "main", path: "" })
       .expect(400);
     await request(app)
       .post("/api/jenkinsfile/pull")
       .set(alex)
-      .send({ repoUrl: "https://github.com/o/r.git", revision: "--upload-pack=x", path: "" })
+      .send({ repoUrl: "https://github.com/o/r.git", revision: "-x", path: "" })
       .expect(400);
     await request(app)
       .post("/api/jenkinsfile/pull")

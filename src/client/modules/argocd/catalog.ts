@@ -382,7 +382,7 @@ F({
   blurb: "The one container this chart manages: its name, its entrypoint and how long it gets to shut down.",
   fields: [
     S("containerName", "containerName", { path: "containerName", placeholder: "backend", hint: "What kubectl logs -c and the container label on kubelet metrics match on. Defaults to the release name." }),
-    TX("command", "command", { placeholder: "/bin/sh\n-c\nexec /app/server", hint: "One list item per line." }),
+    TX("command", "command", { placeholder: "node\nserver.js", hint: "One list item per line." }),
     TX("args", "args", { placeholder: "--port=8080" }),
     S("workingDir", "workingDir", { path: "workingDir", placeholder: "/app" }),
     N("terminationGracePeriodSeconds", "terminationGracePeriodSeconds", { path: "terminationGracePeriodSeconds", placeholder: "30" }),
@@ -428,7 +428,7 @@ F({
         { key: "kind", label: "Source", kind: "select", options: ["value", "secretKeyRef", "configMapKeyRef", "fieldRef", "resourceFieldRef"] },
         { key: "value", label: "value", placeholder: "debug", when: (r) => (r.kind || "value") === "value" },
         { key: "ref", label: "Secret / ConfigMap name", placeholder: "db-secret", when: (r) => r.kind === "secretKeyRef" || r.kind === "configMapKeyRef" },
-        { key: "key", label: "key", placeholder: "password", when: (r) => r.kind === "secretKeyRef" || r.kind === "configMapKeyRef" },
+        { key: "key", label: "key", placeholder: "url", when: (r) => r.kind === "secretKeyRef" || r.kind === "configMapKeyRef" },
         { key: "fieldPath", label: "fieldPath", placeholder: "metadata.name", when: (r) => r.kind === "fieldRef" },
         { key: "resource", label: "resource", placeholder: "limits.memory", when: (r) => r.kind === "resourceFieldRef" },
       ],
@@ -580,7 +580,7 @@ F({
         { key: "path", label: "path", placeholder: "/healthz", when: (r) => (r.kind || "httpGet") === "httpGet" },
         { key: "port", label: "port", placeholder: "http", when: (r) => (r.kind || "httpGet") !== "exec" },
         { key: "svc", label: "grpc.service", placeholder: "liveness", when: (r) => r.kind === "grpc" },
-        { key: "command", label: "command", kind: "text", placeholder: "/bin/sh\n-c\npg_isready -U postgres", when: (r) => r.kind === "exec" },
+        { key: "command", label: "command", kind: "text", placeholder: "pg_isready\n-U\npostgres", when: (r) => r.kind === "exec" },
         { key: "initialDelaySeconds", label: "initialDelaySeconds", kind: "number", placeholder: "10" },
         { key: "periodSeconds", label: "periodSeconds", kind: "number", placeholder: "10" },
         { key: "timeoutSeconds", label: "timeoutSeconds", kind: "number", placeholder: "5" },
@@ -671,10 +671,10 @@ F({
   name: "Lifecycle hooks",
   keys: ["lifecycle"],
   blurb: "postStart and preStop hooks, passed through as written.",
-  fields: [YA("body", "lifecycle", { placeholder: 'preStop:\n  exec:\n    command: ["/bin/sh","-c","sleep 15"]' })],
+  fields: [YA("body", "lifecycle", { placeholder: 'preStop:\n  exec:\n    command: ["/app/drain"]' })],
   emit: (v) => (nz(v.body) ? { lifecycle: raw(v.body) } : null),
   notes: [
-    "A preStop sleep is the usual fix for connections dropped mid-rollout: it holds the container open while the endpoint is removed from every kube-proxy.",
+    "A preStop pause is the usual fix for connections dropped mid-rollout: it holds the container open while the endpoint is removed from every kube-proxy.",
   ],
 });
 
@@ -694,7 +694,7 @@ F({
       "Volumes",
       [
         { key: "name", label: "name", placeholder: "nginx-conf" },
-        { key: "kind", label: "Type", kind: "select", options: ["configMap", "secret", "emptyDir", "emptyDir (memory)", "persistentVolumeClaim", "hostPath", "nfs", "custom"] },
+        { key: "kind", label: "Type", kind: "select", options: ["configMap", "secret", "emptyDir", "emptyDir (memory)", "persistentVolumeClaim", "nfs", "custom"] },
         {
           key: "src",
           label: "Source name",
@@ -704,7 +704,7 @@ F({
         },
         { key: "defaultMode", label: "defaultMode", placeholder: "0644", when: (r) => ["configMap", "secret"].includes(String(r.kind || "configMap")) },
         { key: "sizeLimit", label: "sizeLimit", placeholder: "512Mi", when: (r) => String(r.kind ?? "").startsWith("emptyDir") },
-        { key: "path", label: "path", placeholder: "/exports/myapp", when: (r) => ["hostPath", "nfs"].includes(String(r.kind)) },
+        { key: "path", label: "path", placeholder: "/exports/myapp", when: (r) => r.kind === "nfs" },
         { key: "server", label: "NFS server", placeholder: "nfs.internal.example.com", when: (r) => r.kind === "nfs" },
         { key: "body", label: "Volume source YAML", kind: "text", placeholder: "csi:\n  driver: secrets-store.csi.k8s.io\n  readOnly: true", when: (r) => r.kind === "custom" },
       ],
@@ -723,7 +723,6 @@ F({
         if (k === "emptyDir") return { emptyDir: nz(r.sizeLimit) ? { sizeLimit: r.sizeLimit } : (raw("{}") as unknown as Values) };
         if (k === "emptyDir (memory)") return { emptyDir: clean({ medium: "Memory", sizeLimit: r.sizeLimit }) };
         if (k === "persistentVolumeClaim") return { persistentVolumeClaim: { claimName: r.src } };
-        if (k === "hostPath") return { hostPath: { path: r.path } };
         if (k === "nfs") return { nfs: clean({ server: r.server, path: r.path }) };
         return nz(r.body) ? (raw(r.body) as unknown as Values) : null;
       }),
@@ -738,7 +737,6 @@ F({
         return { kind: e.medium === "Memory" ? "emptyDir (memory)" : "emptyDir", sizeLimit: e.sizeLimit };
       }
       if (isRecord(b.persistentVolumeClaim)) return { kind: "persistentVolumeClaim", src: of("persistentVolumeClaim", "claimName") };
-      if (isRecord(b.hostPath)) return { kind: "hostPath", path: of("hostPath", "path") };
       if (isRecord(b.nfs)) return { kind: "nfs", server: of("nfs", "server"), path: of("nfs", "path") };
       // ponytail: the form models six sources, the chart passes thirty through — anything else comes back as itself.
       return { kind: "custom", body: yamlText(b) };
@@ -1349,8 +1347,8 @@ F({
       [
         { key: "name", label: "name", placeholder: "db-secret" },
         { key: "type", label: "type", placeholder: "Opaque" },
-        { key: "stringData", label: "stringData", kind: "text", placeholder: "DB_PASSWORD=super-secret" },
-        { key: "data", label: "data", kind: "text", placeholder: "DB_PASSWORD=c3VwZXItc2VjcmV0" },
+        { key: "stringData", label: "stringData", kind: "text", placeholder: "APP_ENV=prod" },
+        { key: "data", label: "data", kind: "text", placeholder: "APP_ENV=cHJvZA==" },
       ],
       { addLabel: "Add Secret" }
     ),
@@ -1389,7 +1387,7 @@ F({
       [
         { key: "name", label: "name", placeholder: "vault-backend" },
         { key: "scope", label: "Scope", kind: "select", options: ["SecretStore", "ClusterSecretStore"] },
-        { key: "body", label: "provider", kind: "text", placeholder: "vault:\n  server: https://vault.example.com:8200\n  path: secret" },
+        { key: "body", label: "provider", kind: "text", placeholder: "vault:\n  server: https://vault.example.com\n  path: kv" },
       ],
       { addLabel: "Add store" }
     ),
@@ -1440,7 +1438,7 @@ F({
         { key: "storeKind", label: "secretStoreRef.kind", kind: "select", options: ["SecretStore", "ClusterSecretStore"] },
         { key: "refreshInterval", label: "refreshInterval", placeholder: "1h" },
         { key: "target", label: "target.name" },
-        { key: "data", label: "data", kind: "text", placeholder: "password=secret/data/myapp/db#password" },
+        { key: "data", label: "data", kind: "text", placeholder: "url=kv/data/myapp/db#url" },
         { key: "dataFrom", label: "dataFrom.extract.key", placeholder: "secret/data/myapp/all" },
       ],
       { addLabel: "Add ExternalSecret" }
@@ -1580,7 +1578,7 @@ F({
         { key: "ttl", label: "jobTemplate.ttlSecondsAfterFinished", kind: "number", placeholder: "86400" },
         { key: "containerName", label: "jobTemplate.containerName" },
         { key: "serviceAccountName", label: "jobTemplate.serviceAccountName", placeholder: "backup-sa" },
-        { key: "command", label: "jobTemplate.command", kind: "text", placeholder: "/bin/sh\n-c\npg_dump $DATABASE_URL | gzip > /backup/dump.sql.gz" },
+        { key: "command", label: "jobTemplate.command", kind: "text", placeholder: "/app/backup" },
         { key: "env", label: "jobTemplate.env", kind: "text", placeholder: "DATABASE_URL@secret:db-secret/DATABASE_URL" },
         { key: "imageRepo", label: "jobTemplate.image.repository" },
         { key: "imageTag", label: "jobTemplate.image.tag" },
@@ -1922,31 +1920,21 @@ F({
 F({
   id: "hostns",
   cat: "sched",
-  name: "Host namespaces & DNS",
-  keys: ["hostNetwork", "hostIPC", "hostPID", "shareProcessNamespace", "dnsPolicy", "dnsConfig", "hostAliases"],
-  blurb: "The node-level switches. Node agents need them; almost nothing else does.",
+  name: "DNS",
+  keys: ["dnsPolicy", "dnsConfig", "hostAliases"],
+  blurb: "How the pod resolves names.",
   fields: [
-    B("hostNetwork", "hostNetwork", { path: "hostNetwork" }),
-    B("hostPID", "hostPID", { path: "hostPID" }),
-    B("hostIPC", "hostIPC", { path: "hostIPC" }),
-    B("shareProcessNamespace", "shareProcessNamespace", { path: "shareProcessNamespace" }),
-    SE("dnsPolicy", "dnsPolicy", ["", "ClusterFirst", "ClusterFirstWithHostNet", "Default", "None"], { path: "dnsPolicy" }),
+    SE("dnsPolicy", "dnsPolicy", ["", "ClusterFirst", "Default", "None"], { path: "dnsPolicy" }),
     YA("dnsConfig", "dnsConfig", { placeholder: "nameservers:\n  - 10.0.0.10" }),
     YA("hostAliases", "hostAliases", { placeholder: "- ip: 10.0.0.5\n  hostnames:\n    - legacy.internal" }),
   ],
   emit: (v) => {
     const o: Values = {};
-    (["hostNetwork", "hostPID", "hostIPC", "shareProcessNamespace"] as const).forEach((k) => {
-      if (v[k]) o[k] = true;
-    });
     put(o, "dnsPolicy", v.dnsPolicy);
     if (nz(v.dnsConfig)) o.dnsConfig = raw(v.dnsConfig);
     if (nz(v.hostAliases)) o.hostAliases = raw(v.hostAliases);
     return some(o);
   },
-  notes: [
-    "hostNetwork: true without dnsPolicy: ClusterFirstWithHostNet gives the pod the node's resolver, so every in-cluster Service name stops resolving.",
-  ],
 });
 
 /* ---------- identity & observability ---------- */
@@ -2212,7 +2200,7 @@ F({
       "Init containers",
       [
         { key: "name", label: "name", placeholder: "init-db" },
-        { key: "body", label: "Container spec", kind: "text", placeholder: 'image: busybox:1.36\ncommand: ["sh", "-c", "until pg_isready -h db; do sleep 2; done"]' },
+        { key: "body", label: "Container spec", kind: "text", placeholder: 'image: busybox:1.36\ncommand: ["/app/wait-for-db"]' },
       ],
       { addLabel: "Add init container" }
     ),

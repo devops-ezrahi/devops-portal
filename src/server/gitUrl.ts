@@ -3,8 +3,8 @@
  *
  * People paste whatever their git host's "Clone" button gave them, and for most
  * of them that is SSH. The portal cannot use it: it holds no SSH key, only
- * tokens, and `safeRepoUrl` allows http(s) alone — deliberately, since that is
- * what rules out git's non-network transports. So the URL is rewritten rather than refused.
+ * tokens, and `safeRepoUrl` allows http(s) alone. So the URL is rewritten rather
+ * than refused.
  *
  * This file has **no imports on purpose**: it is the one module the browser and
  * the server both run, so the field can show the rewrite as you type and the

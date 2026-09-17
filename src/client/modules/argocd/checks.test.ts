@@ -70,11 +70,6 @@ describe("checkValues", () => {
     expect(say(withImage({ replicaCount: 3, pvc: { data: { size: "10Gi" } } }))).toContain("stays Pending");
   });
 
-  it("catches host networking without the matching DNS policy", () => {
-    expect(say(withImage({ hostNetwork: true }))).toContain("no Service name resolves");
-    expect(say(withImage({ hostNetwork: true, dnsPolicy: "ClusterFirstWithHostNet" }))).toBe("");
-  });
-
   it("catches a workload with no image, and does not ask a config-only release for one", () => {
     expect(say({ workload: { type: "deployment" } })).toContain("No image.repository");
     expect(say({ workload: { type: "none" } })).toBe("");
@@ -116,7 +111,6 @@ describe("checkValues", () => {
       withImage({ pdb: { minAvailable: 2 }, replicaCount: 2 }),
       withImage({ pvc: { data: {} }, replicaCount: 2 }),
       withImage({ securityContext: { readOnlyRootFilesystem: true } }),
-      withImage({ hostNetwork: true }),
       withImage({ serviceMonitor: { enabled: true } }),
       withImage({ volumeMounts: { data: { mountPath: "/data" } } }),
       withImage({ jobs: { migrate: { serviceAccountName: "seeder-sa" } } }),

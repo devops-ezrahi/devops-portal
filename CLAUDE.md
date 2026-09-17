@@ -214,7 +214,7 @@ about any of this.
 
 ## Artifactory: an archive may just be carrying a folder
 
-A dropped `.zip` / `.tar` / `.tar.gz` / `.rar` is unpacked on the server and
+A dropped `.zip` / `.tar` / `.tar.gz` is unpacked on the server and
 whatever is inside it is routed exactly as the same files dropped as a folder
 would be. That is what people reach for when a folder drop is awkward — a
 browser file picker cannot select a directory, a folder arrives by mail as one
@@ -235,10 +235,8 @@ attachment — and before this it was one unrecognised file.
 - **`extractArchive` runs from the destination and names the archive
   relatively.** GNU tar reads a leading `C:` as a remote host spec, the same
   trap `readTarballIdentity` already works around.
-- **`.rar` needs `unar`** (one word in the Dockerfile's apt line); `tar` and
-  `unzip` cover everything else and were already there. A missing binary comes
-  back as "could not unpack", which is reported like any other unreadable file
-  — so the apt word is revertable and costs rar support and nothing else.
+- **`tar` and `unzip` only** — both were already in the image, and no other
+  archive format is unpacked.
 - An archive that unpacks to nothing recognisable is named in the log and
   counted unrelated, rather than failing silently or uploading itself flat.
 
@@ -823,8 +821,7 @@ builders that commit to git must not have two ideas of what pressing Commit
 does, so the parts that are not about values trees or Jenkinsfiles were promoted
 out of ArgoCD rather than copied:
 
-- `src/server/repoGuards.ts` — `safeRepoUrl` (http(s) only, which is what rules
-  out git's non-network transports),
+- `src/server/repoGuards.ts` — `safeRepoUrl` (http(s) only),
   `safeRef`, `safeDirPath`, `safeFilePath`, and `tokenFor`. `valuesRepo.ts`
   re-exports the first three and keeps `safeTreePath`, because the `.yaml` suffix
   is a rule about a values tree and not about git.

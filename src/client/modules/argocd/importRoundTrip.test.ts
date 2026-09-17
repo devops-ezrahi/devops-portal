@@ -30,9 +30,6 @@ volumes:
   data:
     persistentVolumeClaim:
       claimName: app-data
-  hostlogs:
-    hostPath:
-      path: /var/log
   exports:
     nfs:
       server: nfs.internal.example.com
@@ -120,21 +117,21 @@ secrets:
   db-secret:
     type: Opaque
     stringData:
-      DB_PASSWORD: super-secret
+      APP_ENV: prod
     data:
-      DB_USER: cG9zdGdyZXM=
+      APP_NAME: c2hvcA==
 externalSecretsApiVersion: external-secrets.io/v1
 secretStores:
   vault-backend:
     provider:
       vault:
-        server: https://vault.example.com:8200
-        path: secret
+        server: https://vault.example.com
+        path: kv
 clusterSecretStores:
   shared-vault:
     provider:
       vault:
-        server: https://vault.example.com:8200
+        server: https://vault.example.com
 externalSecrets:
   db-credentials:
     secretStoreRef:
@@ -144,13 +141,13 @@ externalSecrets:
     target:
       name: db-secret
     data:
-      - secretKey: password
+      - secretKey: url
         remoteRef:
-          key: secret/data/myapp/db
-          property: password
+          key: kv/data/myapp/db
+          property: url
     dataFrom:
       - extract:
-          key: secret/data/myapp/all
+          key: kv/data/myapp/all
 cronjobs:
   db-backup:
     schedule: 0 2 * * *
@@ -167,9 +164,9 @@ cronjobs:
       containerName: backup
       serviceAccountName: backup-sa
       command:
-        - /bin/sh
-        - "-c"
-        - pg_dump
+        - /app/backup
+        - "--all"
+        - daily
       env:
         DATABASE_URL:
           valueFrom:
@@ -241,7 +238,7 @@ sidecars:
 initContainers:
   init-db:
     image: busybox:1.36
-    command: [sh, "-c", "until pg_isready -h db; do sleep 2; done"]
+    command: [/app/wait-for-db]
 serviceMonitor:
   enabled: true
   port: http

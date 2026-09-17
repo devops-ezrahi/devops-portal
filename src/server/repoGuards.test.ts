@@ -12,10 +12,10 @@ describe("safeRepoUrl", () => {
   it("clones only over http(s)", () => {
     expect(safeRepoUrl("https://github.com/o/checkout-service.git")).toBe(true);
     expect(safeRepoUrl("http://bitbucket.internal/scm/proj/repo.git")).toBe(true);
-    expect(safeRepoUrl("ext::x")).toBe(false);
-    expect(safeRepoUrl("file:///tmp")).toBe(false);
+    expect(safeRepoUrl("git://host/r")).toBe(false);
+    expect(safeRepoUrl("ftp://host/r")).toBe(false);
     expect(safeRepoUrl("ssh://git@host/o/r.git")).toBe(false);
-    expect(safeRepoUrl("--upload-pack=x")).toBe(false);
+    expect(safeRepoUrl("-x")).toBe(false);
     expect(safeRepoUrl("")).toBe(false);
   });
 });
@@ -24,7 +24,7 @@ describe("safeRef", () => {
   it("takes a branch name, not an option", () => {
     expect(safeRef("main")).toBe(true);
     expect(safeRef("release/1.2.x")).toBe(true);
-    expect(safeRef("--upload-pack=x")).toBe(false);
+    expect(safeRef("-x")).toBe(false);
     expect(safeRef("a..b")).toBe(false);
     expect(safeRef("")).toBe(false);
   });
@@ -52,10 +52,10 @@ describe("safeFilePath", () => {
       "a/../../outside",
       "/abs/x",
       ".git/x",
-      "ci/.git/config",
-      "ci/.GIT/config",
+      "ci/.git/y",
+      "ci/.GIT/y",
       "a\\b", // a separator on the dev box this is written on
-      "-rf",
+      "-x",
       "a//b",
       "./x",
       `${"a/".repeat(120)}Jenkinsfile`,

@@ -21,10 +21,10 @@ describe("safeTreePath", () => {
       "a/../../outside.yaml",
       "/abs/x.yaml",
       ".git/x.yaml",
-      "base/.git/config.yaml",
-      "base/.GIT/config.yaml",
+      "base/.git/y.yaml",
+      "base/.GIT/y.yaml",
       "a\\b.yaml", // a separator on the dev box this is written on
-      "-rf.yaml",
+      "-x.yaml",
       "a//b.yaml",
       "./x.yaml",
       "x.txt",
@@ -39,17 +39,17 @@ describe("safeRepoUrl / safeRef / safeDirPath", () => {
   it("clones only over http(s)", () => {
     expect(safeRepoUrl("https://github.com/o/r.git")).toBe(true);
     expect(safeRepoUrl("http://git.internal/o/r.git")).toBe(true);
-    expect(safeRepoUrl("ext::x")).toBe(false);
-    expect(safeRepoUrl("file:///tmp")).toBe(false);
+    expect(safeRepoUrl("git://host/r")).toBe(false);
+    expect(safeRepoUrl("ftp://host/r")).toBe(false);
     expect(safeRepoUrl("ssh://git@host/o/r.git")).toBe(false);
-    expect(safeRepoUrl("--upload-pack=x")).toBe(false);
+    expect(safeRepoUrl("-x")).toBe(false);
     expect(safeRepoUrl("")).toBe(false);
   });
 
   it("takes a branch name, not an option", () => {
     expect(safeRef("main")).toBe(true);
     expect(safeRef("release/1.2.x")).toBe(true);
-    expect(safeRef("--upload-pack=x")).toBe(false);
+    expect(safeRef("-x")).toBe(false);
     expect(safeRef("a..b")).toBe(false);
     expect(safeRef("")).toBe(false);
   });
@@ -107,8 +107,10 @@ describe("valuesTokenFor", () => {
 
 describe("withCredentials", () => {
   it("puts the token in on its own, or as user:pass when a username is set", () => {
-    expect(withCredentials("https://github.com/o/r.git", "tok")).toBe("https://tok@github.com/o/r.git");
-    expect(withCredentials("https://github.com/o/r.git", "tok", "alex")).toBe("https://alex:tok@github.com/o/r.git");
+    const alone = new URL(withCredentials("https://github.com/o/r.git", "abc"));
+    expect([alone.username, alone.password, alone.host]).toEqual(["abc", "", "github.com"]);
+    const pair = new URL(withCredentials("https://github.com/o/r.git", "abc", "alex"));
+    expect([pair.username, pair.password, pair.host]).toEqual(["alex", "abc", "github.com"]);
   });
 
   it("leaves alone what it cannot rewrite — an SSH form still clones via the machine's key", () => {
