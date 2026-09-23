@@ -1032,7 +1032,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                       ) : (
                         <p>
                           Only what differs for this microservice in {nsName}. Its base and {nsName}'s defaults show
-                          greyed; anything identical to them is left out of the file.
+                          greyed; the chart's own defaults are left out of the file.
                         </p>
                       )}
                     </Help>

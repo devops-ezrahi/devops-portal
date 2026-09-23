@@ -22,9 +22,9 @@ import type { Values } from "./values";
  *   and a header comment, so `API Gateway` comes back as `api-gateway` unless
  *   the chart sets `nameOverride`. `slug` is idempotent, so a second round trip
  *   is byte-stable.
- * - A namespace override that restated a value its base file already had.
- *   `subtractDefaults` dropped it on the way out, because it is a no-op in the
- *   deployed document — and a re-emit drops it again.
+ * - A namespace override that restated one of the chart's own defaults its
+ *   base file already had (`subtractChartDefaults`). Any other restated value
+ *   is kept: it was set there, and dropping it read as a removal.
  *
  * A tree written by `convert_to_universal_chart.py` rather than by this builder
  * imports on the same terms, with its comments and key order gone.

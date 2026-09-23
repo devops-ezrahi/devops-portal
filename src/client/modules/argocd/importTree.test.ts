@@ -205,3 +205,36 @@ describe("importTree", () => {
     expect(recovered.warnings.some((w) => w.includes("base/*.yaml"))).toBe(true);
   });
 });
+
+describe("a converted ConfigMap survives import and rebuild", () => {
+  // The photo: a stalker-configs ConfigMap carrying log4j2.xml and a
+  // .properties file came back with the XML split into keys.
+  it("writes both files back with every line and indent intact", () => {
+    const base = [
+      "configMaps:",
+      "  stalker-configs:",
+      "    data:",
+      "      LOG_LEVEL: info",
+      "      log4j2.xml: |",
+      '        <Configuration status="INFO" monitorInterval="30">',
+      "          <Appenders>",
+      '            <Socket name="Splunk" host="${env:SPLUNK_HOST}"/>',
+      "          </Appenders>",
+      "        </Configuration>",
+      "      Stalker.properties: |-",
+      "        # DB",
+      "        dbServer=sgw-dev",
+      "        dbPort=5000",
+      "",
+    ].join("\n");
+    const imported = importTree([
+      { path: "base/stalker.yaml", text: base },
+      { path: "ns1/defaults.yaml", text: "{}\n" },
+      { path: "ns1/values/stalker.yaml", text: "{}\n" },
+    ]);
+    expect(imported.warnings).toEqual([]);
+    const files = buildTree(tree({ releases: imported.releases, namespaces: imported.namespaces }));
+    const rebuilt = parseYaml(files.find((f) => f.path === "base/stalker.yaml")!.text);
+    expect(rebuilt).toEqual(parseYaml(base));
+  });
+});

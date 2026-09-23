@@ -236,9 +236,45 @@ describe("a namespace's defaults", () => {
       })
     );
     expect(fileAt(files, "shop-prod/defaults.yaml").image).toEqual({ tag: "7.0.0" });
-    // base says 1.0.0, the defaults say 7.0.0 over it — so restating 7.0.0 in
-    // api-gateway's own file is a no-op, and subtracting against base *then*
-    // the defaults drops it.
-    expect(fileAt(files, "shop-prod/values/api-gateway.yaml")).toEqual({});
+    // Restating 7.0.0 in api-gateway's own file is a no-op, but it was set
+    // there — so it stays. Dropping set values is what made a namespace file's
+    // image.repository vanish from a repo nobody had edited.
+    expect(fileAt(files, "shop-prod/values/api-gateway.yaml")).toEqual({ image: { tag: "7.0.0" } });
+  });
+
+  it("keeps a namespace value equal to base, and drops only the chart's own defaults", () => {
+    const files = buildTree(
+      tree({
+        releases: [
+          {
+            id: "r1",
+            name: "api-gateway",
+            features: {
+              image: on({ repository: "registry/api" }),
+              service: on({ enabled: true, type: "ClusterIP", ports: [{ name: "http", port: 80 }] }),
+            },
+          },
+        ],
+        namespaces: [
+          {
+            name: "shop-prod",
+            releases: [
+              {
+                release: "r1",
+                features: {
+                  image: on({ repository: "registry/api", tag: "2.0" }),
+                  // Ticking Service on here writes enabled/type — chart defaults base also says.
+                  service: on({ enabled: true, type: "ClusterIP", annotations: [{ k: "a", v: "b" }] }),
+                },
+              },
+            ],
+          },
+        ],
+      })
+    );
+    expect(fileAt(files, "shop-prod/values/api-gateway.yaml")).toEqual({
+      image: { repository: "registry/api", tag: "2.0" },
+      service: { annotations: { a: "b" } },
+    });
   });
 });

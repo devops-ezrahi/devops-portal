@@ -49,14 +49,22 @@ export function scalar(v: unknown): string {
 }
 
 function blockLines(v: unknown, ind: number): string[] {
-  // `|` keeps a trailing newline, `|-` strips it — which one is which matters
-  // for a ConfigMap whose consumer cares.
-  const out = [String(v).endsWith("\n") ? "|" : "|-"];
+  const text = String(v);
+  const body = text.replace(/\n+$/, "");
+  const trailing = text.length - body.length;
+  // Chomping: `|-` no trailing newline, `|` exactly one, `|+` all of them —
+  // a ConfigMap file's consumer can care which.
+  const chomp = trailing === 0 ? "-" : trailing === 1 ? "" : "+";
+  // A reader takes the indentation from the first non-empty line, so a file
+  // that *starts* indented (an XML fragment) needs it stated, or its own
+  // leading spaces are read as YAML's and silently dropped.
+  const first = body.split("\n").find((l) => l.trim()) ?? "";
+  const indicator = /^[ \t]/.test(first) ? "2" : "";
+  const out = [`|${indicator}${chomp}`];
   const pad = " ".repeat(ind + 2);
-  String(v)
-    .replace(/\s+$/, "")
-    .split("\n")
-    .forEach((l) => out.push(l ? pad + l : ""));
+  body.split("\n").forEach((l) => out.push(l ? pad + l : ""));
+  // `|+` keeps the extra newlines only as blank lines after the body.
+  for (let i = 1; i < trailing && chomp === "+"; i++) out.push("");
   return out;
 }
 

@@ -1,8 +1,15 @@
 import { buildValues } from "./build";
 import { toYaml } from "./yaml";
-import { commonSubtree, deepMerge, isPlainObject, subtractDefaults } from "./values";
+import { commonSubtree, deepMerge, isPlainObject, subtractChartDefaults } from "./values";
+import { FEATURES, defaultValues } from "./catalog";
 import type { ArgocdTree } from "../../../server/types";
 import type { Values } from "./values";
+
+/** What every feature writes when merely switched on — the chart's own answers. */
+const CHART_DEFAULTS: Values = FEATURES.reduce<Values>(
+  (acc, f) => deepMerge(acc, buildValues({ [f.id]: { on: true, v: defaultValues(f.id) } })),
+  {}
+);
 
 /**
  * The GitOps tree: catalog state in, the files a values repo holds out.
@@ -133,12 +140,12 @@ export function buildTree(tree: ArgocdTree): GeneratedFile[] {
     releases.forEach((release) => {
       // The chain's own order: base, then this namespace's defaults over it.
       const below = deepMerge(base.get(release.id) ?? {}, nsDefaults);
-      const doc = subtractDefaults(fragments.get(release.id) ?? {}, below);
+      const doc = subtractChartDefaults(fragments.get(release.id) ?? {}, below, CHART_DEFAULTS);
       files.push(
         valuesFile(
           `${ns.name}/values/${slug(release.name)}.yaml`,
           doc,
-          `${HEADER}\n# ${release.name} in ${ns.name} — only what differs. Applied last, so it wins.`,
+          `${HEADER}\n# ${release.name} in ${ns.name} — what this namespace sets. Applied last, so it wins.`,
           `${ns.name} · overrides`
         )
       );
