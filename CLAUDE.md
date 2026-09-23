@@ -825,9 +825,12 @@ out of ArgoCD rather than copied:
   `safeRef`, `safeDirPath`, `safeFilePath`, and `tokenFor`. `valuesRepo.ts`
   re-exports the first three and keeps `safeTreePath`, because the `.yaml` suffix
   is a rule about a values tree and not about git.
-- `src/server/github.ts` — moved up from `modules/argocd/`. It was never
-  ArgoCD-specific; off GitHub both modules push the branch and say the pull
-  request is a manual step, which is the same sentence.
+- `src/server/pullRequest.ts` — `openPullRequest` / `canOpenPullRequest`,
+  dispatching on the repo URL to `github.ts` (github.com) or `bitbucket.ts`
+  (Whitening's `BitbucketApi`, moved up; any `<base>/scm/<project>/<repo>.git`
+  URL, with the REST API taken from the same `<base>`). The token is the one
+  the push already used, so a PR never sends a credential to a new host. A
+  repo on neither gets its branch pushed and a note to open the PR by hand.
 
 **Two credentials, each tied to one host.** On Bitbucket the builder reuses
 `GIT_URL`/`GIT_TOKEN`, the same credential Whitening and AI already use for
@@ -872,11 +875,10 @@ a real no-op ("the repository already matches this pipeline") instead of a fresh
 commit with identical content. `pushValuesTree` now does the same, which is what
 its own test was asking for.
 
-Left out on purpose: **Bitbucket pull requests**. Whitening's `BitbucketApi` can
-open one and the dispatch would be a second `if`, but that is ArgoCD's semantics
-changed for one module — off GitHub the branch is pushed and the note says to
-open the PR by hand. Worth revisiting for both modules at once, not for this one
-alone.
+**Pasted SSH URLs are rewritten to HTTPS** (`gitUrl.ts`). Any host but
+github.com / gitlab.com / bitbucket.org is taken to be Bitbucket Server, whose
+HTTPS clone path carries `/scm/` where its SSH one does not — so it is put
+back, and the SSH port dropped.
 
 ## ArgoCD: the universal-chart GitOps builder
 

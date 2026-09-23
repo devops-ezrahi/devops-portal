@@ -113,6 +113,35 @@ configMaps:
         server {
           listen 80;
         }
+  stalker-configs:
+    data:
+      log4j2.xml: |
+        <Configuration status="INFO" monitorInterval="30">
+          <Root level="INFO"/>
+        </Configuration>
+      Stalker.properties: |-
+        dbServer=db.example.com
+        dbPort=5000
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+terminationMessagePath: /dev/termination-log
+terminationMessagePolicy: File
+labels:
+  app: stalker
+service:
+  enabled: true
+  type: NodePort
+  ports:
+    http:
+      port: 80
+      targetPort: http
+      protocol: TCP
+      nodePort: 30080
+  labels:
+    tier: web
 secrets:
   db-secret:
     type: Opaque

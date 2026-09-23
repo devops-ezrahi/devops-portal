@@ -4228,6 +4228,48 @@ input.jf-title {
   font-size: 12.5px;
 }
 
+/* A ConfigMap file: the coloured copy behind a transparent textarea. The
+   shadow repeats `.ag-editor textarea`'s box exactly (border, padding, wrap),
+   so every character lands on top of its coloured twin. */
+.ag-code {
+  position: relative;
+}
+
+.ag-code-shadow {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: #0d1316;
+  line-height: normal;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ag-code-shadow code.hljs {
+  background: transparent;
+  padding: 0;
+  font: inherit;
+}
+
+.ag-editor .ag-code textarea {
+  position: relative;
+  background: transparent;
+  color: transparent;
+  caret-color: #f4f7f8;
+  line-height: normal;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.ag-editor .ag-code textarea::placeholder {
+  color: #55707a;
+}
+
 /* ---- repositories ---- */
 
 /* Two repos with different jobs, so the summary names both rather than

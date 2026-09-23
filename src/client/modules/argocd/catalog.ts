@@ -38,6 +38,8 @@ export type RowCol = {
    * by typing its name, so this renders a `datalist` and never a `<select>`.
    */
   suggest?: (row: Values) => string;
+  /** A `text` column holding a file: the file name its highlighting is picked by. */
+  lang?: (row: Values) => string;
 };
 
 export type FieldSpec = {
@@ -207,6 +209,18 @@ export const parsePorts = (text: unknown): Values | null => {
   return Object.keys(m).length ? m : null;
 };
 
+/** The Service's port rows as the chart's name-keyed map. */
+export const servicePorts = (rows: unknown): Values | null =>
+  mapOf(rows, (r) => {
+    const o: Values = {};
+    putn(o, "port", r.port);
+    if (nz(r.targetPort)) o.targetPort = isNaN(Number(r.targetPort)) ? r.targetPort : Number(r.targetPort);
+    put(o, "protocol", r.protocol);
+    putn(o, "nodePort", r.nodePort);
+    put(o, "appProtocol", r.appProtocol);
+    return Object.keys(o).length ? o : null;
+  });
+
 /** The inverse of `parsePorts`. */
 export const portsText = (map: unknown): string =>
   isRecord(map)
@@ -368,6 +382,8 @@ F({
     if (nz(v.strategy)) o.strategy = raw(v.strategy);
     return some(o);
   },
+  // Only what `path` cannot read back: a yaml field has none.
+  load: (doc) => ({ strategy: yamlText(doc.strategy) }),
   notes: [
     "StatefulSet canary: rollingUpdate.partition: 2 updates only pods with ordinal >= 2. Set it back to 0 to finish the rollout.",
     "DaemonSet takes maxUnavailable (one node at a time) or OnDelete.",
@@ -378,7 +394,17 @@ F({
   id: "container",
   cat: "core",
   name: "Container basics",
-  keys: ["containerName", "command", "args", "workingDir", "restartPolicy", "terminationGracePeriodSeconds", "containerRestartPolicy"],
+  keys: [
+    "containerName",
+    "command",
+    "args",
+    "workingDir",
+    "restartPolicy",
+    "terminationGracePeriodSeconds",
+    "containerRestartPolicy",
+    "terminationMessagePath",
+    "terminationMessagePolicy",
+  ],
   blurb: "The one container this chart manages: its name, its entrypoint and how long it gets to shut down.",
   fields: [
     S("containerName", "containerName", { path: "containerName", placeholder: "backend", hint: "What kubectl logs -c and the container label on kubelet metrics match on. Defaults to the release name." }),
@@ -388,6 +414,8 @@ F({
     N("terminationGracePeriodSeconds", "terminationGracePeriodSeconds", { path: "terminationGracePeriodSeconds", placeholder: "30" }),
     SE("restartPolicy", "restartPolicy (pod)", ["", "Always", "OnFailure", "Never"], { path: "restartPolicy" }),
     SE("containerRestartPolicy", "containerRestartPolicy", ["", "Always", "OnFailure", "Never"], { path: "containerRestartPolicy", hint: "Container-level. Always on an initContainer is what makes it a native sidecar." }),
+    S("terminationMessagePath", "terminationMessagePath", { path: "terminationMessagePath", placeholder: "/dev/termination-log" }),
+    SE("terminationMessagePolicy", "terminationMessagePolicy", ["", "File", "FallbackToLogsOnError"], { path: "terminationMessagePolicy", hint: "FallbackToLogsOnError shows the log tail as the termination message when the file is empty." }),
   ],
   emit: (v) => {
     const o: Values = {};
@@ -398,6 +426,8 @@ F({
     putn(o, "terminationGracePeriodSeconds", v.terminationGracePeriodSeconds);
     put(o, "restartPolicy", v.restartPolicy);
     put(o, "containerRestartPolicy", v.containerRestartPolicy);
+    put(o, "terminationMessagePath", v.terminationMessagePath);
+    put(o, "terminationMessagePolicy", v.terminationMessagePolicy);
     return some(o);
   },
   load: (doc) => ({
@@ -408,6 +438,8 @@ F({
     terminationGracePeriodSeconds: doc.terminationGracePeriodSeconds ?? "",
     restartPolicy: doc.restartPolicy ?? "",
     containerRestartPolicy: doc.containerRestartPolicy ?? "",
+    terminationMessagePath: doc.terminationMessagePath ?? "",
+    terminationMessagePolicy: doc.terminationMessagePolicy ?? "",
   }),
 });
 
@@ -977,7 +1009,19 @@ F({
     B("enabled", "enabled", { def: true, path: "service.enabled" }),
     SE("type", "type", ["ClusterIP", "NodePort", "LoadBalancer", "ExternalName"], { def: "ClusterIP", path: "service.type" }),
     S("name", "name", { path: "service.name", hint: "Render the Service under a real name instead of the release fullname." }),
-    TX("ports", "ports", { req: true, placeholder: "http=80:http\nmetrics=9091:metrics", hint: "name=port:targetPort, one per line. targetPort may be a container port name." }),
+    RW(
+      "ports",
+      "ports",
+      [
+        { key: "name", label: "name", placeholder: "http" },
+        { key: "port", label: "port", kind: "number", placeholder: "80" },
+        { key: "targetPort", label: "targetPort", placeholder: "http" },
+        { key: "protocol", label: "protocol", kind: "select", options: ["", "TCP", "UDP", "SCTP"] },
+        { key: "nodePort", label: "nodePort", kind: "number", placeholder: "30080" },
+        { key: "appProtocol", label: "appProtocol", placeholder: "http" },
+      ],
+      { req: true, addLabel: "Add port", hint: "targetPort may be a container port name. nodePort is for NodePort/LoadBalancer only." }
+    ),
     S("clusterIP", "clusterIP", { path: "service.clusterIP", placeholder: "None" }),
     S("externalName", "externalName", { path: "service.externalName", placeholder: "my.database.example.com" }),
     SE("sessionAffinity", "sessionAffinity", ["", "None", "ClientIP"], { path: "service.sessionAffinity" }),
@@ -987,12 +1031,14 @@ F({
     TX("loadBalancerSourceRanges", "loadBalancerSourceRanges", { placeholder: "10.0.0.0/8\n192.168.0.0/16", hint: "One CIDR per line." }),
     TX("externalIPs", "externalIPs", { placeholder: "198.51.100.7", hint: "One IP per line." }),
     KV("annotations", "annotations"),
+    KV("labels", "labels"),
   ],
   emit: (v) => {
     const o: Values = { enabled: v.enabled !== false };
     put(o, "type", v.type);
     put(o, "name", v.name);
-    const p = parsePorts(v.ports);
+    // A tree saved before ports were rows holds `name=port:target` text.
+    const p = typeof v.ports === "string" ? parsePorts(v.ports) : servicePorts(v.ports);
     if (p) o.ports = p;
     put(o, "clusterIP", v.clusterIP);
     put(o, "externalName", v.externalName);
@@ -1004,6 +1050,8 @@ F({
     putList(o, "externalIPs", v.externalIPs);
     const a = kvOf(v.annotations);
     if (a) o.annotations = a;
+    const l = kvOf(v.labels);
+    if (l) o.labels = l;
     return { service: o };
   },
   load: (doc) => {
@@ -1012,7 +1060,7 @@ F({
       enabled: s.enabled !== false,
       type: s.type ?? "",
       name: s.name ?? "",
-      ports: portsText(s.ports),
+      ports: mapRows(s.ports),
       clusterIP: s.clusterIP ?? "",
       externalName: s.externalName ?? "",
       sessionAffinity: s.sessionAffinity ?? "",
@@ -1022,6 +1070,7 @@ F({
       loadBalancerSourceRanges: linesOf(s.loadBalancerSourceRanges),
       externalIPs: linesOf(s.externalIPs),
       annotations: pairsOf(s.annotations),
+      labels: pairsOf(s.labels),
     };
   },
   notes: [
@@ -1301,30 +1350,38 @@ F({
         { key: "name", label: "name", placeholder: "app-config" },
         { key: "data", label: "data", kind: "text", placeholder: "LOG_LEVEL=info\nMAX_CONNECTIONS=100" },
         { key: "fileName", label: "File key", placeholder: "nginx.conf" },
-        { key: "fileBody", label: "File contents", kind: "text", placeholder: "server {\n  listen 80;\n}" },
+        { key: "fileBody", label: "File contents", kind: "text", placeholder: "server {\n  listen 80;\n}", lang: (r) => String(r.fileName ?? "") },
       ],
-      { addLabel: "Add ConfigMap" }
+      { addLabel: "Add ConfigMap", hint: "Another file in the same ConfigMap is another row with the same name." }
     ),
   ],
-  emit: (v) =>
-    some({
-      configMaps: mapOf(v.items, (r) => {
-        const d = parseKV(r.data) ?? {};
-        if (nz(r.fileName) && nz(r.fileBody)) d[String(r.fileName)] = `${String(r.fileBody).replace(/\s*$/, "")}\n`;
-        return Object.keys(d).length ? { data: d } : null;
-      }),
-    }),
+  // A ConfigMap often carries several files (a log4j2.xml *and* a .properties).
+  // The form holds one per row, so extra files are further rows under the same
+  // name, and emit folds rows sharing a name back into one object.
+  emit: (v) => {
+    const m: Values = {};
+    rowsOf(v.items).forEach((r) => {
+      if (!nz(r.name)) return;
+      const d = { ...(parseKV(r.data) ?? {}) };
+      // Written exactly as held: forcing a trailing newline turned every
+      // imported `|-` file into a changed value.
+      if (nz(r.fileName) && nz(r.fileBody)) d[String(r.fileName)] = String(r.fileBody);
+      if (!Object.keys(d).length) return;
+      const prev = isRecord(m[String(r.name)]) ? ((m[String(r.name)] as Values).data as Values) : {};
+      m[String(r.name)] = { data: { ...prev, ...d } };
+    });
+    return some({ configMaps: Object.keys(m).length ? m : null });
+  },
   load: (doc) => ({
-    items: mapRows(doc.configMaps, (b) => {
-      const data = isRecord(b.data) ? b.data : {};
-      // The form splits one multi-line entry out as the file half. A value with
-      // a line break in it could not have come from a key=value line anyway.
-      const file = Object.entries(data).find(([, v]) => String(v ?? "").includes("\n"));
-      return {
-        data: kvText(Object.fromEntries(Object.entries(data).filter(([k]) => k !== file?.[0]))),
-        fileName: file?.[0] ?? "",
-        fileBody: file?.[1] ?? "",
-      };
+    items: Object.entries(isRecord(doc.configMaps) ? doc.configMaps : {}).flatMap(([name, body]) => {
+      const data = isRecord(body) && isRecord(body.data) ? body.data : {};
+      // A value with a line break is a file — it could not have come from a
+      // key=value line, and splitting it into one is what corrupted XML.
+      const multiline = (v: unknown) => String(v ?? "").includes("\n");
+      const files = Object.entries(data).filter(([, v]) => multiline(v));
+      const kv = kvText(Object.fromEntries(Object.entries(data).filter(([, v]) => !multiline(v))));
+      if (!files.length) return [{ name, data: kv, fileName: "", fileBody: "" }];
+      return files.map(([fileName, fileBody], i) => ({ name, data: i ? "" : kv, fileName, fileBody: String(fileBody) }));
     }),
   }),
   notes: [
@@ -2169,11 +2226,15 @@ F({
   id: "podmeta",
   cat: "core",
   name: "Pod metadata",
-  keys: ["podAnnotations", "podLabels"],
-  blurb: "Annotations and labels on the pod template only — where a scrape hint, a mesh opt-out or a cost-allocation label goes.",
-  fields: [KV("podAnnotations", "podAnnotations"), KV("podLabels", "podLabels")],
-  emit: (v) => some({ podAnnotations: kvOf(v.podAnnotations), podLabels: kvOf(v.podLabels) }),
-  load: (doc) => ({ podAnnotations: pairsOf(doc.podAnnotations), podLabels: pairsOf(doc.podLabels) }),
+  keys: ["podAnnotations", "podLabels", "labels"],
+  blurb: "Annotations and labels on the pod template — where a scrape hint, a mesh opt-out or a cost-allocation label goes — plus the workload object's own labels.",
+  fields: [
+    KV("podAnnotations", "podAnnotations"),
+    KV("podLabels", "podLabels"),
+    KV("labels", "labels", { hint: "On the Deployment / StatefulSet / DaemonSet object itself, not on its pods." }),
+  ],
+  emit: (v) => some({ podAnnotations: kvOf(v.podAnnotations), podLabels: kvOf(v.podLabels), labels: kvOf(v.labels) }),
+  load: (doc) => ({ podAnnotations: pairsOf(doc.podAnnotations), podLabels: pairsOf(doc.podLabels), labels: pairsOf(doc.labels) }),
   notes: [
     "Changing a pod annotation rolls the pods, which is exactly how checksums forces a restart on a config change.",
   ],

@@ -335,7 +335,7 @@ describe("ArgocdView", () => {
   it("says what the override light means, and takes the override back out", async () => {
     const tree = saved({
       releases: [{ id: "r1", name: "storefront", features: { image: { on: true, v: { repository: "nginx", tag: "1.0.0" } } } }],
-      namespaces: [{ name: "prod", releases: [{ release: "r1", features: { image: { on: true, v: { tag: "2.0.0" } } } }] }],
+      namespaces: [{ name: "prod", releases: [{ release: "r1", features: { image: { on: true, v: { tag: "2.0.0", pullPolicy: "Always" } } } }] }],
     });
     listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
     view();
@@ -353,6 +353,8 @@ describe("ArgocdView", () => {
     expect(feature("Image & pull secrets").querySelector(".ag-override-tag")).toBeNull();
     fireEvent.click(screen.getByLabelText("prod/values/storefront.yaml"));
     expect(document.querySelector(".ag-file-body")!.textContent).not.toContain("2.0.0");
+    // Only the second copy went: a value only prod sets is not an override.
+    expect(document.querySelector(".ag-file-body")!.textContent).toContain("pullPolicy: Always");
   });
 
   it("never offers `enabled` as an optional field — ticking the feature is what sets it", async () => {

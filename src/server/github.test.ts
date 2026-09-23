@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { githubRepo, openPullRequest } from "./github";
+import { githubRepo, openGithubPullRequest } from "./github";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -24,12 +24,12 @@ describe("githubRepo", () => {
   });
 });
 
-describe("openPullRequest", () => {
+describe("openGithubPullRequest", () => {
   it("POSTs the pull request and returns its web URL", async () => {
     const fetchMock = vi.fn().mockResolvedValue(json(201, { html_url: "https://github.com/o/r/pull/7" }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const url = await openPullRequest("https://github.com/o/r.git", "tok", "portal/x", "main", "Title", "Body");
+    const url = await openGithubPullRequest("https://github.com/o/r.git", "tok", "portal/x", "main", "Title", "Body");
 
     expect(url).toBe("https://github.com/o/r/pull/7");
     const [called, init] = fetchMock.mock.calls[0];
@@ -48,7 +48,7 @@ describe("openPullRequest", () => {
       .mockResolvedValueOnce(json(200, [{ html_url: "https://github.com/o/r/pull/3" }]));
     vi.stubGlobal("fetch", fetchMock);
 
-    const url = await openPullRequest("https://github.com/o/r.git", "tok", "portal/x", "main", "T", "B");
+    const url = await openGithubPullRequest("https://github.com/o/r.git", "tok", "portal/x", "main", "T", "B");
 
     expect(url).toBe("https://github.com/o/r/pull/3");
     expect(fetchMock.mock.calls[1][0]).toBe("https://api.github.com/repos/o/r/pulls?state=open&head=o%3Aportal%2Fx");
@@ -62,7 +62,7 @@ describe("openPullRequest", () => {
         .mockResolvedValueOnce(json(422, { message: "Validation Failed", errors: [{ message: "base is invalid" }] }))
         .mockResolvedValueOnce(json(200, []))
     );
-    await expect(openPullRequest("https://github.com/o/r.git", "tok", "b", "nope", "T", "B")).rejects.toThrow(
+    await expect(openGithubPullRequest("https://github.com/o/r.git", "tok", "b", "nope", "T", "B")).rejects.toThrow(
       /base is invalid/
     );
   });

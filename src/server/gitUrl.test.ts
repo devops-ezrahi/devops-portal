@@ -7,15 +7,20 @@ describe("normalizeRepoUrl", () => {
       "https://github.com/devops-ezrahi/universal-chart.git"
     );
     expect(normalizeRepoUrl("git@bitbucket.example.com:PROJ/values.git")).toBe(
-      "https://bitbucket.example.com/PROJ/values.git"
+      "https://bitbucket.example.com/scm/PROJ/values.git"
     );
+  });
+
+  it("puts Bitbucket Server's /scm/ back, once", () => {
+    expect(normalizeRepoUrl("ssh://git@bb.example.com/scm/proj/r.git")).toBe("https://bb.example.com/scm/proj/r.git");
+    expect(normalizeRepoUrl("git@gitlab.com:org/r.git")).toBe("https://gitlab.com/org/r.git");
   });
 
   it("rewrites ssh:// and drops the port", () => {
     // 7999 is Bitbucket Server's SSH port; carrying it onto https would be a
     // URL that certainly fails instead of one that probably works.
     expect(normalizeRepoUrl("ssh://git@bitbucket.example.com:7999/proj/values.git")).toBe(
-      "https://bitbucket.example.com/proj/values.git"
+      "https://bitbucket.example.com/scm/proj/values.git"
     );
     expect(normalizeRepoUrl("ssh://git@github.com/org/repo.git")).toBe("https://github.com/org/repo.git");
   });

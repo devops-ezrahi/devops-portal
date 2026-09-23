@@ -2,7 +2,8 @@ import { mkdir, readFile, readdir, writeFile } from "fs/promises";
 import { dirname, join, resolve, sep } from "path";
 import { config } from "../../config";
 import { git, withCredentials } from "../../git";
-import { githubRepo, openPullRequest } from "../../github";
+import { githubRepo } from "../../github";
+import { canOpenPullRequest, openPullRequest } from "../../pullRequest";
 import { log } from "../../log";
 import { safeFilePath, tokenFor } from "../../repoGuards";
 import { createTmpDir, removeTmpDir } from "../../tmp";
@@ -238,12 +239,12 @@ export async function pushJenkinsfile(opts: {
     await git(["push", "--force", "origin", `HEAD:${branch}`], dir, 120_000);
     log.info("jenkinsfile", `pushed ${pipeline.id}`, { branch, path });
 
-    if (!githubRepo(repo.repoUrl))
+    if (!canOpenPullRequest(repo.repoUrl))
       return {
         branch,
         changed: true,
         prUrl: "",
-        note: `Pushed to ${branch}. Pull requests can only be opened on GitHub from here — open this one by hand.`,
+        note: `Pushed to ${branch}. Pull requests are only opened on GitHub or Bitbucket from here — open this one by hand.`,
       };
 
     const prUrl = await openPullRequest(repo.repoUrl, token, branch, repo.revision, message, prBody(pipeline, path));

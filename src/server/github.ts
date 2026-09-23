@@ -1,13 +1,8 @@
 import { log } from "./log";
 
 /**
- * Just enough GitHub to open one pull request.
- *
- * Whitening's `BitbucketApi` cannot serve here — it speaks Bitbucket Server's
- * `/rest/api/1.0/` and builds `/scm/<project>/<repo>.git` clone URLs — and a
- * `PrHost` interface over the two would be an abstraction with one real
- * implementation on each side. So this is a second small client, and the
- * dispatch is one `if` in the router.
+ * Just enough GitHub to open one pull request. `pullRequest.ts` is what callers
+ * use — it picks this or `bitbucket.ts` by the repo URL.
  */
 
 export type GithubRepo = { apiBase: string; owner: string; repo: string };
@@ -66,7 +61,7 @@ async function api(
  * naming the existing PR — the direct analogue of the Bitbucket 409 the
  * whitening module already handles this way.
  */
-export async function openPullRequest(
+export async function openGithubPullRequest(
   repoUrl: string,
   token: string,
   head: string,

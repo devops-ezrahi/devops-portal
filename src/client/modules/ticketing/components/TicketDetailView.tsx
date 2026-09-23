@@ -42,7 +42,13 @@ export function TicketDetailView({
           <span className={priorityClass(ticket.priority)} title={`Response within ${priorityResponseHours[ticket.priority]} hours`}>
             {ticket.priority}
           </span>
+          {ticket.url ? (
+          <a className="detail-id" href={ticket.url} target="_blank" rel="noreferrer" title="Open in Jira">
+            {ticket.id}
+          </a>
+        ) : (
           <span className="detail-id">{ticket.id}</span>
+        )}
         </div>
         <h2>{ticket.title}</h2>
       </div>

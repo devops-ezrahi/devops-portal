@@ -117,6 +117,22 @@ function jiraLabel(value: string): string {
   return value.trim().replace(/\s+/g, "_");
 }
 
+/**
+ * The field names in a Jira 400's `errors` object — `{"errors":{"priority":
+ * "Field 'priority' cannot be set…"}}` — read back out of the thrown message.
+ */
+function rejectedFields(error: unknown): string[] {
+  const message = error instanceof Error ? error.message : String(error);
+  const start = message.indexOf("{");
+  if (start < 0) return [];
+  try {
+    const errors = (JSON.parse(message.slice(start)) as { errors?: Record<string, unknown> }).errors;
+    return errors && typeof errors === "object" ? Object.keys(errors) : [];
+  } catch {
+    return [];
+  }
+}
+
 function quoteJql(value: string) {
   return `"${value.replace(/["\\]/g, "\\$&")}"`;
 }
@@ -136,6 +152,8 @@ export class JiraTicketingApi implements TicketingApi {
    * failing and retrying on every poll.
    */
   private readonly unknownReporters = new Set<string>();
+  /** Fields the project's create screen refused; set by PUT after the create instead. */
+  private readonly offCreateScreen = new Set<string>();
 
   constructor(config: JiraTicketingConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, "");
@@ -264,8 +282,10 @@ export class JiraTicketingApi implements TicketingApi {
       ...(fields.labels ?? []).filter((label) => label !== this.ticketLabel)
     ];
 
+    const id = issue.key ?? issue.id ?? "";
     return {
-      id: issue.key ?? issue.id ?? "",
+      id,
+      url: id ? `${this.baseUrl}/browse/${encodeURIComponent(id)}` : undefined,
       title: fields.summary ?? "",
       requestType: fields.issuetype?.name ?? "",
       requesterId: this.userId(fields.reporter),
@@ -341,19 +361,23 @@ export class JiraTicketingApi implements TicketingApi {
     // JIRA_TOKEN account is allowed to say so. Two ways it may not be: the portal
     // identity is not a Jira user at all (SSO and Jira need not share a
     // directory), or the service account lacks "Modify Reporter" on the project.
-    // Both come back as a 400 that fails the *whole* create, so the reporter is
-    // dropped and the create retried once — filing as the service account is a
-    // worse ticket, but a ticket. `unknownReporters` is the same set listTickets
-    // already keeps, so one rejection settles it for the process rather than
-    // costing every create a doubled round trip.
     const reporterName = this.jiraUser(requester).id;
     const impersonate = Boolean(reporterName) && !this.unknownReporters.has(reporterName);
 
-    const issueBody = (withReporter: boolean) =>
+    // Fields the ticket should carry but the create can live without. Jira 400s
+    // the *whole* create over any one of them — the reporter above, or a field
+    // the project's create screen simply leaves off ("Field 'priority' cannot be
+    // set. It is not on the appropriate screen"). So a rejected one is dropped,
+    // the create retried, and the field set afterwards with a PUT, which goes
+    // through the edit screen instead.
+    const optional: Record<string, unknown> = { priority: { name: input.priority } };
+    if (impersonate) optional.reporter = { name: reporterName };
+
+    const issueBody = (omit: Set<string>) =>
       JSON.stringify({
         fields: {
           project: { key: this.projectKey },
-          ...(withReporter ? { reporter: { name: reporterName } } : {}),
+          ...Object.fromEntries(Object.entries(optional).filter(([k]) => !omit.has(k))),
           // The issue type is a *Jira* fact, not a portal one. It used to be
           // the catalog's display name ("CI/CD Pipeline"), which no Jira
           // instance has, and Jira answers an unresolvable issuetype with
@@ -362,7 +386,6 @@ export class JiraTicketingApi implements TicketingApi {
           // type listAdminTickets already filters the admin queue on, so
           // creating anything else would also hide every new ticket from it.
           issuetype: { name: this.maintenanceIssueType || "Task" },
-          priority: { name: input.priority },
           summary: fields.title ?? requestType.name,
           description: fields.description ?? "",
           labels: labels.map(jiraLabel).filter(Boolean)
@@ -375,23 +398,49 @@ export class JiraTicketingApi implements TicketingApi {
     // pod log.
     const notices: string[] = [];
 
+    // Remembered per process, so one rejection costs one doubled round trip
+    // rather than one per create.
+    const omit = new Set([...this.offCreateScreen].filter((k) => k in optional));
     let created: JiraIssue;
-    try {
-      created = await this.request<JiraIssue>("/issue", { method: "POST", body: issueBody(impersonate) });
-    } catch (error) {
-      if (!impersonate) throw error;
-      this.unknownReporters.add(reporterName);
-      log.warn("jira", `could not file as reporter "${reporterName}", filing as the JIRA_TOKEN account`, {
-        error: describeError(error),
-      });
-      created = await this.request<JiraIssue>("/issue", { method: "POST", body: issueBody(false) });
-      notices.push(
-        `Jira would not accept "${reporterName}" as the reporter, so this was filed as the portal's ` +
-          `service account. Check that account has the "Modify Reporter" permission on the project.`
-      );
+    for (;;) {
+      try {
+        created = await this.request<JiraIssue>("/issue", { method: "POST", body: issueBody(omit) });
+        break;
+      } catch (error) {
+        const named = rejectedFields(error).filter((k) => k in optional && !omit.has(k));
+        named.forEach((k) => this.offCreateScreen.add(k));
+        // A reporter Jira does not know comes back without naming the field,
+        // so an unexplained failure with one in it drops it, as it always has.
+        const drop = named.length ? named : "reporter" in optional && !omit.has("reporter") ? ["reporter"] : [];
+        if (!drop.length) throw error;
+        drop.forEach((k) => omit.add(k));
+        log.warn("jira", `create refused ${drop.join(", ")}, retrying without and setting after`, {
+          error: describeError(error),
+        });
+      }
     }
 
     const key = created.key ?? created.id ?? "";
+    for (const field of omit) {
+      try {
+        await this.request<void>(`/issue/${encodeURIComponent(key)}`, {
+          method: "PUT",
+          body: JSON.stringify({ fields: { [field]: optional[field] } })
+        });
+      } catch (error) {
+        log.warn("jira", `could not set ${field} on ${key}`, { error: describeError(error) });
+        if (field === "reporter") {
+          this.unknownReporters.add(reporterName);
+          notices.push(
+            `Jira would not accept "${reporterName}" as the reporter, so this was filed as the portal's ` +
+              `service account. Check that account has the "Modify Reporter" permission on the project.`
+          );
+        } else {
+          notices.push(`Jira would not let the portal set the ${field} on this ticket, so it has the project's default.`);
+        }
+      }
+    }
+
     const sprintNotice = await this.addToActiveSprint(key);
     if (sprintNotice) notices.push(sprintNotice);
 

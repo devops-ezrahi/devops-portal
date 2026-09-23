@@ -53,6 +53,7 @@ export function FeatureEditor({
   jump,
   onJumped,
   onMoveOutOfBase,
+  onRemoveOverride,
   inherited,
   onOpenInherited,
   problems,
@@ -76,6 +77,8 @@ export function FeatureEditor({
   onJumped?: () => void;
   /** Resolve an override by taking the value out of base instead — see `applyDemotion`. */
   onMoveOutOfBase?: (id: string) => void;
+  /** Drop this layer's second copies from one feature — see `removeShadowed`. */
+  onRemoveOverride?: (id: string) => void;
   /**
    * What the layers under this one already say — the tree's defaults in base,
    * those plus the microservice's base in a namespace override. Shown greyed,
@@ -142,14 +145,12 @@ export function FeatureEditor({
   }
 
   /**
-   * Drop a feature out of this layer entirely, so the microservice falls back
-   * to whatever base says. Not `on: false` — that is "off here", which in an
-   * override file is a different statement from "not overridden here".
+   * Take this layer's second copies out of a feature, so those values fall back
+   * to base — and only those: the rest of what the namespace sets stays. Not
+   * `on: false`, which in an override file means "off here".
    */
   function removeOverride(id: string) {
-    const next = { ...features };
-    delete next[id];
-    onChange(next);
+    onRemoveOverride?.(id);
   }
 
   /** The rows one feature holds, whichever `rows` field it keeps them in. */

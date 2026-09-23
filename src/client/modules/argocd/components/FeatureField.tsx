@@ -3,6 +3,7 @@ import { Check, KeyRound, Link2, Plus, X } from "lucide-react";
 import { useId, type ReactNode } from "react";
 import type { FieldSpec, KvPair, RowCol } from "../catalog";
 import type { Values } from "../values";
+import { highlightFile } from "../highlight";
 
 /**
  * One field of one feature, rendered from its `FieldKind` — the `ArgField.tsx`
@@ -61,6 +62,40 @@ export function FeatureField({
 
 /** Rows a textarea needs for `text`, plus one to show there is room to type. */
 const lineCount = (text: unknown): number => String(text ?? "").split("\n").length + 1;
+
+/**
+ * A file's contents, coloured by its name. A textarea cannot colour its own
+ * text, so the highlighted copy sits behind a transparent one — the Jenkinsfile
+ * import dialog's trick. It grows a row per line, so there is no scroll to sync.
+ */
+function CodeArea({
+  lang,
+  value,
+  placeholder,
+  onChange,
+}: {
+  lang: string;
+  value: string;
+  placeholder?: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="ag-code">
+      <pre className="ag-textarea ag-code-shadow" aria-hidden="true">
+        {/* The trailing newline matches the empty last line a textarea reserves. */}
+        <code className="hljs" dangerouslySetInnerHTML={{ __html: highlightFile(lang, value) + "\n" }} />
+      </pre>
+      <textarea
+        className="ag-textarea"
+        rows={Math.max(2, lineCount(value), lineCount(placeholder))}
+        value={value}
+        placeholder={placeholder}
+        spellCheck={false}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
+  );
+}
 
 /**
  * What a row needs beyond its own value: the names this release already
@@ -207,7 +242,7 @@ function ObjectRows({
 }: { spec: FieldSpec; rows: Values[]; onChange: (rows: Values[]) => void } & RowExtras) {
   const cols = spec.cols ?? [];
   const listId = useId();
-  const shown = rows.length ? rows : [{}];
+  const shown = Array.isArray(rows) && rows.length ? rows : [{}];
   const set = (i: number, patch: Values) => onChange(shown.map((r, n) => (n === i ? { ...r, ...patch } : r)));
   return (
     <div className="ag-rows">
@@ -269,6 +304,13 @@ function ObjectRows({
                 />
               ) : col.kind === "quantity" ? (
                 <Quantity
+                  value={String(row[col.key] ?? "")}
+                  placeholder={col.placeholder}
+                  onChange={(v) => set(i, { [col.key]: v })}
+                />
+              ) : col.kind === "text" && col.lang ? (
+                <CodeArea
+                  lang={col.lang(row)}
                   value={String(row[col.key] ?? "")}
                   placeholder={col.placeholder}
                   onChange={(v) => set(i, { [col.key]: v })}

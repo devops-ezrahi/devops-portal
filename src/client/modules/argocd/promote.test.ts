@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { applyDemotion, applyPromotion, findEnvSpecific, findPromotions } from "./promote";
+import { applyDemotion, applyPromotion, findEnvSpecific, findPromotions, removeShadowed } from "./promote";
 import { buildValues } from "./build";
-import { deepMerge } from "./values";
+import { deepMerge, shadowing } from "./values";
 import type { ArgocdTree } from "../../../server/types";
 
 const on = (v: Record<string, unknown> = {}) => ({ on: true, v });
@@ -210,5 +210,27 @@ describe("findEnvSpecific", () => {
     const t = pinned();
     t.namespaces = [];
     expect(findEnvSpecific(t)).toEqual([]);
+  });
+});
+
+describe("removeShadowed", () => {
+  it("drops the overridden repository and keeps the namespace's own tag", () => {
+    const below = { image: { repository: "registry/base", tag: "1.0" } };
+    const features = { image: { on: true, v: { repository: "registry/prod", tag: "2.0" } } };
+    // tag differs too, so both shadow — but a tag base lacks would stay:
+    const next = removeShadowed(features, "image", { image: { repository: "registry/base" } });
+    expect(buildValues(next)).toEqual({ image: { tag: "2.0" } });
+    expect(buildValues(removeShadowed(features, "image", below))).toEqual({});
+  });
+
+  it("treats env vars one by one: only a variable base also sets differently goes", () => {
+    const row = (name: string, value: string) => ({ name, kind: "value", value });
+    const below = buildValues({ env: { on: true, v: { items: [row("LOG_LEVEL", "info"), row("TZ", "UTC")] } } });
+    const features = { env: { on: true, v: { items: [row("LOG_LEVEL", "debug"), row("MODE", "production")] } } };
+
+    // MODE is only here — not an override; LOG_LEVEL is.
+    expect(Object.keys(shadowing(buildValues(features), below))).toEqual(["env"]);
+    expect(buildValues(removeShadowed(features, "env", below))).toEqual({ env: { MODE: { value: "production" } } });
+    expect(shadowing(buildValues({ env: { on: true, v: { items: [row("MODE", "production")] } } }), below)).toEqual({});
   });
 });

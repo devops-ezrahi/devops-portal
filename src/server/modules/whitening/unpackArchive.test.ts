@@ -22,7 +22,7 @@ vi.mock("../../config", () => ({
 
 // submitUnpack only extracts and reads config.json; the PR work happens later
 // in run(), which never starts here because the job stays pending until polled.
-vi.mock("./BitbucketApi", () => ({
+vi.mock("../../bitbucket", () => ({
   BitbucketApi: class {
     async openPullRequest() {
       return { url: "", id: 0 };

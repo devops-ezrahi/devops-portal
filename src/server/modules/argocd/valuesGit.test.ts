@@ -1,18 +1,14 @@
 import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { git } from "../../git";
 import { pullValuesTree, pushValuesTree } from "./valuesGit";
 import type { ArgocdTree } from "../../types";
 
-// Not GitHub, so the PR step is skipped and the note explains why — which lets
-// the whole clone -> write -> commit -> push chain run for real against a bare
-// repo on disk, with no network and nothing stubbed.
-vi.mock("../../github", async () => ({
-  githubRepo: () => null,
-  openPullRequest: async () => "https://github.com/o/r/pull/1",
-}));
+// A bare repo on disk is neither GitHub nor Bitbucket, so the PR step is
+// skipped and the note explains why — the clone -> write -> commit -> push
+// chain runs for real, with no network and nothing stubbed.
 
 let remote = "";
 let work = "";

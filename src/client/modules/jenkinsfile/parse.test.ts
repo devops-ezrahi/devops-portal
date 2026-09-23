@@ -139,3 +139,31 @@ describe("parseJenkinsfile", () => {
     expect(warnings[0]).toContain("No library steps found");
   });
 });
+
+describe("populateEnvVars", () => {
+  const envVarsOf = (text: string) => {
+    const { pipeline, warnings } = parseJenkinsfile(text);
+    return { envVars: pipeline.stages[0]?.args.envVars, warnings };
+  };
+  const expected = [
+    ["SERVICE", "billing"],
+    ["TEAM_NAME", "platform"],
+  ];
+
+  it("reads the bracketed map the generator writes", () => {
+    expect(envVarsOf("populateEnvVars([SERVICE: 'billing', TEAM_NAME: 'platform'])").envVars).toEqual(expected);
+  });
+
+  // Groovy collects named arguments into one map, so this is the same call.
+  it("reads named arguments as that map", () => {
+    expect(envVarsOf("populateEnvVars(\n  SERVICE: 'billing',\n  TEAM_NAME: 'platform'\n)").envVars).toEqual(expected);
+  });
+
+  it("reads the argument by its own name", () => {
+    expect(envVarsOf("populateEnvVars(envVars: [SERVICE: 'billing', TEAM_NAME: 'platform'])").envVars).toEqual(expected);
+  });
+
+  it("says so when the map is a variable it cannot see into", () => {
+    expect(envVarsOf("populateEnvVars(vars)").warnings.join()).toMatch(/not a literal map/);
+  });
+});

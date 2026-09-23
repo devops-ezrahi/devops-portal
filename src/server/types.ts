@@ -55,6 +55,8 @@ export type TicketSummary = {
   createdAt: string;
   updatedAt: string;
   lastActivityAt: string;
+  /** The ticket in the system of record (Jira's browse page). Unset in memory. */
+  url?: string;
 };
 
 export type TicketDetail = TicketSummary & {

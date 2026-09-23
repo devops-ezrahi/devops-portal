@@ -1,4 +1,5 @@
-import { defaultValues } from "./catalog";
+import { defaultValues, mapRows, parsePorts } from "./catalog";
+import type { FeatureState } from "./catalog";
 import type { TreeDefaults, TreeInput } from "./api";
 import type { ArgocdNamespace, ArgocdRelease, ArgocdTree } from "../../../server/types";
 
@@ -62,6 +63,28 @@ export function migrateTreeDefaults(tree: ArgocdTree): { tree: ArgocdTree; overr
     },
   }));
   return { tree: { ...tree, namespaces, defaults: undefined }, overridesBase };
+}
+
+/**
+ * A tree saved when the Service's ports were `name=port:targetPort` text, with
+ * them turned into the rows the form now edits. Emit still reads the text, so
+ * nothing deploys differently either way — this is what keeps them on screen.
+ */
+export function migrateServicePorts(tree: ArgocdTree): ArgocdTree {
+  const fix = (features: Record<string, FeatureState> = {}) => {
+    const service = features.service;
+    if (typeof service?.v.ports !== "string") return features;
+    return { ...features, service: { ...service, v: { ...service.v, ports: mapRows(parsePorts(service.v.ports)) } } };
+  };
+  return {
+    ...tree,
+    releases: tree.releases.map((r) => ({ ...r, features: fix(r.features) })),
+    namespaces: tree.namespaces.map((ns) => ({
+      ...ns,
+      releases: ns.releases.map((e) => ({ ...e, features: fix(e.features) })),
+      defaults: ns.defaults && { ...ns.defaults, features: fix(ns.defaults.features) },
+    })),
+  };
 }
 
 export function newTree(defaults?: TreeDefaults): DraftTree {

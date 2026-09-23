@@ -220,6 +220,10 @@ describe("createTicket files as the person on the page", () => {
         if (reject?.(body)) return new Response(JSON.stringify({ errors: {} }), { status: 400 });
         return jsonResponse({ key: "DEVOPS-9" });
       }
+      // The same refusal holds on the edit screen: a reporter Jira does not know.
+      if (options?.method === "PUT" && reject?.(JSON.parse((options.body as string) ?? "{}"))) {
+        return new Response(JSON.stringify({ errors: {} }), { status: 400 });
+      }
       return jsonResponse({ key: "DEVOPS-9", fields: {} });
     });
   }
@@ -332,6 +336,46 @@ describe("createTicket files as the person on the page", () => {
 
     expect(ticket.id).toBe("DEVOPS-9");
     expect(createdFields(fetchMock, 1).reporter).toBeUndefined();
+  });
+
+  // Seen live: the project's create screen has no priority field, and Jira 400s
+  // the whole create over it. The edit screen does, so it is set afterwards.
+  it("creates without a field the create screen lacks, then sets it by PUT", async () => {
+    const offScreen = JSON.stringify({
+      errorMessages: [],
+      errors: { priority: "Field 'priority' cannot be set. It is not on the appropriate screen, or unknown." },
+    });
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.endsWith("/issue") && options?.method === "POST") {
+        const body = JSON.parse(options.body as string);
+        return body.fields.priority ? new Response(offScreen, { status: 400 }) : jsonResponse({ key: "DEVOPS-9" });
+      }
+      return jsonResponse({ key: "DEVOPS-9", fields: {} });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const api = makeApi("");
+
+    const ticket = await api.createTicket(input, dana);
+
+    expect(ticket.notice).toBeUndefined();
+    expect(createdFields(fetchMock, 1).priority).toBeUndefined();
+    // The reporter was not the problem, so it stays on the create.
+    expect(createdFields(fetchMock, 1).reporter).toEqual({ name: "u-dana" });
+    const puts = fetchMock.mock.calls.filter(([, o]) => o?.method === "PUT");
+    expect(puts.map(([u, o]) => [u, JSON.parse(o!.body as string)])).toEqual([
+      ["https://jira.example.com/rest/api/2/issue/DEVOPS-9", { fields: { priority: { name: "Medium" } } }],
+    ]);
+
+    // Learnt once: the next create leaves it off from the start.
+    fetchMock.mockClear();
+    await api.createTicket(input, dana);
+    expect(fetchMock.mock.calls.filter(([u, o]) => u.endsWith("/issue") && o?.method === "POST")).toHaveLength(1);
+  });
+
+  it("links each ticket to its Jira page", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ key: "DEVOPS-9", fields: {} })));
+    const ticket = await makeApi("").getAdminTicket("DEVOPS-9");
+    expect(ticket?.url).toBe("https://jira.example.com/browse/DEVOPS-9");
   });
 });
 

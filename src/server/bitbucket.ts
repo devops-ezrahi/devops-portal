@@ -1,4 +1,4 @@
-import { describeError, log } from "../../log";
+import { describeError, log } from "./log";
 
 export type BitbucketConfig = {
   url: string;

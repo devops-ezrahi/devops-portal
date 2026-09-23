@@ -37,13 +37,14 @@ import {
   newRelease,
   newSharedRelease,
   newTree,
+  migrateServicePorts,
   migrateTreeDefaults,
   toInput,
   type DraftTree,
 } from "./document";
 import { Help } from "../../Help";
 import { addedKinds, resourcesOf } from "./resources";
-import { applyDemotion, applyPromotion, findEnvSpecific, findPromotions } from "./promote";
+import { applyDemotion, applyPromotion, findEnvSpecific, findPromotions, removeShadowed } from "./promote";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { FeatureEditor, type Inherited } from "./components/FeatureEditor";
 import { FilePreview } from "./components/FilePreview";
@@ -409,7 +410,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     // Defaults used to be tree-wide; each namespace now takes a copy. A copied
     // default a base file also sets used to lose to it and now wins, which is a
     // deployment change — said out loud rather than made silently.
-    const { tree, overridesBase } = migrateTreeDefaults(saved);
+    const { tree, overridesBase } = migrateTreeDefaults(migrateServicePorts(saved));
     if (overridesBase.length)
       onError(
         `This tree's Defaults were copied into each namespace. They now layer over base, so ${overridesBase
@@ -555,6 +556,14 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     const shadowed = shadowing(buildValues({ [id]: features[id] }), below);
     log("argocd", "moved out of base", { release: release.name, feature: id });
     setDraft((prev) => applyDemotion(prev, release.id, shadowed));
+  }
+
+  /** An override resolved this way: only the values that shadow base or the defaults leave this layer. */
+  function removeOverride(id: string) {
+    if (!release || layer === BASE) return;
+    const below = deepMerge(buildValues(release.features, release.extraValues), nsDefaultValues);
+    log("argocd", "removed override", { release: release.name, feature: id });
+    setFeatures(removeShadowed(features, id, below));
   }
 
   /** Write the edited feature map back into whichever layer is on screen. */
@@ -1047,6 +1056,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   jump={jump}
                   onJumped={() => setJump(undefined)}
                   onMoveOutOfBase={moveOutOfBase}
+                  onRemoveOverride={removeOverride}
                   inherited={inherited}
                   onOpenInherited={(from) => (from === "nsDefaults" ? openDefaults() : setLayer(BASE))}
                   problems={problems}

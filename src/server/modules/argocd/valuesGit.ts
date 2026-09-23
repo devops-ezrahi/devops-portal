@@ -3,7 +3,7 @@ import { dirname, join, resolve, sep } from "path";
 import { git, withCredentials } from "../../git";
 import { log } from "../../log";
 import { createTmpDir, removeTmpDir } from "../../tmp";
-import { openPullRequest, githubRepo } from "../../github";
+import { canOpenPullRequest, openPullRequest } from "../../pullRequest";
 import { safeTreePath, valuesTokenFor } from "./valuesRepo";
 import type { ArgocdTree } from "../../types";
 
@@ -151,12 +151,12 @@ export async function pushValuesTree(opts: {
     await git(["push", "--force", "origin", `HEAD:${branch}`], dir, 120_000);
     log.info("argocd", `pushed ${tree.id}`, { branch, files: staged.split("\n").length });
 
-    if (!githubRepo(repoUrl))
+    if (!canOpenPullRequest(repoUrl))
       return {
         branch,
         changed: true,
         prUrl: "",
-        note: `Pushed to ${branch}. Pull requests can only be opened on GitHub from here — open this one by hand.`,
+        note: `Pushed to ${branch}. Pull requests are only opened on GitHub or Bitbucket from here — open this one by hand.`,
       };
 
     const prUrl = await openPullRequest(repoUrl, token, branch, revision, message, prBody(tree, valuesPath, staged));

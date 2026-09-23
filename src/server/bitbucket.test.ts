@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BitbucketApi, BitbucketError } from "./BitbucketApi";
+import { BitbucketApi, BitbucketError } from "./bitbucket";
 
 const api = new BitbucketApi({ url: "https://bitbucket.example.com/", token: "pat-123", username: "" });
 

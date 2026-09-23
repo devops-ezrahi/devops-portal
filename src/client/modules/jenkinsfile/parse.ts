@@ -386,8 +386,19 @@ function stageFrom(name: string, body: string, warnings: string[]): JenkinsfileS
   // A `bare` step takes its one argument with no key in front of it —
   // populateEnvVars([SERVICE: 'x']) — so the first positional value is it.
   if (spec.callStyle === "bare") {
-    const first = entries[0];
-    if (first) stage.args[spec.args[0].name] = coerce(spec.args[0].kind, readValue(first.value));
+    const arg = spec.args[0];
+    const keyed = entries.filter((e) => e.key !== null);
+    const named = keyed.length === 1 && keyed[0].key === arg.name ? keyed[0] : null;
+    let value: Value | null = null;
+    if (named) value = readValue(named.value); // populateEnvVars(envVars: [...])
+    // populateEnvVars(SERVICE: 'x', TEAM_NAME: 'y') — Groovy collects named
+    // arguments into one map, so this is the same call as the bracketed form.
+    else if (keyed.length) value = { t: "map", v: keyed.map((e) => [e.key!, readValue(e.value)] as [string, Value]) };
+    else if (entries[0]) value = readValue(entries[0].value);
+    if (value) {
+      if (value.t !== "map") warnings.push(`${name}: its argument is not a literal map, so it was left empty`);
+      stage.args[arg.name] = coerce(arg.kind, value);
+    }
     return stage;
   }
 
