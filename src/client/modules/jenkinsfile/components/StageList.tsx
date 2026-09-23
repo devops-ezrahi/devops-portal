@@ -134,6 +134,9 @@ export function StageList({
                 errors={errors[stage.id] ?? []}
                 stashNames={stashesBefore[i]}
                 open={open}
+                // Not beside populateEnvVars: it sets the pipeline's env for
+                // everything after it, which is exactly what a race breaks.
+                canRunParallel={i > 0 && stage.step !== "populateEnvVars" && stages[i - 1].step !== "populateEnvVars"}
                 className={[
                   dragIndex === i ? "dragging" : "",
                   dropIndex === i ? "drop-before" : "",

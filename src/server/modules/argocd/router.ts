@@ -5,6 +5,7 @@ import { config } from "../../config";
 import { normalizeRepoUrl } from "../../gitUrl";
 import { log } from "../../log";
 import { TreeStore } from "./TreeStore";
+import { convertToUniversal } from "./convert";
 import { pullValuesTree, pushValuesTree } from "./valuesGit";
 import { safeDirPath, safeRef, safeRepoUrl, safeTreePath } from "./valuesRepo";
 import type { ArgocdTree } from "../../types";
@@ -111,6 +112,29 @@ const pushBody = z.object({
   branch: z.string().trim().max(100).refine(safeRef, "Not a branch name").optional(),
   message: z.string().trim().min(1).max(200).optional(),
 });
+
+/**
+ * Kubernetes YAML or a Helm chart to convert. Every name becomes a directory
+ * and a file name inside the converter's input tree, so they are held to the
+ * DNS label rule Kubernetes itself applies — which also rules out `..` and `/`.
+ */
+const dnsLabel = z
+  .string()
+  .trim()
+  .max(63)
+  .regex(/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, "Use a Kubernetes name: lowercase letters, digits and dashes");
+
+const convertBody = z
+  .object({
+    chartRepoUrl: pullBody.shape.repoUrl,
+    chartRevision: pullBody.shape.revision,
+    namespace: dnsLabel,
+    manifests: z.array(z.object({ name: dnsLabel, text: z.string().min(1).max(2 * 1024 * 1024) })).max(50).optional(),
+    helm: z
+      .object({ name: dnsLabel, archive: z.string().min(1).max(4 * 1024 * 1024), values: z.string().max(512_000).optional() })
+      .optional(),
+  })
+  .refine((b) => (b.manifests?.length ?? 0) > 0 || !!b.helm, "Nothing to convert — add a YAML file or a chart");
 
 export function createArgocdRouter(store: TreeStore = new TreeStore()): express.Router {
   const router = express.Router();
@@ -249,6 +273,19 @@ export function createArgocdRouter(store: TreeStore = new TreeStore()): express.
       // `repoUrl` is echoed because it may not be the one that was sent — an
       // SSH URL was rewritten above, and the tree should record what cloned.
       res.json({ files, repoUrl });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * Plain manifests or a Helm chart in, a universal-chart values tree out — the
+   * same file layout a pull returns, so the browser reads it with `importTree`
+   * and the result is committed like any other tree.
+   */
+  router.post("/api/argocd/convert", async (req, res, next) => {
+    try {
+      res.json(await convertToUniversal(convertBody.parse(req.body)));
     } catch (err) {
       next(err);
     }

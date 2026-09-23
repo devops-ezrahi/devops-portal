@@ -1,4 +1,4 @@
-import { FilePlus2, GitBranch, TriangleAlert, X } from "lucide-react";
+import { FileCode2, FilePlus2, GitBranch, TriangleAlert, X } from "lucide-react";
 import { useState } from "react";
 import { isSshUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
 import { Help } from "../../../Help";
@@ -22,9 +22,12 @@ import { importTree, type TreeImport } from "../importTree";
 export function NewTreeDialog({
   onScratch,
   onConnect,
+  onConvert,
   onClose,
 }: {
   onScratch: () => void;
+  /** Start empty and convert plain manifests or a Helm chart into it. */
+  onConvert: () => void;
   onConnect: (imported: TreeImport, repoUrl: string, revision: string, path: string) => void;
   onClose: () => void;
 }) {
@@ -87,6 +90,14 @@ export function NewTreeDialog({
               <small>
                 Read an existing values repo — its releases, its namespaces and the chart it renders — and commit
                 back to it from here.
+              </small>
+            </button>
+            <button type="button" className="ag-new-choice" onClick={onConvert}>
+              <FileCode2 size={20} aria-hidden="true" />
+              <strong>Convert YAML or a Helm chart</strong>
+              <small>
+                Turn plain Kubernetes manifests or a packaged chart into universal-chart values, then connect a repo
+                and commit them.
               </small>
             </button>
           </div>

@@ -4,6 +4,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  FileCode2,
   FileUp,
   Pencil,
   Plus,
@@ -37,6 +38,7 @@ import {
   newRelease,
   newSharedRelease,
   newTree,
+  mergeConverted,
   migrateServicePorts,
   migrateTreeDefaults,
   toInput,
@@ -48,6 +50,7 @@ import { applyDemotion, applyPromotion, findEnvSpecific, findPromotions, removeS
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { FeatureEditor, type Inherited } from "./components/FeatureEditor";
 import { FilePreview } from "./components/FilePreview";
+import { ConvertDialog } from "./components/ConvertDialog";
 import { ImportDialog } from "./components/ImportDialog";
 import { ChartLine } from "./components/ChartLine";
 import { LayerGrid, type LayerCard } from "./components/LayerGrid";
@@ -100,6 +103,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   /** Why the last Pull failed — shown on the repo panel, where the URL or branch can be fixed. */
   const [pullError, setPullError] = useState("");
   const [importOpen, setImportOpen] = useState(false);
+  const [convertOpen, setConvertOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [gitEnabled, setGitEnabled] = useState(false);
   const [pulling, setPulling] = useState(false);
@@ -439,6 +443,29 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     persisted.current = "";
     setSaveState("idle");
     localStorage.removeItem(LAST_OPENED_KEY);
+  }
+
+  /**
+   * Manifests or a chart the converter just turned into a values tree, folded
+   * into this one. The tree keeps its repository, so a connected tree commits
+   * the converted microservices with everything else; a new one connects from
+   * the repository panel as usual.
+   */
+  function handleConverted(imported: TreeImport, reportWarnings: string[]) {
+    setConvertOpen(false);
+    const { tree, replaced } = mergeConverted(draft, imported);
+    log("argocd", "converted", { releases: imported.releases.length, replaced, warnings: imported.warnings.length });
+    setDraft(tree);
+    const first = tree.releases.find((r) => r.name === imported.releases[0]?.name);
+    if (first) setReleaseId(first.id);
+    setLayer(BASE);
+    const notes = [
+      replaced.length ? `Replaced ${replaced.join(", ")} with the converted version.` : "",
+      ...imported.warnings.slice(0, 1),
+      ...reportWarnings.slice(0, 2),
+    ].filter(Boolean);
+    const total = imported.warnings.length + reportWarnings.length;
+    if (notes.length) onError(`Converted${total ? ` with ${total} note(s)` : ""}. ${notes.join(" ")}`);
   }
 
   /**
@@ -818,6 +845,9 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
               <Trash2 size={18} aria-hidden="true" /> Delete
             </button>
           )}
+          <button type="button" className="ghost-button" onClick={() => setConvertOpen(true)}>
+            <FileCode2 size={18} aria-hidden="true" /> Convert
+          </button>
           <button type="button" className="primary" onClick={() => setNewOpen(true)}>
             <Plus size={18} aria-hidden="true" /> New
           </button>
@@ -1117,7 +1147,24 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       )}
 
       {newOpen && (
-        <NewTreeDialog onScratch={handleScratch} onConnect={handleConnect} onClose={() => setNewOpen(false)} />
+        <NewTreeDialog
+          onScratch={handleScratch}
+          onConnect={handleConnect}
+          onConvert={() => {
+            handleScratch();
+            setConvertOpen(true);
+          }}
+          onClose={() => setNewOpen(false)}
+        />
+      )}
+
+      {convertOpen && (
+        <ConvertDialog
+          chart={draft.chart}
+          namespace={(layer !== BASE && draft.namespaces[layer]?.name) || draft.namespaces[0]?.name || ""}
+          onConvert={handleConverted}
+          onClose={() => setConvertOpen(false)}
+        />
       )}
 
       {confirm && (

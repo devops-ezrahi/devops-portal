@@ -375,6 +375,11 @@ export type JenkinsfileStage = {
   args: Record<string, unknown>;
   /** Whether the builder shows this card folded to its header. Saved with the pipeline. */
   collapsed?: boolean;
+  /**
+   * Runs alongside the stage above it. A run of these, plus the stage they
+   * hang off, is written as one `parallel(...)` block — one branch per stage.
+   */
+  parallel?: boolean;
 };
 
 /** The parameter types Jenkins' `parameters([...])` block accepts. */

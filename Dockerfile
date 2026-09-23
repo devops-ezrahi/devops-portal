@@ -1,5 +1,10 @@
 FROM quay.io/oauth2-proxy/oauth2-proxy:v7.6.0 AS oauth2proxy
 
+# helm, for the ArgoCD module's Convert: a Helm chart is rendered with `helm
+# template` before the converter sees it. Taken from an image, not a curl, so
+# the whitening pack carries it as a base image like oauth2-proxy.
+FROM alpine/helm:3.16.4 AS helm
+
 FROM node:20-alpine AS builder
 
 WORKDIR /app
@@ -47,9 +52,12 @@ FROM node:20-slim AS production
 # Both are optional at runtime — toolDependencies.ts probes for them and copies
 # the single artifact when they are absent — so this line can be reverted
 # without breaking the module.
+#
+# python3-yaml is the one import the ArgoCD Convert's converter needs
+# (convert_to_universal_chart.py, run from the chart repo) beyond the stdlib.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ca-certificates git unzip maven openjdk-17-jre-headless python3-pip \
+        ca-certificates git unzip maven openjdk-17-jre-headless python3-pip python3-yaml \
     && rm -rf /var/lib/apt/lists/*
 
 # Pre-warm maven-dependency-plugin into a baked local repository. Without this
@@ -90,6 +98,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist/client ./dist/client
 COPY --from=builder /app/dist/server/index-prod.js ./dist/server/index-prod.js
 COPY --from=oauth2proxy /bin/oauth2-proxy /usr/local/bin/oauth2-proxy
+COPY --from=helm /usr/bin/helm /usr/local/bin/helm
 COPY scripts/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

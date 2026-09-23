@@ -167,3 +167,55 @@ describe("populateEnvVars", () => {
     expect(envVarsOf("populateEnvVars(vars)").warnings.join()).toMatch(/not a literal map/);
   });
 });
+
+describe("parallel and sleep", () => {
+  const gen = (title: string) => ({
+    ...createStage("genStage"),
+    args: { title, image: "python311", commands: ["make " + title.toLowerCase()] },
+  });
+
+  it("writes marked stages as one parallel block and reads it back byte for byte", () => {
+    const pipeline = {
+      ...newPipeline(),
+      stages: [
+        gen("Checkout"),
+        gen("Unit"),
+        { ...gen("Lint"), parallel: true },
+        { ...createStage("sleep"), args: { time: 30, unit: "SECONDS" } },
+        gen("Deploy"),
+      ],
+    };
+    const text = toGroovy(pipeline);
+    expect(text).toContain("parallel(\n    'Unit': {\n        genStage(");
+    expect(text).toContain("    'Lint': {");
+    expect(text).toContain("sleep(\n    time: 30,\n    unit: 'SECONDS'\n)");
+
+    const { pipeline: back, warnings } = parseJenkinsfile(text);
+    expect(warnings).toEqual([]);
+    expect(back.stages.map((s) => [s.step, !!s.parallel])).toEqual([
+      ["genStage", false],
+      ["genStage", false],
+      ["genStage", true],
+      ["sleep", false],
+      ["genStage", false],
+    ]);
+    expect(toGroovy(back)).toBe(text);
+  });
+
+  it("names two branches with the same title apart", () => {
+    const text = toGroovy({ ...newPipeline(), stages: [gen("Build"), { ...gen("Build"), parallel: true }] });
+    expect(text).toContain("'Build': {");
+    expect(text).toContain("'Build 2': {");
+  });
+
+  it("imports a hand-written parallel with failFast, saying what it left out", () => {
+    const { pipeline, warnings } = parseJenkinsfile(
+      "parallel(\n  failFast: true,\n  a: { sleep(time: 1) },\n  b: { sleep(time: 2) }\n)"
+    );
+    expect(pipeline.stages.map((s) => [s.args.time, !!s.parallel])).toEqual([
+      [1, false],
+      [2, true],
+    ]);
+    expect(warnings.join()).toMatch(/failFast/);
+  });
+});

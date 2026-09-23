@@ -151,6 +151,50 @@ export function paramToGroovy(param: JenkinsfileParam): string {
 }
 
 /**
+ * The stages as they run: a stage marked `parallel` joins the group of the
+ * stage above it, so each group is one top-level call, or one `parallel(...)`.
+ */
+export function parallelGroups(stages: JenkinsfileStage[]): JenkinsfileStage[][] {
+  const groups: JenkinsfileStage[][] = [];
+  for (const stage of stages) {
+    const last = groups[groups.length - 1];
+    // populateEnvVars never races: the card hides the toggle beside it, and a
+    // flag left over from before a reorder must not pull it into a branch.
+    const env = (s: JenkinsfileStage) => s.step === "populateEnvVars";
+    if (stage.parallel && last && !env(stage) && !env(last[last.length - 1])) last.push(stage);
+    else groups.push([stage]);
+  }
+  return groups;
+}
+
+/** A branch's name in the Blue Ocean graph: the stage's title, unique within the block. */
+function branchNames(group: JenkinsfileStage[]): string[] {
+  const seen = new Map<string, number>();
+  return group.map((stage, i) => {
+    const title = String(stage.args.title ?? "").trim() || stepSpec(stage.step)?.label || `Branch ${i + 1}`;
+    const n = (seen.get(title) ?? 0) + 1;
+    seen.set(title, n);
+    return n > 1 ? `${title} ${n}` : title;
+  });
+}
+
+/**
+ * Stages that run at once, as Jenkins' own `parallel` step: one closure per
+ * branch, each calling its stage exactly as it would at the top level.
+ */
+export function parallelToGroovy(group: JenkinsfileStage[]): string {
+  const names = branchNames(group);
+  const branches = group.map((stage, i) => {
+    const body = stageToGroovy(stage)
+      .split("\n")
+      .map((line) => `${INDENT}${INDENT}${line}`)
+      .join("\n");
+    return `${INDENT}${quote(names[i])}: {\n${body}\n${INDENT}}`;
+  });
+  return `parallel(\n${branches.join(",\n")}\n)`;
+}
+
+/**
  * The whole Jenkinsfile. Scripted, not declarative: every step in the library
  * opens its own `stage()` (through podLauncher / nodeExecutor), so they are
  * called one after another at the top level rather than inside a `pipeline {}`
@@ -167,7 +211,7 @@ export function toGroovy(pipeline: DraftPipeline): string {
     blocks.push(`properties([\n${INDENT}parameters([\n${declared.join(",\n")}\n${INDENT}])\n])`);
   }
 
-  for (const stage of pipeline.stages) blocks.push(stageToGroovy(stage));
+  for (const group of parallelGroups(pipeline.stages)) blocks.push(group.length > 1 ? parallelToGroovy(group) : stageToGroovy(group[0]));
 
   return blocks.length ? `${blocks.join("\n\n")}\n` : "";
 }

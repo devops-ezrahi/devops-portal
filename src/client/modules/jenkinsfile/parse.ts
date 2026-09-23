@@ -418,6 +418,34 @@ function stageFrom(name: string, body: string, warnings: string[]): JenkinsfileS
 }
 
 /**
+ * `parallel('A': { genStage(…) }, 'B': { … })` — one card per branch, every
+ * card after the first marked to run alongside the one above it, which is the
+ * shape the generator writes back.
+ */
+function parallelFrom(body: string, warnings: string[]): JenkinsfileStage[] {
+  const stages: JenkinsfileStage[] = [];
+  for (const { key, value } of splitTop(body).map(splitEntry)) {
+    const branch = readValue(value);
+    if (branch.t !== "closure") {
+      warnings.push(`parallel: ignored ${key ?? "an entry"} — only branches (closures) are kept`);
+      continue;
+    }
+    const calls = topLevelCalls(branch.v);
+    if (calls.length > 1)
+      warnings.push(`parallel: branch ${key} runs ${calls.length} steps in a row; each became its own parallel branch`);
+    for (const call of calls) {
+      const stage = stageFrom(call.name, call.body, warnings);
+      if (!stage) {
+        warnings.push(`parallel: skipped ${call.name}() in branch ${key} — not a step the builder knows`);
+        continue;
+      }
+      stages.push(stages.length ? { ...stage, parallel: true } : stage);
+    }
+  }
+  return stages;
+}
+
+/**
  * Reads a whole Jenkinsfile. Always returns a pipeline: an unrecognisable file
  * gives an empty one plus the reasons, which is what the import dialog shows.
  */
@@ -441,6 +469,10 @@ export function parseJenkinsfile(text: string): ImportResult {
   for (const call of topLevelCalls(src)) {
     if (call.name === "properties") {
       pipeline.params.push(...paramsFrom(call.body, warnings));
+      continue;
+    }
+    if (call.name === "parallel") {
+      pipeline.stages.push(...parallelFrom(call.body, warnings));
       continue;
     }
     const stage = stageFrom(call.name, call.body, warnings);

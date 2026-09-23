@@ -86,6 +86,8 @@ export type StepSpec = {
    * the whole call — `populateEnvVars([SERVICE: 'x'])`, not `populateEnvVars(envVars: [...])`.
    */
   callStyle?: "named" | "bare";
+  /** A Jenkins step rather than one of the library's — no `genStage` arguments. */
+  builtin?: true;
   args: ArgSpec[];
 };
 
@@ -436,6 +438,23 @@ export const STEPS: StepSpec[] = [
       },
       { name: "flags", kind: "stringList", hint: "Declared by the step's spec but currently unused by it." },
       POST_COMMANDS,
+    ],
+  },
+  {
+    // Jenkins' own step, not the library's — a wait between stages (a
+    // deployment settling, a rate limit). It opens no stage and needs no agent.
+    step: "sleep",
+    builtin: true,
+    label: "Sleep",
+    description: "Pauses the pipeline for a while before the next stage runs.",
+    args: [
+      { name: "time", kind: "integer", required: true, hint: "How long to wait.", placeholder: "30" },
+      {
+        name: "unit",
+        kind: "string",
+        hint: "SECONDS (the default), MINUTES, HOURS, MILLISECONDS…",
+        placeholder: "SECONDS",
+      },
     ],
   },
 ];

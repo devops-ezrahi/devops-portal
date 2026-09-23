@@ -57,6 +57,7 @@ const pipelineBody = z.object({
         step: z.string().min(1),
         args: z.record(z.string(), z.unknown()),
         collapsed: z.boolean().optional(),
+        parallel: z.boolean().optional(),
       })
     )
     .max(100),

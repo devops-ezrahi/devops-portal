@@ -61,3 +61,23 @@ export function pushTree(id: string, files: RepoFile[], branch?: string, message
     { method: "POST", body: JSON.stringify({ files, branch, message }) }
   );
 }
+
+export type ConvertRequest = {
+  chartRepoUrl: string;
+  chartRevision: string;
+  namespace: string;
+  manifests?: { name: string; text: string }[];
+  helm?: { name: string; archive: string; values?: string };
+};
+
+/**
+ * Plain Kubernetes YAML or a packaged Helm chart, converted by the chart
+ * repo's own `convert_to_universal_chart.py` into the files a values tree
+ * holds — the same shape `pullValues` returns, read with `importTree`.
+ */
+export function convertManifests(body: ConvertRequest) {
+  return request<{ files: RepoFile[]; warnings: string[] }>("/api/argocd/convert", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}

@@ -758,6 +758,16 @@ no external system — the only server-side state is saved pipeline documents.
   on its own line becomes `'npm install'`, not `'"npm install",'`. `unwrap` in
   `groovy.ts` only strips a quote pair that wraps the whole line with none of
   that quote inside it, so `echo "hi"` and `"$A" = "$B"` survive untouched.
+- **`parallel` is a flag on a card, not a nested list.** A card marked
+  *Parallel* (`JenkinsfileStage.parallel`) runs alongside the one above it;
+  `parallelGroups` in `groovy.ts` folds each run of them into one
+  `parallel('<title>': { … }, …)` block, a branch per card named by its title,
+  and `parse.ts` reads such a block back into flagged cards (a branch with
+  several steps, or `failFast`, is imported with a warning). One flat,
+  reorderable list survives that way. `populateEnvVars` never joins a group —
+  it sets the env everything after it reads, which a race breaks.
+- **`sleep` is Jenkins' own step** (`builtin: true` in the catalog), the one
+  step with no `genStage` arguments.
 - **Drag and drop is native HTML5**, no library — three handlers over an array
   in `StageList.tsx`, and it is the only way to reorder. A card is draggable only
   while collapsed: a text input inside an expanded card cannot be selected with
@@ -1197,6 +1207,35 @@ defaults of its own.
   `DELETE` really deletes.** Autosave, minted names and the ownership rules are
   the Jenkinsfile builder's, unchanged.
 
+## ArgoCD: converting plain YAML or a Helm chart
+
+**Convert** (the topbar, or New's third choice) turns Kubernetes manifests or a
+packaged chart into universal-chart values, then folds them into the open tree —
+which keeps its repository, so it commits like anything else, and a new one
+connects from the repository panel as usual.
+
+- **The converter is `convert_to_universal_chart.py` itself, not a port.**
+  `POST /api/argocd/convert` shallow-clones the tree's own chart repo at the
+  tree's own revision and runs `gitops-factory/convert_to_universal_chart.py`
+  from there (`--skip-verify`), so the converter is always the one shipped
+  beside that chart version and nothing is vendored. Its output is the layout
+  `importTree` already reads, so the browser takes it exactly like a pull.
+- **A Helm chart is rendered first**, with `helm template <name> <chart> -n
+  <ns> [-f values]`, and the rendered YAML is what gets converted. The image
+  carries `helm` (from `alpine/helm`) and `python3-yaml` for this.
+- One file is one microservice — the converter's own input rule — and the
+  names are held to the DNS label rule at the route, since each becomes a path.
+- `mergeConverted` (`document.ts`): a same-named microservice is replaced in
+  place (keeping its id); into a namespace the tree already has, the
+  converter's `<ns>/defaults.yaml` is folded into each converted entry so the
+  existing defaults are untouched.
+
+**A namespace file keeps what was set in it.** `buildTree` subtracts only the
+chart's own defaults (`subtractChartDefaults` — what ticking a feature writes)
+from a namespace file, not every value base also has. Dropping every restated
+value made a repo's own `image.repository` show as "removed" in the diff of a
+file nobody had touched.
+
 ## ArgoCD: the preview is a diff against the connected branch
 
 The builder regenerates the whole tree on every keystroke, so "what did I
@@ -1496,7 +1535,8 @@ CI does bump → build → pack.
 The app runs in a single container fronted by oauth2-proxy (bundled into the
 same image — see `scripts/entrypoint.sh`; the image also carries `git`, `unzip`,
 `maven` + a headless JRE and `python3-pip`, the last two for the Artifactory
-module's dependency resolvers), deployed onto the `k3d-homelab`
+module's dependency resolvers, and `helm` + `python3-yaml` for the ArgoCD
+module's Convert), deployed onto the `k3d-homelab`
 cluster maintained in the sibling `../homelab` repo (see that repo's
 `CLAUDE.md` for cluster-wide setup). The `Dockerfile` is self-building from
 source — the builder stage runs `npm run build` itself, and `.dockerignore`
