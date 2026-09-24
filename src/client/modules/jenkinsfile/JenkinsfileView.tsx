@@ -1,4 +1,4 @@
-import { Check, Pencil, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { Check, ChevronRight, Pencil, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { ListSizeToggle } from "../../ListSizeToggle";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
@@ -102,6 +102,9 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
   const [images, setImages] = useState<PickableImage[]>([]);
   const [newOpen, setNewOpen] = useState(false);
   const [naming, setNaming] = useState(false);
+  // Per viewer, not per pipeline: it is about how much of the screen the
+  // settings above the stages may take, which is the same whatever is open.
+  const [optionsOpen, setOptionsOpen] = useState(readOptionsOpen);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   /** Whether a git credential exists at all — the repo buttons say so when it does not. */
   const [gitEnabled, setGitEnabled] = useState(false);
@@ -546,48 +549,75 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
               </button>
             </div>
 
-            {/* Always there, as in ArgoCD: unfolding it is how a pipeline is
-                connected — or re-pointed — mid-edit. */}
+            {/* Repository, library, parameters and Groovy fold behind one row,
+                so the stages can sit near the top once they are set. Folded, the
+                row says what is set, so nothing hidden is a surprise. Siblings
+                rather than a wrapper, so `.jf-section + .jf-section` still rules
+                them apart. */}
             <div className="jf-section">
-              <RepoPanel
-                repo={repo}
-                gitUrl={gitUrl}
-                onChange={(next) => patchDraft({ repo: next })}
-                onPull={() => void handlePull()}
-                pulling={pulling}
-                gitEnabled={gitEnabled}
-                stageCount={draft.stages.length}
-                error={repoError}
-              />
+              <button
+                type="button"
+                className="jf-card-toggle"
+                aria-expanded={optionsOpen}
+                onClick={() => {
+                  setOptionsOpen(!optionsOpen);
+                  writeOptionsOpen(!optionsOpen);
+                }}
+              >
+                <ChevronRight className={`jf-group-chevron${optionsOpen ? " open" : ""}`} size={15} aria-hidden="true" />
+                <span className="jf-stage-text">
+                  <strong>Pipeline options</strong>
+                  {!optionsOpen && <small>{optionsSummary(draft, repo)}</small>}
+                </span>
+              </button>
             </div>
 
-            <div className="jf-section">
-              <LibraryField
-                value={draft.library}
-                name={sharedLibrary}
-                onChange={(library) => patchDraft({ library })}
-              />
-            </div>
+            {optionsOpen && (
+              <>
+              {/* Always there, as in ArgoCD: unfolding it is how a pipeline is
+                  connected — or re-pointed — mid-edit. */}
+              <div className="jf-section">
+                <RepoPanel
+                  repo={repo}
+                  gitUrl={gitUrl}
+                  onChange={(next) => patchDraft({ repo: next })}
+                  onPull={() => void handlePull()}
+                  pulling={pulling}
+                  gitEnabled={gitEnabled}
+                  stageCount={draft.stages.length}
+                  error={repoError}
+                />
+              </div>
 
-            <div
-              className="jf-section"
-              data-touch-scope={PIPELINE_SCOPE}
-              onBlur={(e) => {
-                if (!e.relatedTarget || !e.currentTarget.contains(e.relatedTarget)) touch(PIPELINE_SCOPE);
-              }}
-            >
-              <ParamsEditor
-                params={draft.params}
-                used={usedParams}
-                touched={touched}
-                onLeave={touch}
-                onChange={(params) => patchDraft({ params })}
-              />
-            </div>
+              <div className="jf-section">
+                <LibraryField
+                  value={draft.library}
+                  name={sharedLibrary}
+                  onChange={(library) => patchDraft({ library })}
+                />
+              </div>
 
-            <div className="jf-section">
-              <GroovyBlock value={draft.groovy ?? ""} onChange={(groovy) => patchDraft({ groovy })} />
-            </div>
+              <div
+                className="jf-section"
+                data-touch-scope={PIPELINE_SCOPE}
+                onBlur={(e) => {
+                  if (!e.relatedTarget || !e.currentTarget.contains(e.relatedTarget)) touch(PIPELINE_SCOPE);
+                }}
+              >
+                <ParamsEditor
+                  params={draft.params}
+                  used={usedParams}
+                  touched={touched}
+                  onLeave={touch}
+                  onChange={(params) => patchDraft({ params })}
+                />
+              </div>
+
+              <div className="jf-section">
+                <GroovyBlock value={draft.groovy ?? ""} onChange={(groovy) => patchDraft({ groovy })} />
+              </div>
+              </>
+            )}
 
             <div className="jf-section jf-builder">
               <StageList
@@ -636,4 +666,33 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
       )}
     </ImagesContext.Provider>
   );
+}
+
+const OPTIONS_OPEN_KEY = "jenkinsfile.optionsOpen";
+
+function readOptionsOpen(): boolean {
+  try {
+    return localStorage.getItem(OPTIONS_OPEN_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+function writeOptionsOpen(open: boolean) {
+  try {
+    localStorage.setItem(OPTIONS_OPEN_KEY, open ? "1" : "0");
+  } catch {
+    // Private window or blocked storage — the fold just resets next time.
+  }
+}
+
+/** What the folded options row says is set, so folding hides nothing silently. */
+function optionsSummary(draft: DraftPipeline, repo: NonNullable<DraftPipeline["repo"]>): string {
+  const parts: string[] = [];
+  const repoName = repo.repoUrl.trim().replace(/\.git$/, "").split("/").pop();
+  if (repoName) parts.push(`repo ${repoName}@${repo.revision || "default"}`);
+  if (draft.library) parts.push(`@Library ${draft.library}`);
+  if (draft.params.length) parts.push(`${draft.params.length} param${draft.params.length === 1 ? "" : "s"}`);
+  if (draft.groovy?.trim()) parts.push("Groovy block");
+  return parts.length ? parts.join(" · ") : "Repository, shared library, parameters, Groovy — none set";
 }
