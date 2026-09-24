@@ -7,13 +7,13 @@ function jsonResponse(body: unknown) {
   return new Response(JSON.stringify(body), { status: 200 });
 }
 
-function makeApi(boardId: string, ticketLabel = "") {
+function makeApi(boardId: string, ticketLabel = "", maintenanceIssueType = "Maintenance") {
   return new JiraTicketingApi({
     baseUrl: "https://jira.example.com",
     token: "token",
     projectKey: "DEVOPS",
     boardId,
-    maintenanceIssueType: "Maintenance",
+    maintenanceIssueType,
     ticketLabel
   });
 }
@@ -293,6 +293,26 @@ describe("createTicket files as the person on the page", () => {
     expect(ticket.notice).toBeUndefined();
   });
 
+  it('still sends the reporter after a failed "my tickets" listing', async () => {
+    // The first "mine" search fails, the currentUser() retry works — which is
+    // what marks the name bad for listing.
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => (calls++ === 0 ? new Response("{}", { status: 400 }) : jsonResponse({ issues: [] }))));
+    const api = makeApi("");
+    await api.listTickets(dana, { scope: "mine" });
+    const fetchMock = createMock();
+    vi.stubGlobal("fetch", fetchMock);
+    await api.createTicket(input, dana);
+    expect(createdFields(fetchMock).reporter).toEqual({ name: "u-dana" });
+  });
+
+  it("sends a numeric issue type as an id", async () => {
+    const fetchMock = createMock();
+    vi.stubGlobal("fetch", fetchMock);
+    await makeApi("", "portal", "3").createTicket(input, dana);
+    expect(createdFields(fetchMock).issuetype).toEqual({ id: "3" });
+  });
+
   it("sets the reporter to the portal user", async () => {
     const fetchMock = createMock();
     vi.stubGlobal("fetch", fetchMock);
@@ -366,10 +386,11 @@ describe("createTicket files as the person on the page", () => {
       ["https://jira.example.com/rest/api/2/issue/DEVOPS-9", { fields: { priority: { name: "Medium" } } }],
     ]);
 
-    // Learnt once: the next create leaves it off from the start.
+    // Not remembered: the next create sends it again, since a refusal can be
+    // about one value rather than the screen.
     fetchMock.mockClear();
-    await api.createTicket(input, dana);
-    expect(fetchMock.mock.calls.filter(([u, o]) => u.endsWith("/issue") && o?.method === "POST")).toHaveLength(1);
+    await api.createTicket({ ...input, priority: "High" }, dana);
+    expect(createdFields(fetchMock).priority).toEqual({ name: "High" });
   });
 
   it("links each ticket to its Jira page", async () => {

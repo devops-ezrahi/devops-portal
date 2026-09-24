@@ -133,6 +133,15 @@ function rejectedFields(error: unknown): string[] {
   }
 }
 
+/**
+ * JIRA_MAINTENANCE_ISSUE_TYPE may be a name or the type's numeric id — an id is
+ * what a localised instance, where the display name is not "Task", still
+ * resolves (`{"issuetype":{"id":"3"}}` is what worked on the closed network).
+ */
+function issueTypeRef(type: string) {
+  return /^\d+$/.test(type) ? { id: type } : { name: type };
+}
+
 function quoteJql(value: string) {
   return `"${value.replace(/["\\]/g, "\\$&")}"`;
 }
@@ -152,8 +161,6 @@ export class JiraTicketingApi implements TicketingApi {
    * failing and retrying on every poll.
    */
   private readonly unknownReporters = new Set<string>();
-  /** Fields the project's create screen refused; set by PUT after the create instead. */
-  private readonly offCreateScreen = new Set<string>();
 
   constructor(config: JiraTicketingConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, "");
@@ -362,7 +369,10 @@ export class JiraTicketingApi implements TicketingApi {
     // identity is not a Jira user at all (SSO and Jira need not share a
     // directory), or the service account lacks "Modify Reporter" on the project.
     const reporterName = this.jiraUser(requester).id;
-    const impersonate = Boolean(reporterName) && !this.unknownReporters.has(reporterName);
+    // Always tried, even for a name "my tickets" once failed on: that set is a
+    // listing shortcut, and letting it skip the reporter here meant one failed
+    // poll filed every later ticket as the service account until a restart.
+    const impersonate = Boolean(reporterName);
 
     // Fields the ticket should carry but the create can live without. Jira 400s
     // the *whole* create over any one of them — the reporter above, or a field
@@ -385,7 +395,7 @@ export class JiraTicketingApi implements TicketingApi {
           // second error is a red herring. JIRA_MAINTENANCE_ISSUE_TYPE is the
           // type listAdminTickets already filters the admin queue on, so
           // creating anything else would also hide every new ticket from it.
-          issuetype: { name: this.maintenanceIssueType || "Task" },
+          issuetype: issueTypeRef(this.maintenanceIssueType || "Task"),
           summary: fields.title ?? requestType.name,
           description: fields.description ?? "",
           labels: labels.map(jiraLabel).filter(Boolean)
@@ -398,9 +408,11 @@ export class JiraTicketingApi implements TicketingApi {
     // pod log.
     const notices: string[] = [];
 
-    // Remembered per process, so one rejection costs one doubled round trip
-    // rather than one per create.
-    const omit = new Set([...this.offCreateScreen].filter((k) => k in optional));
+    // Not remembered between creates: a refusal is often about the value (a
+    // priority name the instance lacks), not the screen, and remembering it
+    // left every later ticket on the default priority until a restart. A field
+    // that is really off the screen costs one extra round trip per create.
+    const omit = new Set<string>();
     let created: JiraIssue;
     for (;;) {
       try {
@@ -408,7 +420,6 @@ export class JiraTicketingApi implements TicketingApi {
         break;
       } catch (error) {
         const named = rejectedFields(error).filter((k) => k in optional && !omit.has(k));
-        named.forEach((k) => this.offCreateScreen.add(k));
         // A reporter Jira does not know comes back without naming the field,
         // so an unexplained failure with one in it drops it, as it always has.
         const drop = named.length ? named : "reporter" in optional && !omit.has("reporter") ? ["reporter"] : [];
@@ -559,7 +570,9 @@ export class JiraTicketingApi implements TicketingApi {
   async listAdminTickets(filters: AdminTicketFilters): Promise<TicketSummary[]> {
     const clauses: string[] = [`project = ${quoteJql(this.projectKey)}`, ...this.scopeClauses()];
     if (this.maintenanceIssueType) {
-      clauses.push(`issuetype = ${quoteJql(this.maintenanceIssueType)}`);
+      // An id stays unquoted — JQL reads a bare number as the type's id.
+      const type = this.maintenanceIssueType;
+      clauses.push(`issuetype = ${/^\d+$/.test(type) ? type : quoteJql(type)}`);
     }
     if (this.boardId) {
       const sprintId = await this.getActiveSprintId();

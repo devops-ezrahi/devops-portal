@@ -484,10 +484,16 @@ work around it rather than pretend otherwise:
   not share a directory), or the token's account lacks *Modify Reporter* on the
   project — and both come back as a 400 that fails the **whole** create. So the
   reporter is dropped and the create retried once: filing as the service account
-  is a worse ticket, but a ticket. The rejection is remembered in the same
-  `unknownReporters` set "my tickets" already keeps, so one 400 settles it for
-  the process instead of costing every create a doubled round trip. That set is
-  also what falls "my tickets" back to `reporter = currentUser()`.
+  is a worse ticket, but a ticket. **Nothing about a refusal is remembered
+  between creates** — not the reporter, not a field the create screen refused.
+  Both used to be (`unknownReporters`, `offCreateScreen`), and one bad value or
+  one failed "my tickets" poll then filed every later ticket as the service
+  account on the default priority until the pod restarted. A refusal now costs
+  one extra round trip per create. `unknownReporters` survives only as the
+  listing's shortcut to `reporter = currentUser()`.
+  `JIRA_MAINTENANCE_ISSUE_TYPE` may be the type's numeric id (`3`), sent as
+  `{"id": …}` and unquoted in JQL — what a localised instance resolves when
+  the display name does not match.
 - **A new ticket is exactly what the admin queue queries for.** `listAdminTickets`
   filters on four things — `project`, `JIRA_TICKET_LABEL`,
   `JIRA_MAINTENANCE_ISSUE_TYPE` and `sprint = <the board's active sprint>` — and
