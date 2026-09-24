@@ -18,7 +18,7 @@ const CHART_DEFAULTS: Values = FEATURES.reduce<Values>(
  * a tree authored here and a tree converted there land in the same repo and are
  * read by the same wiring:
  *
- *   <ns>/defaults.yaml -> base/<release>.yaml -> <ns>/values/<release>.yaml
+ *   base/<release>.yaml -> <ns>/defaults.yaml -> <ns>/values/<release>.yaml
  *
  * Argo merges those in order, last wins.
  *
@@ -41,7 +41,7 @@ const CHART_DEFAULTS: Values = FEATURES.reduce<Values>(
  * `<ns>/values/*.yaml` directly now) and the tree-root `defaults.yaml` (no
  * layer in the chain reads one, so anything common across namespaces is
  * repeated per namespace instead — which is where the tree's own defaults go:
- * into every `<ns>/defaults.yaml`, the first file the chain reads).
+ * into every `<ns>/defaults.yaml`, layered right over base).
  */
 
 export type GeneratedFile = {
@@ -86,7 +86,7 @@ export function buildTree(tree: ArgocdTree): GeneratedFile[] {
 
   // ---- base layer -------------------------------------------------------
   // Written whole. There is no tree-root defaults.yaml to subtract against —
-  // the chart's chain starts at <ns>/defaults.yaml, and subtracting against a
+  // the chart's chain starts at base/<release>.yaml, and subtracting against a
   // layer nobody applies silently drops the value.
   const base = new Map<string, Values>();
   releases.forEach((r) => base.set(r.id, buildValues(r.features, r.extraValues)));
@@ -104,7 +104,7 @@ export function buildTree(tree: ArgocdTree): GeneratedFile[] {
 
   // ---- namespace layers -------------------------------------------------
   namespaces.forEach((ns) => {
-    // A namespace runs every release in the tree; an entry only carries what it
+    // A namespace runs every release in the tree but its `absent` ones; an entry only carries what it
     // overrides. The values file is written for all of them either way — its
     // existence in `<ns>/values/` is what puts the release in the fan-out, so a
     // release with nothing to override still needs an (empty) file.
@@ -130,6 +130,7 @@ export function buildTree(tree: ArgocdTree): GeneratedFile[] {
     );
 
     releases.forEach((release) => {
+      if (ns.absent?.includes(release.id)) return;
       // The chain's own order: base, then this namespace's defaults over it.
       const below = deepMerge(base.get(release.id) ?? {}, nsDefaults);
       const doc = subtractChartDefaults(fragments.get(release.id) ?? {}, below, CHART_DEFAULTS);

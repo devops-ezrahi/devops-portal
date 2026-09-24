@@ -66,6 +66,7 @@ export type ConvertRequest = {
   chartRepoUrl: string;
   chartRevision: string;
   namespace: string;
+  envGroups?: string[];
   yaml?: string;
   helm?: { name: string; archive: string; values?: string };
 };

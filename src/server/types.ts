@@ -476,6 +476,12 @@ export type ArgocdNamespace = {
    */
   groups?: Record<string, string>;
   /**
+   * Release ids this folder does NOT run — no `<ns>/values/<release>.yaml` is
+   * written for them. A converted tree with variant folders runs `ms1` in
+   * `prd/yellow` and `ms2` in `prd`, never both everywhere. Absent = runs all.
+   */
+  absent?: string[];
+  /**
    * Set once for this namespace, applied to every microservice in it — written
    * as `<ns>/defaults.yaml`, which the chart layers over `base/<file>` and under
    * `<ns>/values/<file>`. A monorepo image tag, an environment label.

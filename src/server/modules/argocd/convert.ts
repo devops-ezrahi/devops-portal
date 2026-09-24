@@ -62,6 +62,8 @@ export type ConvertInput = {
   chartRepoUrl: string;
   chartRevision: string;
   namespace: string;
+  /** `--env-group` specs, `color=black,yellow`: a token in a release name makes a variant folder. */
+  envGroups?: string[];
   /**
    * Any Kubernetes YAML — `kubectl get -o yaml` output, a `List`, several files
    * joined — split into microservices by the importer before converting.
@@ -155,7 +157,8 @@ export async function convertToUniversal(input: ConvertInput): Promise<ConvertRe
 
     // --skip-verify: verification renders every release through the chart with
     // helm, which is a check for the converter's own CI, not for this request.
-    await run(python, [converter, "--input", join(dir, "in"), "--output", join(dir, "out"), "--skip-verify"], dir, "The converter");
+    const groups = (input.envGroups ?? []).flatMap((g) => ["--env-group", g]);
+    await run(python, [converter, "--input", join(dir, "in"), "--output", join(dir, "out"), "--skip-verify", ...groups], dir, "The converter");
 
     const files = await readTree(join(dir, "out"));
     const report = await readFile(join(dir, "out", "report", "conflicts_and_warnings.txt"), "utf8").catch(() => "");

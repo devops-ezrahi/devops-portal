@@ -18,6 +18,7 @@ const k8sName = (file: string) =>
     .slice(0, 63);
 
 const DNS = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
+const ENV_GROUP = /^[a-z][a-zA-Z0-9_]*=[a-z0-9-]+(,[a-z0-9-]+)*$/;
 
 /** The first `metadata.namespace` in a dump — where it came from is usually where it goes. */
 const namespaceIn = (text: string) => /^\s+namespace:\s*["']?([a-z0-9][-a-z0-9]*)/m.exec(text)?.[1];
@@ -57,6 +58,7 @@ export function ConvertDialog({
   const [chartFile, setChartFile] = useState<File | null>(null);
   const [releaseName, setReleaseName] = useState("");
   const [values, setValues] = useState("");
+  const [envGroups, setEnvGroups] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const yamlInput = useRef<HTMLInputElement>(null);
@@ -64,7 +66,9 @@ export function ConvertDialog({
 
   const names = source === "yaml" ? [] : [releaseName];
   const bad = [namespace, ...names].find((n) => !DNS.test(n));
-  const ready = !!chart.repoUrl.trim() && (source === "yaml" ? !!yaml.trim() : !!chartFile) && !bad;
+  const groups = envGroups.split(";").map((g) => g.replace(/\s+/g, "")).filter(Boolean);
+  const badGroup = groups.find((g) => !ENV_GROUP.test(g));
+  const ready = !!chart.repoUrl.trim() && (source === "yaml" ? !!yaml.trim() : !!chartFile) && !bad && !badGroup;
 
   function changeYaml(text: string) {
     setYaml(text);
@@ -85,6 +89,7 @@ export function ConvertDialog({
         chartRepoUrl: chart.repoUrl,
         chartRevision: chart.revision,
         namespace,
+        ...(groups.length ? { envGroups: groups } : {}),
         ...(source === "yaml"
           ? { yaml }
           : { helm: { name: releaseName, archive: await base64Of(chartFile!), values: values || undefined } }),
@@ -133,6 +138,25 @@ export function ConvertDialog({
                 setNamespace(e.target.value.trim());
               }}
             />
+          </div>
+
+          <div className="field-block">
+            <span>
+              Env groups
+              <Help label="env groups">
+                <p>
+                  Optional. <code>color=black,yellow</code> puts <code>ms1-yellow</code> and <code>ms1-black</code> into one shared{" "}
+                  <code>base/ms1.yaml</code>, templated with <code>{"{{ .Values.color }}"}</code>, and deploys each from its own folder:{" "}
+                  <code>&lt;ns&gt;/yellow/</code>, <code>&lt;ns&gt;/black/</code>. Separate several groups with <code>;</code>.
+                </p>
+              </Help>
+            </span>
+            <input aria-label="Env groups" value={envGroups} placeholder="color=black,yellow" onChange={(e) => setEnvGroups(e.target.value)} />
+            {badGroup && (
+              <p className="ag-new-error">
+                <TriangleAlert size={15} aria-hidden="true" /> “{badGroup}” is not a group — write key=token,token.
+              </p>
+            )}
           </div>
 
           {source === "yaml" ? (

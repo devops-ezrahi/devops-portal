@@ -119,9 +119,12 @@ export function importTree(files: RepoFile[]): TreeImport {
     }
     for (const [slug, file] of valuesIn.get(name) ?? [])
       if (!idBySlug.has(slug)) warnings.push(`${file.path}: no base/${slug}.yaml for it — not imported.`);
+    // No values file here = this folder does not run that release.
+    const absent = [...idBySlug].filter(([slug]) => !valuesIn.get(name)?.has(slug)).map(([, id]) => id);
     namespaces.push({
       name,
       ...(Object.keys(groups).length ? { groups } : {}),
+      ...(absent.length ? { absent } : {}),
       releases: entries,
       defaults: { features: defaultsImport.features, extraValues: defaultsImport.extraValues },
     });

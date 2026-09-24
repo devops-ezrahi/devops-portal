@@ -56,6 +56,7 @@ const treeBody = z.object({
         // push's `safeTreePath` is what guards the paths written from it.
         name: z.string().trim().max(120),
         groups: z.record(z.string(), z.string().regex(/^[\w.-]+(\/[\w.-]+)*$/).max(120)).optional(),
+        absent: z.array(z.string().min(1)).max(200).optional(),
         defaults: z
           .object({
             features: z.record(z.string(), featureState),
@@ -133,6 +134,9 @@ const convertBody = z
     chartRepoUrl: pullBody.shape.repoUrl,
     chartRevision: pullBody.shape.revision,
     namespace: dnsLabel,
+    // `color=black,yellow` per entry: each becomes one `--env-group`, which puts
+    // `ms1-yellow` in `<ns>/yellow/` with `{{ .Values.color }}` in its base.
+    envGroups: z.array(z.string().trim().regex(/^[a-z][a-zA-Z0-9_]*=[a-z0-9-]+(,[a-z0-9-]+)*$/, "An env group is key=token,token")).max(5).optional(),
     yaml: z.string().trim().max(45 * 1024 * 1024).optional(),
     helm: z
       .object({ name: dnsLabel, archive: z.string().min(1).max(4 * 1024 * 1024), values: z.string().max(512_000).optional() })

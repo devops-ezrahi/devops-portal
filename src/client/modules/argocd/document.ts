@@ -162,9 +162,10 @@ export function mergeConverted(tree: DraftTree, imported: TreeImport): { tree: D
   const namespaces = [...tree.namespaces];
   for (const ns of imported.namespaces) {
     const entries = ns.releases.map((e) => ({ ...e, release: idOf.get(e.release) ?? e.release }));
+    const absent = ns.absent?.map((id) => idOf.get(id) ?? id);
     const at = namespaces.findIndex((x) => x.name === ns.name);
     if (at < 0) {
-      namespaces.push({ ...ns, releases: entries });
+      namespaces.push({ ...ns, releases: entries, ...(absent ? { absent } : {}) });
       continue;
     }
     const defaults = buildValues(ns.defaults?.features ?? {}, ns.defaults?.extraValues);
