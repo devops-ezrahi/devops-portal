@@ -106,6 +106,21 @@ ${DEPLOYMENT}`;
     expect(warnings.join("\n")).toMatch(/orders-db.*not in the pasted YAML/);
   }, 120_000);
 
+  it("puts each --env-group token in its own variant folder", async () => {
+    const colour = (c: string) => DEPLOYMENT.replace(/stalker/g, `stalker-${c}`).replace("MODE", `COLOR\n              value: ${c}\n            - name: MODE`);
+    const { files } = await convertToUniversal({
+      chartRepoUrl: chartRepo,
+      chartRevision: branch,
+      namespace: "interconn",
+      envGroups: ["color=black,yellow"],
+      yaml: `${colour("black")}---\n${colour("yellow")}`,
+    });
+    const paths = files.map((f) => f.path);
+    expect(paths).toEqual(expect.arrayContaining(["base/stalker.yaml", "interconn/black/values/stalker.yaml", "interconn/yellow/defaults.yaml"]));
+    expect(files.find((f) => f.path === "base/stalker.yaml")!.text).toContain("{{ .Values.color }}");
+    expect(files.find((f) => f.path === "interconn/yellow/defaults.yaml")!.text).toMatch(/^color: yellow$/m);
+  }, 120_000);
+
   it.skipIf(!has("helm", ["version"]))("renders a packaged Helm chart first", async () => {
     execFileSync("helm", ["create", "webapp"], { cwd: work });
     execFileSync("helm", ["package", "webapp"], { cwd: work });

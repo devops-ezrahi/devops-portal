@@ -549,7 +549,22 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
               </button>
             </div>
 
-            {/* Repository, library, parameters and Groovy fold behind one row,
+            {/* Always there, as in ArgoCD: unfolding it is how a pipeline is
+                connected — or re-pointed — mid-edit. */}
+            <div className="jf-section">
+              <RepoPanel
+                repo={repo}
+                gitUrl={gitUrl}
+                onChange={(next) => patchDraft({ repo: next })}
+                onPull={() => void handlePull()}
+                pulling={pulling}
+                gitEnabled={gitEnabled}
+                stageCount={draft.stages.length}
+                error={repoError}
+              />
+            </div>
+
+            {/* Library, parameters and Groovy fold behind one row,
                 so the stages can sit near the top once they are set. Folded, the
                 row says what is set, so nothing hidden is a surprise. Siblings
                 rather than a wrapper, so `.jf-section + .jf-section` still rules
@@ -567,28 +582,13 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
                 <ChevronRight className={`jf-group-chevron${optionsOpen ? " open" : ""}`} size={15} aria-hidden="true" />
                 <span className="jf-stage-text">
                   <strong>Pipeline options</strong>
-                  {!optionsOpen && <small>{optionsSummary(draft, repo)}</small>}
+                  {!optionsOpen && <small>{optionsSummary(draft)}</small>}
                 </span>
               </button>
             </div>
 
             {optionsOpen && (
               <>
-              {/* Always there, as in ArgoCD: unfolding it is how a pipeline is
-                  connected — or re-pointed — mid-edit. */}
-              <div className="jf-section">
-                <RepoPanel
-                  repo={repo}
-                  gitUrl={gitUrl}
-                  onChange={(next) => patchDraft({ repo: next })}
-                  onPull={() => void handlePull()}
-                  pulling={pulling}
-                  gitEnabled={gitEnabled}
-                  stageCount={draft.stages.length}
-                  error={repoError}
-                />
-              </div>
-
               <div className="jf-section">
                 <LibraryField
                   value={draft.library}
@@ -687,12 +687,10 @@ function writeOptionsOpen(open: boolean) {
 }
 
 /** What the folded options row says is set, so folding hides nothing silently. */
-function optionsSummary(draft: DraftPipeline, repo: NonNullable<DraftPipeline["repo"]>): string {
+function optionsSummary(draft: DraftPipeline): string {
   const parts: string[] = [];
-  const repoName = repo.repoUrl.trim().replace(/\.git$/, "").split("/").pop();
-  if (repoName) parts.push(`repo ${repoName}@${repo.revision || "default"}`);
   if (draft.library) parts.push(`@Library ${draft.library}`);
   if (draft.params.length) parts.push(`${draft.params.length} param${draft.params.length === 1 ? "" : "s"}`);
   if (draft.groovy?.trim()) parts.push("Groovy block");
-  return parts.length ? parts.join(" · ") : "Repository, shared library, parameters, Groovy — none set";
+  return parts.length ? parts.join(" · ") : "Shared library, parameters, Groovy — none set";
 }
