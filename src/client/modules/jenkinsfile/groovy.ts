@@ -151,17 +151,16 @@ export function paramToGroovy(param: JenkinsfileParam): string {
 }
 
 /**
- * The stages as they run: a stage marked `parallel` joins the group of the
- * stage above it, so each group is one top-level call, or one `parallel(...)`.
+ * The stages as they run: consecutive stages in the same box are one group,
+ * written as one `parallel(...)`; every other stage is a group of its own.
  */
 export function parallelGroups(stages: JenkinsfileStage[]): JenkinsfileStage[][] {
   const groups: JenkinsfileStage[][] = [];
   for (const stage of stages) {
     const last = groups[groups.length - 1];
-    // populateEnvVars never races: the card hides the toggle beside it, and a
-    // flag left over from before a reorder must not pull it into a branch.
-    const env = (s: JenkinsfileStage) => s.step === "populateEnvVars";
-    if (stage.parallel && last && !env(stage) && !env(last[last.length - 1])) last.push(stage);
+    // populateEnvVars never races: it sets the env everything after it reads.
+    const group = stage.step === "populateEnvVars" ? undefined : stage.group;
+    if (group && last?.[0].group === group) last.push(stage);
     else groups.push([stage]);
   }
   return groups;
@@ -211,7 +210,12 @@ export function toGroovy(pipeline: DraftPipeline): string {
     blocks.push(`properties([\n${INDENT}parameters([\n${declared.join(",\n")}\n${INDENT}])\n])`);
   }
 
-  for (const group of parallelGroups(pipeline.stages)) blocks.push(group.length > 1 ? parallelToGroovy(group) : stageToGroovy(group[0]));
+  // Variables and functions the stages use, as typed — declared before them.
+  if (pipeline.groovy?.trim()) blocks.push(pipeline.groovy.trim());
+
+  // A box is a parallel block even with one branch in it: that is what is on screen.
+  for (const group of parallelGroups(pipeline.stages))
+    blocks.push(group[0].group && group[0].step !== "populateEnvVars" ? parallelToGroovy(group) : stageToGroovy(group[0]));
 
   return blocks.length ? `${blocks.join("\n\n")}\n` : "";
 }

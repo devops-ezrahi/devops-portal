@@ -318,6 +318,9 @@ export function findEnvSpecific(tree: ArgocdTree): EnvSpecific[] {
     for (const path of ENV_SPECIFIC_PATHS) {
       const value = atPath(base, path);
       if (value === undefined) continue;
+      // `api.{{ .Values.environment }}.example.org` is already per-environment:
+      // the chart renders it with tpl against each folder's own defaults.
+      if (typeof value === "string" && value.includes("{{")) continue;
       const plain = namespaces.filter((_, i) => atPath(overrides[i], path) === undefined);
       if (!plain.length) continue;
       paths.push(path);

@@ -15,6 +15,7 @@ export function FeatureField({
   value,
   onChange,
   onRemove,
+  from,
   ...extras
 }: {
   spec: FieldSpec;
@@ -22,8 +23,10 @@ export function FeatureField({
   onChange: (value: unknown) => void;
   /** Put this field back on the add list. Absent on the ones that cannot leave. */
   onRemove?: () => void;
+  /** A read-only copy of a lower layer's value — named apart from this layer's own field. */
+  from?: string;
 } & RowExtras) {
-  const id = `ag-field-${spec.key}`;
+  const id = from ? `ag-field-${from.replace(/\W+/g, "-")}-${spec.key}` : `ag-field-${spec.key}`;
   // A list, a map or a block of YAML gets the whole width of the feature; only
   // the one-line fields sit in the column grid beside each other.
   const wide = spec.kind === "rows" || spec.kind === "kv" || spec.kind === "text" || spec.kind === "yaml";
@@ -34,6 +37,7 @@ export function FeatureField({
             it — a label wrapping a button names the button too. */}
         <label className="ag-field-label" htmlFor={id}>
           {spec.label}
+          {from && <span className="sr-only"> from {from}</span>}
         </label>
         {spec.hint && (
           <Help label={spec.label}>

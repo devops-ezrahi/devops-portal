@@ -27,6 +27,7 @@ import {
   type DraftPipeline,
 } from "./pipeline";
 import { JenkinsfilePreview } from "./components/JenkinsfilePreview";
+import { GroovyBlock } from "./components/GroovyBlock";
 import { LibraryField } from "./components/LibraryField";
 import { ParamsEditor, paramScope } from "./components/ParamsEditor";
 import { PipelineList } from "./components/PipelineList";
@@ -182,7 +183,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
     [pipelines, showAll, isAdmin, user.id]
   );
   const code = useMemo(() => toGroovy(draft), [draft]);
-  const usedParams = useMemo(() => usedParamNames(draft.stages), [draft.stages]);
+  const usedParams = useMemo(() => usedParamNames(draft.stages, draft.groovy), [draft.stages, draft.groovy]);
   const errors = useMemo(() => {
     const all = validatePipeline(draft);
     return {
@@ -341,15 +342,20 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
     ...draft.params.map(paramScope),
   ]);
 
-  function handleAddStage(step: string) {
+  function handleAddStage(step: string, group?: string) {
     const stage = createStage(step);
-    log("jenkinsfile", "adding stage", step, stage.id);
-    // populateEnvVars is a preamble wherever it is put, so it goes to the front —
-    // anything reading $SERVICE has to run after it.
-    setDraft((prev) => ({
-      ...prev,
-      stages: step === "populateEnvVars" ? [stage, ...prev.stages] : [...prev.stages, stage],
-    }));
+    log("jenkinsfile", "adding stage", step, stage.id, group ?? "");
+    setDraft((prev) => {
+      // populateEnvVars is a preamble wherever it is put, so it goes to the front —
+      // anything reading $SERVICE has to run after it.
+      if (step === "populateEnvVars") return { ...prev, stages: [stage, ...prev.stages] };
+      if (!group) return { ...prev, stages: [...prev.stages, stage] };
+      // Into a box: after its last branch, or at the end when the box is new.
+      const last = prev.stages.map((s) => s.group).lastIndexOf(group);
+      const stages = [...prev.stages];
+      stages.splice(last < 0 ? stages.length : last + 1, 0, { ...stage, group });
+      return { ...prev, stages };
+    });
   }
 
   function toggleStage(id: string) {
@@ -577,6 +583,10 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
                 onLeave={touch}
                 onChange={(params) => patchDraft({ params })}
               />
+            </div>
+
+            <div className="jf-section">
+              <GroovyBlock value={draft.groovy ?? ""} onChange={(groovy) => patchDraft({ groovy })} />
             </div>
 
             <div className="jf-section jf-builder">

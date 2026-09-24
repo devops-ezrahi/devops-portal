@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronRight, Columns2, GripVertical, Minimize2, Pencil, Plus, X } from "lucide-react";
+import { AlertTriangle, ChevronRight, GripVertical, Minimize2, Pencil, Plus, X } from "lucide-react";
 import { useState } from "react";
 import { Help } from "../../../Help";
 import { COMMON_ARG_NAMES, KIND_LABEL, pinsRuntime, RUNTIME_ARG_NAMES, stepSpec, type ArgSpec, type StepSpec } from "../catalog";
@@ -13,8 +13,6 @@ type Props = {
   /** Stash names earlier stages declare — what `unstash` can pick from. */
   stashNames: string[];
   open: boolean;
-  /** There is a stage above this one it could run alongside. */
-  canRunParallel: boolean;
   onToggle: () => void;
   onChange: (stage: JenkinsfileStage) => void;
   /** Focus has left the card, so whatever is wrong with it is now worth saying. */
@@ -43,7 +41,6 @@ export function StageCard({
   errors,
   stashNames,
   open,
-  canRunParallel,
   onToggle,
   onChange,
   onLeave,
@@ -69,7 +66,7 @@ export function StageCard({
 
   return (
     <li
-      className={["jf-card", open ? "open" : "", errors.length ? "has-error" : "", stage.parallel && canRunParallel ? "parallel" : "", className ?? ""]
+      className={["jf-card", open ? "open" : "", errors.length ? "has-error" : "", className ?? ""]
         .filter(Boolean)
         .join(" ")}
       // The scope a press outside is measured against — see `useLeaveScopes`.
@@ -112,20 +109,6 @@ export function StageCard({
           />
         )}
         <span className="jf-stage-actions">
-          {/* Runs alongside the stage above: consecutive cards with this on are
-              written as one parallel(...) block, a branch per card. */}
-          {canRunParallel && (
-            <button
-              type="button"
-              className={`ghost-button jf-card-parallel${stage.parallel ? " active" : ""}`}
-              aria-pressed={!!stage.parallel}
-              aria-label={`Run ${label} in parallel with the stage above`}
-              title="Run in parallel with the stage above"
-              onClick={() => onChange({ ...stage, parallel: !stage.parallel || undefined })}
-            >
-              <Columns2 size={15} aria-hidden="true" /> Parallel
-            </button>
-          )}
           {/* Folding a card is a thing you do to it, so it says which — the
               chevron beside the title is the same action for the mouse. */}
           <button

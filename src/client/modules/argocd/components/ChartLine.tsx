@@ -18,12 +18,10 @@ import type { DraftTree } from "../document";
 export function ChartLine({
   tree,
   onChange,
-  onRootAppName,
   gitUrl,
 }: {
   tree: DraftTree;
   onChange: (chart: DraftTree["chart"]) => void;
-  onRootAppName: (name: string) => void;
   gitUrl: string;
 }) {
   const [editing, setEditing] = useState(false);
@@ -89,16 +87,6 @@ export function ChartLine({
               placeholder="ms-applicationSet"
               value={tree.chart.appsetPath}
               onChange={(e) => onChange({ ...tree.chart, appsetPath: e.target.value })}
-            />
-          </label>
-          <label>
-            {/* Wiring, not values — it names the one object applied by hand,
-                so it belongs beside the chart rather than in the tree's data. */}
-            <span>Root Application name</span>
-            <input
-              value={tree.rootAppName}
-              placeholder="platform-root"
-              onChange={(e) => onRootAppName(e.target.value)}
             />
           </label>
         </div>

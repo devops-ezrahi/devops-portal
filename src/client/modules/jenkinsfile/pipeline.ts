@@ -68,11 +68,33 @@ function toParam(stored: JenkinsfileParam): JenkinsfileParam {
   };
 }
 
+/**
+ * Records written before parallel became a box carry `parallel: true` on each
+ * stage after the first of a run. Each run becomes one `group`, once.
+ */
+function migrateParallel(stages: JenkinsfileStage[]): JenkinsfileStage[] {
+  let head = "";
+  return stages.map((stage, i) => {
+    const { parallel, ...rest } = stage;
+    if (rest.group) return rest;
+    // populateEnvVars never races, and ends any run it sits in.
+    if (rest.step === "populateEnvVars") {
+      head = "";
+      return rest;
+    }
+    const next = stages[i + 1];
+    if (!parallel) head = next?.parallel && next.step !== "populateEnvVars" ? `g-${stage.id}` : "";
+    return head ? { ...rest, group: head } : rest;
+  });
+}
+
 export function toDraft(pipeline: JenkinsfilePipeline): DraftPipeline {
   const { envVars, ...rest } = pipeline;
   const legacy = Object.entries(envVars ?? {});
+  const stages = migrateParallel(pipeline.stages);
   return {
     ...rest,
+    groovy: pipeline.groovy ?? "",
     params: (pipeline.params ?? []).map(toParam),
     // A record written before populateEnvVars became a card carries its map at
     // the top level. Migrate it into the leading stage on open; the save below
@@ -80,8 +102,8 @@ export function toDraft(pipeline: JenkinsfilePipeline): DraftPipeline {
     stages: legacy.length
       ? // Folded like the rest of a saved pipeline: it is not new work, it is the
         // same map it always had, now shown where it belongs.
-        [{ ...createStage("populateEnvVars"), args: { envVars: legacy }, collapsed: true }, ...pipeline.stages]
-      : pipeline.stages,
+        [{ ...createStage("populateEnvVars"), args: { envVars: legacy }, collapsed: true }, ...stages]
+      : stages,
   };
 }
 
@@ -97,6 +119,7 @@ export function toInput(draft: DraftPipeline) {
     // Always empty: the map moved into a stage, and PUT merges over the stored
     // record, so sending nothing would leave a migrated pipeline's old copy behind.
     envVars: {},
+    groovy: draft.groovy ?? "",
     params: draft.params.filter((p) => p.name.trim()).map((p) => ({ ...p, name: p.name.trim() })),
     // Omitted rather than sent as undefined when nothing is connected: the
     // server reads an absent `repo` as "leave the connection alone", so a
@@ -107,7 +130,7 @@ export function toInput(draft: DraftPipeline) {
 }
 
 /** Local-only ids — the server stores whatever the builder sends and never mints these. */
-function stageId(): string {
+export function stageId(): string {
   return `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
@@ -124,6 +147,7 @@ export function newPipeline(): DraftPipeline {
     name: "",
     // Empty: the @Library line is opt-in, added by the dotted button.
     library: "",
+    groovy: "",
     params: [],
     stages: [],
     createdBy: "",

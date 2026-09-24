@@ -1657,6 +1657,10 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   animation: fade-up 180ms var(--ease-out) forwards;
 }
 
+.drop-zone-warn {
+  color: #e0b457;
+}
+
 /* Amber, not red: the job did what was asked minus one part of it — the same
    palette the Jenkinsfile import warnings use. */
 .warn-banner {
@@ -3015,14 +3019,47 @@ code {
 
 /* Runs alongside the card above — indented under it with a rule down the
    side, so a parallel group reads as one block of branches. */
-.jf-card.parallel {
-  margin-left: 22px;
-  border-left: 3px solid #20c7bd;
+/* A parallel block: the cards inside it run at once, one branch each. */
+.jf-parallel-box {
+  list-style: none;
+  border: 1px dashed #20c7bd;
+  border-radius: 8px;
+  padding: 8px 10px 10px;
+  background: rgba(32, 199, 189, 0.04);
 }
 
-.jf-card-parallel.active {
-  border-color: #20c7bd;
+.jf-parallel-box.drop-into {
+  background: rgba(32, 199, 189, 0.12);
+}
+
+.jf-parallel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 700;
   color: #20c7bd;
+}
+
+.jf-parallel-head .ghost-button {
+  margin-left: auto;
+}
+
+.jf-parallel-empty {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #6f8088;
+}
+
+.jf-parallel-box .jf-adder {
+  margin-top: 8px;
+}
+
+.jf-adders {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .jf-card.open {
@@ -5198,10 +5235,33 @@ input.jf-title {
    microservice's decision — but it is in this microservice's file. */
 .ag-inherited {
   grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin: 0;
+  min-width: 0;
   border: 1px dashed #26333a;
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 6px 10px 10px;
   background: #0d1418;
+}
+
+.ag-inherited legend {
+  padding: 0 4px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Read-only: what a lower layer sets, greyed and not typeable here. */
+.ag-inherited > :not(legend) {
+  opacity: 0.55;
 }
 
 .ag-inherited-link {
@@ -5218,15 +5278,6 @@ input.jf-title {
 }
 
 .ag-inherited-link:hover { color: #9fe4dc }
-
-.ag-inherited pre {
-  margin: 4px 0 0;
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: #7d8f97;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
 
 /* The same problem the list under the form shows, repeated on the card it is
    about: pressing it there lands here, and a card with no sign of why is the
@@ -5642,4 +5693,18 @@ input.jf-title {
 .jf-new-choice:disabled:hover {
   border-color: #223038;
   background: #101a1e;
+}
+
+/* The two list-level Add buttons share one row; their palettes open against
+   the row, not against the (narrow) button that opened them. */
+.jf-adders {
+  position: relative;
+}
+
+.jf-adders .jf-adder {
+  position: static;
+}
+
+.jf-groovy-editor .jf-import-text {
+  min-height: 140px;
 }

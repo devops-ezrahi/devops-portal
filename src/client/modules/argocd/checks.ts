@@ -1,3 +1,4 @@
+import { featureForPath } from "./catalog";
 import { enabled, list, obj, present } from "./values";
 import type { Values } from "./values";
 
@@ -161,5 +162,27 @@ export function checkValues(doc: Values): Problem[] {
   if (!obj(doc.image).repository && workload !== "none")
     bad("No image.repository. The chart's schema requires it for any workload that runs pods.", "image");
 
+  // The chart runs every string value through Helm's `tpl` once, so a `{{`
+  // that is not a template expression (an Alertmanager or Go template inside
+  // a ConfigMap) fails the render. `extraDeploy` is rendered on its own terms.
+  const walk = (node: unknown, path: string) => {
+    if (typeof node === "string") {
+      if (LITERAL_BRACES.test(node))
+        bad(`${path} contains a literal {{ — the chart renders every value with tpl. Escape it as {{ "{{" }}.`, featureForPath(path));
+    } else if (node && typeof node === "object") {
+      for (const [key, value] of Object.entries(node)) walk(value, path ? `${path}.${key}` : key);
+    }
+  };
+  for (const [key, value] of Object.entries(doc)) if (key !== "extraDeploy") walk(value, key);
+
   return out;
 }
+
+/**
+ * A `{{` that tpl would get wrong: `define`/`template`/`block` (a Go template
+ * carried as data), or a field that is not one of the release's own
+ * (`{{ .CommonLabels.alertname }}` renders empty). `{{ .Values.x }}`,
+ * `{{ if … }}`, `{{ $v }}` and the escape `{{ "{{" }}` are all fine.
+ */
+const LITERAL_BRACES =
+  /\{\{-?\s*(?:(?:define|template|block)\b|\.(?!(?:Values|Release|Chart|Capabilities|Template|Files)\b)[A-Za-z])/;

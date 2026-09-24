@@ -60,15 +60,13 @@ const at = (files: ReturnType<typeof buildTree>, path: string) => files.find((f)
 const doc = (files: ReturnType<typeof buildTree>, path: string) => parseYaml(at(files, path).text) as Record<string, any>;
 
 describe("buildTree", () => {
-  it("writes the gitops-factory layout: base/, per-namespace values, and the two root files", () => {
+  it("writes the gitops-factory layout: base/ and per-namespace values, no root Application/ApplicationSet", () => {
     expect(buildTree(tree()).map((f) => f.path)).toEqual([
       "base/api-gateway.yaml",
       "base/storefront.yaml",
       "shop-web/defaults.yaml",
       "shop-web/values/api-gateway.yaml",
       "shop-web/values/storefront.yaml",
-      "root-applicationSet.yaml",
-      "root-application.yaml",
     ]);
   });
 
@@ -123,56 +121,6 @@ describe("buildTree", () => {
       tree({ namespaces: [{ name: "shop-web", releases: [{ release: "r1", features: { image: on({ tag: "1.4.2" }) } }] }] })
     );
     expect(doc(files, "shop-web/values/storefront.yaml")).toEqual({});
-  });
-
-  it("deploys the ms-applicationSet chart once per namespace directory", () => {
-    const set = doc(buildTree(tree()), "root-applicationSet.yaml");
-    expect(set.kind).toBe("ApplicationSet");
-    expect(set.metadata.name).toBe("platform-root-set");
-    // Every top-level directory is a namespace except the ones that hold values
-    // or reports.
-    expect(set.spec.generators[0].git.directories).toEqual([
-      { path: "*" },
-      { path: "base", exclude: true },
-      { path: "cluster-shared", exclude: true },
-      { path: "ERRORS_ANALYSIS", exclude: true },
-      { path: "report", exclude: true },
-    ]);
-
-    const source = set.spec.template.spec.sources[0];
-    expect(source.path).toBe("ms-applicationSet");
-    // originPath is absent: this tree is the values repo's root.
-    expect(Object.fromEntries(source.helm.parameters.map((p: any) => [p.name, p.value]))).toEqual({
-      namespace: "{{path.basename}}",
-      originRepoURL: "https://git.example.com/gitops/values.git",
-      originBranch: "main",
-      project: "default",
-      destinationServer: "https://kubernetes.default.svc",
-      chartRepoURL: "https://github.com/devops-ezrahi/universal-chart.git",
-      chartRevision: "main",
-      chartPath: ".",
-    });
-  });
-
-  it("prefixes every reference when the tree lives in a subdirectory of the values repo", () => {
-    const files = buildTree(tree({ values: { repoUrl: "https://git/values.git", revision: "main", path: "apps" } }));
-    const set = doc(files, "root-applicationSet.yaml");
-    expect(set.spec.generators[0].git.directories[0]).toEqual({ path: "apps/*" });
-    expect(set.spec.generators[0].git.directories[1]).toEqual({ path: "apps/base", exclude: true });
-    // The chart builds the $Values/ refs itself, so the subpath goes in as a
-    // parameter — and only when there is one, since the chart already defaults
-    // it to the repo root.
-    const params = Object.fromEntries(set.spec.template.spec.sources[0].helm.parameters.map((p: any) => [p.name, p.value]));
-    expect(params.originPath).toBe("apps");
-    expect(doc(files, "root-application.yaml").spec.source.path).toBe("apps");
-  });
-
-  it("does not prune from the root app, and cannot mistake a values file for a manifest", () => {
-    const root = doc(buildTree(tree()), "root-application.yaml");
-    expect(root.spec.syncPolicy.automated.prune).toBe(false);
-    // Named outright with recursion off: a glob would also match a release
-    // called `web-application` down in <ns>/values/.
-    expect(root.spec.source.directory).toEqual({ recurse: false, include: "root-applicationSet.yaml" });
   });
 });
 

@@ -376,9 +376,11 @@ export type JenkinsfileStage = {
   /** Whether the builder shows this card folded to its header. Saved with the pipeline. */
   collapsed?: boolean;
   /**
-   * Runs alongside the stage above it. A run of these, plus the stage they
-   * hang off, is written as one `parallel(...)` block — one branch per stage.
+   * The parallel box this stage sits in. Consecutive stages sharing one are
+   * written as one `parallel(...)` block — one branch per stage.
    */
+  group?: string;
+  /** Legacy: "runs alongside the stage above". `toDraft` turns runs of it into a `group`. */
   parallel?: boolean;
 };
 
@@ -412,6 +414,11 @@ export type JenkinsfilePipeline = {
    * `populateEnvVars` stage instead; `toDraft` migrates the old shape on open.
    */
   envVars: Record<string, string>;
+  /**
+   * Top-level Groovy written between the parameters and the stages — `def`
+   * variables and functions a stage's commands can use.
+   */
+  groovy?: string;
   /** Build parameters, referenced from skip conditions and commands as `params.<name>`. */
   params?: JenkinsfileParam[];
   /**
@@ -455,7 +462,19 @@ export type ArgocdRelease = {
 
 /** One namespace's overrides: only what differs from the release's base. */
 export type ArgocdNamespace = {
+  /**
+   * The folder in the values repo, which is also the Kubernetes namespace —
+   * or a variant folder under one (`prd/yellow`, `prd/yellow/eu`): the chart's
+   * ms-applicationSet deploys that into `prd`, sharing the one `base/`. The
+   * namespace is always the first segment.
+   */
   name: string;
+  /**
+   * A release's grouping sub-folder under `values/` (`group1` for
+   * `prd/yellow/values/group1/ms1.yaml`), by release id. Purely grouping — the
+   * release is still named after its file. Absent = directly in `values/`.
+   */
+  groups?: Record<string, string>;
   /**
    * Set once for this namespace, applied to every microservice in it — written
    * as `<ns>/defaults.yaml`, which the chart layers over `base/<file>` and under

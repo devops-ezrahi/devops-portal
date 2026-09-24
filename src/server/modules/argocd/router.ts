@@ -51,7 +51,11 @@ const treeBody = z.object({
   namespaces: z
     .array(
       z.object({
-        name: z.string().trim().max(80),
+        // A folder path: `prd`, or a variant under it such as `prd/yellow`.
+        // Not pattern-checked here — autosave sends half-typed names; the
+        // push's `safeTreePath` is what guards the paths written from it.
+        name: z.string().trim().max(120),
+        groups: z.record(z.string(), z.string().regex(/^[\w.-]+(\/[\w.-]+)*$/).max(120)).optional(),
         defaults: z
           .object({
             features: z.record(z.string(), featureState),
@@ -129,7 +133,7 @@ const convertBody = z
     chartRepoUrl: pullBody.shape.repoUrl,
     chartRevision: pullBody.shape.revision,
     namespace: dnsLabel,
-    yaml: z.string().trim().max(5 * 1024 * 1024).optional(),
+    yaml: z.string().trim().max(45 * 1024 * 1024).optional(),
     helm: z
       .object({ name: dnsLabel, archive: z.string().min(1).max(4 * 1024 * 1024), values: z.string().max(512_000).optional() })
       .optional(),

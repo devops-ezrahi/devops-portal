@@ -174,13 +174,13 @@ describe("parallel and sleep", () => {
     args: { title, image: "python311", commands: ["make " + title.toLowerCase()] },
   });
 
-  it("writes marked stages as one parallel block and reads it back byte for byte", () => {
+  it("writes a box as one parallel block and reads it back byte for byte", () => {
     const pipeline = {
       ...newPipeline(),
       stages: [
         gen("Checkout"),
-        gen("Unit"),
-        { ...gen("Lint"), parallel: true },
+        { ...gen("Unit"), group: "g1" },
+        { ...gen("Lint"), group: "g1" },
         { ...createStage("sleep"), args: { time: 30, unit: "SECONDS" } },
         gen("Deploy"),
       ],
@@ -192,18 +192,14 @@ describe("parallel and sleep", () => {
 
     const { pipeline: back, warnings } = parseJenkinsfile(text);
     expect(warnings).toEqual([]);
-    expect(back.stages.map((s) => [s.step, !!s.parallel])).toEqual([
-      ["genStage", false],
-      ["genStage", false],
-      ["genStage", true],
-      ["sleep", false],
-      ["genStage", false],
-    ]);
+    const box = back.stages[1].group;
+    expect(box).toBeTruthy();
+    expect(back.stages.map((s) => s.group)).toEqual([undefined, box, box, undefined, undefined]);
     expect(toGroovy(back)).toBe(text);
   });
 
   it("names two branches with the same title apart", () => {
-    const text = toGroovy({ ...newPipeline(), stages: [gen("Build"), { ...gen("Build"), parallel: true }] });
+    const text = toGroovy({ ...newPipeline(), stages: [{ ...gen("Build"), group: "g" }, { ...gen("Build"), group: "g" }] });
     expect(text).toContain("'Build': {");
     expect(text).toContain("'Build 2': {");
   });
@@ -212,10 +208,45 @@ describe("parallel and sleep", () => {
     const { pipeline, warnings } = parseJenkinsfile(
       "parallel(\n  failFast: true,\n  a: { sleep(time: 1) },\n  b: { sleep(time: 2) }\n)"
     );
-    expect(pipeline.stages.map((s) => [s.args.time, !!s.parallel])).toEqual([
-      [1, false],
-      [2, true],
-    ]);
+    expect(pipeline.stages.map((s) => s.args.time)).toEqual([1, 2]);
+    expect(pipeline.stages[0].group).toBeTruthy();
+    expect(pipeline.stages[1].group).toBe(pipeline.stages[0].group);
     expect(warnings.join()).toMatch(/failFast/);
   });
 });
+
+describe("Groovy variables and functions", () => {
+  const groovy = [
+    "import groovy.transform.Field",
+    "@Field def registry = 'ghcr.io/shop'",
+    'def tag = "1.0.${env.BUILD_NUMBER}"',
+    "def notify(String msg) {",
+    '    echo "done: ${msg}"',
+    "}",
+  ].join("\n");
+
+  it("writes them before the stages and reads them back out of the file", () => {
+    const pipeline = {
+      ...newPipeline(),
+      groovy,
+      stages: [{ ...createStage("genStage"), args: { title: "Build", image: "node", commands: ["docker build -t ${registry}:${tag} ."] } }],
+    };
+    const text = toGroovy(pipeline);
+    expect(text.indexOf("def notify")).toBeLessThan(text.indexOf("genStage("));
+    // `${` keeps the command a GString, so the variables interpolate.
+    expect(text).toContain('"docker build -t ${registry}:${tag} ."');
+
+    const { pipeline: back, warnings } = parseJenkinsfile(text);
+    expect(warnings).toEqual([]);
+    expect(back.groovy).toBe(groovy);
+    expect(back.stages).toHaveLength(1);
+    expect(toGroovy(back)).toBe(text);
+  });
+
+  it("takes a function whose brace sits on the next line", () => {
+    const { pipeline } = parseJenkinsfile("def f()\n{\n  echo 'x'\n}\nsleep(time: 1)\n");
+    expect(pipeline.groovy).toBe("def f()\n{\n  echo 'x'\n}");
+    expect(pipeline.stages.map((s) => s.step)).toEqual(["sleep"]);
+  });
+});
+

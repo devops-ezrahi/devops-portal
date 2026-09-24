@@ -24,6 +24,8 @@ const pipelineBody = z.object({
   // sends the configured name (optionally `@branch`) or nothing at all.
   library: z.string().trim().max(200),
   envVars: z.record(z.string(), z.string()),
+  // Top-level Groovy — variables and functions the stages use. Written as typed.
+  groovy: z.string().max(100_000).optional(),
   params: z
     .array(
       z.object({
@@ -58,6 +60,7 @@ const pipelineBody = z.object({
         args: z.record(z.string(), z.unknown()),
         collapsed: z.boolean().optional(),
         parallel: z.boolean().optional(),
+        group: z.string().max(40).optional(),
       })
     )
     .max(100),

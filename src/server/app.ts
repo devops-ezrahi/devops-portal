@@ -93,6 +93,9 @@ export function createApp(
   app.use(cors({ exposedHeaders: ["X-Request-Id"] }));
   // Express's 100kb default refuses an ArgoCD tree of a few dozen microservices
   // — the autosave of every saved document goes through here.
+  // A pasted `kubectl get -o yaml` dump is mostly managedFields, so Convert
+  // gets more room. Mounted first: the general parser skips a parsed body.
+  app.use("/api/argocd/convert", express.json({ limit: "50mb" }));
   app.use(express.json({ limit: "5mb" }));
   app.use(requestLogger);
 

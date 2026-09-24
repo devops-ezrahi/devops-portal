@@ -1,6 +1,6 @@
 import { STEPS, stepSpec, type ArgKind } from "./catalog";
 import { PARAM_TYPES } from "./params";
-import { createStage, newPipeline, type DraftPipeline } from "./pipeline";
+import { createStage, newPipeline, stageId, type DraftPipeline } from "./pipeline";
 import { newParam } from "./params";
 import type { JenkinsfileParam, JenkinsfileStage } from "../../../server/types";
 
@@ -418,12 +418,12 @@ function stageFrom(name: string, body: string, warnings: string[]): JenkinsfileS
 }
 
 /**
- * `parallel('A': { genStage(…) }, 'B': { … })` — one card per branch, every
- * card after the first marked to run alongside the one above it, which is the
- * shape the generator writes back.
+ * `parallel('A': { genStage(…) }, 'B': { … })` — one box, one card per branch,
+ * which is the shape the generator writes back.
  */
 function parallelFrom(body: string, warnings: string[]): JenkinsfileStage[] {
   const stages: JenkinsfileStage[] = [];
+  const group = `g-${stageId()}`;
   for (const { key, value } of splitTop(body).map(splitEntry)) {
     const branch = readValue(value);
     if (branch.t !== "closure") {
@@ -439,10 +439,51 @@ function parallelFrom(body: string, warnings: string[]): JenkinsfileStage[] {
         warnings.push(`parallel: skipped ${call.name}() in branch ${key} — not a step the builder knows`);
         continue;
       }
-      stages.push(stages.length ? { ...stage, parallel: true } : stage);
+      stages.push({ ...stage, group });
     }
   }
   return stages;
+}
+
+/**
+ * Top-level `def` variables and functions (plus `import` and `@Field` lines),
+ * lifted out whole — a function body included — into the pipeline's Groovy
+ * block. What is left is the calls the rest of the reader looks for.
+ */
+export function splitDefs(src: string): { defs: string; rest: string } {
+  const defs: string[] = [];
+  let rest = "";
+  let depth = 0;
+  let from = -1; // start of the statement being lifted, -1 when none
+  for (let i = 0; i < src.length; ) {
+    const c = src[i];
+    if (depth === 0 && from < 0 && (i === 0 || src[i - 1] === "\n") && /^[ \t]*(def|import|@Field)\b/.test(src.slice(i, i + 40)))
+      from = i;
+    if (c === "'" || c === '"') {
+      const quote = src.startsWith(c.repeat(3), i) ? c.repeat(3) : c;
+      let j = i + quote.length;
+      while (j < src.length && !src.startsWith(quote, j)) j += src[j] === "\\" ? 2 : 1;
+      if (from < 0) rest += src.slice(i, j + quote.length);
+      i = j + quote.length;
+      continue;
+    }
+    if (c === "{" || c === "[" || c === "(") depth += 1;
+    if (c === "}" || c === "]" || c === ")") depth -= 1;
+    if (from >= 0 && depth === 0 && (c === "\n" || i === src.length - 1)) {
+      // `def f(x)` with its `{` on the next line still belongs to it.
+      const after = src.slice(i + 1).match(/^\s*\{/);
+      if (!after) {
+        defs.push(src.slice(from, i + 1).trimEnd());
+        from = -1;
+        i += 1;
+        continue;
+      }
+    }
+    if (from < 0) rest += c;
+    i += 1;
+  }
+  if (from >= 0) defs.push(src.slice(from).trimEnd());
+  return { defs: defs.join("\n"), rest };
 }
 
 /**
@@ -466,7 +507,10 @@ export function parseJenkinsfile(text: string): ImportResult {
     );
   }
 
-  for (const call of topLevelCalls(src)) {
+  const { defs, rest } = splitDefs(src);
+  pipeline.groovy = defs;
+
+  for (const call of topLevelCalls(rest)) {
     if (call.name === "properties") {
       pipeline.params.push(...paramsFrom(call.body, warnings));
       continue;

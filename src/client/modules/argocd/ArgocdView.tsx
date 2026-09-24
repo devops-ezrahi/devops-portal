@@ -926,7 +926,6 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 tree={draft}
                 gitUrl={gitUrl}
                 onChange={(chart) => setDraft((p) => ({ ...p, chart }))}
-                onRootAppName={(rootAppName) => setDraft((p) => ({ ...p, rootAppName }))}
               />
               <RepoPanel
                 tree={draft}

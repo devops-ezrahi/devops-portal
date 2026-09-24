@@ -51,10 +51,10 @@ export function newParam(): JenkinsfileParam {
  * reference can sit in any argument shape — an expression, a command line, a
  * closure body, a map value — and JSON.stringify reaches all of them for free.
  */
-export function usedParamNames(stages: JenkinsfileStage[]): Set<string> {
+export function usedParamNames(stages: JenkinsfileStage[], groovy = ""): Set<string> {
   const used = new Set<string>();
   // JSON escapes a double quote as \" — hence the optional backslash.
   const re = /params\s*(?:\.\s*([A-Za-z_]\w*)|\[\s*\\?["']([^"'\\]+)\\?["']\s*\])/g;
-  for (const m of JSON.stringify(stages).matchAll(re)) used.add(m[1] ?? m[2]);
+  for (const m of JSON.stringify([stages, groovy]).matchAll(re)) used.add(m[1] ?? m[2]);
   return used;
 }

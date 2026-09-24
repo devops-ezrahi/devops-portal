@@ -1,5 +1,6 @@
 import { Pencil, Plus, X } from "lucide-react";
 import { useState } from "react";
+import { useGridSort, type Sorts } from "./GridSort";
 
 /**
  * Which layer the form below is editing: the release's base file, or one
@@ -31,11 +32,25 @@ type Props = {
 
 const BASE = -1;
 
+type Indexed = LayerCard & { index: number };
+const SORTS: Sorts<Indexed> = {
+  added: { label: "Order added", by: () => 0 },
+  name: { label: "Name A–Z", by: (a, b) => a.name.localeCompare(b.name) },
+  nameDesc: { label: "Name Z–A", by: (a, b) => b.name.localeCompare(a.name) },
+  overrides: { label: "Most overridden", by: (a, b) => b.overrides - a.overrides },
+  open: { label: "Overrides the open one first", by: (a, b) => Number(b.overridesSelected) - Number(a.overridesSelected) },
+};
+
 export function LayerGrid({ layer, namespaces, releaseCount, onSelect, onRename, onRemove, onAdd }: Props) {
   /** Which tile's name is being typed into. Local — nothing above needs to know. */
   const [editing, setEditing] = useState<number | null>(null);
+  // Sorted for display; every callback still gets the namespace's own index.
+  const { order, control } = useGridSort(SORTS, "argocd.namespaceSort");
+  const sorted = order(namespaces.map((ns, index) => ({ ...ns, index })));
 
   return (
+    <>
+    {namespaces.length > 1 && control}
     <div className="ag-card-grid ag-layer-grid" aria-label="Layers">
       <button
         type="button"
@@ -47,7 +62,8 @@ export function LayerGrid({ layer, namespaces, releaseCount, onSelect, onRename,
         <span className="ag-card-foot">every namespace</span>
       </button>
 
-      {namespaces.map((ns, i) => {
+      {sorted.map((ns) => {
+        const i = ns.index;
         const label = ns.name.trim() || "this namespace";
         const body = (
           <>
@@ -133,5 +149,6 @@ export function LayerGrid({ layer, namespaces, releaseCount, onSelect, onRename,
         <Plus size={15} aria-hidden="true" /> Namespace
       </button>
     </div>
+    </>
   );
 }

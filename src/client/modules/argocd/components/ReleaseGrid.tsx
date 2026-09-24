@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Help } from "../../../Help";
 import { featureForPath } from "../catalog";
 import { SCOPE_NOTE, type Resource, type Scope } from "../resources";
+import { useGridSort, type Sorts } from "./GridSort";
 
 /**
  * One rectangle per microservice — a release of the universal chart — and what
@@ -106,20 +107,14 @@ const chipTitle = (r: Resource) => [r.names?.join(", "), SCOPE_NOTE[r.scope]].fi
  */
 const SCOPES: Scope[] = ["workload", "pod", "object", "cluster"];
 
-/**
- * How the squares are ordered. Display only — the tree keeps the order they
- * were added in, which is also the order the files are written. Remembered per
- * browser, since it is a way of looking, not part of the document.
- */
-const SORTS = {
+const SORTS: Sorts<ReleaseCard> = {
   added: { label: "Order added", by: () => 0 },
-  name: { label: "Name", by: (a: ReleaseCard, b: ReleaseCard) => a.name.localeCompare(b.name) },
+  name: { label: "Name A–Z", by: (a: ReleaseCard, b: ReleaseCard) => a.name.localeCompare(b.name) },
+  nameDesc: { label: "Name Z–A", by: (a: ReleaseCard, b: ReleaseCard) => b.name.localeCompare(a.name) },
   overrides: { label: "Most overridden", by: (a: ReleaseCard, b: ReleaseCard) => b.overrides.count - a.overrides.count },
   warnings: { label: "Warnings first", by: (a: ReleaseCard, b: ReleaseCard) => Number(!!b.envSpecific) - Number(!!a.envSpecific) },
   resources: { label: "Most objects", by: (a: ReleaseCard, b: ReleaseCard) => b.resources.length - a.resources.length },
-} satisfies Record<string, { label: string; by: (a: ReleaseCard, b: ReleaseCard) => number }>;
-type SortKey = keyof typeof SORTS;
-const SORT_KEY = "argocd.releaseSort";
+};
 
 export function ReleaseGrid({
   cards,
@@ -134,16 +129,8 @@ export function ReleaseGrid({
 }: Props) {
   /** Which card's name is being typed into. Local — nothing above needs to know. */
   const [editing, setEditing] = useState<string | null>(null);
-  const [sort, setSort] = useState<SortKey>(() => {
-    try {
-      const saved = localStorage.getItem(SORT_KEY);
-      return saved && saved in SORTS ? (saved as SortKey) : "added";
-    } catch {
-      return "added";
-    }
-  });
-  // Array.sort is stable, so ties keep the order they were added in.
-  const sorted = [...cards].sort(SORTS[sort].by);
+  const { order, control } = useGridSort(SORTS, "argocd.releaseSort");
+  const sorted = order(cards);
 
   return (
     <>
@@ -179,29 +166,7 @@ export function ReleaseGrid({
           </Help>
         </div>
       )}
-      {cards.length > 1 && (
-        <label className="ag-grid-sort">
-          Sort
-          <select
-            value={sort}
-            onChange={(e) => {
-              const next = e.target.value as SortKey;
-              setSort(next);
-              try {
-                localStorage.setItem(SORT_KEY, next);
-              } catch {
-                /* private window — the choice just is not remembered */
-              }
-            }}
-          >
-            {Object.entries(SORTS).map(([key, s]) => (
-              <option key={key} value={key}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
+      {cards.length > 1 && control}
       <div className="ag-card-grid" aria-label="Microservices">
 
       {sorted.map((card) => {

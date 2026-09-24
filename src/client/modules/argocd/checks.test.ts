@@ -138,3 +138,19 @@ describe("checkValues", () => {
     expect(seen.size).toBeGreaterThan(8);
   });
 });
+
+describe("values go through tpl", () => {
+  const base: Values = { image: { repository: "r" } };
+  const texts = (doc: Values) => checkValues({ ...base, ...doc }).map((p) => p.text);
+
+  it("flags a Go template carried as data, and a field that is not the release's", () => {
+    expect(texts({ configMaps: { am: { data: { "slack.tmpl": '{{ define "slack.title" }}x{{ end }}' } } } }).join()).toMatch(/literal \{\{/);
+    expect(texts({ configMaps: { am: { data: { t: "{{ .CommonLabels.alertname }}" } } } }).join()).toMatch(/literal \{\{/);
+  });
+
+  it("leaves real tpl, and the escape, alone", () => {
+    expect(texts({ route: { host: "api.{{ .Values.environment }}.example.org" } }).join()).not.toMatch(/literal/);
+    expect(texts({ configMaps: { am: { data: { t: '{{ "{{" }} define "x" }}' } } } }).join()).not.toMatch(/literal/);
+    expect(texts({ env: { NS: { value: "{{ .Release.Namespace }}" } } }).join()).not.toMatch(/literal/);
+  });
+});

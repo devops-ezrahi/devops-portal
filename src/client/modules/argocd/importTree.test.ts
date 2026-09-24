@@ -78,6 +78,30 @@ function roundTrip(t: ArgocdTree) {
   return { files, recovered, again };
 }
 
+/** A root ApplicationSet as a repo wired by hand (or by an older portal) carries it. */
+const rootAppset = (originPath: string) => ({
+  path: "root-applicationSet.yaml",
+  text: `apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata: { name: platform-root-set }
+spec:
+  generators:
+    - git: { repoURL: "https://git.example.com/gitops/values.git", revision: main, directories: [{ path: "*" }] }
+  template:
+    spec:
+      sources:
+        - repoURL: https://github.com/devops-ezrahi/universal-chart.git
+          targetRevision: main
+          path: ms-applicationSet
+          helm:
+            parameters:
+              - { name: chartRepoURL, value: "https://github.com/devops-ezrahi/universal-chart.git" }
+              - { name: chartRevision, value: main }
+              - { name: chartPath, value: "." }
+${originPath ? `              - { name: originPath, value: ${originPath} }
+` : ""}`,
+});
+
 describe("importTree", () => {
   it("round-trips a generated tree — same paths, same documents", () => {
     const { files, again } = roundTrip(tree());
@@ -155,8 +179,8 @@ describe("importTree", () => {
     expect(docs(again)).toEqual(docs(files));
   });
 
-  it("recovers both repositories and the root app name from root-applicationSet.yaml", () => {
-    const { recovered } = roundTrip(tree());
+  it("recovers both repositories and the root app name from a repo's own root-applicationSet.yaml", () => {
+    const recovered = importTree([...buildTree(tree()), rootAppset("")]);
     expect(recovered.values).toEqual({
       repoUrl: "https://git.example.com/gitops/values.git",
       revision: "main",
@@ -172,10 +196,8 @@ describe("importTree", () => {
   });
 
   it("recovers values.path when the tree lives in a subdirectory", () => {
-    const t = tree({ values: { repoUrl: "https://git/values.git", revision: "main", path: "apps" } });
-    const { recovered, files, again } = roundTrip(t);
+    const recovered = importTree([...buildTree(tree()), rootAppset("apps")]);
     expect(recovered.values?.path).toBe("apps");
-    expect(docs(again)).toEqual(docs(files));
   });
 
   it("keeps a key the catalog cannot model, and says so", () => {
@@ -236,5 +258,58 @@ describe("a converted ConfigMap survives import and rebuild", () => {
     const files = buildTree(tree({ releases: imported.releases, namespaces: imported.namespaces }));
     const rebuilt = parseYaml(files.find((f) => f.path === "base/stalker.yaml")!.text);
     expect(rebuilt).toEqual(parseYaml(base));
+  });
+});
+
+describe("variant folders and grouped values", () => {
+  // prd/yellow and prd/black both deploy into namespace prd and share base/;
+  // values/ groups its files in sub-folders. dev is a plain namespace.
+  const repo = [
+    { path: "base/ms1.yaml", text: "image:\n  repository: registry/ms1\n  tag: 1.0.0\n" },
+    { path: "base/ms2.yaml", text: "image:\n  repository: registry/ms2\n  tag: 1.0.0\n" },
+    { path: "prd/yellow/defaults.yaml", text: "color: yellow\n" },
+    { path: "prd/yellow/values/group1/ms1.yaml", text: "image:\n  tag: 1.1.0\n" },
+    { path: "prd/yellow/values/group2/ms2.yaml", text: "replicaCount: 3\n" },
+    { path: "prd/black/defaults.yaml", text: "color: black\n" },
+    { path: "prd/black/values/group1/ms1.yaml", text: "image:\n  tag: 1.2.0\n" },
+    { path: "prd/black/values/group2/ms2.yaml", text: "{}\n" },
+    { path: "dev/defaults.yaml", text: "{}\n" },
+    { path: "dev/values/ms1.yaml", text: "{}\n" },
+    { path: "dev/values/ms2.yaml", text: "{}\n" },
+    { path: "rootApplicationSet.yaml", text: "kind: ApplicationSet\n" },
+  ];
+
+  it("reads each variant folder as its own namespace, groups included, and writes it back in place", () => {
+    const recovered = importTree(repo);
+    // The group value is the chart's to read (via tpl), not a catalog field — kept, and said so.
+    expect(recovered.warnings.every((w) => /defaults\.yaml: color: kept as extra values/.test(w))).toBe(true);
+    expect(recovered.namespaces.map((n) => n.name)).toEqual(["dev", "prd/black", "prd/yellow"]);
+
+    const yellow = recovered.namespaces.find((n) => n.name === "prd/yellow")!;
+    const id = (name: string) => recovered.releases.find((r) => r.name === name)!.id;
+    expect(yellow.groups).toEqual({ [id("ms1")]: "group1", [id("ms2")]: "group2" });
+    expect(yellow.defaults?.extraValues).toContain("color: yellow");
+
+    const again = buildTree(tree({ releases: recovered.releases, namespaces: recovered.namespaces }));
+    const paths = again.map((f) => f.path);
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        "prd/yellow/defaults.yaml",
+        "prd/yellow/values/group1/ms1.yaml",
+        "prd/yellow/values/group2/ms2.yaml",
+        "prd/black/values/group1/ms1.yaml",
+        "dev/values/ms1.yaml",
+      ])
+    );
+    // Nothing lands flat beside a grouped file — that would be a second Application of the same name.
+    expect(paths).not.toContain("prd/yellow/values/ms1.yaml");
+    const written = docs(again);
+    const read = docs(repo.filter((f) => f.path !== "rootApplicationSet.yaml"));
+    for (const path of Object.keys(read)) expect(written[path], path).toEqual(read[path]);
+  });
+
+  it("says so when one folder has the same release file in two groups", () => {
+    const { warnings } = importTree([...repo, { path: "prd/yellow/values/group3/ms1.yaml", text: "{}\n" }]);
+    expect(warnings.join()).toMatch(/second ms1\.yaml in prd\/yellow\/values/);
   });
 });

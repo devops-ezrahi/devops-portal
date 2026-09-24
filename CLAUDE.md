@@ -433,11 +433,13 @@ half-resolved tree is a broken offline install that gives no sign it is broken.
   an `AbortError` while a timeout becomes a message. Three copies of that is
   three places to swallow a Stop.
 
-**The Upload tab takes files, not just a folder.** A drop is read as a list of
-roots: one folder keeps its contents at the archive root (which is what the
-Maven layout check reads), while several roots each keep their own name, or two
-dropped trees overwrite each other. `Choose files` is the same path through a
-picker, since a browser file picker cannot select a directory.
+**The Upload tab takes files, never a folder.** A dropped folder is refused
+with a line saying to zip or tar it first, and the drop zone says the same up
+front. Walking and zipping a `node_modules` in the tab is what took it out; an
+archive is one file, and the server unpacks it and routes what is inside
+exactly as the folder would have been (see *an archive may just be carrying a
+folder*). `Choose files` is the same path through a picker. The streaming
+zip/part upload below still carries the files that are dropped.
 
 **A `node_modules` holds more package folders than it has packages** — this
 repo's own is 884 folders for 799 packages, because npm nests a second copy of
@@ -764,14 +766,24 @@ no external system — the only server-side state is saved pipeline documents.
   on its own line becomes `'npm install'`, not `'"npm install",'`. `unwrap` in
   `groovy.ts` only strips a quote pair that wraps the whole line with none of
   that quote inside it, so `echo "hi"` and `"$A" = "$B"` survive untouched.
-- **`parallel` is a flag on a card, not a nested list.** A card marked
-  *Parallel* (`JenkinsfileStage.parallel`) runs alongside the one above it;
-  `parallelGroups` in `groovy.ts` folds each run of them into one
-  `parallel('<title>': { … }, …)` block, a branch per card named by its title,
-  and `parse.ts` reads such a block back into flagged cards (a branch with
-  several steps, or `failFast`, is imported with a warning). One flat,
-  reorderable list survives that way. `populateEnvVars` never joins a group —
-  it sets the env everything after it reads, which a race breaks.
+- **`parallel` is a box in the list.** *Add parallel block* opens one, *Add
+  branch* adds inside it, and dragging a collapsed card onto a card in a box
+  joins it (anywhere else leaves it). Underneath it is still one flat list:
+  consecutive stages sharing `JenkinsfileStage.group` are one box, so
+  reordering is the same three drag handlers — a drop also says which box.
+  `parallelGroups` writes each box as one `parallel('<title>': { … }, …)`, even
+  with a single branch, since that is what is on screen; `parse.ts` reads such a
+  block back into one box (a branch with several steps, or `failFast`, is
+  imported with a warning). Records from when it was a per-card `parallel`
+  flag are migrated by `toDraft` (`migrateParallel`). `populateEnvVars` never
+  joins a box — it sets the env everything after it reads.
+- **Top-level Groovy** (`JenkinsfilePipeline.groovy`, `GroovyBlock.tsx`) is
+  written as typed between the parameters and the first stage: `def`
+  variables a shell command interpolates (`${tag}` — `quote` already keeps
+  such a string a GString) and functions a Closure command calls. Import lifts
+  every top-level `def`/`import`/`@Field` statement into it (`splitDefs`),
+  function bodies included, before the step calls are read. `usedParamNames`
+  scans it too.
 - **`sleep` is Jenkins' own step** (`builtin: true` in the catalog), the one
   step with no `genStage` arguments.
 - **Drag and drop is native HTML5**, no library — three handlers over an array
@@ -913,13 +925,30 @@ same wiring:
 base/<release>.yaml              # the microservice, the same in every namespace — like a chart's values.yaml
 <ns>/defaults.yaml               # set once for every microservice in <ns> — layered over base
 <ns>/values/<release>.yaml       # this microservice in <ns>, only what differs — applied last, so it wins
-root-applicationSet.yaml         # one Application per namespace directory
-root-application.yaml            # app-of-apps: the one object applied by hand
 ```
 
-The converter writes the two root files only with `--argocd-manifests` (flat
-`base/` + `<ns>/` is its default since the fork merge). This builder always
-writes them, and `importTree` reads a tree with or without them.
+**A namespace is a folder, and may be a variant.** `prd/yellow` and
+`prd/black` both deploy into `prd`, share `base/`, and each carry their own
+`defaults.yaml` + `values/` — the chart's ms-applicationSet takes that as its
+`folder`. `ArgocdNamespace.name` is the folder path, so a variant is just a
+namespace whose name has a `/`. `values/` may hold grouping sub-folders
+(`values/group1/ms1.yaml`); the release is still named after its file, and
+`ArgocdNamespace.groups` remembers each release's sub-folder so a rebuild
+writes it back in place rather than beside it (two files of one name in a
+folder are two Applications of one name). `importTree` finds folders by their
+`defaults.yaml` or `values/`, anywhere below the root.
+
+**The root Application/ApplicationSet are not generated.** They are set up once
+by whoever runs ArgoCD, not per tree. `importTree` still reads the repos out of
+one a repo already has, under either name (`rootApplicationSet.yaml`, the
+converter's current one, or `root-applicationSet.yaml`).
+
+**Every value goes through `tpl`** in the chart now, so base can say
+`host: api.{{ .Values.environment }}.example.org` against each folder's
+defaults. `findEnvSpecific` therefore skips a templated value, and
+`checkValues` flags a `{{` tpl would mangle (`{{ define`, or a field that is not
+the release's own like Alertmanager's `{{ .CommonLabels }}`) with the escape to
+use instead.
 
 `checkValues` carries the converter's per-release findings from that merge
 (nodePort on ClusterIP, emptyDir without sizeLimit, a PVC `volumeName` with no
@@ -931,10 +960,9 @@ left to the converter — one release's document cannot see its namespace.
 is no longer generated at all:
 
 ```
-kubectl apply -f root-application.yaml      once, by hand
-  root-applicationSet.yaml                  one App per namespace directory
-    ms-applicationSet chart                 one AppSet per namespace
-      one Application per <ns>/values/*.yaml
+root Application / ApplicationSet           set up once, outside this builder
+  ms-applicationSet chart                   one AppSet per namespace / variant folder
+    one Application per <folder>/values/**/*.yaml
 ```
 
 Adding a namespace is adding a directory; adding a release is adding a file.
@@ -1090,11 +1118,11 @@ defaults of its own.
   shop-prod defaults* and linking to that scope. Never merged into one block:
   under a single label, a base value read as though the namespace set it. Base and a namespace's defaults inherit nothing. A
   feature only a lower layer sets still opens (an unticked box beside a value
-  that deploys is the invisible-value problem `enabled` already taught this
-  module about) and shows the fragment as YAML — one block covers all eight
-  field kinds, and a greyed-out input still reads as something you might be
-  able to type into. Ticking the feature and setting it here is what overrides
-  it.
+  module about). Each layer is drawn with the feature's own field controls
+  inside a `<fieldset disabled>` — greyed, not typeable, reading exactly as the
+  value would to edit — whose legend is the link to where it can be edited
+  (a disabled fieldset's first legend stays pressable). Ticking the feature and
+  setting it here is what overrides it.
 - **"Overridden" means a second copy of one value** — a key this namespace sets
   that base or the namespace's defaults *also* set, to something else
   (`shadowing` in `values.ts`). That drives the orange card, its `override`

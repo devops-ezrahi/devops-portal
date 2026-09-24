@@ -1,8 +1,6 @@
 import { ArrowUpRight, ChevronDown, ChevronRight, Plus, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { BY_ID, CATEGORIES, FEATURES, defaultValues, primaryFields } from "../catalog";
-import { buildValues } from "../build";
-import { toYaml } from "../yaml";
 import { Help } from "../../../Help";
 import { FeatureField } from "./FeatureField";
 import type { FeatureSpec, FeatureState, FieldSpec } from "../catalog";
@@ -455,30 +453,22 @@ function FeatureBody({
   // Computed over what is actually on offer: with `nameOverride` gone in base,
   // the next field is what the feature opens on, not nothing.
   const primary = new Set(primaryFields({ ...spec, fields }).map((f) => f.key));
-  // A field still sitting on its own default is not "filled in" — it is the
-  // chart's answer, not anyone's decision, so it stays on the add list even
-  // though `defaultValues` put it in the state when the feature was switched on.
-  const isShown = (f: FieldSpec) => {
-    const value = state?.v?.[f.key];
-    if (primary.has(f.key) || added.has(f.key)) return true;
-    // An unticked box is only "filled in" when it contradicts a default that is
-    // `true` — an import writes every key it reads, so plain `false` on a field
-    // that defaults to off is the absence of a decision, not one.
-    if (value === false) return f.def === true;
-    return hasValue(value) && value !== f.def;
-  };
+
+  // A value set by hand, rather than one sitting on the chart's own answer.
+  const setByHand = (f: FieldSpec, value: unknown) => (value === false ? f.def === true : hasValue(value) && value !== f.def);
+  const isShown = (f: FieldSpec) => primary.has(f.key) || added.has(f.key) || setByHand(f, state?.v?.[f.key]);
   // `enabled` is never offered: ticking the feature is what switches it on, and
   // its emit writes `enabled: true` regardless. It still *shows* when it holds
   // `false` — an imported document saying so must not become an invisible value.
   const rest = fields.filter((f) => !isShown(f) && f.key !== "enabled");
 
-  // What the tree's defaults put in this file, as the values themselves rather
-  // than as a second set of controls: every field kind is covered by one block,
-  // and a disabled input still reads as something you might be able to type in.
+  // What a lower layer puts in this file, drawn with the same controls as this
+  // layer's own fields, disabled: the value reads exactly as it would to edit,
+  // and the legend is the way to where it can be.
   const below = (inherited ?? [])
     .filter((i) => i.state.on)
-    .map((i) => ({ ...i, yaml: toYaml(buildValues({ [spec.id]: i.state })) }))
-    .filter((i) => i.yaml.trim() && i.yaml.trim() !== "{}");
+    .map((i) => ({ ...i, fields: spec.fields.filter((f) => f.key !== "enabled" && setByHand(f, i.state.v?.[f.key])) }))
+    .filter((i) => i.fields.length);
 
   // The problems list sits under the whole form, so a warning about this
   // feature is read a screen away from the field it names. It is repeated here
@@ -498,12 +488,27 @@ function FeatureBody({
         </ul>
       )}
       {below.map((i) => (
-        <div className="ag-inherited" key={i.from}>
-          <button type="button" className="ag-inherited-link" onClick={() => onOpenInherited?.(i.from)}>
-            <ArrowUpRight size={12} aria-hidden="true" /> from {i.label}
-          </button>
-          <pre>{i.yaml}</pre>
-        </div>
+        // `disabled` on the fieldset greys every control inside it natively —
+        // except its first <legend>, so the link out stays pressable.
+        <fieldset className="ag-inherited" disabled key={i.from}>
+          <legend>
+            <button type="button" className="ag-inherited-link" onClick={() => onOpenInherited?.(i.from)}>
+              <ArrowUpRight size={12} aria-hidden="true" /> from {i.label}
+            </button>
+          </legend>
+          {i.fields.map((field) => (
+            <FeatureField
+              key={field.key}
+              spec={field}
+              value={i.state.v?.[field.key]}
+              from={i.label}
+              onChange={() => {}}
+              rowsFor={rowsFor}
+              mounted={mounted}
+              inEnv={inEnv}
+            />
+          ))}
+        </fieldset>
       ))}
       {fields.filter(isShown).map((field) => (
         <FeatureField
