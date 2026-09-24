@@ -163,10 +163,14 @@ describe("JenkinsfileView", () => {
   it("builds a parallel block as a box, branch by branch, and ungroups it", () => {
     const { code } = renderView();
     fireEvent.click(screen.getByRole("button", { name: /Add parallel block/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Add Sleep" }));
     const box = () => screen.getByRole("listitem", { name: "Parallel block" });
-    fireEvent.click(within(box()).getByRole("button", { name: /Add branch/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Add Sleep" }));
+    // The box opens empty; nothing is written until a stage is in it.
+    expect(within(box()).queryAllByRole("button", { name: /^Expand / })).toHaveLength(0);
+    expect(code()).not.toContain("parallel(");
+    for (let i = 0; i < 2; i++) {
+      fireEvent.click(within(box()).getByRole("button", { name: "Add stage to this block" }));
+      fireEvent.click(screen.getByRole("button", { name: "Add Sleep" }));
+    }
 
     expect(within(box()).getAllByRole("button", { name: /^Expand / })).toHaveLength(2);
     expect(code()).toMatch(/^parallel\(\n {4}'Sleep': \{/m);

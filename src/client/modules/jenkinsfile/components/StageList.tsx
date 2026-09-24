@@ -22,8 +22,6 @@ type Props = {
 /** Where a dragged card lands: an insertion index (0..length), and the box it joins, if any. */
 type Drop = { index: number; group?: string };
 
-const NEW = "+new";
-
 /** A run of the list as drawn: one card on its own, or a parallel box of them. */
 type Segment = { group?: string; items: { stage: JenkinsfileStage; index: number }[] };
 
@@ -58,7 +56,14 @@ function withGroup(stage: JenkinsfileStage, group: string | undefined): Jenkinsf
 export function StageList({ stages, errors, onToggle, onCollapseAll, onReorder, onChange, onLeave, onAdd, onRemove }: Props) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [drop, setDrop] = useState<Drop | null>(null);
-  /** Which palette is open: the list's own (`""`), a new box's (`NEW`), or a box's by its group. */
+  /**
+   * Boxes opened with *Add parallel block* that no stage belongs to yet. A box
+   * is otherwise only its stages sharing a `group`, so an empty one lives here
+   * until something is added or dragged into it. Not saved — an empty
+   * `parallel()` is not something to write.
+   */
+  const [emptyBoxes, setEmptyBoxes] = useState<string[]>([]);
+  /** Which palette is open: the list's own (`""`) or a box's by its group. */
   const [palette, setPalette] = useState<string | null>(null);
   const adder = useRef<HTMLDivElement>(null);
 
@@ -76,6 +81,11 @@ export function StageList({ stages, errors, onToggle, onCollapseAll, onReorder, 
     }
   }
 
+  const live = emptyBoxes.filter((g) => !stages.some((s) => s.group === g));
+  useEffect(() => {
+    if (live.length !== emptyBoxes.length) setEmptyBoxes(live);
+  });
+
   const segments: Segment[] = [];
   stages.forEach((stage, index) => {
     const group = groupOf(stage);
@@ -83,6 +93,7 @@ export function StageList({ stages, errors, onToggle, onCollapseAll, onReorder, 
     if (group && last?.group === group) last.items.push({ stage, index });
     else segments.push({ group, items: [{ stage, index }] });
   });
+  for (const group of live) segments.push({ group, items: [] });
 
   const used = new Set(stages.map((s) => s.step));
   const available = STEPS.filter((s) => !SINGLETON_STEPS.includes(s.step) || !used.has(s.step));
@@ -116,15 +127,15 @@ export function StageList({ stages, errors, onToggle, onCollapseAll, onReorder, 
   }
 
   function ungroup(group: string) {
+    setEmptyBoxes((boxes) => boxes.filter((g) => g !== group));
     onReorder(stages.map((s) => (s.group === group ? withGroup(s, undefined) : s)));
   }
 
-  /** The Add button and its palette. `key` is `""` for the list's own, `NEW`, or the box it adds into. */
+  /** The Add button and its palette. `key` is `""` for the list's own, or the box it adds into. */
   function adderFor(key: string, button: React.ReactNode) {
     const open = palette === key;
     const steps = key ? available.filter((s) => s.step !== "populateEnvVars") : available;
-    // A new box gets its id when its first stage is picked.
-    const target = key === NEW ? `g-${stageId()}` : key || undefined;
+    const target = key || undefined;
     return (
       <div className="jf-adder" ref={open ? adder : undefined}>
         {button}
@@ -215,7 +226,7 @@ export function StageList({ stages, errors, onToggle, onCollapseAll, onReorder, 
         )}
       </div>
 
-      {stages.length === 0 ? (
+      {segments.length === 0 ? (
         <p className="jf-empty jf-rail-empty">
           Nothing here yet. Add a stage below — they run top to bottom, and you can drag the collapsed cards to reorder
           them, or into a parallel block to run them at once.
@@ -225,7 +236,7 @@ export function StageList({ stages, errors, onToggle, onCollapseAll, onReorder, 
           {segments.map((segment) => {
             if (!segment.group) return card(segment.items[0].stage, segment.items[0].index, segment, true);
             const group = segment.group;
-            const end = segment.items[segment.items.length - 1].index + 1;
+            const end = segment.items.length ? segment.items[segment.items.length - 1].index + 1 : stages.length;
             return (
               <li
                 key={group}
@@ -249,16 +260,19 @@ export function StageList({ stages, errors, onToggle, onCollapseAll, onReorder, 
                     <p>Drag a collapsed stage onto a card in here to add it; drag it out to run it on its own.</p>
                   </Help>
                   <button type="button" className="ghost-button" onClick={() => ungroup(group)}>
-                    Ungroup
+                    {segment.items.length ? "Ungroup" : "Remove"}
                   </button>
                 </div>
+                {segment.items.length === 0 && (
+                  <p className="jf-empty">Empty — add a stage here, or drag collapsed stages in.</p>
+                )}
                 <ol className="jf-cards">
                   {segment.items.map(({ stage, index }, n) => card(stage, index, segment, n === segment.items.length - 1))}
                 </ol>
                 {adderFor(
                   group,
-                  <button type="button" className="ghost-button" aria-expanded={palette === group} onClick={() => setPalette(palette === group ? null : group)}>
-                    <Plus size={15} aria-hidden="true" /> Add branch
+                  <button type="button" className="ghost-button" aria-label="Add stage to this block" aria-expanded={palette === group} onClick={() => setPalette(palette === group ? null : group)}>
+                    <Plus size={15} aria-hidden="true" /> Add stage
                   </button>
                 )}
               </li>
@@ -268,12 +282,9 @@ export function StageList({ stages, errors, onToggle, onCollapseAll, onReorder, 
       )}
 
       <div className="jf-adders">
-        {adderFor(
-          NEW,
-          <button type="button" className="ghost-button" aria-expanded={palette === NEW} onClick={() => setPalette(palette === NEW ? null : NEW)}>
-            <Columns2 size={16} aria-hidden="true" /> Add parallel block
-          </button>
-        )}
+        <button type="button" className="ghost-button" onClick={() => setEmptyBoxes((boxes) => [...boxes, `g-${stageId()}`])}>
+          <Columns2 size={16} aria-hidden="true" /> Add parallel block
+        </button>
         {adderFor(
           "",
           <button type="button" className="primary jf-add-stage-button" aria-expanded={palette === ""} onClick={() => setPalette(palette === "" ? null : "")}>

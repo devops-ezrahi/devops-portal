@@ -766,8 +766,9 @@ no external system — the only server-side state is saved pipeline documents.
   on its own line becomes `'npm install'`, not `'"npm install",'`. `unwrap` in
   `groovy.ts` only strips a quote pair that wraps the whole line with none of
   that quote inside it, so `echo "hi"` and `"$A" = "$B"` survive untouched.
-- **`parallel` is a box in the list.** *Add parallel block* opens one, *Add
-  branch* adds inside it, and dragging a collapsed card onto a card in a box
+- **`parallel` is a box in the list.** *Add parallel block* opens an empty
+  one with no palette (held in `StageList`'s `emptyBoxes` until a stage lands
+  in it — an empty box is never saved), its own *Add stage* adds inside it, and dragging a collapsed card onto a card in a box
   joins it (anywhere else leaves it). Underneath it is still one flat list:
   consecutive stages sharing `JenkinsfileStage.group` are one box, so
   reordering is the same three drag handlers — a drop also says which box.
