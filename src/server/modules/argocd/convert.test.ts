@@ -51,7 +51,7 @@ describe.skipIf(!canConvert)("convertToUniversal", () => {
       chartRepoUrl: chartRepo,
       chartRevision: branch,
       namespace: "interconn",
-      manifests: [{ name: "stalker", text: DEPLOYMENT }],
+      yaml: DEPLOYMENT,
     });
     const paths = files.map((f) => f.path);
     expect(paths).toContain("base/stalker.yaml");
@@ -60,6 +60,50 @@ describe.skipIf(!canConvert)("convertToUniversal", () => {
     const all = files.map((f) => f.text).join("\n");
     expect(all).toContain("registry.example.com/team/stalker");
     expect(all).toContain("MODE");
+  }, 120_000);
+
+  it("splits a dirty kubectl dump into microservices, like the namespace importer", async () => {
+    const dump = `apiVersion: v1
+kind: List
+items:
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: orders
+      namespace: shop
+      uid: 1b2c
+      resourceVersion: "991"
+      managedFields: [{ manager: kubectl }]
+      annotations: { deployment.kubernetes.io/revision: "7" }
+    spec:
+      selector: { matchLabels: { app: orders } }
+      template:
+        metadata: { labels: { app: orders } }
+        spec:
+          containers:
+            - name: orders
+              image: registry.example.com/orders:2.0.0
+              envFrom: [{ secretRef: { name: orders-db } }]
+    status: { readyReplicas: 1 }
+  - apiVersion: apps/v1
+    kind: ReplicaSet
+    metadata: { name: orders-5d8f, namespace: shop }
+  - apiVersion: v1
+    kind: Service
+    metadata: { name: orders, namespace: shop }
+    spec:
+      selector: { app: orders }
+      ports: [{ port: 80, targetPort: 8080 }]
+      clusterIP: 10.0.0.12
+---
+${DEPLOYMENT}`;
+    const { files, warnings } = await convertToUniversal({ chartRepoUrl: chartRepo, chartRevision: branch, namespace: "shop", yaml: dump });
+    const paths = files.map((f) => f.path);
+    expect(paths).toContain("base/orders.yaml");
+    expect(paths).toContain("base/stalker.yaml");
+    const all = files.map((f) => f.text).join("\n");
+    expect(all).not.toMatch(/managedFields|resourceVersion|readyReplicas|10\.0\.0\.12|orders-5d8f/);
+    expect(warnings.join("\n")).toMatch(/orders-db.*not in the pasted YAML/);
   }, 120_000);
 
   it.skipIf(!has("helm", ["version"]))("renders a packaged Helm chart first", async () => {
@@ -82,7 +126,7 @@ describe.skipIf(!canConvert)("convertToUniversal", () => {
         chartRepoUrl: resolve(__dirname, "../../../.."),
         chartRevision: execFileSync("git", ["branch", "--show-current"]).toString().trim(),
         namespace: "x",
-        manifests: [{ name: "a", text: DEPLOYMENT }],
+        yaml: DEPLOYMENT,
       })
     ).rejects.toThrow(/has no gitops-factory\/convert_to_universal_chart.py/);
   }, 120_000);

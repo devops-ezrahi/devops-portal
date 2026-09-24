@@ -28,13 +28,45 @@ const execFileAsync = promisify(execFile);
  */
 
 export const CONVERTER_PATH = "gitops-factory/convert_to_universal_chart.py";
+export const IMPORTER_DIR = "gitops-factory";
+
+/**
+ * `namespace_importer.py`'s full-namespace pull, run over pasted YAML instead
+ * of a cluster. Every read it makes goes through `run_oc`, so answering that
+ * from the paste is the whole adapter: the grouping into microservices,
+ * `shared.yaml`, the ExternalSecret store placement and the metadata cleaning
+ * are the importer's own, not a second copy of them. A reference the paste does
+ * not hold becomes the importer's own fetch failure, reported as a warning.
+ */
+const SPLIT_DUMP = `
+import json, subprocess, sys, types, yaml
+sys.path.insert(0, sys.argv[1])
+import namespace_importer as ni
+dump, ns, out, failures = sys.argv[2:6]
+docs = ni.parse_yaml_stream(open(dump, encoding="utf-8").read())
+def run_oc(args):
+    kind = ni.RESOURCE_PLURAL_TO_KIND.get(args[1].split(".")[0])
+    name = args[2] if len(args) > 2 and not args[2].startswith("-") else None
+    hits = [d for d in docs if d.get("kind") == kind and (name is None or (d.get("metadata") or {}).get("name") == name)]
+    if name is None:
+        return types.SimpleNamespace(stdout=yaml.safe_dump({"kind": "List", "items": hits}))
+    if not hits:
+        raise subprocess.CalledProcessError(1, args, stderr="referenced, but not in the pasted YAML")
+    return types.SimpleNamespace(stdout=yaml.safe_dump(hits[0]))
+ni.run_oc = run_oc
+ni.handle_full_namespace(ns, types.SimpleNamespace(output=out))
+open(failures, "w", encoding="utf-8").write(json.dumps(ni.FETCH_FAILURES))
+`;
 
 export type ConvertInput = {
   chartRepoUrl: string;
   chartRevision: string;
   namespace: string;
-  /** One microservice per entry — the converter reads one file per microservice. */
-  manifests?: { name: string; text: string }[];
+  /**
+   * Any Kubernetes YAML — `kubectl get -o yaml` output, a `List`, several files
+   * joined — split into microservices by the importer before converting.
+   */
+  yaml?: string;
   /** A packaged chart (`helm package` output), base64. */
   helm?: { name: string; archive: string; values?: string };
 };
@@ -95,7 +127,16 @@ export async function convertToUniversal(input: ConvertInput): Promise<ConvertRe
 
     const inDir = join(dir, "in", input.namespace);
     await mkdir(inDir, { recursive: true });
-    for (const m of input.manifests ?? []) await writeFile(join(inDir, `${m.name}.yaml`), m.text, "utf8");
+    const warnings: string[] = [];
+    if (input.yaml) {
+      const importer = join(dir, "chart", IMPORTER_DIR);
+      if (!(await access(join(importer, "namespace_importer.py")).then(() => true, () => false)))
+        throw new Error(`${input.chartRepoUrl}@${input.chartRevision} has no ${IMPORTER_DIR}/namespace_importer.py to split the YAML with`);
+      await writeFile(join(dir, "dump.yaml"), input.yaml, "utf8");
+      const failures = join(dir, "failures.json");
+      await run(python, ["-c", SPLIT_DUMP, importer, join(dir, "dump.yaml"), input.namespace, join(dir, "in"), failures], dir, "Splitting the YAML");
+      warnings.push(...(JSON.parse(await readFile(failures, "utf8")) as string[]));
+    }
 
     if (input.helm) {
       const helmDir = join(dir, "helm");
@@ -118,13 +159,10 @@ export async function convertToUniversal(input: ConvertInput): Promise<ConvertRe
 
     const files = await readTree(join(dir, "out"));
     const report = await readFile(join(dir, "out", "report", "conflicts_and_warnings.txt"), "utf8").catch(() => "");
-    const warnings = report
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l && !/^[=#-]+$/.test(l));
+    for (const l of report.split("\n").map((l) => l.trim())) if (l && !/^[=#-]+$/.test(l)) warnings.push(l);
     log.info("argocd", "converted", {
       namespace: input.namespace,
-      microservices: (input.manifests?.length ?? 0) + (input.helm ? 1 : 0),
+      microservices: files.filter((f) => f.path.startsWith("base/")).length,
       files: files.length,
       warnings: warnings.length,
     });

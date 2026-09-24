@@ -129,12 +129,12 @@ const convertBody = z
     chartRepoUrl: pullBody.shape.repoUrl,
     chartRevision: pullBody.shape.revision,
     namespace: dnsLabel,
-    manifests: z.array(z.object({ name: dnsLabel, text: z.string().min(1).max(2 * 1024 * 1024) })).max(50).optional(),
+    yaml: z.string().trim().max(5 * 1024 * 1024).optional(),
     helm: z
       .object({ name: dnsLabel, archive: z.string().min(1).max(4 * 1024 * 1024), values: z.string().max(512_000).optional() })
       .optional(),
   })
-  .refine((b) => (b.manifests?.length ?? 0) > 0 || !!b.helm, "Nothing to convert — add a YAML file or a chart");
+  .refine((b) => !!b.yaml || !!b.helm, "Nothing to convert — paste YAML, add a file or a chart");
 
 export function createArgocdRouter(store: TreeStore = new TreeStore()): express.Router {
   const router = express.Router();

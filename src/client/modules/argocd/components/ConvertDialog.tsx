@@ -6,7 +6,6 @@ import { importTree, type TreeImport } from "../importTree";
 import type { ArgocdTree } from "../../../../server/types";
 
 type Source = "yaml" | "helm";
-type Manifest = { name: string; text: string };
 
 /** A file name as a Kubernetes name: `Stalker Deployment.yaml` -> `stalker-deployment`. */
 const k8sName = (file: string) =>
@@ -20,6 +19,9 @@ const k8sName = (file: string) =>
 
 const DNS = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
 
+/** The first `metadata.namespace` in a dump — where it came from is usually where it goes. */
+const namespaceIn = (text: string) => /^\s+namespace:\s*["']?([a-z0-9][-a-z0-9]*)/m.exec(text)?.[1];
+
 async function base64Of(file: File): Promise<string> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   let binary = "";
@@ -32,8 +34,10 @@ async function base64Of(file: File): Promise<string> {
  *
  * The conversion is `convert_to_universal_chart.py` from the tree's own chart
  * repo, run on the server; what comes back is a values tree, read with
- * `importTree` exactly like a pull. One file is one microservice — that is the
- * converter's own input rule — and everything lands in one namespace.
+ * `importTree` exactly like a pull. YAML may be as dirty as `kubectl get -o
+ * yaml` makes it: the server splits it into microservices and strips runtime
+ * metadata with the chart repo's `namespace_importer.py` first. Everything
+ * lands in one namespace of the tree.
  */
 export function ConvertDialog({
   chart,
@@ -48,7 +52,8 @@ export function ConvertDialog({
 }) {
   const [source, setSource] = useState<Source>("yaml");
   const [namespace, setNamespace] = useState(initialNamespace);
-  const [manifests, setManifests] = useState<Manifest[]>([]);
+  const [nsTyped, setNsTyped] = useState(false);
+  const [yaml, setYaml] = useState("");
   const [chartFile, setChartFile] = useState<File | null>(null);
   const [releaseName, setReleaseName] = useState("");
   const [values, setValues] = useState("");
@@ -57,13 +62,19 @@ export function ConvertDialog({
   const yamlInput = useRef<HTMLInputElement>(null);
   const chartInput = useRef<HTMLInputElement>(null);
 
-  const names = source === "yaml" ? manifests.map((m) => m.name) : [releaseName];
+  const names = source === "yaml" ? [] : [releaseName];
   const bad = [namespace, ...names].find((n) => !DNS.test(n));
-  const ready = !!chart.repoUrl.trim() && (source === "yaml" ? manifests.length > 0 : !!chartFile) && !bad;
+  const ready = !!chart.repoUrl.trim() && (source === "yaml" ? !!yaml.trim() : !!chartFile) && !bad;
+
+  function changeYaml(text: string) {
+    setYaml(text);
+    const ns = namespaceIn(text);
+    if (ns && !nsTyped) setNamespace(ns);
+  }
 
   async function addYaml(files: FileList | null) {
-    const added = await Promise.all([...(files ?? [])].map(async (f) => ({ name: k8sName(f.name), text: await f.text() })));
-    setManifests((prev) => [...prev.filter((m) => !added.some((a) => a.name === m.name)), ...added]);
+    const texts = await Promise.all([...(files ?? [])].map((f) => f.text()));
+    changeYaml([yaml, ...texts].filter((t) => t.trim()).join("\n---\n"));
   }
 
   async function handleConvert() {
@@ -75,7 +86,7 @@ export function ConvertDialog({
         chartRevision: chart.revision,
         namespace,
         ...(source === "yaml"
-          ? { manifests }
+          ? { yaml }
           : { helm: { name: releaseName, archive: await base64Of(chartFile!), values: values || undefined } }),
       });
       onConvert(importTree(result.files), result.warnings);
@@ -110,10 +121,18 @@ export function ConvertDialog({
             <span>
               Namespace
               <Help label="the namespace">
-                <p>Where these microservices run. An existing namespace of this tree gets them added; a new name adds a namespace.</p>
+                <p>
+                  The tree's <code>&lt;ns&gt;/</code> directory these microservices land in. An existing namespace gets them added; a new
+                  name adds one.
+                </p>
+                <p>Filled from the YAML's own <code>metadata.namespace</code> until you type here — change it to import one environment's dump as another.</p>
               </Help>
             </span>
-            <input aria-label="Namespace" value={namespace} placeholder="shop-prod" onChange={(e) => setNamespace(e.target.value.trim())} />
+            <input aria-label="Namespace" value={namespace} placeholder="shop-prod" onChange={(e) => {
+                setNsTyped(true);
+                setNamespace(e.target.value.trim());
+              }}
+            />
           </div>
 
           {source === "yaml" ? (
@@ -121,26 +140,29 @@ export function ConvertDialog({
               <span>
                 Manifests
                 <Help label="the manifests">
-                  <p>One file per microservice — its Deployment, Service, ConfigMaps and the rest, as kubectl would apply them.</p>
-                  <p>The file name becomes the microservice name; edit it below.</p>
+                  <p>
+                    Paste or add any Kubernetes YAML — straight out of <code>kubectl get -o yaml</code> is fine. Status, managedFields,
+                    uids and the rest of the runtime metadata are stripped.
+                  </p>
+                  <p>
+                    It is split into microservices the way the chart repo's namespace importer does: by <code>app.kubernetes.io/part-of</code>,
+                    then <code>app</code>, then the workload name. What several of them use goes to <code>shared</code>.
+                  </p>
                 </Help>
               </span>
+              <textarea
+                className="ag-textarea"
+                aria-label="Kubernetes YAML"
+                rows={10}
+                spellCheck={false}
+                value={yaml}
+                placeholder={"apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: checkout\n  namespace: shop-prod\n…"}
+                onChange={(e) => changeYaml(e.target.value)}
+              />
               <input ref={yamlInput} type="file" accept=".yaml,.yml" multiple hidden onChange={(e) => void addYaml(e.target.files)} />
               <button type="button" className="ghost-button" onClick={() => yamlInput.current?.click()}>
-                <Upload size={15} aria-hidden="true" /> Choose YAML files
+                <Upload size={15} aria-hidden="true" /> Add YAML files
               </button>
-              {manifests.map((m, i) => (
-                <div className="ag-row" key={i}>
-                  <input
-                    aria-label="Microservice name"
-                    value={m.name}
-                    onChange={(e) => setManifests((prev) => prev.map((x, n) => (n === i ? { ...x, name: e.target.value } : x)))}
-                  />
-                  <button type="button" className="icon-button" aria-label={`Remove ${m.name}`} onClick={() => setManifests((prev) => prev.filter((_, n) => n !== i))}>
-                    <X size={14} aria-hidden="true" />
-                  </button>
-                </div>
-              ))}
             </div>
           ) : (
             <>

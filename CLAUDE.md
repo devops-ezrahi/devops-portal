@@ -1229,8 +1229,15 @@ connects from the repository panel as usual.
 - **A Helm chart is rendered first**, with `helm template <name> <chart> -n
   <ns> [-f values]`, and the rendered YAML is what gets converted. The image
   carries `helm` (from `alpine/helm`) and `python3-yaml` for this.
-- One file is one microservice — the converter's own input rule — and the
-  names are held to the DNS label rule at the route, since each becomes a path.
+- **YAML may be dirty** — pasted into the box or added as files, which append
+  to the same box. It is split into microservices by the chart repo's own
+  `gitops-factory/namespace_importer.py` (the `oc`-driven namespace puller),
+  run with its `run_oc` answered from the paste (`SPLIT_DUMP` in `convert.ts`)
+  — so grouping (`part-of` → `app` → workload name), `shared.yaml`, store
+  placement and metadata stripping are the importer's, not a port. A
+  reference the paste lacks is the importer's fetch failure, shown as a
+  warning. The namespace field is prefilled from `metadata.namespace` until
+  typed into; it names the tree's `<ns>/` directory, not a filter.
 - `mergeConverted` (`document.ts`): a same-named microservice is replaced in
   place (keeping its id); into a namespace the tree already has, the
   converter's `<ns>/defaults.yaml` is folded into each converted entry so the
