@@ -106,6 +106,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   const [convertOpen, setConvertOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [gitEnabled, setGitEnabled] = useState(false);
+  const [gitUrl, setGitUrl] = useState("");
   const [pulling, setPulling] = useState(false);
   const [push, setPush] = useState<PushState>({ kind: "idle" });
   /** What the connected branch holds right now — the preview diffs against it. */
@@ -133,6 +134,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         setTrees(result.trees);
         setDefaults(result.defaults);
         setGitEnabled(result.gitEnabled);
+        setGitUrl(result.gitUrl ?? "");
         // Reopen whatever was last open, so Refresh lands back where you were —
         // but never over a tree already opened by hand while this was in flight.
         const last = result.trees.find((t) => t.id === localStorage.getItem(LAST_OPENED_KEY));
@@ -922,6 +924,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   loud as the live one. */}
               <ChartLine
                 tree={draft}
+                gitUrl={gitUrl}
                 onChange={(chart) => setDraft((p) => ({ ...p, chart }))}
                 onRootAppName={(rootAppName) => setDraft((p) => ({ ...p, rootAppName }))}
               />
@@ -932,6 +935,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 onPull={() => void handlePull()}
                 pulling={pulling}
                 gitEnabled={gitEnabled}
+                gitUrl={gitUrl}
                 releaseCount={draft.releases.length}
               />
             </div>
@@ -1148,6 +1152,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
 
       {newOpen && (
         <NewTreeDialog
+          gitUrl={gitUrl}
           onScratch={handleScratch}
           onConnect={handleConnect}
           onConvert={() => {

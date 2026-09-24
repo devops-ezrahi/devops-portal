@@ -104,6 +104,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
   const [saveState, setSaveState] = useState<SaveState>("idle");
   /** Whether a git credential exists at all — the repo buttons say so when it does not. */
   const [gitEnabled, setGitEnabled] = useState(false);
+  const [gitUrl, setGitUrl] = useState("");
   const [pulling, setPulling] = useState(false);
   const [push, setPush] = useState<PushState>({ kind: "idle" });
   /** Why the connected repository could not be read — shown on the repo panel, where it can be fixed. */
@@ -127,6 +128,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
         setPipelines(result.pipelines);
         if (result.sharedLibrary) setSharedLibrary(result.sharedLibrary);
         setGitEnabled(!!result.gitEnabled);
+        setGitUrl(result.gitUrl ?? "");
         // Reopen whatever was last open, so Refresh lands back where you were.
         // Only into an untouched draft: a load that resolves late must not take
         // the editor away from a pipeline already opened by hand.
@@ -543,6 +545,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
             <div className="jf-section">
               <RepoPanel
                 repo={repo}
+                gitUrl={gitUrl}
                 onChange={(next) => patchDraft({ repo: next })}
                 onPull={() => void handlePull()}
                 pulling={pulling}
@@ -614,6 +617,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
 
       {newOpen && (
         <NewPipelineDialog
+          gitUrl={gitUrl}
           onScratch={handleNew}
           onImport={handleImport}
           onClose={() => setNewOpen(false)}

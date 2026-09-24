@@ -1,6 +1,6 @@
 import { FilePlus2, FileUp, GitBranch, TriangleAlert, Upload, X } from "lucide-react";
 import { useRef, useState } from "react";
-import { isSshUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
+import { exampleRepoUrl, isSshUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
 import type { JenkinsfilePipeline } from "../../../../server/types";
 import { pullJenkinsfile } from "../api";
 import { highlightGroovy } from "../highlight";
@@ -27,11 +27,13 @@ export function NewPipelineDialog({
   onImport,
   onClose,
   gitEnabled,
+  gitUrl,
 }: {
   onScratch: () => void;
   onImport: (pipeline: DraftPipeline, warnings: string[], repo?: Repo) => void;
   onClose: () => void;
   gitEnabled: boolean;
+  gitUrl: string;
 }) {
   const [importing, setImporting] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -120,7 +122,7 @@ export function NewPipelineDialog({
               <input
                 autoFocus
                 value={repoUrl}
-                placeholder="git@github.com:org/checkout-service.git"
+                placeholder={exampleRepoUrl(gitUrl, "checkout-service")}
                 onChange={(e) => {
                   setRepoUrl(e.target.value);
                   setPending(null);

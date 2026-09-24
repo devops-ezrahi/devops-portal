@@ -167,11 +167,16 @@ export function createArgocdRouter(store: TreeStore = new TreeStore()): express.
 
   router.get("/api/argocd/trees", (req, res) => {
     const all = store.all();
+    // The token lives on the same config object and must never reach a browser.
+    const { valuesToken: _secret, ...defaults } = config.argocd;
     res.json({
       trees: isAdmin(req.user!) ? all : all.filter((t) => t.createdBy === req.user!.id),
       // Rides along on the list the view already fetches, rather than a second
       // endpoint — these only pre-fill a new tree, they do not constrain one.
-      defaults: config.argocd,
+      defaults,
+      // The Bitbucket base, so repo fields show an example on the host people
+      // actually use rather than github.com.
+      gitUrl: config.git.url,
       // So the two git buttons render disabled with a reason, instead of
       // failing on click. Same trick as `defaults`: no second request.
       gitEnabled: !!(config.argocd.valuesToken || config.git.enabled),

@@ -40,6 +40,12 @@ describe("checkValues", () => {
 
   it("catches a mount with no volume behind it", () => {
     expect(say(withImage({ volumeMounts: { data: { mountPath: "/var/data" } } }))).toContain("has no matching volume");
+    expect(
+      say(withImage({
+        volumes: { cfg: { configMap: { name: "c" } } },
+        volumeMounts: { "cfg:a.properties": { name: "cfg", mountPath: "/a", subPath: "a.properties" } },
+      }))
+    ).not.toContain("has no matching volume");
     expect(say(withImage({ volumes: { data: { emptyDir: { sizeLimit: "1Gi" } } }, volumeMounts: { data: { mountPath: "/var/data" } } }))).toBe("");
   });
 

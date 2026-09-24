@@ -99,8 +99,13 @@ export function checkValues(doc: Values): Problem[] {
   if (enabled(monitor) && monitor.port && servicePorts.length && !servicePorts.includes(String(monitor.port)))
     warn(`ServiceMonitor scrapes port ${monitor.port}, which is not one of the Service ports (${servicePorts.join(", ")}).`, "servicemonitor");
 
-  const defined = new Set([...Object.keys(obj(doc.volumes)), ...Object.keys(obj(doc.volumeClaimTemplates))]);
-  Object.keys(obj(doc.volumeMounts)).forEach((name) => {
+  // A mount's key is only a map key — `vol:file.properties` when one volume is
+  // mounted twice by subPath — and its `name` field, when set, is what the pod
+  // actually references. Volumes can carry the same override.
+  const named = (m: Record<string, unknown>) =>
+    Object.entries(m).map(([key, v]) => String(obj(v).name || key));
+  const defined = new Set([...named(obj(doc.volumes)), ...named(obj(doc.volumeClaimTemplates))]);
+  named(obj(doc.volumeMounts)).forEach((name) => {
     if (!defined.has(name)) bad(`Mount ${name} has no matching volume or volumeClaimTemplate. The pod will not start.`, "mounts");
   });
 

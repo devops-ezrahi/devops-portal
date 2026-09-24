@@ -57,6 +57,16 @@ export function normalizeRepoUrl(url: string): string {
   return trimmed;
 }
 
+/**
+ * The placeholder a repo field shows: a clone URL on the portal's own
+ * `GIT_URL` (Bitbucket Server) when one is configured, since that is where the
+ * repos usually are; github.com only when nothing says otherwise.
+ */
+export function exampleRepoUrl(gitUrl: string, repo: string): string {
+  const base = gitUrl.trim().replace(/\/+$/, "");
+  return base ? `${base}/scm/project/${repo}.git` : `https://github.com/org/${repo}.git`;
+}
+
 /** Whether `normalizeRepoUrl` would change this — what the field says out loud. */
 export function isSshUrl(url: string): boolean {
   const trimmed = url.trim();

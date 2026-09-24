@@ -1,5 +1,5 @@
 import type { JenkinsfilePipeline } from "../../../../server/types";
-import { isSshUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
+import { exampleRepoUrl, isSshUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
 import { Help } from "../../../Help";
 import { RepoPanel as GitRepoPanel } from "../../../RepoPanel";
 
@@ -29,12 +29,13 @@ type Props = {
   onPull: () => void;
   pulling: boolean;
   gitEnabled: boolean;
+  gitUrl: string;
   /** How much a pull would replace — nothing to warn about when it is zero. */
   stageCount: number;
   error?: string;
 };
 
-export function RepoPanel({ repo, onChange, onPull, pulling, gitEnabled, stageCount, error }: Props) {
+export function RepoPanel({ repo, onChange, onPull, pulling, gitEnabled, gitUrl, stageCount, error }: Props) {
   return (
     <GitRepoPanel
       role="Repo"
@@ -52,7 +53,7 @@ export function RepoPanel({ repo, onChange, onPull, pulling, gitEnabled, stageCo
         <input
           aria-label="Repository URL"
           value={repo.repoUrl}
-          placeholder="https://github.com/org/service.git"
+          placeholder={exampleRepoUrl(gitUrl, "service")}
           onChange={(e) => onChange({ ...repo, repoUrl: e.target.value })}
           onBlur={(e) => onChange({ ...repo, repoUrl: normalizeRepoUrl(e.target.value) })}
         />

@@ -26,7 +26,7 @@ export type RepoFile = { path: string; text: string };
 export function listTrees() {
   // `defaults` rides along rather than needing its own endpoint — the builder
   // needs it before it can offer a new tree.
-  return request<{ trees: ArgocdTree[]; defaults: TreeDefaults; gitEnabled: boolean }>("/api/argocd/trees");
+  return request<{ trees: ArgocdTree[]; defaults: TreeDefaults; gitEnabled: boolean; gitUrl: string }>("/api/argocd/trees");
 }
 
 export function createTree(input: TreeInput) {

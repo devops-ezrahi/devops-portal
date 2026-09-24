@@ -1,6 +1,6 @@
 import { FileCode2, FilePlus2, GitBranch, TriangleAlert, X } from "lucide-react";
 import { useState } from "react";
-import { isSshUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
+import { exampleRepoUrl, isSshUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
 import { Help } from "../../../Help";
 import { pullValues } from "../api";
 import { importTree, type TreeImport } from "../importTree";
@@ -24,12 +24,14 @@ export function NewTreeDialog({
   onConnect,
   onConvert,
   onClose,
+  gitUrl,
 }: {
   onScratch: () => void;
   /** Start empty and convert plain manifests or a Helm chart into it. */
   onConvert: () => void;
   onConnect: (imported: TreeImport, repoUrl: string, revision: string, path: string) => void;
   onClose: () => void;
+  gitUrl: string;
 }) {
   const [connecting, setConnecting] = useState(false);
   const [repoUrl, setRepoUrl] = useState("");
@@ -115,7 +117,7 @@ export function NewTreeDialog({
                 autoFocus
                 aria-label="Repository URL"
                 value={repoUrl}
-                placeholder="git@github.com:org/microservices-values.git"
+                placeholder={exampleRepoUrl(gitUrl, "microservices-values")}
                 onChange={(e) => {
                   setRepoUrl(e.target.value);
                   setPending(null);

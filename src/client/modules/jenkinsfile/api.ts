@@ -13,7 +13,7 @@ export function listPipelines() {
   // `sharedLibrary` and `gitEnabled` ride along rather than needing their own
   // endpoints — one configured string and one boolean the builder needs before
   // it can render the import field and the repository buttons.
-  return request<{ pipelines: JenkinsfilePipeline[]; sharedLibrary: string; gitEnabled: boolean }>(
+  return request<{ pipelines: JenkinsfilePipeline[]; sharedLibrary: string; gitEnabled: boolean; gitUrl: string }>(
     "/api/jenkinsfile/pipelines"
   );
 }

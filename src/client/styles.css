@@ -4592,6 +4592,20 @@ input.jf-title {
 
 /* A namespace's defaults: one wide bar above the microservice squares — what
    every one of them starts from, not another one of them. */
+.ag-grid-sort {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #6f8088;
+}
+
+.ag-grid-sort select {
+  width: auto;
+}
+
 .ag-ns-defaults-shell {
   display: flex;
   align-items: center;

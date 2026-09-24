@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Pencil } from "lucide-react";
-import { normalizeRepoUrl } from "../../../../server/gitUrl";
+import { exampleRepoUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
 import { Help } from "../../../Help";
 import { repoName } from "./RepoPanel";
 import type { DraftTree } from "../document";
@@ -19,10 +19,12 @@ export function ChartLine({
   tree,
   onChange,
   onRootAppName,
+  gitUrl,
 }: {
   tree: DraftTree;
   onChange: (chart: DraftTree["chart"]) => void;
   onRootAppName: (name: string) => void;
+  gitUrl: string;
 }) {
   const [editing, setEditing] = useState(false);
 
@@ -60,7 +62,7 @@ export function ChartLine({
             <span>Chart repo URL</span>
             <input
               value={tree.chart.repoUrl}
-              placeholder="https://github.com/devops-ezrahi/universal-chart.git"
+              placeholder={exampleRepoUrl(gitUrl, "universal-chart")}
               onChange={(e) => onChange({ ...tree.chart, repoUrl: e.target.value })}
               onBlur={(e) => onChange({ ...tree.chart, repoUrl: normalizeRepoUrl(e.target.value) })}
             />

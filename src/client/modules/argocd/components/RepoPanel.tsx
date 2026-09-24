@@ -1,4 +1,4 @@
-import { isSshUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
+import { exampleRepoUrl, isSshUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
 import { Help } from "../../../Help";
 import { RepoPanel as GitRepoPanel } from "../../../RepoPanel";
 import type { DraftTree } from "../document";
@@ -26,12 +26,13 @@ type Props = {
   onPull: () => void;
   pulling: boolean;
   gitEnabled: boolean;
+  gitUrl: string;
   /** How much a pull would replace — nothing to warn about when it is zero. */
   releaseCount: number;
   error?: string;
 };
 
-export function RepoPanel({ tree, onChange, onPull, pulling, gitEnabled, releaseCount, error }: Props) {
+export function RepoPanel({ tree, onChange, onPull, pulling, gitEnabled, gitUrl, releaseCount, error }: Props) {
   return (
     <GitRepoPanel
       role="Values"
@@ -55,7 +56,7 @@ export function RepoPanel({ tree, onChange, onPull, pulling, gitEnabled, release
         <input
           aria-label="Values repo URL"
           value={tree.values.repoUrl}
-          placeholder="https://git.example.com/gitops/microservices-values.git"
+          placeholder={exampleRepoUrl(gitUrl, "microservices-values")}
           onChange={(e) => onChange({ ...tree.values, repoUrl: e.target.value })}
           onBlur={(e) => onChange({ ...tree.values, repoUrl: normalizeRepoUrl(e.target.value) })}
         />
