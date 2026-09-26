@@ -91,6 +91,11 @@ export function importTree(files: RepoFile[]): TreeImport {
     valuesIn.set(folder, own);
   }
 
+  // Top-level keys base/ reads through tpl: `{{ .Values.color }}` -> color.
+  const templated = new Set(
+    [...byPath].filter(([p]) => p.startsWith("base/")).flatMap(([, t]) => [...t.matchAll(/\.Values\.(\w+)/g)].map((m) => m[1]))
+  );
+
   const namespaces: ArgocdNamespace[] = [];
   for (const name of [...nsNames].sort()) {
     // <ns>/defaults.yaml *is* this namespace's defaults, whole — whoever wrote
@@ -100,7 +105,12 @@ export function importTree(files: RepoFile[]): TreeImport {
     const defaultsDoc = docAt(byPath, `${name}/defaults.yaml`) ?? {};
     const defaultsImport = importValues(toYaml(defaultsDoc));
     if (Object.keys(defaultsDoc).length)
-      defaultsImport.warnings.forEach((w) => warnings.push(`${name}/defaults.yaml: ${w}`));
+      defaultsImport.warnings
+        // A group value (`color: yellow`) the base files template with
+        // `{{ .Values.color }}` is the chart's to read, not a catalog field —
+        // kept as extra values, which is exactly right, so nothing to warn about.
+        .filter((w) => !templated.has(w.split(":")[0]))
+        .forEach((w) => warnings.push(`${name}/defaults.yaml: ${w}`));
     const entries: ArgocdNamespace["releases"] = [];
     const groups: Record<string, string> = {};
 

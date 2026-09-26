@@ -72,3 +72,30 @@ export function isSshUrl(url: string): boolean {
   const trimmed = url.trim();
   return !!trimmed && normalizeRepoUrl(trimmed) !== trimmed;
 }
+
+/**
+ * The page a person opens for a clone URL: the repo (at `revision`), or a
+ * directory / file in it. GitHub, GitLab, bitbucket.org and Bitbucket Server
+ * (`/scm/PROJ/repo.git`) each spell it differently. Never carries credentials —
+ * only the host and path are kept. "" when the URL is not http(s).
+ */
+export function repoWebUrl(repoUrl: string, revision = "", path = "", file = false): string {
+  let u: URL;
+  try {
+    u = new URL(normalizeRepoUrl(repoUrl));
+  } catch {
+    return "";
+  }
+  if (!/^https?:$/.test(u.protocol)) return "";
+  const base = `${u.protocol}//${u.host}`;
+  const repo = u.pathname.replace(/\/+$/, "").replace(/\.git$/, "");
+  const rev = revision.trim();
+  const sub = path.trim().replace(/^\.?\/+|\/+$/g, "").replace(/^\.$/, "");
+  const scm = /^\/scm\/([^/]+)\/([^/]+)$/.exec(repo);
+  if (scm)
+    return `${base}/projects/${scm[1]}/repos/${scm[2]}/browse${sub ? `/${sub}` : ""}${rev ? `?at=${encodeURIComponent(rev)}` : ""}`;
+  if (!rev && !sub) return `${base}${repo}`;
+  if (u.hostname === "bitbucket.org") return `${base}${repo}/src/${rev || "HEAD"}${sub ? `/${sub}` : ""}`;
+  const gitlab = u.hostname.includes("gitlab") ? "/-" : "";
+  return `${base}${repo}${gitlab}/${file && sub ? "blob" : "tree"}/${rev || "HEAD"}${sub ? `/${sub}` : ""}`;
+}

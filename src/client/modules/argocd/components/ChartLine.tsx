@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Pencil } from "lucide-react";
-import { exampleRepoUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
+import { ExternalLink, Pencil } from "lucide-react";
+import { exampleRepoUrl, normalizeRepoUrl, repoWebUrl } from "../../../../server/gitUrl";
 import { Help } from "../../../Help";
 import { repoName } from "./RepoPanel";
 import type { DraftTree } from "../document";
@@ -40,6 +40,18 @@ export function ChartLine({
           {repoName(tree.chart.repoUrl)}
           <span className="git-repo-rev">@{tree.chart.revision || "?"}</span>
         </span>
+        {repoWebUrl(tree.chart.repoUrl) && (
+          <a
+            className="icon-button"
+            href={repoWebUrl(tree.chart.repoUrl, tree.chart.revision, tree.chart.path)}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Open the chart repo in git"
+            title={`Open ${repoName(tree.chart.repoUrl)} in git`}
+          >
+            <ExternalLink size={14} aria-hidden="true" />
+          </a>
+        )}
         <span className="ag-chart-paths">
           {tree.chart.path || "."} · {tree.chart.appsetPath || "ms-applicationSet"}
         </span>

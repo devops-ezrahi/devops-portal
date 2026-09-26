@@ -30,12 +30,11 @@ describe.each(["flat", "grouped"])("converter example: %s", (name) => {
   const files = read(join(DIR, name));
   const imported = importTree(files);
 
-  it("imports losslessly and recovers the wiring", () => {
-    // The only notes are the group values (`environment`, `color`) the base
-    // files template with `{{ .Values.<key> }}`, kept as extra values.
-    expect(imported.warnings.filter((w) => !/defaults\.yaml: (environment|color): kept as extra values/.test(w))).toEqual([]);
+  it("imports with no warnings and recovers the wiring", () => {
+    // `environment` / `color` in defaults.yaml are read by base's `{{ .Values.<key> }}`: kept, not warned about.
+    expect(imported.warnings).toEqual([]);
     expect(imported.releases.map((r) => r.name)).toEqual(["ms1", "ms2"]);
-    expect(imported.values?.repoUrl).toBe("https://github.com/devops-ezrahi/example-values.git");
+    expect(imported.values?.repoUrl).toBe(`https://github.com/devops-ezrahi/universal-chart-example-${name}.git`);
     expect(imported.chart?.appsetPath).toBe("ms-applicationSet");
   });
 

@@ -1,5 +1,5 @@
 import type { JenkinsfilePipeline } from "../../../../server/types";
-import { exampleRepoUrl, isSshUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
+import { exampleRepoUrl, isSshUrl, normalizeRepoUrl, repoWebUrl } from "../../../../server/gitUrl";
 import { Help } from "../../../Help";
 import { RepoPanel as GitRepoPanel } from "../../../RepoPanel";
 
@@ -42,6 +42,7 @@ export function RepoPanel({ repo, onChange, onPull, pulling, gitEnabled, gitUrl,
       repoUrl={repo.repoUrl}
       revision={repo.revision}
       sub={repo.path}
+      link={repoWebUrl(repo.repoUrl, repo.revision, repo.path, true)}
       blocked={gitBlocked(repo, gitEnabled)}
       error={error}
       onPull={onPull}

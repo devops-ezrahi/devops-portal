@@ -11,8 +11,8 @@ metadata:
   annotations:
     generated-by: convert_to_universal_chart.py
   labels:
-    app: platform-root-set
-  name: platform-root-set
+    app: example-flat
+  name: example-flat
   namespace: argocd
 spec:
   generators:
@@ -27,12 +27,12 @@ spec:
         path: ERRORS_ANALYSIS
       - exclude: true
         path: report
-      repoURL: https://github.com/devops-ezrahi/example-values.git
+      repoURL: https://github.com/devops-ezrahi/universal-chart-example-flat.git
       revision: main
   template:
     metadata:
       labels:
-        app: platform-root-set
+        app: example-flat
         managed-by: universal-chart-converter
       name: '{{path.basename}}'
     spec:
@@ -46,7 +46,7 @@ spec:
           - name: namespace
             value: '{{path.basename}}'
           - name: originRepoURL
-            value: https://github.com/devops-ezrahi/example-values.git
+            value: https://github.com/devops-ezrahi/universal-chart-example-flat.git
           - name: originBranch
             value: main
           - name: originPath

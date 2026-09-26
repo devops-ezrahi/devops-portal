@@ -11,15 +11,15 @@ metadata:
   annotations:
     generated-by: convert_to_universal_chart.py
   labels:
-    app: platform-root-set
-  name: platform-root-set
+    app: example-grouped
+  name: example-grouped
   namespace: argocd
 spec:
   generators:
   - git:
       files:
       - path: '**/defaults.yaml'
-      repoURL: https://github.com/devops-ezrahi/example-values.git
+      repoURL: https://github.com/devops-ezrahi/universal-chart-example-grouped.git
       revision: main
   goTemplate: true
   goTemplateOptions:
@@ -27,7 +27,7 @@ spec:
   template:
     metadata:
       labels:
-        app: platform-root-set
+        app: example-grouped
         managed-by: universal-chart-converter
       name: '{{ .path.path | replace "/" "-" }}'
     spec:
@@ -43,7 +43,7 @@ spec:
           - name: folder
             value: '{{ .path.path }}'
           - name: originRepoURL
-            value: https://github.com/devops-ezrahi/example-values.git
+            value: https://github.com/devops-ezrahi/universal-chart-example-grouped.git
           - name: originBranch
             value: main
           - name: originPath

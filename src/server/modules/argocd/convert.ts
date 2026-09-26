@@ -5,9 +5,9 @@ import { promisify } from "util";
 import { git, withCredentials } from "../../git";
 import { log } from "../../log";
 import { redactSecrets } from "../../redact";
-import { tokenFor } from "../../repoGuards";
 import { createTmpDir, removeTmpDir } from "../../tmp";
 import type { RepoFile } from "./valuesGit";
+import { valuesTokenFor } from "./valuesRepo";
 
 const execFileAsync = promisify(execFile);
 
@@ -117,7 +117,9 @@ async function chartDir(root: string): Promise<string> {
 export async function convertToUniversal(input: ConvertInput): Promise<ConvertResult> {
   const dir = await createTmpDir("ag-convert-");
   try {
-    const { token, username } = tokenFor(input.chartRepoUrl);
+    // The chart repo is usually private on the values repo's own host, so the
+    // values token applies — `valuesTokenFor` only hands it to that host.
+    const { token, username } = valuesTokenFor(input.chartRepoUrl);
     await git(
       ["clone", "--depth", "1", "--branch", input.chartRevision, "--", withCredentials(input.chartRepoUrl, token, username), join(dir, "chart")],
       undefined,

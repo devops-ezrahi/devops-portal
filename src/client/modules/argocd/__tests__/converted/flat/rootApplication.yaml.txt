@@ -33,7 +33,7 @@ spec:
       include: '{rootApplicationSet.yaml,cluster-shared-application.yaml}'
       recurse: false
     path: .
-    repoURL: https://github.com/devops-ezrahi/example-values.git
+    repoURL: https://github.com/devops-ezrahi/universal-chart-example-flat.git
     targetRevision: main
   syncPolicy:
     automated:

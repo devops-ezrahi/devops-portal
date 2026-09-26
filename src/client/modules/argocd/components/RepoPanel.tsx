@@ -1,4 +1,4 @@
-import { exampleRepoUrl, isSshUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
+import { exampleRepoUrl, isSshUrl, normalizeRepoUrl, repoWebUrl } from "../../../../server/gitUrl";
 import { Help } from "../../../Help";
 import { RepoPanel as GitRepoPanel } from "../../../RepoPanel";
 import type { DraftTree } from "../document";
@@ -39,6 +39,7 @@ export function RepoPanel({ tree, onChange, onPull, pulling, gitEnabled, gitUrl,
       repoUrl={tree.values.repoUrl}
       revision={tree.values.revision}
       sub={tree.values.path ? `${tree.values.path}/` : ""}
+      link={repoWebUrl(tree.values.repoUrl, tree.values.revision, tree.values.path)}
       blocked={gitBlocked(tree, gitEnabled)}
       error={error}
       onPull={onPull}
