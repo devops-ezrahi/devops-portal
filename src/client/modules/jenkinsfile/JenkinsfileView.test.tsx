@@ -186,8 +186,15 @@ describe("JenkinsfileView", () => {
     expect(code()).not.toContain("parallel(");
   });
 
+  it("keeps the pipeline options folded until opened", () => {
+    renderView();
+    expect(screen.getByRole("button", { name: /Pipeline options/ })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: /Import the shared library/ })).toBeNull();
+  });
+
   it("writes the Groovy block before the stages", () => {
     const { code } = renderView();
+    fireEvent.click(screen.getByRole("button", { name: /Pipeline options/ }));
     fireEvent.click(screen.getByRole("button", { name: /Add Groovy variables and functions/ }));
     fireEvent.change(screen.getByLabelText("Groovy variables and functions"), { target: { value: "def tag = '1.0'" } });
     addStage("Sleep");
@@ -568,6 +575,7 @@ genStage(title: 'Build', image: 'python311', commands: ['npm ci'])`,
 
   it("adds the @Library line only when asked, and only takes a branch", () => {
     const { code } = renderView();
+    fireEvent.click(screen.getByRole("button", { name: /Pipeline options/ }));
     expect(code()).not.toContain("@Library");
 
     fireEvent.click(screen.getByRole("button", { name: /Import the shared library/ }));
@@ -582,6 +590,7 @@ genStage(title: 'Build', image: 'python311', commands: ['npm ci'])`,
 
   it("offers boolean, string and choice parameters, and writes the one picked", () => {
     const { code } = renderView();
+    fireEvent.click(screen.getByRole("button", { name: /Pipeline options/ }));
 
     fireEvent.click(screen.getByRole("button", { name: /Add pipeline parameters/ }));
     expect(
