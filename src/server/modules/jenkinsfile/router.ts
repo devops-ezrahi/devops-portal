@@ -47,7 +47,7 @@ const pipelineBody = z.object({
   // screens away.
   repo: z
     .object({
-      repoUrl: z.string().trim().max(300).transform(normalizeRepoUrl),
+      repoUrl: z.string().trim().max(300).transform((url) => normalizeRepoUrl(url, config.git.url)),
       revision: z.string().trim().max(100),
       path: z.string().trim().max(200),
     })
@@ -79,7 +79,7 @@ const pullBody = z.object({
     .string()
     .trim()
     .max(300)
-    .transform(normalizeRepoUrl)
+    .transform((url) => normalizeRepoUrl(url, config.git.url))
     .refine(safeRepoUrl, "Only http(s) git URLs can be cloned"),
   revision: z.string().trim().max(100).refine(safeRef, "Not a branch or tag name"),
   // Empty means "find it" — which is the normal case, and the reason this
@@ -266,7 +266,9 @@ export function createJenkinsfileRouter(store: PipelineStore = new PipelineStore
       }
       // `repoUrl` is echoed because it may not be the one that was sent — an
       // SSH URL was rewritten above, and the pipeline should record what cloned.
-      res.json({ ...result, repoUrl, revision });
+      // The result carries the branch actually read: a `main` the repo does
+      // not have was read from its default branch.
+      res.json({ ...result, repoUrl });
     } catch (err) {
       next(err);
     }

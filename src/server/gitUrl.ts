@@ -29,26 +29,46 @@ const SCP_LIKE = /^([A-Za-z0-9._-]+)@([A-Za-z0-9.-]+):(?!\/)(.+)$/;
  */
 const SAME_PATH_HOSTS = ["github.com", "gitlab.com", "bitbucket.org"];
 
-function httpsOf(host: string, path: string): string {
+/**
+ * `GIT_URL` split into the host an SSH URL names and the HTTPS base it lives
+ * under — a Bitbucket Server often serves HTTP on its own port (`:7990`) and
+ * under a context path (`/bitbucket`), neither of which an SSH URL carries.
+ */
+function homeOf(gitUrl: string): { hostname: string; base: string } | null {
+  try {
+    const u = new URL(gitUrl.trim());
+    if (!/^https?:$/.test(u.protocol)) return null;
+    return { hostname: u.hostname.toLowerCase(), base: `${u.protocol}//${u.host}${u.pathname.replace(/\/+$/, "")}` };
+  } catch {
+    return null;
+  }
+}
+
+function httpsOf(host: string, path: string, gitUrl: string): string {
   const clean = path.replace(/^\/+/, "");
+  const home = homeOf(gitUrl);
+  // The portal's own Bitbucket: rebuilt on GIT_URL, so the port and context
+  // path come back and the host still matches the one the token is tied to.
+  if (home && home.hostname === host.toLowerCase()) return `${home.base}/${/^scm\//i.test(clean) ? "" : "scm/"}${clean}`;
   const scm = SAME_PATH_HOSTS.includes(host.toLowerCase()) || /^scm\//i.test(clean) ? "" : "scm/";
   return `https://${host}/${scm}${clean}`;
 }
 
-export function normalizeRepoUrl(url: string): string {
+/** `gitUrl` is the portal's `GIT_URL`, when the caller knows it — see `homeOf`. */
+export function normalizeRepoUrl(url: string, gitUrl = ""): string {
   const trimmed = url.trim();
   if (!trimmed) return "";
 
   const scp = SCP_LIKE.exec(trimmed);
-  if (scp) return httpsOf(scp[2], scp[3]);
+  if (scp) return httpsOf(scp[2], scp[3], gitUrl);
 
   if (/^ssh:\/\//i.test(trimmed)) {
     try {
       const u = new URL(trimmed);
-      // The port is dropped, not carried over: an SSH port is not an HTTPS one
-      // (Bitbucket Server's 7999 against 443), so keeping it would produce a
-      // URL that certainly fails rather than one that probably works.
-      return `${httpsOf(u.hostname, u.pathname)}${u.search}`;
+      // The SSH port is dropped, not carried over: an SSH port is not an HTTPS
+      // one (Bitbucket Server's 7999 against 7990/443). The HTTPS one, if any,
+      // comes from GIT_URL.
+      return `${httpsOf(u.hostname, u.pathname, gitUrl)}${u.search}`;
     } catch {
       return trimmed;
     }
@@ -91,9 +111,11 @@ export function repoWebUrl(repoUrl: string, revision = "", path = "", file = fal
   const repo = u.pathname.replace(/\/+$/, "").replace(/\.git$/, "");
   const rev = revision.trim();
   const sub = path.trim().replace(/^\.?\/+|\/+$/g, "").replace(/^\.$/, "");
-  const scm = /^\/scm\/([^/]+)\/([^/]+)$/.exec(repo);
+  // Not anchored at the start: a Bitbucket Server under a context path clones
+  // from `/bitbucket/scm/P/r.git` and browses from `/bitbucket/projects/P/…`.
+  const scm = /^(.*?)\/scm\/([^/]+)\/([^/]+)$/.exec(repo);
   if (scm)
-    return `${base}/projects/${scm[1]}/repos/${scm[2]}/browse${sub ? `/${sub}` : ""}${rev ? `?at=${encodeURIComponent(rev)}` : ""}`;
+    return `${base}${scm[1]}/projects/${scm[2]}/repos/${scm[3]}/browse${sub ? `/${sub}` : ""}${rev ? `?at=${encodeURIComponent(rev)}` : ""}`;
   if (!rev && !sub) return `${base}${repo}`;
   if (u.hostname === "bitbucket.org") return `${base}${repo}/src/${rev || "HEAD"}${sub ? `/${sub}` : ""}`;
   const gitlab = u.hostname.includes("gitlab") ? "/-" : "";

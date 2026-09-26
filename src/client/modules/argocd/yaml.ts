@@ -124,6 +124,12 @@ export function emitNode(node: unknown, ind: number, out: string[]): string[] {
   return out;
 }
 
-export function toYaml(doc: Record<string, unknown>): string {
-  return emitNode(clean(doc), 0, []).join("\n");
+/** `spaced` puts a blank line between top-level keys — how a values file is written, so each section reads as a block. */
+export function toYaml(doc: Record<string, unknown>, spaced = false): string {
+  const c = clean(doc);
+  if (!spaced) return emitNode(c, 0, []).join("\n");
+  return Object.keys(c)
+    .map((k) => emitNode({ [k]: c[k] }, 0, []).join("\n"))
+    .filter(Boolean)
+    .join("\n\n");
 }

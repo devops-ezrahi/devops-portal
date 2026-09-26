@@ -65,7 +65,7 @@ export function NewPipelineDialog({
       // pasting is the common case, and a blur handler is not a guarantee. The
       // server normalises too — that is the authoritative one — but what is
       // sent should match what the field says it will send.
-      const result = await pullJenkinsfile(normalizeRepoUrl(repoUrl), revision, path.trim());
+      const result = await pullJenkinsfile(normalizeRepoUrl(repoUrl, gitUrl), revision, path.trim());
       const parsed = parseJenkinsfile(result.text);
       // The repo is the server's answer, not the field's: an SSH URL was
       // rewritten before the clone, and the path was very likely found rather
@@ -127,11 +127,11 @@ export function NewPipelineDialog({
                   setRepoUrl(e.target.value);
                   setPending(null);
                 }}
-                onBlur={() => setRepoUrl((u) => normalizeRepoUrl(u))}
+                onBlur={() => setRepoUrl((u) => normalizeRepoUrl(u, gitUrl))}
               />
               {rewritten ? (
                 <small className="field-hint">
-                  SSH URL — this becomes <code>{normalizeRepoUrl(repoUrl)}</code>. The portal authenticates with a
+                  SSH URL — this becomes <code>{normalizeRepoUrl(repoUrl, gitUrl)}</code>. The portal authenticates with a
                   token rather than a key, so it clones over https.
                 </small>
               ) : (

@@ -27,7 +27,8 @@ function hasCpuTarget(hpa: Values): boolean {
   return list(hpa.metrics).some((m) => obj(m.resource).name === "cpu" && obj(obj(m.resource).target).type === "Utilization");
 }
 
-export function checkValues(doc: Values): Problem[] {
+/** `inBase`: the document is base alone, which leaves the image repository to each namespace. */
+export function checkValues(doc: Values, inBase = false): Problem[] {
   const out: Problem[] = [];
   const bad = (text: string, feature?: string) => out.push({ level: "bad", text, ...(feature ? { feature } : {}) });
   const warn = (text: string, feature?: string) => out.push({ level: "warn", text, ...(feature ? { feature } : {}) });
@@ -159,7 +160,9 @@ export function checkValues(doc: Values): Problem[] {
     });
   });
 
-  if (!obj(doc.image).repository && workload !== "none")
+  // Base is not what deploys: the converter writes the repository beside its
+  // tag in each namespace's values file, so base legitimately has none.
+  if (!inBase && !obj(doc.image).repository && workload !== "none")
     bad("No image.repository. The chart's schema requires it for any workload that runs pods.", "image");
 
   // The chart runs every string value through Helm's `tpl` once, so a `{{`

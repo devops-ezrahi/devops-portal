@@ -1,4 +1,4 @@
-import { importValues, releaseNameFrom } from "./import";
+import { importValues } from "./import";
 import { parseValues } from "./build";
 import { isPlainObject } from "./values";
 import { NON_NAMESPACE_DIRS } from "./tree";
@@ -62,7 +62,10 @@ export function importTree(files: RepoFile[]): TreeImport {
     own.forEach((w) => warnings.push(`${path}: ${w}`));
     const id = uid("r");
     idBySlug.set(slug, id);
-    releases.push({ id, name: releaseNameFrom(text) || slug, features, extraValues });
+    // The file name *is* the release — the ApplicationSet names the Helm
+    // release after it — so neither override renames it (a fullnameOverride is
+    // the running workload's raw name, and may be templated).
+    releases.push({ id, name: slug, features, extraValues });
   }
   releases.sort((a, b) => a.name.localeCompare(b.name));
 

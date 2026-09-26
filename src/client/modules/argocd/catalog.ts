@@ -265,37 +265,10 @@ const F = (spec: FeatureSpec): FeatureSpec => {
 
 /* ---------- core ---------- */
 
-F({
-  id: "identity",
-  cat: "core",
-  req: true,
-  name: "Release identity",
-  keys: ["nameOverride", "fullnameOverride", "commonLabels", "commonAnnotations"],
-  blurb: "The name every object in the release is built from, plus labels and annotations stamped onto all of them.",
-  fields: [
-    S("nameOverride", "nameOverride", { ns: true, path: "nameOverride", placeholder: "checkout-api", hint: "Resource names become exactly this, not <release>-<chart>. Set it per namespace — it is the usual reason a release is checkout-dev in one place and checkout in another." }),
-    S("fullnameOverride", "fullnameOverride", { ns: true, path: "fullnameOverride", hint: "Wins over nameOverride. Rarely needed." }),
-    KV("commonLabels", "commonLabels"),
-    KV("commonAnnotations", "commonAnnotations"),
-  ],
-  emit: (v) =>
-    some({
-      nameOverride: v.nameOverride,
-      fullnameOverride: v.fullnameOverride,
-      commonLabels: kvOf(v.commonLabels),
-      commonAnnotations: kvOf(v.commonAnnotations),
-    }),
-  load: (doc) => ({
-    nameOverride: doc.nameOverride ?? "",
-    fullnameOverride: doc.fullnameOverride ?? "",
-    commonLabels: pairsOf(doc.commonLabels),
-    commonAnnotations: pairsOf(doc.commonAnnotations),
-  }),
-  notes: [
-    "nameOverride is the one to set. Without it the chart builds names as <release>-<chart>, which is almost never what a converted manifest wants.",
-    "It is offered per namespace, not in base: the object names belong to an environment, and one in base is inherited everywhere and then overridden everywhere.",
-  ],
-});
+// Registration order is the key order of every generated values file
+// (`orderKeys`), so it runs by importance: what the release is, what it runs,
+// how many — and its names and stamps near the end.
+// convert_to_universal_chart.py's TOP_LEVEL_KEY_ORDER mirrors it; change both.
 
 F({
   id: "workload",
@@ -2221,6 +2194,38 @@ F({
 });
 
 /* ---------- what studio.html's catalog does not cover ---------- */
+
+F({
+  id: "identity",
+  cat: "core",
+  req: true,
+  name: "Release identity",
+  keys: ["nameOverride", "fullnameOverride", "commonLabels", "commonAnnotations"],
+  blurb: "The name every object in the release is built from, plus labels and annotations stamped onto all of them.",
+  fields: [
+    S("nameOverride", "nameOverride", { ns: true, path: "nameOverride", placeholder: "checkout-api", hint: "Resource names become exactly this instead of the file name. Rarely needed — the ApplicationSet already names the release after its file." }),
+    S("fullnameOverride", "fullnameOverride", { ns: true, path: "fullnameOverride", hint: "Wins over nameOverride. Set when the running workload's name differs from the file name, so it is not renamed." }),
+    KV("commonLabels", "commonLabels"),
+    KV("commonAnnotations", "commonAnnotations"),
+  ],
+  emit: (v) =>
+    some({
+      nameOverride: v.nameOverride,
+      fullnameOverride: v.fullnameOverride,
+      commonLabels: kvOf(v.commonLabels),
+      commonAnnotations: kvOf(v.commonAnnotations),
+    }),
+  load: (doc) => ({
+    nameOverride: doc.nameOverride ?? "",
+    fullnameOverride: doc.fullnameOverride ?? "",
+    commonLabels: pairsOf(doc.commonLabels),
+    commonAnnotations: pairsOf(doc.commonAnnotations),
+  }),
+  notes: [
+    "The release is named after its values file (the ApplicationSet's helm.releaseName), so objects are already called <microservice> without either override.",
+    "Both are offered per namespace, not in base: the object names belong to an environment, and one in base is inherited everywhere and then overridden everywhere.",
+  ],
+});
 
 F({
   id: "podmeta",

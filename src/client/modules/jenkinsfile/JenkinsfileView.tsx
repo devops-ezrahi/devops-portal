@@ -282,7 +282,8 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
       setDraft((prev) => ({
         ...prev,
         // An empty path meant "find it"; what was found is where Commit writes.
-        repo: prev.repo && !prev.repo.path ? { ...prev.repo, path: result.path } : prev.repo,
+        // A branch the repo lacks was read from its default — the one Commit has to target.
+        repo: prev.repo && { ...prev.repo, revision: result.revision || prev.repo.revision, path: prev.repo.path || result.path },
         library: parsed.pipeline.library,
         params: parsed.pipeline.params,
         stages: parsed.pipeline.stages,

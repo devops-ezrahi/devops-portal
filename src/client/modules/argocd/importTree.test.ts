@@ -160,7 +160,7 @@ describe("importTree", () => {
     expect(docs(again)).toEqual(docs(files));
   });
 
-  it("names releases from the file, or from nameOverride when the chart sets one", () => {
+  it("names each release after its base file — the file is the release", () => {
     const { recovered } = roundTrip(tree());
     // These carry nameOverride, so the real name survives; without one the slug
     // is all the name there is.

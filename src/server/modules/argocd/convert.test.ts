@@ -1,5 +1,5 @@
 import { execFileSync } from "child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -121,17 +121,60 @@ ${DEPLOYMENT}`;
     expect(files.find((f) => f.path === "interconn/yellow/defaults.yaml")!.text).toMatch(/^color: yellow$/m);
   }, 120_000);
 
-  it.skipIf(!has("helm", ["version"]))("renders a packaged Helm chart first", async () => {
+  it("gives each metadata.namespace its own folder, like the converter's input folders", async () => {
+    const orders = DEPLOYMENT.replace(/stalker/g, "orders").replace("namespace: interconn", "namespace: shop");
+    const unscoped = DEPLOYMENT.replace(/stalker/g, "billing").replace("  namespace: interconn\n", "");
+    const { files } = await convertToUniversal({
+      chartRepoUrl: chartRepo,
+      chartRevision: branch,
+      namespace: "fallback",
+      yaml: `${DEPLOYMENT}---\n${orders}---\n${unscoped}`,
+    });
+    const paths = files.map((f) => f.path);
+    expect(paths).toEqual(
+      expect.arrayContaining(["interconn/values/stalker.yaml", "shop/values/orders.yaml", "fallback/values/billing.yaml"])
+    );
+    expect(paths).not.toContain("interconn/values/orders.yaml");
+  }, 120_000);
+
+  it("keeps the release name, image repository and tag out of base", async () => {
+    const { files } = await convertToUniversal({ chartRepoUrl: chartRepo, chartRevision: branch, namespace: "interconn", yaml: DEPLOYMENT });
+    const base = files.find((f) => f.path === "base/stalker.yaml")!.text;
+    const values = files.find((f) => f.path === "interconn/values/stalker.yaml")!.text;
+    expect(base).not.toMatch(/nameOverride|repository:|tag:/);
+    expect(values).toMatch(/repository: registry\.example\.com\/team\/stalker/);
+    // One blank line between top-level keys, and the workload before everything else.
+    expect(base).toMatch(/^workload:[\s\S]*\r?\n\r?\n\w/m);
+  }, 120_000);
+
+  it.skipIf(!has("helm", ["version"]))("renders a packaged Helm chart under its own name, one microservice per workload", async () => {
     execFileSync("helm", ["create", "webapp"], { cwd: work });
+    writeFileSync(
+      join(work, "webapp", "templates", "worker.yaml"),
+      `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-worker
+spec:
+  selector: { matchLabels: { app: worker } }
+  template:
+    metadata: { labels: { app: worker } }
+    spec:
+      containers:
+        - name: worker
+          image: registry.example.com/worker:1.0.0
+`
+    );
     execFileSync("helm", ["package", "webapp"], { cwd: work });
     const archive = readFileSync(join(work, "webapp-0.1.0.tgz")).toString("base64");
     const { files } = await convertToUniversal({
       chartRepoUrl: chartRepo,
       chartRevision: branch,
       namespace: "shop",
-      helm: { name: "webapp", archive, values: "replicaCount: 3\n" },
+      helm: { archive, values: "replicaCount: 3\n" },
     });
-    expect(files.map((f) => f.path)).toContain("base/webapp.yaml");
+    const paths = files.map((f) => f.path);
+    expect(paths).toEqual(expect.arrayContaining(["base/webapp.yaml", "base/webapp-worker.yaml", "shop/values/webapp-worker.yaml"]));
     expect(files.map((f) => f.text).join("\n")).toMatch(/replicaCount: 3/);
   }, 120_000);
 

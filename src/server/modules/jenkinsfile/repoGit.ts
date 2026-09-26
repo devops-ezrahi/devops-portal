@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, writeFile } from "fs/promises";
 import { dirname, join, resolve, sep } from "path";
 import { config } from "../../config";
-import { git, withCredentials } from "../../git";
+import { cloneAt, git, withCredentials } from "../../git";
 import { githubRepo } from "../../github";
 import { canOpenPullRequest, openPullRequest } from "../../pullRequest";
 import { log } from "../../log";
@@ -119,7 +119,7 @@ function inside(root: string, full: string): boolean {
  * pattern-matching its own message.
  */
 export type PullResult =
-  | { path: string; text: string; candidates: string[] }
+  | { path: string; text: string; candidates: string[]; revision: string }
   | { problem: string; candidates: string[] };
 
 /**
@@ -131,11 +131,11 @@ export type PullResult =
  *
  * `wanted` is the path the user typed, or `""` to have the repo searched.
  */
-export async function pullJenkinsfile(repoUrl: string, revision: string, wanted: string): Promise<PullResult> {
+export async function pullJenkinsfile(repoUrl: string, requested: string, wanted: string): Promise<PullResult> {
   const dir = await createTmpDir("jf-");
   try {
     const { token, username } = jenkinsfileTokenFor(repoUrl);
-    await git(["clone", "--depth", "1", "--branch", revision, "--", withCredentials(repoUrl, token, username), dir]);
+    const revision = await cloneAt(withCredentials(repoUrl, token, username), requested, dir);
 
     const chosen = wanted ? { path: wanted, candidates: [wanted], problem: "" } : pickJenkinsfile(await listFiles(dir));
     if (!chosen.path) return { problem: chosen.problem ?? "No Jenkinsfile in that repository.", candidates: chosen.candidates };
@@ -157,7 +157,7 @@ export async function pullJenkinsfile(repoUrl: string, revision: string, wanted:
       return { problem: `${chosen.path} is larger than ${MAX_TEXT / 1000} KB.`, candidates: chosen.candidates };
 
     log.info("jenkinsfile", `pulled ${chosen.path}`, { repoUrl, revision, bytes: text.length });
-    return { path: chosen.path, text, candidates: chosen.candidates };
+    return { path: chosen.path, text, candidates: chosen.candidates, revision };
   } finally {
     await removeTmpDir(dir);
   }

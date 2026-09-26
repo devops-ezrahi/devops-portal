@@ -2,7 +2,7 @@ import { execFile } from "child_process";
 import { access, mkdir, readFile, readdir, writeFile } from "fs/promises";
 import { join } from "path";
 import { promisify } from "util";
-import { git, withCredentials } from "../../git";
+import { cloneAt, withCredentials } from "../../git";
 import { log } from "../../log";
 import { redactSecrets } from "../../redact";
 import { createTmpDir, removeTmpDir } from "../../tmp";
@@ -37,13 +37,24 @@ export const IMPORTER_DIR = "gitops-factory";
  * `shared.yaml`, the ExternalSecret store placement and the metadata cleaning
  * are the importer's own, not a second copy of them. A reference the paste does
  * not hold becomes the importer's own fetch failure, reported as a warning.
+ *
+ * A namespace is a folder, exactly as it is to the converter (`<input>/<ns>/`):
+ * each document goes to its own `metadata.namespace`, and one that names none —
+ * which is all of `helm template`'s output — to the default the request names.
+ * Each namespace is pulled on its own, so its microservices only see its docs.
  */
 const SPLIT_DUMP = `
-import json, subprocess, sys, types, yaml
+import json, re, subprocess, sys, types, yaml
 sys.path.insert(0, sys.argv[1])
 import namespace_importer as ni
-dump, ns, out, failures = sys.argv[2:6]
-docs = ni.parse_yaml_stream(open(dump, encoding="utf-8").read())
+dump, default_ns, out, failures = sys.argv[2:6]
+by_ns = {}
+for d in ni.parse_yaml_stream(open(dump, encoding="utf-8").read()):
+    by_ns.setdefault((d.get("metadata") or {}).get("namespace") or default_ns, []).append(d)
+for ns in by_ns:
+    if not re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", ns):
+        sys.exit(f"metadata.namespace '{ns}' is not a Kubernetes namespace name")
+docs = []
 def run_oc(args):
     kind = ni.RESOURCE_PLURAL_TO_KIND.get(args[1].split(".")[0])
     name = args[2] if len(args) > 2 and not args[2].startswith("-") else None
@@ -54,13 +65,16 @@ def run_oc(args):
         raise subprocess.CalledProcessError(1, args, stderr="referenced, but not in the pasted YAML")
     return types.SimpleNamespace(stdout=yaml.safe_dump(hits[0]))
 ni.run_oc = run_oc
-ni.handle_full_namespace(ns, types.SimpleNamespace(output=out))
+for ns, ns_docs in by_ns.items():
+    docs[:] = ns_docs
+    ni.handle_full_namespace(ns, types.SimpleNamespace(output=out))
 open(failures, "w", encoding="utf-8").write(json.dumps(ni.FETCH_FAILURES))
 `;
 
 export type ConvertInput = {
   chartRepoUrl: string;
   chartRevision: string;
+  /** Where a document naming no `metadata.namespace` goes — every document a Helm chart renders. */
   namespace: string;
   /** `--env-group` specs, `color=black,yellow`: a token in a release name makes a variant folder. */
   envGroups?: string[];
@@ -69,8 +83,12 @@ export type ConvertInput = {
    * joined — split into microservices by the importer before converting.
    */
   yaml?: string;
-  /** A packaged chart (`helm package` output), base64. */
-  helm?: { name: string; archive: string; values?: string };
+  /**
+   * A packaged chart (`helm package` output), base64. Rendered under its own
+   * `Chart.yaml` name, then split exactly like pasted YAML — a chart that
+   * renders several workloads is several microservices.
+   */
+  helm?: { archive: string; values?: string };
 };
 
 export type ConvertResult = { files: RepoFile[]; warnings: string[] };
@@ -104,6 +122,15 @@ async function readTree(dir: string, prefix = ""): Promise<RepoFile[]> {
   return out;
 }
 
+/** A chart's own `name:` as a release name — `helm template` wants a DNS label. */
+async function chartName(dir: string): Promise<string> {
+  const text = await readFile(join(dir, "Chart.yaml"), "utf8");
+  const name = /^name:\s*["']?([^"'\s#]+)/m.exec(text)?.[1] ?? "";
+  const release = name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 53);
+  if (!release) throw new Error("The chart's Chart.yaml has no name");
+  return release;
+}
+
 /** The directory holding `Chart.yaml` at the top of an unpacked chart. */
 async function chartDir(root: string): Promise<string> {
   for (const entry of await readdir(root, { withFileTypes: true })) {
@@ -120,42 +147,36 @@ export async function convertToUniversal(input: ConvertInput): Promise<ConvertRe
     // The chart repo is usually private on the values repo's own host, so the
     // values token applies — `valuesTokenFor` only hands it to that host.
     const { token, username } = valuesTokenFor(input.chartRepoUrl);
-    await git(
-      ["clone", "--depth", "1", "--branch", input.chartRevision, "--", withCredentials(input.chartRepoUrl, token, username), join(dir, "chart")],
-      undefined,
-      120_000
-    );
+    await cloneAt(withCredentials(input.chartRepoUrl, token, username), input.chartRevision, join(dir, "chart"), 120_000);
     const converter = join(dir, "chart", CONVERTER_PATH);
     if (!(await access(converter).then(() => true, () => false)))
       throw new Error(`${input.chartRepoUrl}@${input.chartRevision} has no ${CONVERTER_PATH} to convert with`);
 
-    const inDir = join(dir, "in", input.namespace);
-    await mkdir(inDir, { recursive: true });
-    const warnings: string[] = [];
-    if (input.yaml) {
-      const importer = join(dir, "chart", IMPORTER_DIR);
-      if (!(await access(join(importer, "namespace_importer.py")).then(() => true, () => false)))
-        throw new Error(`${input.chartRepoUrl}@${input.chartRevision} has no ${IMPORTER_DIR}/namespace_importer.py to split the YAML with`);
-      await writeFile(join(dir, "dump.yaml"), input.yaml, "utf8");
-      const failures = join(dir, "failures.json");
-      await run(python, ["-c", SPLIT_DUMP, importer, join(dir, "dump.yaml"), input.namespace, join(dir, "in"), failures], dir, "Splitting the YAML");
-      warnings.push(...(JSON.parse(await readFile(failures, "utf8")) as string[]));
-    }
-
+    // A chart is rendered first; what comes out is the same plain YAML a paste is.
+    let manifests = input.yaml ?? "";
     if (input.helm) {
       const helmDir = join(dir, "helm");
       await mkdir(join(helmDir, "src"), { recursive: true });
       await writeFile(join(helmDir, "chart.tgz"), Buffer.from(input.helm.archive, "base64"));
       // Relative, from the destination: GNU tar reads a leading `C:` as a host.
       await run("tar", ["-xf", "../chart.tgz"], join(helmDir, "src"), "Unpacking the chart");
-      const args = ["template", input.helm.name, await chartDir(join(helmDir, "src")), "--namespace", input.namespace];
+      const src = await chartDir(join(helmDir, "src"));
+      const args = ["template", await chartName(src), src, "--namespace", input.namespace];
       if (input.helm.values?.trim()) {
         await writeFile(join(helmDir, "values.yaml"), input.helm.values, "utf8");
         args.push("-f", join(helmDir, "values.yaml"));
       }
-      const rendered = await run("helm", args, helmDir, "helm template");
-      await writeFile(join(inDir, `${input.helm.name}.yaml`), rendered, "utf8");
+      manifests = await run("helm", args, helmDir, "helm template");
     }
+
+    const importer = join(dir, "chart", IMPORTER_DIR);
+    if (!(await access(join(importer, "namespace_importer.py")).then(() => true, () => false)))
+      throw new Error(`${input.chartRepoUrl}@${input.chartRevision} has no ${IMPORTER_DIR}/namespace_importer.py to split the YAML with`);
+    await mkdir(join(dir, "in"), { recursive: true });
+    await writeFile(join(dir, "dump.yaml"), manifests, "utf8");
+    const failures = join(dir, "failures.json");
+    await run(python, ["-c", SPLIT_DUMP, importer, join(dir, "dump.yaml"), input.namespace, join(dir, "in"), failures], dir, "Splitting the YAML");
+    const warnings = JSON.parse(await readFile(failures, "utf8")) as string[];
 
     // --skip-verify: verification renders every release through the chart with
     // helm, which is a check for the converter's own CI, not for this request.
@@ -166,7 +187,7 @@ export async function convertToUniversal(input: ConvertInput): Promise<ConvertRe
     const report = await readFile(join(dir, "out", "report", "conflicts_and_warnings.txt"), "utf8").catch(() => "");
     for (const l of report.split("\n").map((l) => l.trim())) if (l && !/^[=#-]+$/.test(l)) warnings.push(l);
     log.info("argocd", "converted", {
-      namespace: input.namespace,
+      defaultNamespace: input.namespace,
       microservices: files.filter((f) => f.path.startsWith("base/")).length,
       files: files.length,
       warnings: warnings.length,

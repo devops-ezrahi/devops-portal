@@ -4,7 +4,6 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  FileCode2,
   FileUp,
   Pencil,
   Plus,
@@ -30,7 +29,7 @@ import { buildValues, extraValuesError, parseValues } from "./build";
 import { checkValues } from "./checks";
 import { BY_ID, featureForPath } from "./catalog";
 import { deepMerge, obj, shadowing } from "./values";
-import { buildTree } from "./tree";
+import { buildTree, slug } from "./tree";
 import {
   SHARED_RELEASE_NAME,
   isEmptyTree,
@@ -249,12 +248,16 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         let overridden = 0;
         /** The image the open namespace deploys — base, then its defaults, then its own file. */
         let here: Record<string, unknown> | undefined;
+        /** A repository some namespace deploys — what base shows when the repository lives beside each tag. */
+        let deployedRepo: unknown;
         draft.namespaces.forEach((ns, i) => {
           const entry = ns.releases.find((e) => e.release === r.id);
           const override = entry ? buildValues(entry.features, entry.extraValues) : {};
           const nsDefaults = buildValues(ns.defaults?.features ?? {}, ns.defaults?.extraValues);
           // Before the early return: a namespace that overrides nothing still deploys an image.
-          if (i === layer) here = obj(deepMerge(deepMerge(base, nsDefaults), override).image);
+          const deployed = obj(deepMerge(deepMerge(base, nsDefaults), override).image);
+          if (i === layer) here = deployed;
+          deployedRepo ??= deployed.repository;
           // An entry exists from the first keystroke in that layer; an empty
           // one writes an empty file and overrides nothing.
           if (!Object.keys(override).length) return;
@@ -277,7 +280,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         return {
           id: r.id,
           name: r.name,
-          image: String(shown.repository ?? ""),
+          image: String(shown.repository ?? deployedRepo ?? ""),
           tag: shown.tag ? String(shown.tag) : here ? null : undefined,
           resources,
           extras: [...extras].map(([kind, extra]) => ({ kind, ...extra })),
@@ -376,7 +379,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     const base = buildValues(release.features, release.extraValues);
     const effective =
       layer === BASE ? base : deepMerge(deepMerge(base, nsDefaultValues), buildValues(features, extraValues));
-    const found = checkValues(parseValues(toYaml(effective)) ?? {});
+    const found = checkValues(parseValues(toYaml(effective)) ?? {}, layer === BASE);
     // Cluster-scoped objects belong to one release in the cluster, so a tree
     // that fans the same release out over several namespaces owns them twice.
     const clusterIds = Object.entries(release.features)
@@ -528,6 +531,9 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       setDraft((prev) => ({
         ...prev,
         ...(imported.chart ? { chart: imported.chart } : {}),
+        // Not a redirect: a branch the repo lacks was read from its default,
+        // and that is the one the next commit has to target.
+        values: { ...prev.values, revision: result.revision || prev.values.revision },
         releases: imported.releases,
         namespaces: imported.namespaces,
       }));
@@ -678,6 +684,38 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   /** Open the selected namespace's defaults — every microservice in it. */
   function openDefaults() {
     setReleaseId(DEFAULTS);
+  }
+
+  /** A file pressed in the preview opens the scope that writes it. A repo-only file has none and just shows. */
+  function openFile(path: string) {
+    const bySlug = (s: string) => draft.releases.find((r) => slug(r.name) === s)?.id;
+    const base = /^base\/([^/]+)\.yaml$/.exec(path);
+    if (base) {
+      const id = bySlug(base[1]);
+      if (id) {
+        setLayer(BASE);
+        setReleaseId(id);
+      }
+      return;
+    }
+    // A namespace may be a variant folder (`prd/yellow`), so the longest name that prefixes the path wins.
+    const index = draft.namespaces
+      .map((ns, i) => ({ i, name: ns.name }))
+      .filter(({ name }) => name && path.startsWith(`${name}/`))
+      .sort((a, b) => b.name.length - a.name.length)[0]?.i;
+    if (index === undefined) return;
+    const rest = path.slice(draft.namespaces[index].name.length + 1);
+    if (rest === "defaults.yaml") {
+      setLayer(index);
+      setReleaseId(DEFAULTS);
+      return;
+    }
+    const id = /^values\/(?:.+\/)?([^/]+)\.yaml$/.exec(rest)?.[1];
+    const releaseId = id && bySlug(id);
+    if (releaseId) {
+      setLayer(index);
+      setReleaseId(releaseId);
+    }
   }
 
   function renameRelease(id: string, name: string) {
@@ -847,9 +885,6 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
               <Trash2 size={18} aria-hidden="true" /> Delete
             </button>
           )}
-          <button type="button" className="ghost-button" onClick={() => setConvertOpen(true)}>
-            <FileCode2 size={18} aria-hidden="true" /> Convert
-          </button>
           <button type="button" className="primary" onClick={() => setNewOpen(true)}>
             <Plus size={18} aria-hidden="true" /> New
           </button>
@@ -1129,6 +1164,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 comparing={comparing}
                 error={baselineError}
                 deletes={!!subPath.trim()}
+                onOpenFile={openFile}
                 actions={
                   <CommitButton
                     blocked={gitBlocked(draft, gitEnabled)}

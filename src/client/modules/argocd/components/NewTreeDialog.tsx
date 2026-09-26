@@ -40,13 +40,13 @@ export function NewTreeDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   /** Held back once, so an import that drops something says so before it happens. */
-  const [pending, setPending] = useState<{ imported: TreeImport; repoUrl: string } | null>(null);
+  const [pending, setPending] = useState<{ imported: TreeImport; repoUrl: string; revision: string } | null>(null);
 
   const rewritten = isSshUrl(repoUrl);
 
   async function handleConnect() {
     if (pending) {
-      onConnect(pending.imported, pending.repoUrl, revision, path);
+      onConnect(pending.imported, pending.repoUrl, pending.revision, path);
       return;
     }
     setBusy(true);
@@ -56,12 +56,12 @@ export function NewTreeDialog({
       // pasting is the common case, and a blur handler is not a guarantee.
       // The server normalises too — that is the authoritative one — but what
       // is sent should match what the field says it will send.
-      const result = await pullValues(normalizeRepoUrl(repoUrl), revision, path);
+      const result = await pullValues(normalizeRepoUrl(repoUrl, gitUrl), revision, path);
       const imported = importTree(result.files);
       // The repo URL is the server's, not the field's: an SSH URL was rewritten
       // before the clone, and the tree should record what actually worked.
-      if (imported.warnings.length) setPending({ imported, repoUrl: result.repoUrl });
-      else onConnect(imported, result.repoUrl, revision, path);
+      if (imported.warnings.length) setPending({ imported, repoUrl: result.repoUrl, revision: result.revision || revision });
+      else onConnect(imported, result.repoUrl, result.revision || revision, path);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not read that repository");
     } finally {
@@ -122,11 +122,11 @@ export function NewTreeDialog({
                   setRepoUrl(e.target.value);
                   setPending(null);
                 }}
-                onBlur={() => setRepoUrl((u) => normalizeRepoUrl(u))}
+                onBlur={() => setRepoUrl((u) => normalizeRepoUrl(u, gitUrl))}
               />
               {rewritten && (
                 <small className="field-hint">
-                  SSH URL — this becomes <code>{normalizeRepoUrl(repoUrl)}</code>.
+                  SSH URL — this becomes <code>{normalizeRepoUrl(repoUrl, gitUrl)}</code>.
                 </small>
               )}
             </div>

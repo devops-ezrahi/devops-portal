@@ -40,9 +40,12 @@ export function ChartLine({
           {repoName(tree.chart.repoUrl)}
           <span className="git-repo-rev">@{tree.chart.revision || "?"}</span>
         </span>
+        <span className="ag-chart-paths">
+          {tree.chart.path || "."} · {tree.chart.appsetPath || "ms-applicationSet"}
+        </span>
         {repoWebUrl(tree.chart.repoUrl) && (
           <a
-            className="icon-button"
+            className="icon-button edit-toggle"
             href={repoWebUrl(tree.chart.repoUrl, tree.chart.revision, tree.chart.path)}
             target="_blank"
             rel="noreferrer"
@@ -52,9 +55,6 @@ export function ChartLine({
             <ExternalLink size={14} aria-hidden="true" />
           </a>
         )}
-        <span className="ag-chart-paths">
-          {tree.chart.path || "."} · {tree.chart.appsetPath || "ms-applicationSet"}
-        </span>
         <button
           type="button"
           className="icon-button edit-toggle"
@@ -74,7 +74,7 @@ export function ChartLine({
               value={tree.chart.repoUrl}
               placeholder={exampleRepoUrl(gitUrl, "universal-chart")}
               onChange={(e) => onChange({ ...tree.chart, repoUrl: e.target.value })}
-              onBlur={(e) => onChange({ ...tree.chart, repoUrl: normalizeRepoUrl(e.target.value) })}
+              onBlur={(e) => onChange({ ...tree.chart, repoUrl: normalizeRepoUrl(e.target.value, gitUrl) })}
             />
           </label>
           <label>

@@ -4454,7 +4454,8 @@ input.jf-title {
   color: #4a5a62;
 }
 
-.ag-chart-summary:hover .edit-toggle,
+/* Each lights on its own hover, so the link and the pencil read as two buttons. */
+.ag-chart-summary .edit-toggle:hover,
 .ag-chart-summary .edit-toggle[aria-expanded="true"] { color: #b9c6cc }
 
 /* ---- the New tree dialog ---- */

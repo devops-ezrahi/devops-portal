@@ -100,11 +100,13 @@ export function importValues(text: string): ImportResult {
   return { features, extraValues, warnings };
 }
 
-/** The name a release should take from an imported document, if it names itself. */
+/**
+ * The name a pasted values file suggests for its release: its `nameOverride`.
+ * Not `fullnameOverride`, which is a workload's raw name and may be templated.
+ */
 export function releaseNameFrom(text: string): string {
-  const doc = parseValues(text);
-  const name = doc?.nameOverride ?? doc?.fullnameOverride;
-  return nz(name) ? String(name) : "";
+  const name = parseValues(text)?.nameOverride;
+  return nz(name) && !String(name).includes("{{") ? String(name) : "";
 }
 
 export { BY_ID };

@@ -97,14 +97,20 @@ describe("pushValuesTree", () => {
 
 describe("pullValuesTree", () => {
   it("reads the tree back out of the repo it was pushed to", async () => {
-    const files = await pullValuesTree(remote, "portal/argocd-ag-0009", "");
+    const { files } = await pullValuesTree(remote, "portal/argocd-ag-0009", "");
     const paths = files.map((f) => f.path);
     expect(paths).toContain("base/api.yaml");
     expect(files.find((f) => f.path === "base/api.yaml")!.text).toContain("tag: 2.0.0");
   });
 
   it("reads only the subdirectory it is pointed at", async () => {
-    const files = await pullValuesTree(remote, "portal/argocd-ag-0009", "apps");
+    const { files } = await pullValuesTree(remote, "portal/argocd-ag-0009", "apps");
     expect(files.map((f) => f.path)).toEqual(["base/api.yaml"]);
+  });
+
+  it("falls back to the remote's default branch when the one asked for does not exist", async () => {
+    // The bare remote's HEAD is `main` — the `master`-vs-`main` case, reversed.
+    const pulled = await pullValuesTree(remote, "no-such-branch", "");
+    expect(pulled.revision).toBe("main");
   });
 });

@@ -75,7 +75,7 @@ export function slug(name: string): string {
 
 /** A values file always exists, even when it is empty: a missing valueFile fails the whole render. */
 function valuesFile(path: string, doc: Values, header: string, note: string): GeneratedFile {
-  const body = Object.keys(doc).length ? toYaml(doc) : "{}";
+  const body = Object.keys(doc).length ? toYaml(doc, true) : "{}";
   return { path, text: `${header}\n${body}\n`, note };
 }
 

@@ -159,12 +159,18 @@ describe("ArgocdView", () => {
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
-    // A workload with no image is what the chart's own schema refuses, and the
-    // workload defaults to a Deployment whether or not anything was typed. It
-    // is said twice on purpose — once in the list under the form, once on the
-    // Image card itself — so both places are asserted.
     const listed = () => document.querySelector(".ag-problems")?.textContent ?? "";
     const onCard = () => document.querySelector('[data-feature-card="image"] .ag-feature-problems')?.textContent ?? "";
+    // Base is not what deploys — the converter writes the repository beside
+    // each namespace's tag — so base alone missing one is not a problem.
+    expect(listed()).not.toMatch(/No image.repository/);
+
+    // A namespace is: a workload with no image is what the chart's own schema
+    // refuses, and the workload defaults to a Deployment whether or not
+    // anything was typed. It is said twice on purpose — once in the list under
+    // the form, once on the Image card itself — so both places are asserted.
+    fireEvent.click(screen.getByRole("button", { name: /Namespace/ }));
+    rename("namespace", "shop-web");
     await waitFor(() => expect(listed()).toMatch(/No image.repository/));
     expect(onCard()).toMatch(/No image.repository/);
 

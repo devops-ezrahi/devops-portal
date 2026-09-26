@@ -56,10 +56,10 @@ export function RepoPanel({ repo, onChange, onPull, pulling, gitEnabled, gitUrl,
           value={repo.repoUrl}
           placeholder={exampleRepoUrl(gitUrl, "service")}
           onChange={(e) => onChange({ ...repo, repoUrl: e.target.value })}
-          onBlur={(e) => onChange({ ...repo, repoUrl: normalizeRepoUrl(e.target.value) })}
+          onBlur={(e) => onChange({ ...repo, repoUrl: normalizeRepoUrl(e.target.value, gitUrl) })}
         />
         {isSshUrl(repo.repoUrl) && (
-          <small className="field-hint">SSH URL — this becomes {normalizeRepoUrl(repo.repoUrl)} on save.</small>
+          <small className="field-hint">SSH URL — this becomes {normalizeRepoUrl(repo.repoUrl, gitUrl)} on save.</small>
         )}
       </div>
       <label>

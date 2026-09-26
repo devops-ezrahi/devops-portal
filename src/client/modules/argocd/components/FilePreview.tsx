@@ -56,9 +56,11 @@ type Props = {
   actions?: ReactNode;
   /** What that action last did, under the head. */
   notice?: ReactNode;
+  /** A file was pressed — the builder opens the scope that writes it. */
+  onOpenFile?: (path: string) => void;
 };
 
-export function FilePreview({ files, onDownload, repo, comparing, deletes = false, error, actions, notice }: Props) {
+export function FilePreview({ files, onDownload, repo, comparing, deletes = false, error, actions, notice, onOpenFile }: Props) {
   const [selected, setSelected] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
@@ -100,7 +102,10 @@ export function FilePreview({ files, onDownload, repo, comparing, deletes = fals
               aria-label={status && status !== "unchanged" ? `${node.path} (${status})` : node.path}
               title={node.path}
               style={pad}
-              onClick={() => setSelected(node.path)}
+              onClick={() => {
+                setSelected(node.path);
+                onOpenFile?.(node.path);
+              }}
             >
               <span className={`ag-file-gutter${status ? ` st-${status}` : ""}`} aria-hidden="true">
                 {status ? MARK[status] : ""}

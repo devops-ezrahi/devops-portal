@@ -27,13 +27,13 @@ const treeBody = z.object({
     // through an import or a hand-edited field too, and `safeRepoUrl` refuses
     // everything but http(s) — so an SSH URL stored verbatim is a tree whose
     // push fails later, with the reason three screens away.
-    repoUrl: z.string().trim().max(300).transform(normalizeRepoUrl),
+    repoUrl: z.string().trim().max(300).transform((url) => normalizeRepoUrl(url, config.git.url)),
     path: z.string().trim().max(200),
     appsetPath: z.string().trim().max(200),
     revision: z.string().trim().max(100),
   }),
   values: z.object({
-    repoUrl: z.string().trim().max(300).transform(normalizeRepoUrl),
+    repoUrl: z.string().trim().max(300).transform((url) => normalizeRepoUrl(url, config.git.url)),
     revision: z.string().trim().max(100),
     path: z.string().trim().max(200),
   }),
@@ -86,7 +86,7 @@ const pullBody = z.object({
   // `transform` runs before `refine`, so the SSH form is rewritten and *then*
   // checked — which is what lets someone paste the URL their git host showed
   // them without the portal needing an SSH key.
-  repoUrl: z.string().trim().max(300).transform(normalizeRepoUrl).refine(safeRepoUrl, "Only http(s) git URLs can be cloned"),
+  repoUrl: z.string().trim().max(300).transform((url) => normalizeRepoUrl(url, config.git.url)).refine(safeRepoUrl, "Only http(s) git URLs can be cloned"),
   revision: z.string().trim().max(100).refine(safeRef, "Not a branch or tag name"),
   path: z.string().trim().max(200).refine(safeDirPath, "Not a path inside the repository"),
 });
@@ -139,7 +139,7 @@ const convertBody = z
     envGroups: z.array(z.string().trim().regex(/^[a-z][a-zA-Z0-9_]*=[a-z0-9-]+(,[a-z0-9-]+)*$/, "An env group is key=token,token")).max(5).optional(),
     yaml: z.string().trim().max(45 * 1024 * 1024).optional(),
     helm: z
-      .object({ name: dnsLabel, archive: z.string().min(1).max(4 * 1024 * 1024), values: z.string().max(512_000).optional() })
+      .object({ archive: z.string().min(1).max(4 * 1024 * 1024), values: z.string().max(512_000).optional() })
       .optional(),
   })
   .refine((b) => !!b.yaml || !!b.helm, "Nothing to convert — paste YAML, add a file or a chart");
@@ -278,14 +278,16 @@ export function createArgocdRouter(store: TreeStore = new TreeStore()): express.
   router.post("/api/argocd/pull", async (req, res, next) => {
     try {
       const { repoUrl, revision, path } = pullBody.parse(req.body);
-      const files = await pullValuesTree(repoUrl, revision, path);
-      if (!files.length) {
-        res.status(404).json({ error: `No YAML files under ${path || "the repository root"} on ${revision}` });
+      const pulled = await pullValuesTree(repoUrl, revision, path);
+      if (!pulled.files.length) {
+        res.status(404).json({ error: `No YAML files under ${path || "the repository root"} on ${pulled.revision}` });
         return;
       }
-      // `repoUrl` is echoed because it may not be the one that was sent — an
-      // SSH URL was rewritten above, and the tree should record what cloned.
-      res.json({ files, repoUrl });
+      // `repoUrl` and `revision` are echoed because they may not be the ones
+      // that were sent — an SSH URL was rewritten above, a `main` the repo does
+      // not have was read from its default branch — and the tree should record
+      // what cloned.
+      res.json({ files: pulled.files, repoUrl, revision: pulled.revision });
     } catch (err) {
       next(err);
     }

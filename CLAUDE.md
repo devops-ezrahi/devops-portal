@@ -97,7 +97,7 @@ Key variables (see `.env.example`):
 | `ARTIFACTORY_DOCKER_REPO`                                    | —               | Docker repo the Whitening module pushes retagged images to via `skopeo`                                                     |
 | `ARTIFACTORY_MAVEN_REPO` / `_RPM_REPO` / `_PYPI_REPO` / `_CONDA_REPO` / `_HELM_REPO` | —       | Per-type repos the Artifactory module routes detected artifacts to (`packageTypes.ts`); unset = that type is skipped with a log line. Helm is the one that is not routed by filename: a chart is a `.tgz` exactly like an npm package, so `readTarballIdentity` decides from the manifest inside (`<chart>/Chart.yaml` vs `package/package.json`). |
 | `NPM_SOURCE_TOKEN`                                            | —               | Credential for the *source* npm registry when a URL copy is submitted with **Include dependencies** ticked. That path derives the registry from the pasted tarball URL (`<registry>/<name>/-/<file>.tgz`), writes it plus this token into a throwaway `.npmrc`, and runs a real `npm install` — once per target platform, since optional deps are platform-gated. Unset is normal: a public registry needs nothing, and a source registry on the same host as `ARTIFACTORY_URL` reuses `ARTIFACTORY_TOKEN` automatically. |
-| `GIT_URL` / `GIT_TOKEN`                                      | —               | Bitbucket Server base URL + HTTP access token; required for the Whitening module to open pull requests. The AI module reuses the same token to authenticate `git clone` for registered `ai-*` project repos (unset = clone stays unauthenticated, so public repos still work). The **Jenkinsfile** builder reuses it too, for reading a Jenkinsfile out of a Bitbucket repo and committing one back. The token only ever reaches the `GIT_URL` host (`tokenFor`). |
+| `GIT_URL` / `GIT_TOKEN`                                      | —               | Bitbucket Server base URL + HTTP access token; required for the Whitening module to open pull requests. The AI module reuses the same token to authenticate `git clone` for registered `ai-*` project repos on the `GIT_URL` host — any other host clones anonymously (unset = clone stays unauthenticated, so public repos still work). The **Jenkinsfile** builder reuses it too, for reading a Jenkinsfile out of a Bitbucket repo and committing one back. The token only ever reaches the `GIT_URL` host (`tokenFor`). |
 | `GITHUB_TOKEN`                                               | —               | The Jenkinsfile builder's credential for repos on **github.com** (`jenkinsfileTokenFor`), where `GIT_TOKEN` cannot go. Sent to github.com only; it pushes the branch and opens the PR through `openPullRequest`. Either this or `GIT_URL`+`GIT_TOKEN` enables Connect/Pull/Commit. Any other host clones anonymously. |
 | `GIT_USERNAME`                                               | —               | Empty (default) puts the token alone in the clone URL; set it only if Bitbucket wants `username:token` basic auth           |
 | `JENKINS_IMAGES_PATH`                                        | —               | Artifactory storage path whose child folders name the agent images the Jenkinsfile builder's `image` field suggests (e.g. `docker-local/jenkins-agents`). One AQL search per hour per pod returns the names *and* each image's `SCREAMING_CASE` Docker labels (`JDK=17`), which are shown beside the name. Unset, or unreachable, = the field is plain free text exactly as before. |
@@ -907,7 +907,19 @@ its own test was asking for.
 **Pasted SSH URLs are rewritten to HTTPS** (`gitUrl.ts`). Any host but
 github.com / gitlab.com / bitbucket.org is taken to be Bitbucket Server, whose
 HTTPS clone path carries `/scm/` where its SSH one does not — so it is put
-back, and the SSH port dropped.
+back, and the SSH port dropped. When the SSH host is `GIT_URL`'s, the URL is
+rebuilt on `GIT_URL` itself, so a Bitbucket served on `:7990` or under
+`/bitbucket` keeps both — and still matches the host `tokenFor` hands the token
+to. Every caller passes `GIT_URL` in (the routers from `config`, the fields from
+the list response), because `gitUrl.ts` must stay import-free for the browser.
+`repoWebUrl` keeps a context path too (`/bitbucket/projects/P/repos/r/browse`).
+
+**A branch the repo does not have falls back to its default.** Every builder
+pre-fills `main`, and most Bitbucket repos are on `master`. `cloneAt` (`git.ts`)
+retries a "Remote branch … not found" on the branch `git ls-remote --symref
+HEAD` names; Pull/Connect (both builders) and Convert's chart clone go through
+it, and the pull responses carry the branch actually read, which the client
+writes back into the revision field — so the next Commit targets it too.
 
 ## ArgoCD: the universal-chart GitOps builder
 
@@ -1192,6 +1204,15 @@ defaults of its own.
   chart repo at runtime, so there is no clone step and no way for a network
   failure to leave the builder empty. Same call, same reasons, as
   `jenkinsfile/catalog.ts`.
+- **A values file reads by importance, one block per key.** Top-level keys
+  follow `FEATURES` registration order (`orderKeys`) — workload, image,
+  replicas, container, env, ports, resources, probes, storage, networking,
+  config, scaling, scheduling, and the names/stamps (`identity`) near the end —
+  with a blank line between them (`toYaml(doc, true)`, used by `buildTree` and
+  the diff's canonical form only; every other `toYaml` is a round-trip and stays
+  tight). The converter's `TOP_LEVEL_KEY_ORDER` is the same list: **reorder a
+  feature here and change it there**, or a converted tree and a built one lay
+  the same file out differently.
 - **Writing YAML is hand-rolled, reading it is not.** `yaml.ts` is ported from
   the chart's own emitter (stable key order, block scalars, `{}` for the empty
   ones); parsing goes through the `yaml` package, because a hand-rolled parser
@@ -1232,6 +1253,12 @@ defaults of its own.
   what it *overrides*. So a values file is written for all of them, empty ones
   included — `<ns>/values/` **is** the fan-out, so a release with no file there
   is a release that does not deploy.
+- **Pressing a file in the preview opens the scope that writes it** — Base and
+  that microservice for `base/<ms>.yaml`, the namespace's Defaults for
+  `<ns>/defaults.yaml`, the namespace and microservice for
+  `<ns>/values/[group/]<ms>.yaml` (`openFile` in `ArgocdView`; the longest
+  namespace name wins, since a variant folder is `prd/yellow`). A repo-only
+  file has no scope and just shows.
 - **The preview is the directory listing the values repo will hold**, folders
   and all, and the catalog's categories collapse to the ones a layer actually
   uses. Both exist for the same reason: a namespace override touches two
@@ -1244,10 +1271,10 @@ defaults of its own.
 
 ## ArgoCD: converting plain YAML or a Helm chart
 
-**Convert** (the topbar, or New's third choice) turns Kubernetes manifests or a
-packaged chart into universal-chart values, then folds them into the open tree —
-which keeps its repository, so it commits like anything else, and a new one
-connects from the repository panel as usual.
+**Convert** (New's third choice — there is no topbar button) turns Kubernetes
+manifests or a packaged chart into universal-chart values, then folds them into
+the open tree — which keeps its repository, so it commits like anything else,
+and a new one connects from the repository panel as usual.
 
 - **The converter is `convert_to_universal_chart.py` itself, not a port.**
   `POST /api/argocd/convert` shallow-clones the tree's own chart repo at the
@@ -1256,8 +1283,11 @@ connects from the repository panel as usual.
   beside that chart version and nothing is vendored. Its output is the layout
   `importTree` already reads, so the browser takes it exactly like a pull.
 - **A Helm chart is rendered first**, with `helm template <name> <chart> -n
-  <ns> [-f values]`, and the rendered YAML is what gets converted. The image
-  carries `helm` (from `alpine/helm`) and `python3-yaml` for this.
+  <ns> [-f values]` where `<name>` is the chart's own `Chart.yaml` name, and the
+  render then goes through the **same splitter as pasted YAML** — a chart that
+  renders several Deployments/StatefulSets is several microservices, not one.
+  There is no name field to fill in. The image carries `helm` (from
+  `alpine/helm`) and `python3-yaml` for this.
 - **YAML may be dirty** — pasted into the box or added as files, which append
   to the same box. It is split into microservices by the chart repo's own
   `gitops-factory/namespace_importer.py` (the `oc`-driven namespace puller),
@@ -1265,12 +1295,35 @@ connects from the repository panel as usual.
   — so grouping (`part-of` → `app` → workload name), `shared.yaml`, store
   placement and metadata stripping are the importer's, not a port. A
   reference the paste lacks is the importer's fetch failure, shown as a
-  warning. The namespace field is prefilled from `metadata.namespace` until
-  typed into; it names the tree's `<ns>/` directory, not a filter.
+  warning.
+- **A namespace is a folder, as it is to the converter** (`<input>/<ns>/`).
+  `SPLIT_DUMP` groups documents by their own `metadata.namespace` and pulls
+  each namespace separately, so a paste spanning `shop-dev` and `shop-prod`
+  lands in two folders. The dialog's **Default namespace** only takes the
+  documents that name none — which is everything `helm template` renders. It is
+  prefilled from the first namespace in the paste, and the dialog lists every
+  one it found. A `metadata.namespace` that is not a DNS label fails the
+  convert rather than becoming a directory name.
 - `mergeConverted` (`document.ts`): a same-named microservice is replaced in
   place (keeping its id); into a namespace the tree already has, the
   converter's `<ns>/defaults.yaml` is folded into each converted entry so the
   existing defaults are untouched.
+
+**What the converter leaves out of base, and why the portal agrees.**
+
+- **No `nameOverride` anywhere.** The ms-applicationSet chart sets
+  `helm.releaseName` to the values file's name, so the chart's `fullname` is
+  already `<microservice>`. Before that, the Application name (`<ms>-<ns
+  suffix>`) was the release name, and every converted base carried
+  `nameOverride: <ms>` only to undo it. `fullnameOverride` stays: it pins a
+  running workload whose raw name differs from its file, so its Service and
+  PVCs are not renamed. `importTree` therefore names each release after its
+  **base file** — the file is the release — never after either override.
+- **The image repository travels with its tag** into `<ns>/values/<ms>.yaml`,
+  not into base as well. So base alone has no `image.repository`, and
+  `checkValues(doc, inBase)` skips the "No image.repository" problem there;
+  a namespace, which is what deploys, still gets it. The base card shows the
+  repository a namespace deploys rather than "no image".
 
 **A namespace file keeps what was set in it.** `buildTree` subtracts only the
 chart's own defaults (`subtractChartDefaults` — what ticking a feature writes)

@@ -25,6 +25,14 @@ describe("normalizeRepoUrl", () => {
     expect(normalizeRepoUrl("ssh://git@github.com/org/repo.git")).toBe("https://github.com/org/repo.git");
   });
 
+  it("rebuilds the portal's own Bitbucket on GIT_URL, keeping its HTTP port and context path", () => {
+    const gitUrl = "https://bb.corp:7990/bitbucket";
+    expect(normalizeRepoUrl("ssh://git@bb.corp:7999/proj/values.git", gitUrl)).toBe("https://bb.corp:7990/bitbucket/scm/proj/values.git");
+    expect(normalizeRepoUrl("git@bb.corp:proj/values.git", `${gitUrl}/`)).toBe("https://bb.corp:7990/bitbucket/scm/proj/values.git");
+    // Another host is not GIT_URL's, so it keeps the plain rewrite.
+    expect(normalizeRepoUrl("git@github.com:org/r.git", gitUrl)).toBe("https://github.com/org/r.git");
+  });
+
   it("leaves an https URL exactly as it is", () => {
     const url = "https://github.com/org/repo.git";
     expect(normalizeRepoUrl(url)).toBe(url);
@@ -60,6 +68,12 @@ describe("repoWebUrl", () => {
     expect(repoWebUrl("https://bitbucket.org/t/svc.git", "main", "ci")).toBe("https://bitbucket.org/t/svc/src/main/ci");
     expect(repoWebUrl("https://git.corp/scm/OPS/svc.git", "main", "ci/Jenkinsfile", true)).toBe(
       "https://git.corp/projects/OPS/repos/svc/browse/ci/Jenkinsfile?at=main"
+    );
+  });
+
+  it("keeps a Bitbucket Server's port and context path in the browse link", () => {
+    expect(repoWebUrl("https://bb.corp:7990/bitbucket/scm/OPS/values.git", "master", "prd")).toBe(
+      "https://bb.corp:7990/bitbucket/projects/OPS/repos/values/browse/prd?at=master"
     );
   });
 

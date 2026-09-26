@@ -74,13 +74,14 @@ describe("catalog", () => {
     expect(buildValues(on("pdb", { minAvailable: "2" })).pdb).toEqual({ enabled: true, minAvailable: 2 });
   });
 
-  it("orders keys by the catalog, not by the order they were typed", () => {
+  it("orders keys by importance — the catalog's order, not the order they were typed", () => {
     const doc = buildValues({
       ...on("hpa", { maxReplicas: "5" }),
       ...on("image", { repository: "nginx" }),
       ...on("identity", { nameOverride: "web" }),
+      ...on("workload", { type: "statefulset" }),
     });
-    expect(Object.keys(doc)).toEqual(["nameOverride", "image", "hpa"]);
+    expect(Object.keys(doc)).toEqual(["workload", "image", "hpa", "nameOverride"]);
   });
 
   it("merges extraValues last, so the escape hatch wins", () => {

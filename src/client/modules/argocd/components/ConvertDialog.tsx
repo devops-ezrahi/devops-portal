@@ -7,21 +7,13 @@ import type { ArgocdTree } from "../../../../server/types";
 
 type Source = "yaml" | "helm";
 
-/** A file name as a Kubernetes name: `Stalker Deployment.yaml` -> `stalker-deployment`. */
-const k8sName = (file: string) =>
-  file
-    .replace(/\.(ya?ml|tgz|tar\.gz)$/i, "")
-    .replace(/-\d+(\.\d+)*(-[\w.]+)?$/, "") // a chart's `-1.2.3` version suffix
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 63);
-
 const DNS = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
 const ENV_GROUP = /^[a-z][a-zA-Z0-9_]*=[a-z0-9-]+(,[a-z0-9-]+)*$/;
 
-/** The first `metadata.namespace` in a dump — where it came from is usually where it goes. */
-const namespaceIn = (text: string) => /^\s+namespace:\s*["']?([a-z0-9][-a-z0-9]*)/m.exec(text)?.[1];
+/** Every `metadata.namespace` in a dump, in order — each becomes its own folder in the tree. */
+const namespacesIn = (text: string) => [
+  ...new Set([...text.matchAll(/^\s+namespace:\s*["']?([a-z0-9][-a-z0-9]*)/gm)].map((m) => m[1])),
+];
 
 async function base64Of(file: File): Promise<string> {
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -37,8 +29,10 @@ async function base64Of(file: File): Promise<string> {
  * repo, run on the server; what comes back is a values tree, read with
  * `importTree` exactly like a pull. YAML may be as dirty as `kubectl get -o
  * yaml` makes it: the server splits it into microservices and strips runtime
- * metadata with the chart repo's `namespace_importer.py` first. Everything
- * lands in one namespace of the tree.
+ * metadata with the chart repo's `namespace_importer.py` first. Like the
+ * converter, each namespace is a folder: a document lands in its own
+ * `metadata.namespace`, and the default namespace takes the rest — which for a
+ * Helm chart is everything it renders, however many microservices that is.
  */
 export function ConvertDialog({
   chart,
@@ -56,7 +50,6 @@ export function ConvertDialog({
   const [nsTyped, setNsTyped] = useState(false);
   const [yaml, setYaml] = useState("");
   const [chartFile, setChartFile] = useState<File | null>(null);
-  const [releaseName, setReleaseName] = useState("");
   const [values, setValues] = useState("");
   const [envGroups, setEnvGroups] = useState("");
   const [busy, setBusy] = useState(false);
@@ -64,15 +57,15 @@ export function ConvertDialog({
   const yamlInput = useRef<HTMLInputElement>(null);
   const chartInput = useRef<HTMLInputElement>(null);
 
-  const names = source === "yaml" ? [] : [releaseName];
-  const bad = [namespace, ...names].find((n) => !DNS.test(n));
+  const bad = DNS.test(namespace) ? undefined : namespace;
+  const found = source === "yaml" ? namespacesIn(yaml) : [];
   const groups = envGroups.split(";").map((g) => g.replace(/\s+/g, "")).filter(Boolean);
   const badGroup = groups.find((g) => !ENV_GROUP.test(g));
-  const ready = !!chart.repoUrl.trim() && (source === "yaml" ? !!yaml.trim() : !!chartFile) && !bad && !badGroup;
+  const ready = !!chart.repoUrl.trim() && (source === "yaml" ? !!yaml.trim() : !!chartFile) && bad === undefined && !badGroup;
 
   function changeYaml(text: string) {
     setYaml(text);
-    const ns = namespaceIn(text);
+    const ns = namespacesIn(text)[0];
     if (ns && !nsTyped) setNamespace(ns);
   }
 
@@ -92,7 +85,7 @@ export function ConvertDialog({
         ...(groups.length ? { envGroups: groups } : {}),
         ...(source === "yaml"
           ? { yaml }
-          : { helm: { name: releaseName, archive: await base64Of(chartFile!), values: values || undefined } }),
+          : { helm: { archive: await base64Of(chartFile!), values: values || undefined } }),
       });
       onConvert(importTree(result.files), result.warnings);
     } catch (err) {
@@ -124,20 +117,28 @@ export function ConvertDialog({
 
           <div className="field-block">
             <span>
-              Namespace
-              <Help label="the namespace">
+              Default namespace
+              <Help label="the default namespace">
                 <p>
-                  The tree's <code>&lt;ns&gt;/</code> directory these microservices land in. An existing namespace gets them added; a new
+                  A namespace is a folder in the tree, <code>&lt;ns&gt;/</code>, the same as the converter's input folders. Each manifest lands
+                  in the namespace its own <code>metadata.namespace</code> names; this one takes every manifest that names none.
+                </p>
+                <p>
+                  A Helm chart renders without namespaces, so all of it lands here. An existing namespace gets the microservices added; a new
                   name adds one.
                 </p>
-                <p>Filled from the YAML's own <code>metadata.namespace</code> until you type here — change it to import one environment's dump as another.</p>
               </Help>
             </span>
-            <input aria-label="Namespace" value={namespace} placeholder="shop-prod" onChange={(e) => {
+            <input aria-label="Default namespace" value={namespace} placeholder="shop-prod" onChange={(e) => {
                 setNsTyped(true);
                 setNamespace(e.target.value.trim());
               }}
             />
+            {found.length > 0 && (
+              <p className="field-hint">
+                Found in the YAML: {found.join(", ")}
+              </p>
+            )}
           </div>
 
           <div className="field-block">
@@ -194,28 +195,17 @@ export function ConvertDialog({
                 <span>
                   Chart
                   <Help label="the chart">
-                    <p>The .tgz that <code>helm package</code> writes, subcharts included. It is rendered with <code>helm template</code>, then converted.</p>
+                    <p>
+                      The .tgz that <code>helm package</code> writes, subcharts included. It is rendered with <code>helm template</code> under
+                      its own <code>Chart.yaml</code> name, then split like pasted YAML — every workload it renders becomes a microservice.
+                    </p>
                   </Help>
                 </span>
-                <input
-                  ref={chartInput}
-                  type="file"
-                  accept=".tgz,.tar.gz"
-                  hidden
-                  onChange={(e) => {
-                    const f = e.target.files?.[0] ?? null;
-                    setChartFile(f);
-                    if (f && !releaseName) setReleaseName(k8sName(f.name));
-                  }}
-                />
+                <input ref={chartInput} type="file" accept=".tgz,.tar.gz" hidden onChange={(e) => setChartFile(e.target.files?.[0] ?? null)} />
                 <button type="button" className="ghost-button" onClick={() => chartInput.current?.click()}>
                   <Upload size={15} aria-hidden="true" /> {chartFile ? chartFile.name : "Choose a chart"}
                 </button>
               </div>
-              <label>
-                <span>Microservice name</span>
-                <input aria-label="Microservice name" value={releaseName} placeholder="checkout" onChange={(e) => setReleaseName(e.target.value.trim())} />
-              </label>
               <label>
                 <span>Values (optional)</span>
                 <textarea
@@ -231,7 +221,7 @@ export function ConvertDialog({
             </>
           )}
 
-          {bad !== undefined && (namespace || names.some(Boolean)) && (
+          {bad && (
             <p className="ag-new-error">
               <TriangleAlert size={15} aria-hidden="true" /> “{bad || "(empty)"}” is not a Kubernetes name — lowercase letters, digits and dashes.
             </p>

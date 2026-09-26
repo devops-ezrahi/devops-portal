@@ -59,10 +59,10 @@ export function RepoPanel({ tree, onChange, onPull, pulling, gitEnabled, gitUrl,
           value={tree.values.repoUrl}
           placeholder={exampleRepoUrl(gitUrl, "microservices-values")}
           onChange={(e) => onChange({ ...tree.values, repoUrl: e.target.value })}
-          onBlur={(e) => onChange({ ...tree.values, repoUrl: normalizeRepoUrl(e.target.value) })}
+          onBlur={(e) => onChange({ ...tree.values, repoUrl: normalizeRepoUrl(e.target.value, gitUrl) })}
         />
         {isSshUrl(tree.values.repoUrl) && (
-          <small className="field-hint">SSH URL — this becomes {normalizeRepoUrl(tree.values.repoUrl)} on save.</small>
+          <small className="field-hint">SSH URL — this becomes {normalizeRepoUrl(tree.values.repoUrl, gitUrl)} on save.</small>
         )}
       </div>
       <label>

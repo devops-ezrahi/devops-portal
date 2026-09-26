@@ -1,6 +1,6 @@
 import { mkdir, readFile, readdir, writeFile } from "fs/promises";
 import { dirname, join, resolve, sep } from "path";
-import { git, withCredentials } from "../../git";
+import { cloneAt, git, withCredentials } from "../../git";
 import { log } from "../../log";
 import { createTmpDir, removeTmpDir } from "../../tmp";
 import { canOpenPullRequest, openPullRequest } from "../../pullRequest";
@@ -58,11 +58,15 @@ async function listYaml(dir: string, prefix = ""): Promise<string[]> {
  * client's job, because the catalog, `importValues` and the whole warnings
  * apparatus already live there. Parsing it here would fork `import.ts`.
  */
-export async function pullValuesTree(repoUrl: string, revision: string, valuesPath: string): Promise<RepoFile[]> {
+export async function pullValuesTree(
+  repoUrl: string,
+  requested: string,
+  valuesPath: string
+): Promise<{ files: RepoFile[]; revision: string }> {
   const dir = await createTmpDir("ag-");
   try {
     const { token, username } = valuesTokenFor(repoUrl);
-    await git(["clone", "--depth", "1", "--branch", revision, "--", withCredentials(repoUrl, token, username), dir]);
+    const revision = await cloneAt(withCredentials(repoUrl, token, username), requested, dir);
     const root = treeRoot(dir, valuesPath);
     const names = (await listYaml(root)).slice(0, MAX_FILES);
     let bytes = 0;
@@ -76,7 +80,7 @@ export async function pullValuesTree(repoUrl: string, revision: string, valuesPa
       files.push({ path: name, text });
     }
     log.info("argocd", `pulled ${files.length} file(s)`, { repoUrl, revision, path: valuesPath || "." });
-    return files;
+    return { files, revision };
   } finally {
     await removeTmpDir(dir);
   }
