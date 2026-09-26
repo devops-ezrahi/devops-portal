@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyDemotion, applyPromotion, findEnvSpecific, findPromotions, removeShadowed } from "./promote";
+import { applyDefaultsDemotion, applyDemotion, applyPromotion, findEnvSpecific, findPromotions, removeShadowed } from "./promote";
 import { buildValues } from "./build";
 import { deepMerge, shadowing } from "./values";
 import type { ArgocdTree } from "../../../server/types";
@@ -137,6 +137,47 @@ describe("applyDemotion", () => {
       JSON.stringify(deepMerge(buildValues(t.releases[0].features, t.releases[0].extraValues), docIn(t, i)));
     expect(deployed(after, 0)).toBe(deployed(before, 0));
     expect(deployed(after, 1)).toBe(deployed(before, 1));
+  });
+});
+
+describe("applyDefaultsDemotion", () => {
+  const withDefault = () =>
+    tree({
+      releases: [
+        { id: "r1", name: "checkout", features: {} },
+        { id: "r2", name: "cart", features: { replicas: on({ replicaCount: "1" }) } },
+        { id: "r3", name: "search", features: {} },
+      ],
+      namespaces: [
+        {
+          name: "prod",
+          defaults: { features: { replicas: on({ replicaCount: "3" }) } },
+          releases: [
+            { release: "r1", features: { replicas: on({ replicaCount: "6" }) } },
+            { release: "r3", features: { replicas: on({ replicaCount: "4" }) } },
+          ],
+        },
+      ],
+    });
+
+  it("takes the value out of the defaults, and nothing in the namespace deploys differently", () => {
+    const before = withDefault();
+    const after = applyDefaultsDemotion(before, 0, "r1", { replicaCount: 6 });
+    const ns = after.namespaces[0];
+    expect(buildValues(ns.defaults!.features, ns.defaults!.extraValues).replicaCount).toBeUndefined();
+    const deployed = (t: ArgocdTree, id: string) => {
+      const r = t.releases.find((x) => x.id === id)!;
+      const e = t.namespaces[0].releases.find((x) => x.release === id);
+      const d = t.namespaces[0].defaults;
+      return deepMerge(
+        deepMerge(buildValues(r.features, r.extraValues), buildValues(d?.features ?? {}, d?.extraValues)),
+        e ? buildValues(e.features, e.extraValues) : {}
+      ).replicaCount;
+    };
+    // cart took the default over its base's 1, so it gets a copy of the 3;
+    // search already said 4 and keeps it.
+    expect(["r1", "r2", "r3"].map((id) => deployed(after, id))).toEqual(["r1", "r2", "r3"].map((id) => deployed(before, id)));
+    expect(ns.releases.find((e) => e.release === "r3")!.features.replicas.v.replicaCount).toBe("4");
   });
 });
 

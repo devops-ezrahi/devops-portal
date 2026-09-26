@@ -32,7 +32,8 @@ export function FeatureField({
   const wide = spec.kind === "rows" || spec.kind === "kv" || spec.kind === "text" || spec.kind === "yaml";
   return (
     <div className={`ag-field${wide ? " ag-field-wide" : ""}`}>
-      <span className="ag-field-label-row">
+      {/* A continued list is labelled by the greyed block right above it. */}
+      {!extras.bare && <span className="ag-field-label-row">
         {/* `htmlFor`, so the `?` can sit beside the label rather than inside
             it — a label wrapping a button names the button too. */}
         <label className="ag-field-label" htmlFor={id}>
@@ -51,6 +52,7 @@ export function FeatureField({
           <button
             type="button"
             className="ag-field-remove"
+            data-undo
             aria-label={`Remove ${spec.label}`}
             title="Back to the optional list"
             onClick={onRemove}
@@ -58,7 +60,7 @@ export function FeatureField({
             <X size={12} aria-hidden="true" />
           </button>
         )}
-      </span>
+      </span>}
       <Control spec={spec} id={id} value={value} onChange={onChange} {...extras} />
     </div>
   );
@@ -117,6 +119,14 @@ export type RowExtras = {
   onEnv?: (name: string) => void;
   /** What is already an envFrom source. */
   inEnv?: Set<string>;
+  /**
+   * This layer's entries of a list a lower layer already has: no label and no
+   * blank placeholder entry, just its own entries and the Add button — the
+   * greyed block above is where the list starts.
+   */
+  bare?: boolean;
+  /** A greyed copy of a list that is continued below it — the Add button is the continuation's. */
+  noAdd?: boolean;
 };
 
 function Control({
@@ -175,7 +185,7 @@ function Control({
         />
       );
     case "kv":
-      return <KvRows rows={(value as KvPair[]) ?? []} onChange={onChange} />;
+      return <KvRows rows={(value as KvPair[]) ?? []} onChange={onChange} bare={extras.bare} noAdd={extras.noAdd} />;
     case "rows":
       return (
         <ObjectRows spec={spec} rows={(value as Values[]) ?? []} onChange={onChange} {...extras} />
@@ -194,8 +204,18 @@ function Control({
 }
 
 /** Key/value pairs, not an object: an object cannot hold a half-typed key rename. */
-function KvRows({ rows, onChange }: { rows: KvPair[]; onChange: (rows: KvPair[]) => void }) {
-  const shown = rows.length ? rows : [{ k: "", v: "" }];
+function KvRows({
+  rows,
+  onChange,
+  bare,
+  noAdd,
+}: {
+  rows: KvPair[];
+  onChange: (rows: KvPair[]) => void;
+  bare?: boolean;
+  noAdd?: boolean;
+}) {
+  const shown = rows.length || bare ? rows : [{ k: "", v: "" }];
   const set = (i: number, patch: Partial<KvPair>) =>
     onChange(shown.map((r, n) => (n === i ? { ...r, ...patch } : r)));
   return (
@@ -208,6 +228,7 @@ function KvRows({ rows, onChange }: { rows: KvPair[]; onChange: (rows: KvPair[])
             type="button"
             className="icon-button"
             aria-label="Remove this entry"
+            data-undo
             // Removing the last row removes the value: without this the × on a
             // single row looks like it does nothing, since one blank row is
             // always rendered.
@@ -217,9 +238,11 @@ function KvRows({ rows, onChange }: { rows: KvPair[]; onChange: (rows: KvPair[])
           </button>
         </div>
       ))}
-      <button type="button" className="ghost-button ag-add" onClick={() => onChange([...shown, { k: "", v: "" }])}>
-        <Plus size={15} aria-hidden="true" /> Add
-      </button>
+      {!noAdd && (
+        <button type="button" className="ghost-button ag-add" onClick={() => onChange([...shown, { k: "", v: "" }])}>
+          <Plus size={15} aria-hidden="true" /> Add
+        </button>
+      )}
     </div>
   );
 }
@@ -243,10 +266,13 @@ function ObjectRows({
   mounted,
   onEnv,
   inEnv,
+  bare,
+  noAdd,
 }: { spec: FieldSpec; rows: Values[]; onChange: (rows: Values[]) => void } & RowExtras) {
   const cols = spec.cols ?? [];
   const listId = useId();
-  const shown = Array.isArray(rows) && rows.length ? rows : [{}];
+  const list = Array.isArray(rows) ? rows : [];
+  const shown = list.length || bare ? list : [{}];
   const set = (i: number, patch: Values) => onChange(shown.map((r, n) => (n === i ? { ...r, ...patch } : r)));
   return (
     <div className="ag-rows">
@@ -284,6 +310,7 @@ function ObjectRows({
               type="button"
               className="icon-button"
               aria-label="Remove this entry"
+              data-undo
               onClick={() => onChange(shown.filter((_, n) => n !== i))}
             >
               <X size={15} aria-hidden="true" />
@@ -341,9 +368,11 @@ function ObjectRows({
           ))}
         </div>
       ))}
-      <button type="button" className="ghost-button ag-add" onClick={() => onChange([...shown, {}])}>
-        <Plus size={15} aria-hidden="true" /> {spec.addLabel ?? "Add"}
-      </button>
+      {!noAdd && (
+        <button type="button" className="ghost-button ag-add" onClick={() => onChange([...shown, {}])}>
+          <Plus size={15} aria-hidden="true" /> {spec.addLabel ?? "Add"}
+        </button>
+      )}
     </div>
   );
 }

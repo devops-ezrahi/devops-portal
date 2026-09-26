@@ -45,9 +45,16 @@ import {
 } from "./document";
 import { Help } from "../../Help";
 import { addedKinds, resourcesOf } from "./resources";
-import { applyDemotion, applyPromotion, findEnvSpecific, findPromotions, removeShadowed } from "./promote";
+import {
+  applyDefaultsDemotion,
+  applyDemotion,
+  applyPromotion,
+  findEnvSpecific,
+  findPromotions,
+  removeShadowed,
+} from "./promote";
 import { ConfirmDialog } from "./components/ConfirmDialog";
-import { FeatureEditor, type Inherited } from "./components/FeatureEditor";
+import { FeatureEditor, type Inherited, type OverrideOf } from "./components/FeatureEditor";
 import { FilePreview } from "./components/FilePreview";
 import { ConvertDialog } from "./components/ConvertDialog";
 import { ImportDialog } from "./components/ImportDialog";
@@ -64,6 +71,8 @@ import { toYaml } from "./yaml";
 
 /** The tree the Refresh button (and a page reload) reopens. */
 const LAST_OPENED_KEY = "argocd.lastOpened";
+/** Whether the "move to base" suggestions were folded away — per viewer, like the list size. */
+const SUGGESTIONS_KEY = "argocd.suggestions";
 
 /** How long to sit on a change before writing it. One keystroke is not an edit. */
 const AUTOSAVE_MS = 800;
@@ -124,6 +133,51 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   const persisted = useRef("");
   /** One write at a time: a create must finish and hand back an id before the next PUT. */
   const queue = useRef<Promise<void>>(Promise.resolve());
+  /**
+   * What the tree looked like before each × (or other one-press removal), so
+   * Ctrl+Z brings it back. A text box has its own undo; a button that deletes a
+   * value has none, and the value it took was usually typed by hand.
+   */
+  const undo = useRef<DraftTree[]>([]);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(() => {
+    try {
+      return localStorage.getItem(SUGGESTIONS_KEY) !== "closed";
+    } catch {
+      return true;
+    }
+  });
+
+  function snapshot() {
+    if (undo.current.at(-1) === draftRef.current) return;
+    undo.current = [...undo.current.slice(-49), draftRef.current];
+  }
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "z") return;
+      // Hidden modules stay mounted — this one must not undo behind another's page.
+      if (!rootRef.current || rootRef.current.closest("[hidden]")) return;
+      const t = e.target as HTMLElement | null;
+      const typing =
+        !!t &&
+        (t.isContentEditable ||
+          t.tagName === "TEXTAREA" ||
+          (t instanceof HTMLInputElement && !["checkbox", "radio", "button"].includes(t.type)));
+      if (typing) return;
+      const prev = undo.current.pop();
+      if (!prev) return;
+      e.preventDefault();
+      log("argocd", "undo");
+      // Only the contents: the id, name and repo may have moved on since (the
+      // first save mints the id), and restoring those would fork the tree.
+      setDraft((cur) => ({ ...cur, releases: prev.releases, namespaces: prev.namespaces }));
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     log("argocd", "view mounted / refreshed", { isAdmin, refreshKey });
@@ -323,12 +377,13 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
    * is not the same question as "differs from base". This asks the second one,
    * against each feature's own emitted fragment.
    */
-  const overriding = useMemo<Set<string>>(() => {
-    const out = new Set<string>();
+  const overriding = useMemo<Map<string, OverrideOf>>(() => {
+    const out = new Map<string, OverrideOf>();
     if (layer === BASE || !release) return out;
     // Everything below this layer, in the order the chart reads it: this
     // microservice's base, then the namespace's defaults over it.
-    const below = deepMerge(buildValues(release.features, release.extraValues), nsDefaultValues);
+    const baseValues = buildValues(release.features, release.extraValues);
+    const below = deepMerge(baseValues, nsDefaultValues);
     Object.entries(features).forEach(([id, state]) => {
       if (!state?.on) return;
       // The light means "this feature puts something in the override file",
@@ -340,7 +395,13 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       // And only a *second copy*: a key base or the namespace's defaults also
       // set, to something else. A key only this namespace sets is that value's
       // one source of truth, not an override of anything.
-      if (Object.keys(shadowing(buildValues({ [id]: state }), below)).length) out.add(id);
+      const own = buildValues({ [id]: state });
+      if (!Object.keys(shadowing(own, below)).length) return;
+      // Which layer holds the other copy decides which "move out" is on offer.
+      out.set(id, {
+        base: Object.keys(shadowing(own, baseValues)).length > 0,
+        defaults: Object.keys(shadowing(own, nsDefaultValues)).length > 0,
+      });
     });
     return out;
   }, [features, release, layer, nsDefaultValues]);
@@ -414,6 +475,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   }, [release, features, extraValues, layer, draft.namespaces.length, nsDefaultValues, envSpecific, namespace?.name]);
 
   function handleOpen(saved: ArgocdTree) {
+    undo.current = [];
     log("argocd", "opening tree", saved.id);
     localStorage.setItem(LAST_OPENED_KEY, saved.id);
     // Defaults used to be tree-wide; each namespace now takes a copy. A copied
@@ -438,6 +500,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   }
 
   function handleScratch() {
+    undo.current = [];
     log("argocd", "new tree");
     setNewOpen(false);
     setPush({ kind: "idle" });
@@ -483,6 +546,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
    * repo that was just cloned is the one this tree came out of.
    */
   function handleConnect(imported: TreeImport, repoUrl: string, revision: string, path: string) {
+    undo.current = [];
     log("argocd", "connected a repository", {
       repoUrl,
       releases: imported.releases.length,
@@ -518,6 +582,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   /** Re-read the connected repo, replacing this tree's contents with what is in it. */
   async function handlePull() {
     setPulling(true);
+    undo.current = [];
     setPullError("");
     try {
       const result = await pullValues(draft.values.repoUrl, draft.values.revision, draft.values.path ?? "");
@@ -590,7 +655,17 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     const below = deepMerge(buildValues(release.features, release.extraValues), nsDefaultValues);
     const shadowed = shadowing(buildValues({ [id]: features[id] }), below);
     log("argocd", "moved out of base", { release: release.name, feature: id });
+    snapshot();
     setDraft((prev) => applyDemotion(prev, release.id, shadowed));
+  }
+
+  /** The same, when the other copy is this namespace's defaults — see `applyDefaultsDemotion`. */
+  function moveOutOfDefaults(id: string) {
+    if (!release || layer === BASE || !features[id]) return;
+    const shadowed = shadowing(buildValues({ [id]: features[id] }), nsDefaultValues);
+    log("argocd", "moved out of defaults", { release: release.name, namespace: nsName, feature: id });
+    snapshot();
+    setDraft((prev) => applyDefaultsDemotion(prev, layer, release.id, shadowed));
   }
 
   /** An override resolved this way: only the values that shadow base or the defaults leave this layer. */
@@ -598,6 +673,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     if (!release || layer === BASE) return;
     const below = deepMerge(buildValues(release.features, release.extraValues), nsDefaultValues);
     log("argocd", "removed override", { release: release.name, feature: id });
+    snapshot();
     setFeatures(removeShadowed(features, id, below));
   }
 
@@ -749,7 +825,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         .filter(Boolean)
         .join(", and ")
         .replace(/^./, (c) => c.toUpperCase())
-        .concat(". Both go with it, and there is no undo."),
+        .concat(". Both go with it — Ctrl+Z brings them back."),
       run: () => removeRelease(id),
     });
   }
@@ -762,12 +838,13 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     if (!overriding) return removeNamespace(index);
     setConfirm({
       title: `Delete ${name}?`,
-      detail: `${name} overrides ${overriding} microservice(s). Those override files go with it, and there is no undo.`,
+      detail: `${name} overrides ${overriding} microservice(s). Those override files go with it — Ctrl+Z brings them back.`,
       run: () => removeNamespace(index),
     });
   }
 
   function removeRelease(id: string) {
+    snapshot();
     setDraft((prev) => ({
       ...prev,
       releases: prev.releases.filter((r) => r.id !== id),
@@ -790,6 +867,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   }
 
   function removeNamespace(index: number) {
+    snapshot();
     setDraft((prev) => ({ ...prev, namespaces: prev.namespaces.filter((_, i) => i !== index) }));
     // Indexes below the removed one shift up, so anything at or after it would
     // now be pointing at a different namespace.
@@ -891,7 +969,13 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         </div>
       </header>
 
-      <div className="workspace-grid">
+      <div
+        className="workspace-grid"
+        ref={rootRef}
+        // A × deep in a feature card marks itself `data-undo`; capture runs
+        // before its own onClick, so this is the tree as it was.
+        onClickCapture={(e) => (e.target as Element).closest?.("[data-undo]") && snapshot()}
+      >
         <div className="ticket-column">
           <div className="ticket-list-header">
             <ListSizeToggle />
@@ -1043,6 +1127,25 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
               />
 
 
+              {promotions.length > 0 && (
+                <details
+                  className="ag-suggestions"
+                  open={suggestionsOpen}
+                  onToggle={(e) => {
+                    const open = e.currentTarget.open;
+                    setSuggestionsOpen(open);
+                    try {
+                      localStorage.setItem(SUGGESTIONS_KEY, open ? "open" : "closed");
+                    } catch {
+                      /* a blocked store only means it opens next time */
+                    }
+                  }}
+                >
+                  <summary>
+                    <ChevronRight size={14} aria-hidden="true" />
+                    {promotions.length} {promotions.length === 1 ? "suggestion" : "suggestions"}: values every
+                    namespace sets the same way
+                  </summary>
               {promotions.map((p) => (
                 <div className="ag-promote" key={p.releaseId}>
                   <ArrowDownToLine size={15} aria-hidden="true" />
@@ -1062,6 +1165,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                     className="ghost-button"
                     onClick={() => {
                       log("argocd", "promoted to base", { release: p.releaseName, paths: p.paths });
+                      snapshot();
                       setDraft((prev) => applyPromotion(prev, p));
                     }}
                   >
@@ -1069,6 +1173,8 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   </button>
                 </div>
               ))}
+                </details>
+              )}
 
             </div>
 
@@ -1124,6 +1230,8 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   jump={jump}
                   onJumped={() => setJump(undefined)}
                   onMoveOutOfBase={moveOutOfBase}
+                  onMoveOutOfDefaults={moveOutOfDefaults}
+                  defaultsLabel={`${nsName} defaults`}
                   onRemoveOverride={removeOverride}
                   inherited={inherited}
                   onOpenInherited={(from) => (from === "nsDefaults" ? openDefaults() : setLayer(BASE))}

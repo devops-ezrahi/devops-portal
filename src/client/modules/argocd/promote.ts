@@ -156,6 +156,39 @@ export function applyDemotion(tree: ArgocdTree, releaseId: string, shadowed: Val
 }
 
 /**
+ * `applyDemotion` one layer up: the value leaves namespace `nsIndex`'s
+ * defaults, and every other microservice there that was taking the default
+ * gets its own copy. The one that started this keeps its own value, so nothing
+ * deploys differently — the defaults just stop being a second source for it.
+ */
+export function applyDefaultsDemotion(tree: ArgocdTree, nsIndex: number, releaseId: string, shadowed: Values): ArgocdTree {
+  const ns = tree.namespaces[nsIndex];
+  if (!ns) return tree;
+  const defaults = buildValues(ns.defaults?.features ?? {}, ns.defaults?.extraValues);
+  const paths = leafPaths(shadowed).filter((path) => atPath(defaults, path) !== undefined);
+  if (!paths.length) return tree;
+
+  let entries = ns.releases;
+  for (const r of tree.releases) {
+    if (r.id === releaseId) continue;
+    const existing = entries.find((e) => e.release === r.id);
+    const doc = existing ? buildValues(existing.features, existing.extraValues) : {};
+    const missing = paths.filter((path) => atPath(doc, path) === undefined);
+    if (!missing.length) continue;
+    missing.forEach((path) => putPath(doc, path, atPath(defaults, path)));
+    const imported = importValues(toYaml(doc));
+    const entry = { release: r.id, features: imported.features, extraValues: imported.extraValues };
+    entries = existing ? entries.map((e) => (e.release === r.id ? entry : e)) : [...entries, entry];
+  }
+
+  const left = importValues(toYaml(withoutPaths(defaults, paths)));
+  const namespaces = tree.namespaces.map((n, i) =>
+    i === nsIndex ? { ...n, releases: entries, defaults: { features: left.features, extraValues: left.extraValues } } : n
+  );
+  return { ...tree, namespaces };
+}
+
+/**
  * "Remove override" on one feature of a namespace layer: drop only the values
  * that shadow something below (`shadowing`), not the whole feature. Overriding
  * `image.repository` must not take the namespace's own `image.tag` with it, and

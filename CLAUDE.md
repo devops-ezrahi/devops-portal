@@ -1154,6 +1154,27 @@ defaults of its own.
     its own copy, and nothing deploys differently. That is the fix a real
     per-environment difference wants (perf's bigger requests, prod's bigger
     claim), and it is what cleared the example tree's 31 second copies.
+    Each *Move out* is offered only when that layer holds the other copy:
+    *Move out of defaults* (`applyDefaultsDemotion`) is the same move one
+    layer up — the value leaves `<ns>/defaults.yaml` and every other
+    microservice in that namespace still taking it gets its own copy.
+- **A list a lower layer has is continued, not restarted.** Env vars,
+  volumes, labels — any `rows`/`kv` field — show the inherited entries greyed,
+  then this layer's own entries and the one working Add button under them; no
+  blank placeholder entry, no second label. Entries merge by name, so what is
+  added here is added to base's. A feature whose fragment holds a YAML
+  sequence (`ingress.hosts`, `extraDeploy`) is excluded (`sequenceIn`): Helm
+  replaces a sequence whole, so "adding one" there would drop the greyed ones.
+- **Ctrl+Z undoes a ×.** A text box has its own undo; a button that removes a
+  value had none. Every × in a feature card is `data-undo`, and the view's
+  capture-phase click handler snapshots the tree before it runs; Remove
+  override, the Move out/Move to base offers and deleting a microservice or
+  namespace snapshot explicitly. Ctrl+Z pops it unless focus is in a text
+  field (that is the field's own undo) or the module is hidden. Only
+  `releases`/`namespaces` are restored — the first save mints the id, and
+  restoring that would fork the tree. The stack clears on open/new/connect/pull.
+- **The "Move to base" suggestions fold into one line** (`<details>`), open or
+  closed per viewer in `localStorage`.
 - **A problem is shown twice: in the list under the form, and on the card it
   names.** Pressing it in the list is what scrolls to the card — and arriving at
   a card with no sign of why is the other half of the same complaint. Same

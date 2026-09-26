@@ -4820,6 +4820,23 @@ input.jf-title {
 .ag-promote strong { color: #f2f6f7 }
 .ag-promote .ghost-button { margin-left: auto }
 
+/* The offers fold into one line, so a tree full of them does not push the
+   editor a screen down. */
+.ag-suggestions { margin-top: 10px }
+.ag-suggestions > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 12.5px;
+  color: #9fe4dc;
+}
+.ag-suggestions > summary::-webkit-details-marker { display: none }
+.ag-suggestions > summary svg { transition: transform 0.15s }
+.ag-suggestions[open] > summary svg { transform: rotate(90deg) }
+.ag-suggestions .ag-promote { margin-top: 6px }
+
 /* The other direction — a base value only an environment can answer — is not a
    row under the grid but a line on the microservice's own card: it is a fact
    about that one release, and a stack of rows made you match a name back to a
