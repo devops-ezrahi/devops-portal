@@ -1106,6 +1106,12 @@ defaults of its own.
   pass is gone), because a defaults file holding values nobody typed there is a
   file nobody can explain. A value every microservice sets alike stays in each
   one's own file; `findPromotions` still offers the base-ward move.
+  - **Setting a value in defaults sets it for every microservice there.** A
+    microservice's own *different* copy of a path that edit just changed is
+    dropped from its namespace file (`patchScope`, via `removeShadowed`), so a
+    tag typed once shows on every card; Ctrl+Z brings the copies back. The
+    converter writes only labels and group values into `defaults.yaml`, so a
+    converted tree starts with nothing to collide.
   - **Import reads `<ns>/defaults.yaml` whole** as that namespace's defaults —
     whoever wrote it, the portal or the converter — and folds nothing into the
     overrides, which were written against base + these defaults and read back

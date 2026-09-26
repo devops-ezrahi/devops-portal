@@ -4630,19 +4630,35 @@ input.jf-title {
 
 /* A namespace's defaults: one wide bar above the microservice squares — what
    every one of them starts from, not another one of them. */
+/* Heading and sort on one row, so the sort never moves with what is under it. */
+.ag-grid-headrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ag-grid-headrow .ag-grid-head { margin: 0 }
+
 .ag-grid-sort {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 8px;
-  margin-bottom: 8px;
   font-size: 12px;
   color: #6f8088;
 }
 
 .ag-grid-sort select {
   width: auto;
+  min-height: 0;
+  padding: 3px 8px;
+  font-size: 12px;
 }
+
+.ag-card-shell[draggable="true"] > .ag-card { cursor: grab }
+.ag-card-shell[data-drag="source"] { opacity: 0.45 }
+.ag-card-shell[data-drag="target"] > .ag-card { outline: 2px dashed #20c7bd; outline-offset: 2px }
 
 .ag-ns-defaults-shell {
   display: flex;
@@ -5251,12 +5267,17 @@ input.jf-title {
 /* What a microservice inherits from the tree's defaults: shown, not editable,
    with the way back to where it is editable. Greyed, because it is not this
    microservice's decision — but it is in this microservice's file. */
+/* The body's own column tracks, so an inherited field is exactly the size and
+   position it has when edited rather than stretched across the box. The negative
+   margin cancels border + padding, giving the box the body's width; auto-fill
+   (not the body's auto-fit) keeps the empty tracks a lone field would collapse.
+   Not `subgrid`: Chrome does not pass it through a fieldset's content box. */
 .ag-inherited {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 12px;
-  margin: 0;
+  margin: 0 -11px;
   min-width: 0;
   border: 1px dashed #26333a;
   border-radius: 6px;
@@ -5562,7 +5583,9 @@ input.jf-title {
   border-radius: 8px;
   background: #0d1316;
   overflow: auto;
-  max-height: max(240px, calc(100vh - 220px));
+  /* A fixed height, not a cap: sized to the file, pressing a short one after a
+     long one shortened the page under the pointer and the browser scrolled it. */
+  height: max(240px, calc(100vh - 220px));
   font-size: 12.5px;
   line-height: 1.6;
 }

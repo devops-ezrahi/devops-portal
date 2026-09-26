@@ -400,6 +400,39 @@ describe("ArgocdView", () => {
     expect(document.querySelector(".ag-file-body")!.textContent).toContain("replicaCount: 3");
   });
 
+  it("a value set in a namespace's defaults replaces each microservice's own copy there", async () => {
+    const tree = saved({
+      releases: [
+        { id: "r1", name: "storefront", features: {} },
+        { id: "r2", name: "cart", features: {} },
+      ],
+      namespaces: [
+        {
+          name: "prod",
+          defaults: { features: { replicas: { on: true, v: { replicaCount: "3" } } } },
+          releases: [
+            { release: "r1", features: { replicas: { on: true, v: { replicaCount: "6" } } } },
+            { release: "r2", features: { replicas: { on: true, v: { replicaCount: "4" } } } },
+          ],
+        },
+      ],
+    });
+    listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
+    view();
+    fireEvent.click(await screen.findByText("Dev User #1"));
+    fireEvent.click(card("Layers", /prod/));
+    fireEvent.click(screen.getByRole("button", { name: /^prod defaults/ }));
+    fireEvent.change(within(feature("Replicas & rollout")).getByLabelText("replicaCount"), { target: { value: "5" } });
+
+    const shown = () => document.querySelector(".ag-file-body")?.textContent ?? "";
+    fireEvent.click(screen.getByLabelText("prod/defaults.yaml"));
+    expect(shown()).toContain("replicaCount: 5");
+    fireEvent.click(screen.getByLabelText("prod/values/storefront.yaml"));
+    expect(shown()).not.toContain("replicaCount");
+    fireEvent.click(screen.getByLabelText("prod/values/cart.yaml"));
+    expect(shown()).not.toContain("replicaCount");
+  });
+
   it("continues an inherited list here: greyed entries, then an Add that adds this namespace's own", async () => {
     const env = (name: string, value: string) => ({ name, kind: "value", value });
     const tree = saved({

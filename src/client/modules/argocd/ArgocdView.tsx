@@ -28,7 +28,7 @@ import {
 import { buildValues, extraValuesError, parseValues } from "./build";
 import { checkValues } from "./checks";
 import { BY_ID, featureForPath } from "./catalog";
-import { deepMerge, obj, shadowing } from "./values";
+import { deepMerge, obj, shadowing, subtractDefaults } from "./values";
 import { buildTree, slug } from "./tree";
 import {
   SHARED_RELEASE_NAME,
@@ -690,12 +690,39 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     extraValues?: string;
   }) {
     if (editingDefaults) {
-      return setDraft((prev) => ({
-        ...prev,
-        namespaces: prev.namespaces.map((ns, i) =>
-          i === layer ? { ...ns, defaults: { ...fn(ns.defaults ?? { features: {} }) } } : ns
-        ),
-      }));
+      // Setting a value in a namespace's defaults sets it for every
+      // microservice there: a microservice's own different copy of a value
+      // that just changed would win over it, so that copy goes — a monorepo
+      // tag typed once lands on every card above.
+      const withDefaults = (prev: DraftTree) => {
+        const ns = prev.namespaces[layer];
+        const old = ns.defaults ?? { features: {} };
+        const next = fn(old);
+        const changed = subtractDefaults(
+          buildValues(next.features, next.extraValues),
+          buildValues(old.features, old.extraValues)
+        );
+        const releases = ns.releases.map((e) => {
+          // Only a feature with something to drop goes through removeShadowed —
+          // its re-import would otherwise rewrite untouched state on every keystroke.
+          const features = Object.keys(e.features).reduce(
+            (f, id) =>
+              Object.keys(shadowing(buildValues({ [id]: f[id] }), changed)).length ? removeShadowed(f, id, changed) : f,
+            e.features
+          );
+          return features === e.features ? e : { ...e, features };
+        });
+        return {
+          stripped: releases.some((e, i) => e !== ns.releases[i]),
+          tree: {
+            ...prev,
+            namespaces: prev.namespaces.map((n, i) => (i === layer ? { ...n, defaults: { ...next }, releases } : n)),
+          },
+        };
+      };
+      // A one-keystroke removal of values typed elsewhere gets a Ctrl+Z.
+      if (withDefaults(draftRef.current).stripped) snapshot();
+      return setDraft((prev) => withDefaults(prev).tree);
     }
     if (!release) return;
     setDraft((prev) => {
@@ -860,6 +887,18 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     // name field only exists on the layer that is open.
     setDraft((prev) => ({ ...prev, namespaces: [...prev.namespaces, newNamespace("")] }));
     setLayer(draft.namespaces.length);
+  }
+
+  function reorderReleases(ids: string[]) {
+    snapshot();
+    setDraft((prev) => ({ ...prev, releases: ids.map((id) => prev.releases.find((r) => r.id === id)!) }));
+  }
+
+  /** `order` is the namespaces' old indexes in their new order; the open layer follows its namespace. */
+  function reorderNamespaces(order: number[]) {
+    snapshot();
+    setDraft((prev) => ({ ...prev, namespaces: order.map((i) => prev.namespaces[i]) }));
+    setLayer((current) => (current === BASE ? BASE : order.indexOf(current)));
   }
 
   function renameNamespace(index: number, name: string) {
@@ -1062,14 +1101,6 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 about — and a microservice card read differently depending on a
                 layer selected further down the page. */}
             <div className="ag-section">
-              <h3 className="ag-grid-head">
-                Namespaces
-                <Help label="a namespace">
-                  <p>Which layer the form below edits: the shared base, or one namespace's overrides.</p>
-                  <p>A namespace runs every microservice in the tree; its entry carries only what it changes.</p>
-                  <p>An orange border marks a namespace that overrides the microservice you have open.</p>
-                </Help>
-              </h3>
               {/* Renamed and removed on the tile itself. The strip that used to
                   do both sat under the grid and acted on whatever was selected,
                   so the name being typed was one row away from the tile showing
@@ -1090,23 +1121,38 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 onRename={renameNamespace}
                 onRemove={askRemoveNamespace}
                 onAdd={addNamespace}
+                onReorder={reorderNamespaces}
+                heading={
+                  <h3 className="ag-grid-head">
+                    Namespaces
+                    <Help label="a namespace">
+                      <p>Which layer the form below edits: the shared base, or one namespace's overrides.</p>
+                      <p>A namespace runs every microservice in the tree; its entry carries only what it changes.</p>
+                      <p>An orange border marks a namespace that overrides the microservice you have open.</p>
+                      <p>Drag a tile to reorder.</p>
+                    </Help>
+                  </h3>
+                }
               />
             </div>
 
             <div className="ag-section">
-              <h3 className="ag-grid-head">
-                Microservices
-                <Help label="a microservice card">
-                  <p>One card per microservice, listing the Kubernetes objects it puts in the cluster.</p>
-                  <p>
-                    A chip set back behind <code>↳</code> is part of the workload's pod template rather than an object
-                    of its own; an amber one is cluster-scoped, so only one microservice may own it.
-                  </p>
-                  <p>A dashed chip is added by a namespace override, not by the base file — select that namespace to press it.</p>
-                  <p>Press any chip to jump to the fields that set it.</p>
-                </Help>
-              </h3>
               <ReleaseGrid
+                heading={
+                  <h3 className="ag-grid-head">
+                    Microservices
+                    <Help label="a microservice card">
+                      <p>One card per microservice, listing the Kubernetes objects it puts in the cluster.</p>
+                      <p>
+                        A chip set back behind <code>↳</code> is part of the workload's pod template rather than an
+                        object of its own; an amber one is cluster-scoped, so only one microservice may own it.
+                      </p>
+                      <p>A dashed chip is added by a namespace override, not by the base file — select that namespace to press it.</p>
+                      <p>Press any chip to jump to the fields that set it. Drag a card to reorder.</p>
+                    </Help>
+                  </h3>
+                }
+                onReorder={reorderReleases}
                 cards={releaseCards}
                 selectedId={release?.id}
                 onSelect={setReleaseId}

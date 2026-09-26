@@ -1,9 +1,9 @@
 import { AlertTriangle, Pencil, Plus, Share2, X } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Help } from "../../../Help";
 import { featureForPath } from "../catalog";
 import { SCOPE_NOTE, type Resource, type Scope } from "../resources";
-import { useGridSort, type Sorts } from "./GridSort";
+import { useGridDrag, useGridSort, type Sorts } from "./GridSort";
 
 /**
  * One rectangle per microservice — a release of the universal chart — and what
@@ -63,6 +63,10 @@ type Props = {
    * microservice in it. Absent in Base, which has none.
    */
   nsDefaults?: { name: string; count: number; open: boolean; onOpen: () => void };
+  /** The new order, as release ids. */
+  onReorder: (ids: string[]) => void;
+  /** The section heading; the sort control sits beside it. */
+  heading: ReactNode;
 };
 
 /** `ConfigMap ×2`, with the objects' own names and what kind of thing it is on hover. */
@@ -108,7 +112,7 @@ const chipTitle = (r: Resource) => [r.names?.join(", "), SCOPE_NOTE[r.scope]].fi
 const SCOPES: Scope[] = ["workload", "pod", "object", "cluster"];
 
 const SORTS: Sorts<ReleaseCard> = {
-  added: { label: "Order added", by: () => 0 },
+  added: { label: "Your order", by: () => 0 },
   name: { label: "Name A–Z", by: (a: ReleaseCard, b: ReleaseCard) => a.name.localeCompare(b.name) },
   nameDesc: { label: "Name Z–A", by: (a: ReleaseCard, b: ReleaseCard) => b.name.localeCompare(a.name) },
   overrides: { label: "Most overridden", by: (a: ReleaseCard, b: ReleaseCard) => b.overrides.count - a.overrides.count },
@@ -126,14 +130,29 @@ export function ReleaseGrid({
   onAdd,
   onAddShared,
   nsDefaults,
+  onReorder,
+  heading,
 }: Props) {
   /** Which card's name is being typed into. Local — nothing above needs to know. */
   const [editing, setEditing] = useState<string | null>(null);
-  const { order, control } = useGridSort(SORTS, "argocd.releaseSort");
+  const { order, control, manual } = useGridSort(SORTS, "argocd.releaseSort");
   const sorted = order(cards);
+  const drag = useGridDrag(
+    sorted.map((c) => c.id),
+    (next) => {
+      manual();
+      onReorder(next);
+    }
+  );
 
   return (
     <>
+      {/* The sort sits in the heading row: under the namespace defaults bar, it
+          moved every time that bar came and went with the namespace. */}
+      <div className="ag-grid-headrow">
+        {heading}
+        {control(cards.length < 2)}
+      </div>
       {/* One per namespace, above the squares rather than among them: it is not
           a microservice, it is what every microservice here starts from. */}
       {nsDefaults && (
@@ -166,7 +185,6 @@ export function ReleaseGrid({
           </Help>
         </div>
       )}
-      {cards.length > 1 && control}
       <div className="ag-card-grid" aria-label="Microservices">
 
       {sorted.map((card) => {
@@ -287,7 +305,7 @@ export function ReleaseGrid({
           // button inside a button is invalid HTML. An <input> cannot live in
           // one either, so the card being renamed is a plain div — it is the
           // selected one anyway, so there is nothing left to press it for.
-          <div className="ag-card-shell" key={card.id}>
+          <div className="ag-card-shell" key={card.id} {...drag(card.id, editing !== card.id)}>
             {editing === card.id ? (
               <div className={`ag-card ag-release-card${selected ? " selected" : ""}`}>{body}</div>
             ) : (

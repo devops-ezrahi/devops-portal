@@ -102,9 +102,29 @@ export function FilePreview({ files, onDownload, repo, comparing, deletes = fals
               aria-label={status && status !== "unchanged" ? `${node.path} (${status})` : node.path}
               title={node.path}
               style={pad}
-              onClick={() => {
+              onClick={(e) => {
+                const row = e.currentTarget;
+                const top = row.getBoundingClientRect().top;
                 setSelected(node.path);
                 onOpenFile?.(node.path);
+                // Opening the file's scope swaps the editor above for one of
+                // another height, which slid this list out from under the
+                // pointer. Scroll by whatever it moved so the row stays put —
+                // for a few frames, since the editor's effects re-render after
+                // the first one.
+                // ponytail: a fixed 400ms window; a scroll by hand inside it is overridden.
+                let el = row.parentElement;
+                while (el && !(el.scrollHeight > el.clientHeight && /auto|scroll/.test(getComputedStyle(el).overflowY)))
+                  el = el.parentElement;
+                const scroller = el ?? document.scrollingElement ?? document.documentElement;
+                const until = performance.now() + 400;
+                const pin = () => {
+                  if (!row.isConnected) return;
+                  const moved = row.getBoundingClientRect().top - top;
+                  if (Math.abs(moved) >= 1) scroller.scrollBy(0, moved);
+                  if (performance.now() < until) requestAnimationFrame(pin);
+                };
+                requestAnimationFrame(pin);
               }}
             >
               <span className={`ag-file-gutter${status ? ` st-${status}` : ""}`} aria-hidden="true">
