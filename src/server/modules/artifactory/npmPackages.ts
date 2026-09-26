@@ -177,7 +177,8 @@ async function packPackage(pkg: DiscoveredPackage, stageRoot: string, index: num
       "tar",
       [
         "-czf",
-        tgz,
+        // Relative to cwd — GNU tar reads a leading `C:` as a remote host spec.
+        filename,
         "-C",
         pkg.dir,
         "--exclude=./node_modules",
