@@ -672,9 +672,10 @@ const OPTIONS_OPEN_KEY = "jenkinsfile.optionsOpen";
 
 function readOptionsOpen(): boolean {
   try {
-    return localStorage.getItem(OPTIONS_OPEN_KEY) !== "0";
+    // Folded by default; opened only once someone has opened it here.
+    return localStorage.getItem(OPTIONS_OPEN_KEY) === "1";
   } catch {
-    return true;
+    return false;
   }
 }
 
