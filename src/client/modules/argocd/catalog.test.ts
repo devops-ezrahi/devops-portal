@@ -122,3 +122,24 @@ describe("catalog", () => {
     }
   });
 });
+
+describe("files dropped on a ConfigMap or Secret", () => {
+  const file = (name: string, text: string) => ({ name, text, base64: btoa(text) });
+  const drop = (id: string, row: Record<string, unknown>, files: ReturnType<typeof file>[]) => {
+    const field = BY_ID[id].fields.find((f) => f.fromFiles)!;
+    return buildValues(on(id, { [field.key]: field.fromFiles!(row, files) }));
+  };
+
+  it("adds each file to the ConfigMap it was dropped on, and names a new one after the first", () => {
+    expect(drop("configmaps", { name: "web", data: "A=1" }, [file("nginx.conf", "x"), file("app.ini", "y")])).toEqual({
+      configMaps: { web: { data: { A: "1", "nginx.conf": "x", "app.ini": "y" } } },
+    });
+    expect(drop("configmaps", {}, [file("Nginx.conf", "x")])).toEqual({ configMaps: { "nginx-conf": { data: { "Nginx.conf": "x" } } } });
+  });
+
+  it("puts a Secret's files under data, base64-encoded", () => {
+    expect(drop("secrets", { name: "tls", data: "k=dg==" }, [file("tls.crt", "cert")])).toEqual({
+      secrets: { tls: { data: { k: "dg==", "tls.crt": btoa("cert") } } },
+    });
+  });
+});

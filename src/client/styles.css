@@ -5474,6 +5474,10 @@ input.jf-title {
 
 .ag-add { justify-self: start }
 
+/* A file dragged over a ConfigMap/Secret entry, or over the list for a new one. */
+.ag-entry.ag-drop, .ag-rows.ag-drop { outline: 2px dashed #2dd4bf; outline-offset: 2px }
+label.ag-add { cursor: pointer }
+
 /* ---- generated files ---- */
 
 .ag-preview { display: grid; gap: 10px; min-width: 0 }

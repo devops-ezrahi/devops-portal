@@ -204,6 +204,15 @@ describe("findEnvSpecific", () => {
     expect(found[0].values).toEqual({ image: { tag: "1.0.0" }, route: { host: "checkout.apps.example.com" } });
   });
 
+  it("counts only the namespaces that deploy the release", () => {
+    const t = pinned();
+    t.namespaces.push({ name: "qa", releases: [], absent: ["r1"] });
+    expect(findEnvSpecific(t)[0].namespaces).toEqual(["dev", "prod"]);
+    // Deployed in one namespace only, base is that namespace's own value.
+    t.namespaces[0].absent = ["r1"];
+    expect(findEnvSpecific(t)).toEqual([]);
+  });
+
   it("says nothing about a path base does not set", () => {
     const t = pinned();
     t.releases[0].features.image = on({ repository: "shop/checkout" });

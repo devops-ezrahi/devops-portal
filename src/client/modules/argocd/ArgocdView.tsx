@@ -30,7 +30,7 @@ import { buildValues, extraValuesError, parseValues } from "./build";
 import { checkValues } from "./checks";
 import { BY_ID, featureForPath } from "./catalog";
 import { deepMerge, obj, shadowing, subtractDefaults } from "./values";
-import { buildTree, releaseGroup, slug } from "./tree";
+import { buildTree, releaseGroup, runs, slug } from "./tree";
 import {
   SHARED_RELEASE_NAME,
   isEmptyTree,
@@ -363,6 +363,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         /** A repository some namespace deploys — what base shows when the repository lives beside each tag. */
         let deployedRepo: unknown;
         draft.namespaces.forEach((ns, i) => {
+          if (!runs(ns, r.id)) return;
           const entry = ns.releases.find((e) => e.release === r.id);
           const override = entry ? buildValues(entry.features, entry.extraValues) : {};
           const nsDefaults = buildValues(ns.defaults?.features ?? {}, ns.defaults?.extraValues);
@@ -397,7 +398,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
           tag: shown.tag ? String(shown.tag) : here ? null : undefined,
           resources,
           extras: [...extras].map(([kind, extra]) => ({ kind, ...extra })),
-          overrides: { count: overridden, total: draft.namespaces.length },
+          overrides: { count: overridden, total: draft.namespaces.filter((ns) => runs(ns, r.id)).length },
           envSpecific: env && { paths: env.paths, namespaces: env.namespaces },
         };
       }),
@@ -506,10 +507,11 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       .filter(([id, state]) => state.on && BY_ID[id]?.cluster)
       .map(([id]) => id);
     const clusterFeatures = clusterIds.map((id) => BY_ID[id].name);
-    if (clusterFeatures.length && draft.namespaces.length > 1)
+    const deployedIn = draft.namespaces.filter((ns) => runs(ns, release.id)).length;
+    if (clusterFeatures.length && deployedIn > 1)
       found.push({
         level: "warn",
-        text: `${clusterFeatures.join(", ")} are cluster-scoped, and this tree deploys ${release.name || "this release"} into ${draft.namespaces.length} namespaces — every one of them would own the same object.`,
+        text: `${clusterFeatures.join(", ")} are cluster-scoped, and this tree deploys ${release.name || "this release"} into ${deployedIn} namespaces — every one of them would own the same object.`,
         feature: clusterIds[0],
       });
     // Base values only an environment can answer. They used to be said only on
@@ -531,7 +533,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       });
     });
     return found;
-  }, [release, features, extraValues, layer, draft.namespaces.length, nsDefaultValues, envSpecific, namespace?.name]);
+  }, [release, features, extraValues, layer, draft.namespaces, nsDefaultValues, envSpecific, namespace?.name]);
 
   function handleOpen(saved: ArgocdTree) {
     undo.current = [];
@@ -594,7 +596,6 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       ...reportWarnings,
     ].filter(Boolean);
     setNotes(items.length ? { from: "the convert", items } : null);
-    if (items.length) onError(`Converted with ${items.length} note(s) — listed under the repository.`);
   }
 
   /**
@@ -665,13 +666,10 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       setReleaseId(imported.releases[0]?.id ?? "");
       setLayer(BASE);
       setNotes(imported.warnings.length ? { from: "the pull", items: imported.warnings } : null);
-      if (imported.warnings.length)
-        onError(`Pulled with ${imported.warnings.length} warning(s) — listed under the repository.`);
     } catch (err) {
       logError("argocd", "pull failed", err);
       const message = err instanceof Error ? err.message : "Could not read that repository";
       setPullError(message);
-      onError(message);
     } finally {
       setPulling(false);
     }
@@ -1051,7 +1049,6 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         <h1>ArgoCD</h1>
         <div className="ag-topbar-actions">
           <span className={`ag-save-state ${saveState}`} role="status">
-            {saveState === "saving" && "Saving…"}
             {saveState === "error" && (
               <>
                 <TriangleAlert size={15} aria-hidden="true" /> Not saved

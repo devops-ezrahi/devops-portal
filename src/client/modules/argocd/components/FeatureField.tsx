@@ -1,7 +1,7 @@
 import { Help } from "../../../Help";
-import { Check, KeyRound, Link2, Plus, X } from "lucide-react";
-import { useContext, useId, type ReactNode } from "react";
-import type { FieldSpec, KvPair, RowCol } from "../catalog";
+import { Check, FileUp, KeyRound, Link2, Plus, X } from "lucide-react";
+import { useContext, useId, useState, type DragEvent, type ReactNode } from "react";
+import type { FieldSpec, KvPair, PickedFile, RowCol } from "../catalog";
 import type { Values } from "../values";
 import { highlightFile } from "../highlight";
 import { hasTemplate, resolveTemplate, templateParts, TemplateScopes } from "../templates";
@@ -264,6 +264,20 @@ function entryTitle(spec: FieldSpec, row: Values, index: number): string {
   return value || `#${index + 1}`;
 }
 
+/** Each file's text and its bytes as base64 — a Secret wants the one, a ConfigMap the other. */
+async function readFiles(files: FileList | File[]): Promise<PickedFile[]> {
+  return Promise.all(
+    [...files].map(async (file) => {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = "";
+      for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      return { name: file.name, text: new TextDecoder().decode(bytes), base64: btoa(binary) };
+    })
+  );
+}
+
+const carriesFiles = (e: DragEvent) => e.dataTransfer.types.includes("Files");
+
 /** A list of maps is a list of boxes — three bare inputs say nothing about which is which. */
 function ObjectRows({
   spec,
@@ -282,10 +296,40 @@ function ObjectRows({
   const list = Array.isArray(rows) ? rows : [];
   const shown = list.length || bare ? list : [{}];
   const set = (i: number, patch: Values) => onChange(shown.map((r, n) => (n === i ? { ...r, ...patch } : r)));
+  const fromFiles = spec.fromFiles;
+  /** Which entry a file is being dragged over; `shown.length` is the list itself (a new entry). */
+  const [dropAt, setDropAt] = useState<number | null>(null);
+  // Onto entry `i` replaces that entry with what it becomes; past the end appends.
+  const takeFiles = async (i: number, files: FileList | File[]) => {
+    if (!fromFiles || !files.length) return;
+    const made = fromFiles(shown[i] ?? {}, await readFiles(files));
+    onChange([...shown.slice(0, i), ...made, ...shown.slice(i + 1)]);
+  };
+  const dropProps = (i: number) =>
+    fromFiles
+      ? {
+          onDragOver: (e: DragEvent) => {
+            if (!carriesFiles(e)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            setDropAt(i);
+          },
+          onDragLeave: (e: DragEvent) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropAt(null);
+          },
+          onDrop: (e: DragEvent) => {
+            if (!carriesFiles(e)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            setDropAt(null);
+            void takeFiles(i, e.dataTransfer.files);
+          },
+        }
+      : {};
   return (
-    <div className="ag-rows">
+    <div className={`ag-rows${dropAt === shown.length ? " ag-drop" : ""}`} {...dropProps(shown.length)}>
       {shown.map((row, i) => (
-        <div className="ag-entry" key={i}>
+        <div className={`ag-entry${dropAt === i ? " ag-drop" : ""}`} key={i} {...dropProps(i)}>
           <div className="ag-entry-head">
             {/* An entry names itself once it has a name — a column of
                 "Variables 1, Variables 2" says nothing about which is which. */}
@@ -389,6 +433,22 @@ function ObjectRows({
         <button type="button" className="ghost-button ag-add" onClick={() => onChange([...shown, {}])}>
           <Plus size={15} aria-hidden="true" /> {spec.addLabel ?? "Add"}
         </button>
+      )}
+      {!noAdd && fromFiles && (
+        <label className="ghost-button ag-add">
+          <FileUp size={15} aria-hidden="true" /> From files…
+          <input
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              // An untouched placeholder entry is filled rather than left blank above the new one.
+              const blank = shown.length === 1 && !list.length;
+              void takeFiles(blank ? 0 : shown.length, [...(e.target.files ?? [])]);
+              e.target.value = "";
+            }}
+          />
+        </label>
       )}
     </div>
   );

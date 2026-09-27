@@ -1090,6 +1090,11 @@ defaults of its own.
   under Storage, and a row added out of sight is a press that seems to do
   nothing. The `mountPath` is deliberately left empty: where it lands is the one
   thing nobody can guess, and it is the next field on screen.
+- **A ConfigMap or Secret takes files.** Dropped on an entry, or picked with
+  **From files…** under the list (`FieldSpec.fromFiles`), each file becomes a
+  ConfigMap row (`fileName`/`fileBody`, as text) or a Secret `data` line
+  (`name=<base64>`, so binary files survive). A new entry is named after the
+  first file.
 - **A column that names another feature's object suggests them.**
   `RowCol.suggest` returns the feature whose row names to offer — a mount offers
   this release's volumes, a volume's source offers its ConfigMaps, Secrets or
@@ -1501,6 +1506,12 @@ per-module choices:
   a `?` inside a row that is itself a button would be a button inside a button.
   That last rule is why the `?` sits *beside* a label rather than inside it, and
   why `Help`'s own click handler calls `preventDefault`/`stopPropagation`.
+- **The red banner at the top is for failures only** — a save, list or
+  delete the server refused. Warnings from a pull or convert, and a repo that
+  could not be read, are already said in place under the repository panel;
+  repeating them in red read as the page being broken. Autosave shows nothing
+  while it works (it flashed "Saving…" on every keystroke) and only
+  *Not saved* when it fails.
 - **The topbar is `<h1>` then actions, primary last.** "New" is
   `className="primary"` with `<Plus size={18} />` in every module — Tickets,
   Artifactory ("New Job"), Whitening, AI ("New chat") and Jenkinsfile. Secondary

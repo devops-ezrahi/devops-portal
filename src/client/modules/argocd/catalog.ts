@@ -42,6 +42,13 @@ export type RowCol = {
   lang?: (row: Values) => string;
 };
 
+/** A file read in the browser: its UTF-8 text and the same bytes as base64. */
+export type PickedFile = { name: string; text: string; base64: string };
+
+/** `nginx.conf` -> `nginx-conf`: a name a Kubernetes object may carry. */
+const objectName = (file: string) =>
+  file.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 63) || "files";
+
 export type FieldSpec = {
   key: string;
   kind: FieldKind;
@@ -58,6 +65,12 @@ export type FieldSpec = {
   cols?: RowCol[];
   /** The label on a `rows` field's add button, e.g. "Add variable". */
   addLabel?: string;
+  /**
+   * A `rows` field that takes files: dropped on an entry (or picked beside the
+   * add button, onto `{}`), they become that entry — the one row, plus any more
+   * it takes to hold them.
+   */
+  fromFiles?: (row: Values, files: PickedFile[]) => Values[];
   def?: unknown;
   /**
    * Shown whenever the feature is open. Everything else is on the "add" list
@@ -1339,7 +1352,18 @@ F({
         { key: "fileName", label: "File key", placeholder: "nginx.conf" },
         { key: "fileBody", label: "File contents", kind: "text", placeholder: "server {\n  listen 80;\n}", lang: (r) => String(r.fileName ?? "") },
       ],
-      { addLabel: "Add ConfigMap", hint: "Another file in the same ConfigMap is another row with the same name." }
+      {
+        addLabel: "Add ConfigMap",
+        hint: "Another file in the same ConfigMap is another row with the same name. Drop files on a ConfigMap to add them to it.",
+        // One file per row, as the form already holds them; the first fills the
+        // row it was dropped on if that row has no file yet.
+        // ponytail: read as UTF-8 text — a binary file wants binaryData, which the form does not model.
+        fromFiles: (row, files) => {
+          const name = nz(row.name) ? row.name : objectName(files[0].name);
+          const rows = files.map((f) => ({ name, fileName: f.name, fileBody: f.text }));
+          return nz(row.fileName) || nz(row.fileBody) ? [row, ...rows] : [{ ...row, ...rows[0] }, ...rows.slice(1)];
+        },
+      }
     ),
   ],
   // A ConfigMap often carries several files (a log4j2.xml *and* a .properties).
@@ -1394,7 +1418,17 @@ F({
         { key: "stringData", label: "stringData", kind: "text", placeholder: "APP_ENV=prod" },
         { key: "data", label: "data", kind: "text", placeholder: "APP_ENV=cHJvZA==" },
       ],
-      { addLabel: "Add Secret" }
+      {
+        addLabel: "Add Secret",
+        hint: "Drop files on a Secret to add each one as a `data` key, base64-encoded — binary files included.",
+        fromFiles: (row, files) => [
+          {
+            ...row,
+            name: nz(row.name) ? row.name : objectName(files[0].name),
+            data: [String(row.data ?? "").trim(), ...files.map((f) => `${f.name}=${f.base64}`)].filter(Boolean).join("\n"),
+          },
+        ],
+      }
     ),
   ],
   emit: (v) =>

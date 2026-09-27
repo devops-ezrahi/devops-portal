@@ -300,13 +300,10 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
         ])
       );
       setPullNotes(parsed.warnings);
-      if (parsed.warnings.length)
-        onError(`Pulled with ${parsed.warnings.length} warning(s) — listed under the repository.`);
     } catch (err) {
       logError("jenkinsfile", "pull failed", err);
       const message = err instanceof Error ? err.message : "Could not read that repository";
       setRepoError(message);
-      onError(message);
     } finally {
       setPulling(false);
     }
@@ -467,7 +464,6 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
         <h1>Jenkinsfile</h1>
         <div className="jf-topbar-actions">
           <span className={`jf-save-state ${saveState}`} role="status">
-            {saveState === "saving" && "Saving…"}
             {saveState === "error" && (
               <>
                 <TriangleAlert size={15} aria-hidden="true" /> Not saved

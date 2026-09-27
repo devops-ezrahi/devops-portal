@@ -627,7 +627,7 @@ describe("ArgocdView", () => {
     Element.prototype.scrollIntoView = scroll;
     const tree = saved({
       releases: [{ id: "r1", name: "storefront", features: { image: { on: true, v: { repository: "nginx", tag: "1.0.0" } } } }],
-      namespaces: [{ name: "prod", releases: [] }],
+      namespaces: [{ name: "dev", releases: [] }, { name: "prod", releases: [] }],
     });
     listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
     view();

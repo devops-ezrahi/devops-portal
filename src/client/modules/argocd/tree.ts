@@ -2,7 +2,7 @@ import { buildValues } from "./build";
 import { toYaml } from "./yaml";
 import { deepMerge, subtractChartDefaults } from "./values";
 import { FEATURES, defaultValues } from "./catalog";
-import type { ArgocdTree } from "../../../server/types";
+import type { ArgocdNamespace, ArgocdTree } from "../../../server/types";
 import type { Values } from "./values";
 
 /** What every feature writes when merely switched on — the chart's own answers. */
@@ -141,7 +141,7 @@ export function buildTree(tree: ArgocdTree): GeneratedFile[] {
     );
 
     releases.forEach((release) => {
-      if (ns.absent?.includes(release.id)) return;
+      if (!runs(ns, release.id)) return;
       // The chain's own order: base, then this namespace's defaults over it.
       const below = deepMerge(base.get(release.id) ?? {}, nsDefaults);
       const doc = subtractChartDefaults(fragments.get(release.id) ?? {}, below, CHART_DEFAULTS);
@@ -158,4 +158,9 @@ export function buildTree(tree: ArgocdTree): GeneratedFile[] {
   });
 
   return files;
+}
+
+/** Whether `ns` deploys the release — every one in the tree but its `absent` ones. */
+export function runs(ns: ArgocdNamespace, releaseId: string): boolean {
+  return !ns.absent?.includes(releaseId);
 }
