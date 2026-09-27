@@ -257,8 +257,20 @@ const TX = (key: string, label: string, o: Extra = {}): FieldSpec => ({ key, kin
 const YA = (key: string, label: string, o: Extra = {}): FieldSpec => ({ key, kind: "yaml", label, ...o });
 const RW = (key: string, label: string, cols: RowCol[], o: Extra = {}): FieldSpec => ({ key, kind: "rows", label, cols, ...o });
 
+/**
+ * Every feature's last, optional field: what its own fields cannot say, as YAML
+ * merged over what they emit (`buildValues`). An import puts a feature's
+ * leftovers here — a live Route's `serviceName`, a probe's `scheme: HTTP` — so
+ * they show on the card they belong to instead of in the release's extra values.
+ */
+export const MORE_KEY = "__more";
+const MORE = YA(MORE_KEY, "Other settings", {
+  hint: "Keys this form has no field for — written as-is, merged over the fields above.",
+});
+
 export const FEATURES: FeatureSpec[] = [];
-const F = (spec: FeatureSpec): FeatureSpec => {
+const F = (own: FeatureSpec): FeatureSpec => {
+  const spec = { ...own, fields: [...own.fields, MORE] };
   FEATURES.push(spec);
   return spec;
 };
@@ -1561,6 +1573,7 @@ const jobRow = (b: Values): Values => {
     containerName: b.containerName,
     serviceAccountName: b.serviceAccountName,
     command: rowsOf(b.command).join("\n"),
+    args: rowsOf(b.args).join("\n"),
     env: envText(b.env),
     imageRepo: im.repository,
     imageTag: im.tag,
@@ -1609,6 +1622,7 @@ F({
         { key: "containerName", label: "jobTemplate.containerName" },
         { key: "serviceAccountName", label: "jobTemplate.serviceAccountName", placeholder: "backup-sa" },
         { key: "command", label: "jobTemplate.command", kind: "text", placeholder: "/app/backup" },
+        { key: "args", label: "jobTemplate.args", kind: "text", placeholder: "--full\n--verbose" },
         { key: "env", label: "jobTemplate.env", kind: "text", placeholder: "DATABASE_URL@secret:db-secret/DATABASE_URL" },
         { key: "imageRepo", label: "jobTemplate.image.repository" },
         { key: "imageTag", label: "jobTemplate.image.tag" },
@@ -1635,6 +1649,7 @@ F({
         put(jt, "containerName", r.containerName);
         put(jt, "serviceAccountName", r.serviceAccountName);
         if (listOf(r.command).length) jt.command = listOf(r.command);
+        if (listOf(r.args).length) jt.args = listOf(r.args);
         const en = jobEnv(r.env);
         if (en) jt.env = en;
         const im = clean({ repository: r.imageRepo, tag: r.imageTag, pullPolicy: r.imagePull });
@@ -1680,6 +1695,7 @@ F({
         { key: "containerName", label: "containerName", placeholder: "migrate" },
         { key: "serviceAccountName", label: "serviceAccountName" },
         { key: "command", label: "command", kind: "text", placeholder: "python\nmanage.py\nmigrate" },
+        { key: "args", label: "args", kind: "text", placeholder: "--noinput" },
         { key: "env", label: "env", kind: "text", placeholder: "DATABASE_URL@secret:db-secret/DATABASE_URL" },
         { key: "imageRepo", label: "image.repository" },
         { key: "imageTag", label: "image.tag" },
@@ -1700,6 +1716,7 @@ F({
         put(o, "containerName", r.containerName);
         put(o, "serviceAccountName", r.serviceAccountName);
         if (listOf(r.command).length) o.command = listOf(r.command);
+        if (listOf(r.args).length) o.args = listOf(r.args);
         const en = jobEnv(r.env);
         if (en) o.env = en;
         const im = clean({ repository: r.imageRepo, tag: r.imageTag });

@@ -73,6 +73,16 @@ export function slug(name: string): string {
   );
 }
 
+/**
+ * A release's grouping sub-folder. The chart reads `base/<group>/<file>` for
+ * `<ns>/values/<group>/<file>` — base mirrors values — so every folder must keep
+ * a release in the same one, and the first namespace that names it is the answer.
+ */
+// ponytail: a release no namespace runs has no group to mirror, so its base file is flat.
+export function releaseGroup(tree: Pick<ArgocdTree, "namespaces">, releaseId: string): string {
+  return tree.namespaces.map((ns) => ns.groups?.[releaseId]).find(Boolean) ?? "";
+}
+
 /** A values file always exists, even when it is empty: a missing valueFile fails the whole render. */
 function valuesFile(path: string, doc: Values, header: string, note: string): GeneratedFile {
   const body = Object.keys(doc).length ? toYaml(doc, true) : "{}";
@@ -92,9 +102,10 @@ export function buildTree(tree: ArgocdTree): GeneratedFile[] {
   releases.forEach((r) => base.set(r.id, buildValues(r.features, r.extraValues)));
 
   releases.forEach((r) => {
+    const group = releaseGroup(tree, r.id);
     files.push(
       valuesFile(
-        `base/${slug(r.name)}.yaml`,
+        `base/${group ? `${group}/` : ""}${slug(r.name)}.yaml`,
         base.get(r.id) ?? {},
         `${HEADER}\n# ${r.name} — environment-agnostic values, shared by every namespace that runs it.`,
         "environment-agnostic"

@@ -131,7 +131,19 @@ export function ArgField({ spec, value, stepDefault, idPrefix, required, stashNa
         ))}
 
       {spec.kind === "stringMap" &&
-        (spec.allowedKeys ? (
+        (typeof value === "string" ? (
+          // A variable standing in for the map (`envs`), as imported. Clearing it
+          // is how you get the rows back.
+          <input
+            type="text"
+            className="jf-expression"
+            aria-label={`${spec.name} (Groovy expression)`}
+            title="A Groovy expression — clear it to edit as a map"
+            spellCheck={false}
+            value={value}
+            onChange={(e) => onChange(e.target.value.trim() ? e.target.value : [])}
+          />
+        ) : spec.allowedKeys ? (
           <FixedKeys spec={spec} pairs={pairsOf(value)} onChange={onChange} />
         ) : (
           <MapRows spec={spec} pairs={pairsOf(value)} onChange={onChange} onDropArg={onRemove} />

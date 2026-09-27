@@ -91,7 +91,8 @@ function renderValue(kind: ArgKind, value: unknown, indent: string): string {
     case "stringList":
       return bracket(linesOf(value).map(unwrap).filter(Boolean).map(quote), indent);
     case "stringMap":
-      return bracket(mapEntries(value), indent);
+      // An expression standing in for the map (`envs`) is Groovy, written as typed.
+      return typeof value === "string" ? value.trim() : bracket(mapEntries(value), indent);
     case "objectList":
       return bracket(
         (value as Record<string, unknown>[])

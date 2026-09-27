@@ -163,10 +163,9 @@ export function NewTreeDialog({
                   namespace(s). {pending.imported.warnings.length} thing(s) did not come across cleanly:
                 </p>
                 <ul>
-                  {pending.imported.warnings.slice(0, 12).map((w) => (
+                  {pending.imported.warnings.map((w) => (
                     <li key={w}>{w}</li>
                   ))}
-                  {pending.imported.warnings.length > 12 && <li>…and {pending.imported.warnings.length - 12} more.</li>}
                 </ul>
               </div>
             )}

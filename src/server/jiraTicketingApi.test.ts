@@ -383,14 +383,19 @@ describe("createTicket files as the person on the page", () => {
     expect(createdFields(fetchMock, 1).reporter).toEqual({ name: "u-dana" });
     const puts = fetchMock.mock.calls.filter(([, o]) => o?.method === "PUT");
     expect(puts.map(([u, o]) => [u, JSON.parse(o!.body as string)])).toEqual([
-      ["https://jira.example.com/rest/api/2/issue/DEVOPS-9", { fields: { priority: { name: "Medium" } } }],
+      ["https://jira.example.com/rest/api/2/issue/DEVOPS-9", { fields: { priority: { name: "Normal" } } }],
     ]);
 
     // Not remembered: the next create sends it again, since a refusal can be
     // about one value rather than the screen.
     fetchMock.mockClear();
     await api.createTicket({ ...input, priority: "High" }, dana);
-    expect(createdFields(fetchMock).priority).toEqual({ name: "High" });
+    expect(createdFields(fetchMock).priority).toEqual({ name: "Warning" });
+  });
+
+  it("reads the instance's priority names back as the portal's", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ key: "DEVOPS-9", fields: { priority: { name: "Major" } } })));
+    expect((await makeApi("").getAdminTicket("DEVOPS-9"))?.priority).toBe("Highest");
   });
 
   it("links each ticket to its Jira page", async () => {

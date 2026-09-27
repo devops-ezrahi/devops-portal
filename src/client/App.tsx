@@ -189,7 +189,7 @@ export function App() {
             setTimeout(() => setStellaPop(false), 3000);
           }}
         >
-          DevOps
+          DevOps Mahan
           <span className="brand-version">v{version}</span>
           {stellaPop && (
             <div className="stella-pop">

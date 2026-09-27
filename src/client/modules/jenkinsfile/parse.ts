@@ -320,7 +320,9 @@ function coerce(kind: ArgKind, value: Value): unknown {
     case "commands":
       return value.t === "closure" ? { closure: dedent(value.v) } : asLines(value);
     case "stringMap":
-      return asPairs(value);
+      // A variable (`populateEnvVars(envs)`, `def envs = [...]` above) is kept
+      // as the Groovy it is, and written back verbatim.
+      return value.t === "expr" ? value.v : asPairs(value);
     case "objectList":
       return value.t === "list"
         ? value.v.map((entry) => Object.fromEntries(asPairs(entry)))
@@ -396,7 +398,8 @@ function stageFrom(name: string, body: string, warnings: string[]): JenkinsfileS
     else if (keyed.length) value = { t: "map", v: keyed.map((e) => [e.key!, readValue(e.value)] as [string, Value]) };
     else if (entries[0]) value = readValue(entries[0].value);
     if (value) {
-      if (value.t !== "map") warnings.push(`${name}: its argument is not a literal map, so it was left empty`);
+      if (value.t !== "map" && value.t !== "expr")
+        warnings.push(`${name}: its argument is not a literal map, so it was left empty`);
       stage.args[arg.name] = coerce(arg.kind, value);
     }
     return stage;

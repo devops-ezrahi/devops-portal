@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 import { importValues } from "./import";
 import { buildValues } from "./build";
 import { toYaml } from "./yaml";
@@ -41,12 +42,37 @@ somethingTheChartAdded:
     expect(warnings.join(" ")).toContain("somethingTheChartAdded");
   });
 
-  it("keeps the part of a modelled key the form cannot hold, naming the form", () => {
+  it("keeps the part of a modelled key the form cannot hold on that feature's card", () => {
     // `ports` is a map the form can show; a key the form has no field for
-    // still has to survive the round trip.
-    const { extraValues, warnings } = importValues("ports:\n  http:\n    containerPort: 8080\n    hostPort: 8080\n");
-    expect(extraValues).toContain("hostPort");
-    expect(warnings.join(" ")).toContain("Container ports");
+    // still has to survive the round trip — under the card's Other settings.
+    const source = "ports:\n  http:\n    containerPort: 8080\n    hostPort: 8080\n";
+    const { features, extraValues, warnings } = importValues(source);
+    expect(extraValues).toBe("");
+    expect(warnings).toEqual([]);
+    expect(Object.values(features).map((f) => f.v.__more).join()).toContain("hostPort");
+    expect(round(source)).toBe(source.trimEnd());
+  });
+
+  // Seen live on converter output: every Route carries name/serviceName and
+  // every live probe the API server's scheme/successThreshold.
+  it("reproduces a live Route and probe without a warning", () => {
+    const source = [
+      "route:",
+      "  enabled: true",
+      "  host: api.example.org",
+      "  name: api",
+      "  serviceName: api",
+      "livenessProbe:",
+      "  httpGet:",
+      "    path: /health",
+      "    port: 8080",
+      "    scheme: HTTP",
+      "  successThreshold: 1",
+    ].join("\n");
+    const { features, warnings } = importValues(source);
+    expect(warnings).toEqual([]);
+    expect(features.route.v.__more).toContain("serviceName: api");
+    expect(parseYaml(round(source))).toEqual(parseYaml(source));
   });
 
   it("round-trips a document it fully understands", () => {

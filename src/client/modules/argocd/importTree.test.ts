@@ -265,8 +265,10 @@ describe("variant folders and grouped values", () => {
   // prd/yellow and prd/black both deploy into namespace prd and share base/;
   // values/ groups its files in sub-folders. dev is a plain namespace.
   const repo = [
-    { path: "base/ms1.yaml", text: "image:\n  repository: registry/ms1\n  tag: 1.0.0\n" },
-    { path: "base/ms2.yaml", text: "image:\n  repository: registry/ms2\n  tag: 1.0.0\n" },
+    // base/ mirrors the group sub-folder — the chart reads base/group1/ms1.yaml
+    // for <ns>/values/group1/ms1.yaml, so every folder keeps ms1 in group1.
+    { path: "base/group1/ms1.yaml", text: "image:\n  repository: registry/ms1\n  tag: 1.0.0\n" },
+    { path: "base/group2/ms2.yaml", text: "image:\n  repository: registry/ms2\n  tag: 1.0.0\n" },
     { path: "prd/yellow/defaults.yaml", text: "color: yellow\n" },
     { path: "prd/yellow/values/group1/ms1.yaml", text: "image:\n  tag: 1.1.0\n" },
     { path: "prd/yellow/values/group2/ms2.yaml", text: "replicaCount: 3\n" },
@@ -274,8 +276,8 @@ describe("variant folders and grouped values", () => {
     { path: "prd/black/values/group1/ms1.yaml", text: "image:\n  tag: 1.2.0\n" },
     { path: "prd/black/values/group2/ms2.yaml", text: "{}\n" },
     { path: "dev/defaults.yaml", text: "{}\n" },
-    { path: "dev/values/ms1.yaml", text: "{}\n" },
-    { path: "dev/values/ms2.yaml", text: "{}\n" },
+    { path: "dev/values/group1/ms1.yaml", text: "{}\n" },
+    { path: "dev/values/group2/ms2.yaml", text: "{}\n" },
     { path: "rootApplicationSet.yaml", text: "kind: ApplicationSet\n" },
   ];
 
@@ -298,11 +300,14 @@ describe("variant folders and grouped values", () => {
         "prd/yellow/values/group1/ms1.yaml",
         "prd/yellow/values/group2/ms2.yaml",
         "prd/black/values/group1/ms1.yaml",
-        "dev/values/ms1.yaml",
+        "dev/values/group1/ms1.yaml",
+        "base/group1/ms1.yaml",
+        "base/group2/ms2.yaml",
       ])
     );
     // Nothing lands flat beside a grouped file — that would be a second Application of the same name.
     expect(paths).not.toContain("prd/yellow/values/ms1.yaml");
+    expect(paths).not.toContain("base/ms1.yaml");
     const written = docs(again);
     const read = docs(repo.filter((f) => f.path !== "rootApplicationSet.yaml"));
     for (const path of Object.keys(read)) expect(written[path], path).toEqual(read[path]);
@@ -311,5 +316,19 @@ describe("variant folders and grouped values", () => {
   it("says so when one folder has the same release file in two groups", () => {
     const { warnings } = importTree([...repo, { path: "prd/yellow/values/group3/ms1.yaml", text: "{}\n" }]);
     expect(warnings.join()).toMatch(/second ms1\.yaml in prd\/yellow\/values/);
+  });
+
+  // Seen live: a flat shared release beside microservices all grouped under b2b/,
+  // and only `shared` came across.
+  it("reads a grouped base file as its release", () => {
+    const recovered = importTree([
+      { path: "base/shared.yaml", text: "workload:\n  type: none\n" },
+      { path: "base/b2b/filter-service.yaml", text: "image:\n  repository: registry/filter\n" },
+      { path: "rakia-108/black/defaults.yaml", text: "{}\n" },
+      { path: "rakia-108/black/values/shared.yaml", text: "{}\n" },
+      { path: "rakia-108/black/values/b2b/filter-service.yaml", text: "image:\n  tag: 1.0.0\n" },
+    ]);
+    expect(recovered.releases.map((r) => r.name)).toEqual(["filter-service", "shared"]);
+    expect(recovered.warnings.join()).not.toMatch(/no base\//);
   });
 });

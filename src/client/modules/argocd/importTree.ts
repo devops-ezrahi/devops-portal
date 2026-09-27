@@ -55,9 +55,17 @@ export function importTree(files: RepoFile[]): TreeImport {
   // ---- releases: base/ is written whole, so each file *is* that release -----
   const releases: ArgocdRelease[] = [];
   const idBySlug = new Map<string, string>();
+  // base/ mirrors values/'s grouping sub-folders (`base/b2b/api.yaml` for
+  // `<ns>/values/b2b/api.yaml`); the release is still named after its file.
+  const basePaths = new Map<string, string>();
   for (const [path, text] of byPath) {
-    const slug = path.startsWith("base/") && path.endsWith(".yaml") ? path.slice(5, -5) : null;
-    if (!slug || slug.includes("/")) continue;
+    const slug = /^base\/(?:.+\/)?([^/]+)\.yaml$/.exec(path)?.[1];
+    if (!slug) continue;
+    if (basePaths.has(slug)) {
+      warnings.push(`${path}: a second ${slug}.yaml in base — a release is named after its file, so only ${basePaths.get(slug)} was read.`);
+      continue;
+    }
+    basePaths.set(slug, path);
     const { features, extraValues, warnings: own } = importValues(text);
     own.forEach((w) => warnings.push(`${path}: ${w}`));
     const id = uid("r");
@@ -131,7 +139,7 @@ export function importTree(files: RepoFile[]): TreeImport {
       entries.push({ release: id, features: imported.features, extraValues: imported.extraValues });
     }
     for (const [slug, file] of valuesIn.get(name) ?? [])
-      if (!idBySlug.has(slug)) warnings.push(`${file.path}: no base/${slug}.yaml for it — not imported.`);
+      if (!idBySlug.has(slug)) warnings.push(`${file.path}: no base/${file.group ? `${file.group}/` : ""}${slug}.yaml for it — not imported.`);
     // No values file here = this folder does not run that release.
     const absent = [...idBySlug].filter(([slug]) => !valuesIn.get(name)?.has(slug)).map(([, id]) => id);
     namespaces.push({

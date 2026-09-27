@@ -496,6 +496,10 @@ work around it rather than pretend otherwise:
   `JIRA_MAINTENANCE_ISSUE_TYPE` may be the type's numeric id (`3`), sent as
   `{"id": …}` and unquoted in JQL — what a localised instance resolves when
   the display name does not match.
+- **Priorities are renamed on the way to Jira.** The portal shows five
+  (`Lowest`…`Highest`); the instance's own names are `Trivial`, `Low`,
+  `Normal`, `Warning`, `Major` (`jiraPriorityName` in `priority.ts`), and
+  `parsePriority` maps them back when a ticket is read.
 - **A new ticket is exactly what the admin queue queries for.** `listAdminTickets`
   filters on four things — `project`, `JIRA_TICKET_LABEL`,
   `JIRA_MAINTENANCE_ISSUE_TYPE` and `sprint = <the board's active sprint>` — and
@@ -949,7 +953,12 @@ namespace whose name has a `/`. `values/` may hold grouping sub-folders
 `ArgocdNamespace.groups` remembers each release's sub-folder so a rebuild
 writes it back in place rather than beside it (two files of one name in a
 folder are two Applications of one name). `importTree` finds folders by their
-`defaults.yaml` or `values/`, anywhere below the root.
+`defaults.yaml` or `values/`, anywhere below the root. **`base/` mirrors that
+sub-folder** — the chart reads `base/group1/ms1.yaml` for
+`<ns>/values/group1/ms1.yaml` — so `importTree` reads a grouped base file as
+its release and `buildTree` writes base back into the group (`releaseGroup`:
+the first namespace that names one). Flat base beside grouped values fails to
+render. The microservice grid boxes each group under its name.
 
 **The root Application/ApplicationSet are not generated.** They are set up once
 by whoever runs ArgoCD, not per tree. `importTree` still reads the repos out of
@@ -962,6 +971,16 @@ defaults. `findEnvSpecific` therefore skips a templated value, and
 `checkValues` flags a `{{` tpl would mangle (`{{ define`, or a field that is not
 the release's own like Alertmanager's `{{ .CommonLabels }}`) with the escape to
 use instead.
+
+**A template reads as the blank it is.** Keys are `tpl`'d too, so a converted
+base has `volumes: { settings-{{ .Values.color }}: … }`, and CronJobs, sidecars
+and ConfigMaps named the same way. `templates.ts` resolves `{{ .Values.x }}` /
+`{{ .Release.Namespace }}` against every folder the open file renders for
+(`TemplateScopes`, set in `ArgocdView`: each running folder's defaults plus its
+own override; one folder when editing an override). An entry title shows the
+placeholder as a chip (`settings-[color]`), and a templated field gets a quiet
+`→ settings-black · settings-yellow` line under it — amber naming the folders
+that leave the value unset, which the chart would render empty.
 
 `checkValues` carries the converter's per-release findings from that merge
 (nodePort on ClusterIP, emptyDir without sizeLimit, a PVC `volumeName` with no
@@ -1247,10 +1266,16 @@ defaults of its own.
   about to be deployed.
 - **Import keeps what it cannot show.** `import.ts` reloads each feature through
   its `load` (or generically, from each field's `path`), then re-emits and
-  subtracts: whatever the re-emit fails to reproduce goes into `extraValues`
-  — merged last, so it wins — and is named in the warnings the dialog shows
-  before anything is replaced. `jenkinsfile/parse.ts`'s rule, and the
-  round-trip is what `import.test.ts` pins.
+  subtracts: whatever the re-emit fails to reproduce under a key a *switched-on*
+  feature owns goes into that feature's **Other settings** (`__more`, the last
+  field every feature gets from `F`, deep-merged over its emit by
+  `buildValues`) — so a live Route's `serviceName` or a probe's `scheme: HTTP`
+  shows on the card it belongs to, with no warning. Anything else goes into
+  `extraValues` — merged last, so it wins — and is named in the warnings the
+  dialog shows before anything is replaced. `jenkinsfile/parse.ts`'s rule, and
+  the round-trip is what `import.test.ts` pins. Every warning is listed, never
+  the first few: the connect dialog scrolls, and a Pull/Convert leaves the full
+  list under the repository panel until dismissed.
 - **Every `mapOf` has a `load` that inverts it.** Seventeen features keep their
   value as a `name`-keyed map edited as rows, and a row is exactly what a
   field's `path` cannot read back — so a pull ticked ConfigMaps, Volumes,

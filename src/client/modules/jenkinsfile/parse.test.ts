@@ -163,8 +163,13 @@ describe("populateEnvVars", () => {
     expect(envVarsOf("populateEnvVars(envVars: [SERVICE: 'billing', TEAM_NAME: 'platform'])").envVars).toEqual(expected);
   });
 
-  it("says so when the map is a variable it cannot see into", () => {
-    expect(envVarsOf("populateEnvVars(vars)").warnings.join()).toMatch(/not a literal map/);
+  // Seen live: `def envs = [...]` at the top, then populateEnvVars(envs).
+  it("keeps a variable as the Groovy it is, and writes it back", () => {
+    const text = "def envs = [SERVICE: 'billing']\n\npopulateEnvVars(envs)";
+    const { pipeline, warnings } = parseJenkinsfile(text);
+    expect(warnings).toEqual([]);
+    expect(pipeline.stages[0].args.envVars).toBe("envs");
+    expect(toGroovy(pipeline)).toContain("populateEnvVars(envs)");
   });
 });
 

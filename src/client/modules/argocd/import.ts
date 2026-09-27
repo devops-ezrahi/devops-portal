@@ -1,5 +1,5 @@
 import { parseAllDocuments } from "yaml";
-import { BY_ID, FEATURES, isRecord, nz, pairsOf } from "./catalog";
+import { BY_ID, FEATURES, MORE_KEY, isRecord, nz, pairsOf } from "./catalog";
 import { buildValues, parseValues } from "./build";
 import { subtractDefaults } from "./values";
 import { toYaml } from "./yaml";
@@ -87,15 +87,26 @@ export function importValues(text: string): ImportResult {
   // holds text where the document holds a map.
   const emitted = parseValues(toYaml(buildValues(features))) ?? {};
   const leftovers = subtractDefaults(doc, emitted);
-  const extraValues = Object.keys(leftovers).length ? `${toYaml(leftovers)}\n` : "";
-  Object.keys(leftovers).forEach((key) => {
+  const extra: Values = {};
+  Object.entries(leftovers).forEach(([key, value]) => {
     const owner = FEATURES.find((f) => f.keys.includes(key));
+    // A feature that is on keeps what its fields could not hold on its own card,
+    // under "Other settings" — a live Route's `serviceName`, a probe's `scheme`.
+    // Only the difference goes: `buildValues` deep-merges it back over what the
+    // fields emit, and a list that differs at all is already carried whole.
+    if (owner && features[owner.id]) {
+      const v = features[owner.id].v;
+      v[MORE_KEY] = [v[MORE_KEY], toYaml({ [key]: value })].filter(Boolean).join("\n");
+      return;
+    }
+    extra[key] = value;
     warnings.push(
       owner
-        ? `${key}: kept as extra values — more than the ${owner.name} form can show.`
+        ? `${key}: kept as extra values — the ${owner.name} form read nothing from it.`
         : `${key}: kept as extra values — the builder does not model this key.`
     );
   });
+  const extraValues = Object.keys(extra).length ? `${toYaml(extra)}\n` : "";
 
   return { features, extraValues, warnings };
 }

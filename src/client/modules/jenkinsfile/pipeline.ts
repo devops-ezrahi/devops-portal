@@ -215,6 +215,8 @@ export function isEmptyArg(kind: ArgKind, value: unknown): boolean {
     case "stringList":
       return linesOf(value).length === 0;
     case "stringMap":
+      // A string is a Groovy expression standing in for the map (`envs`).
+      if (typeof value === "string") return !value.trim();
       return pairsOf(value).every(([k, v]) => !k.trim() || !String(v ?? "").trim());
     case "objectList":
       return (
