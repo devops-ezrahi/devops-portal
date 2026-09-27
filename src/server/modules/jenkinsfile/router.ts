@@ -30,12 +30,14 @@ const pipelineBody = z.object({
     .array(
       z.object({
         name: z.string().trim().min(1).max(80),
-        type: z.enum(["boolean", "string", "choice"]).default("boolean"),
+        type: z.enum(["boolean", "string", "text", "choice", "password"]).default("boolean"),
         // Records written when every parameter was a booleanParam hold a real
         // boolean here; one shape on the way in beats a migration on the way out.
         defaultValue: z.union([z.string(), z.boolean()]).transform(String).default(""),
-        description: z.string().max(300),
-        choices: z.array(z.string()).max(50).optional(),
+        // Sized for what imported Jenkinsfiles carry — a paragraph of help, one
+        // choice per service — since a refused save here fails every autosave.
+        description: z.string().max(2000),
+        choices: z.array(z.string()).max(500).optional(),
       })
     )
     .max(50)

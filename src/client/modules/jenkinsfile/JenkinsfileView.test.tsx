@@ -428,13 +428,14 @@ genStage(title: 'Build', image: 'python311', commands: ['npm ci'])`,
     fireEvent.click(screen.getByRole("button", { name: /New/ }));
     fireEvent.click(screen.getByRole("button", { name: /Import an existing Jenkinsfile/ }));
     fireEvent.change(screen.getByLabelText("Or paste it here"), {
-      target: { value: "genStage(title: 'Build', image: 'ubi8')\ndeployToMars(title: 'Launch')" },
+      target: { value: "genStage(title: 'Build', image: 'ubi8')\ndeployToMars(title: 'Launch')\ndeployToMars(title: 'Launch')" },
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Import" }));
     // Held back once — a stage that vanishes without a word is worse than one
-    // the user has to re-add by hand.
-    expect(screen.getByText(/Skipped deployToMars/)).toBeTruthy();
+    // the user has to re-add by hand. The skipped Groovy is shown as code, and
+    // skipped twice it is listed twice.
+    expect(screen.getAllByText("deployToMars(title: 'Launch')").map((e) => e.tagName)).toEqual(["CODE", "CODE"]);
 
     fireEvent.click(screen.getByRole("button", { name: "Import anyway" }));
     expect(code()).toContain("genStage(");
@@ -588,14 +589,14 @@ genStage(title: 'Build', image: 'python311', commands: ['npm ci'])`,
     expect(code()).not.toContain("@Library");
   });
 
-  it("offers boolean, string and choice parameters, and writes the one picked", () => {
+  it("offers all five parameter types, and writes the one picked", () => {
     const { code } = renderView();
     fireEvent.click(screen.getByRole("button", { name: /Pipeline options/ }));
 
     fireEvent.click(screen.getByRole("button", { name: /Add pipeline parameters/ }));
     expect(
       [...screen.getByLabelText("Parameter 1 type").querySelectorAll("option")].map((o) => o.value)
-    ).toEqual(["boolean", "string", "choice"]);
+    ).toEqual(["boolean", "string", "text", "choice", "password"]);
 
     fireEvent.change(screen.getByLabelText("Parameter 1 name"), { target: { value: "target" } });
     fireEvent.change(screen.getByLabelText("Parameter 1 type"), { target: { value: "choice" } });

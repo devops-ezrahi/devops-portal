@@ -32,7 +32,7 @@ import { LibraryField } from "./components/LibraryField";
 import { ParamsEditor, paramScope } from "./components/ParamsEditor";
 import { PipelineList } from "./components/PipelineList";
 import { ImagesContext } from "./components/ArgField";
-import { NewPipelineDialog } from "./components/NewPipelineDialog";
+import { NewPipelineDialog, WarningList } from "./components/NewPipelineDialog";
 import { CommitButton, PushResult, type PushState } from "../../RepoPanel";
 import { EMPTY_REPO, gitBlocked, RepoPanel } from "./components/RepoPanel";
 import { StageList } from "./components/StageList";
@@ -577,11 +577,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
                       <X size={15} aria-hidden="true" />
                     </button>
                   </summary>
-                  <ul>
-                    {pullNotes.map((w) => (
-                      <li key={w}>{w}</li>
-                    ))}
-                  </ul>
+                  <WarningList warnings={pullNotes} />
                 </details>
               )}
             </div>

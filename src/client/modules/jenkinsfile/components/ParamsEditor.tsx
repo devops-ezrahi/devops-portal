@@ -248,6 +248,23 @@ function ParamValue({
     );
   }
 
+  if (param.type === "text") {
+    return (
+      <div className="form-field">
+        <label htmlFor={`${id}-value`}>default</label>
+        <textarea
+          id={`${id}-value`}
+          className="jf-lines"
+          aria-label={`Parameter ${index + 1} default value`}
+          rows={Math.max(2, param.defaultValue.split("\n").length)}
+          placeholder={spec.placeholder}
+          value={param.defaultValue}
+          onChange={(e) => onSet({ defaultValue: e.target.value })}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="form-field">
       <label htmlFor={`${id}-value`}>default</label>

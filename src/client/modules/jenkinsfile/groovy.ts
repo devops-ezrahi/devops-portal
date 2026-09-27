@@ -6,16 +6,31 @@ import type { JenkinsfileParam, JenkinsfileStage } from "../../../server/types";
 const INDENT = "    ";
 
 /**
+ * One `${…}` interpolation (quoted strings and one level of braces allowed
+ * inside it), a `\${` held literal, or any other single character.
+ */
+const GSTRING_PART = /\\\$\{|\$\{(?:[^{}'"]|'[^']*'|"[^"]*"|\{[^{}]*\})*\}|[\s\S]/g;
+const ESCAPED: Record<string, string> = { "\\": "\\\\", "\n": "\\n", "\t": "\\t", "\r": "\\r" };
+
+/**
  * A string containing `${` has to stay a GString or the interpolation is lost —
  * `title: "Build ${env.SERVICE}"` is exactly what the library's own steps write.
  * Everything else gets single quotes, which need no escaping of `$`.
+ *
+ * Inside a GString only the text *between* interpolations is escaped: a `"` in
+ * `${ok ? "PRD" : 'dev'}` is Groovy code, and `\"` there does not compile. A
+ * `\${` is how the builder holds a literal `${` (parse.ts' `readString`), so it
+ * goes out as written, and a lone `$` is escaped so it does not interpolate.
  */
 function quote(raw: string): string {
   const value = String(raw);
   if (value.includes("${")) {
-    return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+    const body = value.replace(GSTRING_PART, (t) =>
+      t.length > 1 ? t : t === '"' ? '\\"' : t === "$" ? "\\$" : (ESCAPED[t] ?? t)
+    );
+    return `"${body}"`;
   }
-  return `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+  return `'${value.replace(/[\\'\n\t\r]/g, (t) => (t === "'" ? "\\'" : ESCAPED[t]))}'`;
 }
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;

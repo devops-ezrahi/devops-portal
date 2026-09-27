@@ -30,10 +30,23 @@ export const PARAM_TYPES: ParamTypeSpec[] = [
     placeholder: "default value",
   },
   {
+    type: "text",
+    label: "Text",
+    fn: "text",
+    hint: "A multi-line text box — release notes, a list of hosts.",
+    placeholder: "default text",
+  },
+  {
     type: "choice",
     label: "Choice",
     fn: "choice",
     hint: "A drop-down. Jenkins takes the first choice as the default, so the order is the default.",
+  },
+  {
+    type: "password",
+    label: "Password",
+    fn: "password",
+    hint: "A masked box whose value Jenkins hides in the build log. The default is written into the Jenkinsfile in plain text, so leave it empty.",
   },
 ];
 

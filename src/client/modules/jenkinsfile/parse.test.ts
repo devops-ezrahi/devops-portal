@@ -119,7 +119,7 @@ describe("parseJenkinsfile", () => {
     expect(pipeline.stages).toHaveLength(1);
     expect(warnings).toEqual([
       "genStage: ignored an argument the builder does not know — somethingNew",
-      "Skipped deployToMars() — not a step in the shared library.",
+      "Skipped `deployToMars(title: 'Launch')` — not a step in the shared library.",
     ]);
   });
 
@@ -134,7 +134,7 @@ describe("parseJenkinsfile", () => {
   });
 
   it("says what it knows when the file has no library steps at all", () => {
-    const { pipeline, warnings } = parseJenkinsfile("echo 'nothing here'");
+    const { pipeline, warnings } = parseJenkinsfile("@Library('jenkins-k8s-shared-library') _\n// nothing here\n");
     expect(pipeline.stages).toEqual([]);
     expect(warnings[0]).toContain("No library steps found");
   });

@@ -211,11 +211,17 @@ const COMMON_ARGS: ArgSpec[] = [
       },
     ],
   },
-  { name: "requestStorage", kind: "integer", hint: "Gi of dynamic nfs-premium workspace storage to request." },
+  {
+    name: "requestStorage",
+    kind: "integer",
+    hint: "Gi of dynamic nfs-premium workspace storage to request, 1 to 100.",
+  },
   {
     name: "resources",
     kind: "stringMap",
-    hint: "Container requests/limits. Defaults: 10m / 1Gi requested, 3 / 20Gi limit.",
+    hint:
+      "Container requests/limits. Defaults: 10m / 1Gi requested, 3 / 20Gi limit. Request memory currently has " +
+      "no effect: the validator only accepts requestmemory, and podLauncher reads requestMemory.",
     // Verbatim from the library's resourcesValidator — including the lowercase
     // `m` in requestmemory, which is what it actually accepts.
     allowedKeys: ["requestCpu", "requestmemory", "limitCpu", "limitMemory"],
@@ -313,13 +319,18 @@ export const STEPS: StepSpec[] = [
     step: "genStageWindows",
     label: "Gen stage (Windows)",
     description: "Same as a gen stage, on the Windows node. The step forces node = 'windows'.",
-    args: common(POD_ONLY, ["title", "commands"]),
+    // Its shell is `bat`, and the lines are joined with ` & `, not `&&`.
+    args: common(POD_ONLY, ["title", "commands"]).map((a) =>
+      a.name === "commands"
+        ? { ...a, hint: "Batch: one command per line, joined with & and run through bat. Closure: Groovy the library calls as-is." }
+        : a
+    ),
   },
   {
     step: "buildAndUploadImageStage",
     label: "Build & upload image",
     description: "Builds the Dockerfile with buildkit and pushes it to Artifactory.",
-    defaults: { title: "Build and Upload Image", image: "[buildkit-rootful]" },
+    defaults: { title: "Build and Upload Image - ${env.SERVICE}", image: "[buildkit-rootful]" },
     args: [
       ...common(),
       { name: "dockerfile", kind: "string", hint: "Path to the Dockerfile.", placeholder: "Dockerfile" },
@@ -337,7 +348,7 @@ export const STEPS: StepSpec[] = [
     step: "buildAndUploadJarStage",
     label: "Build & upload jar",
     description: "Maven deploy of the project's jar to Artifactory.",
-    defaults: { title: "Build and Upload Jar", image: "mvn353-jdk17" },
+    defaults: { title: "Build and Upload Jar - ${env.SERVICE}", image: "mvn353-jdk17" },
     args: [
       ...common(),
       { name: "flags", kind: "stringList", hint: "Extra maven flags, one per line.", },
@@ -356,7 +367,7 @@ export const STEPS: StepSpec[] = [
     step: "buildAndUploadRpmStage",
     label: "Build & upload RPM",
     description: "rpmbuild from a spec file, then upload to Artifactory.",
-    defaults: { title: "Build and Upload RPM", image: "rpmbuild" },
+    defaults: { title: "Build and Upload RPM - ${env.SERVICE}", image: "rpmbuild" },
     args: [
       ...common(),
       { name: "specFile", kind: "string", hint: "Path to the .spec file.", placeholder: "service.spec" },
@@ -372,7 +383,7 @@ export const STEPS: StepSpec[] = [
     step: "buildAndUploadWhlStage",
     label: "Build & upload wheel",
     description: "Builds the Python wheel and uploads it to Artifactory.",
-    defaults: { title: "Build and Upload Whl", image: "python311" },
+    defaults: { title: "Build and Upload Whl - ${env.SERVICE}", image: "python311" },
     args: [...common(), { name: "repoName", kind: "string", hint: "Target Artifactory pypi repo." }, POST_COMMANDS],
   },
   {
@@ -383,6 +394,16 @@ export const STEPS: StepSpec[] = [
       "Dry-run on pull requests, skipped on development branches.",
     defaults: { title: "semantic-release", image: "semantic-release" },
     args: [...common(), POST_COMMANDS],
+  },
+  {
+    step: "smartReleaseStage",
+    label: "Smart release",
+    description:
+      "Tags release/* and hotfix/* branches and promotes main, then publishes VERSION, RELATED_TO and " +
+      "BRANCH_TYPE for later stages. Skipped on any other branch.",
+    defaults: { title: "smart-release", image: "semantic-release" },
+    // The step forces unshallow on — it needs the tags — so offering it is offering nothing.
+    args: [...common(["unshallow"]), POST_COMMANDS],
   },
   {
     step: "sonarStage",
@@ -434,7 +455,9 @@ export const STEPS: StepSpec[] = [
       {
         name: "allowedBranches",
         kind: "stringList",
-        hint: "Branch patterns to mirror (* wildcards), one per line. Omit to mirror every branch.",
+        // Not "omit to mirror every branch": the step skips itself when the
+        // argument is missing.
+        hint: "Branch patterns to mirror (* wildcards), one per line. Left out, the step is skipped.",
       },
       { name: "flags", kind: "stringList", hint: "Declared by the step's spec but currently unused by it." },
       POST_COMMANDS,

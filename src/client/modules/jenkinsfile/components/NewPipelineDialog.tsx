@@ -10,6 +10,21 @@ import type { DraftPipeline } from "../pipeline";
 type Repo = NonNullable<JenkinsfilePipeline["repo"]>;
 
 /**
+ * The importer quotes the Groovy it skipped between backticks, so that is
+ * shown as code. Keyed by position: two identical skipped lines — the same
+ * helper called twice — are two warnings, not one.
+ */
+export function WarningList({ warnings }: { warnings: string[] }) {
+  return (
+    <ul>
+      {warnings.map((w, i) => (
+        <li key={i}>{w.split("`").map((part, n) => (n % 2 ? <code key={n}>{part}</code> : part))}</li>
+      ))}
+    </ul>
+  );
+}
+
+/**
  * What "New" opens: start empty, bring an existing Jenkinsfile in, or connect
  * the repository that holds one.
  *
@@ -170,11 +185,7 @@ export function NewPipelineDialog({
                   <TriangleAlert size={15} aria-hidden="true" /> Read <code>{pending.repo.path}</code>, but some of
                   it could not be understood. Import anyway and the rest comes in:
                 </p>
-                <ul>
-                  {pending.warnings.map((w) => (
-                    <li key={w}>{w}</li>
-                  ))}
-                </ul>
+                <WarningList warnings={pending.warnings} />
               </div>
             )}
 
@@ -273,11 +284,7 @@ export function NewPipelineDialog({
                   <TriangleAlert size={15} aria-hidden="true" /> Some of the file could not be read. Import anyway
                   and the rest comes in:
                 </p>
-                <ul>
-                  {warnings.map((w) => (
-                    <li key={w}>{w}</li>
-                  ))}
-                </ul>
+                <WarningList warnings={warnings} />
               </div>
             )}
 

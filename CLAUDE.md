@@ -645,6 +645,29 @@ no external system — the only server-side state is saved pipeline documents.
   declarative `pipeline { … }` file is named as such rather than importing as
   nothing. The round-trip is what the tests pin: parsing the generator's own
   output must regenerate it byte for byte.
+  - **It reads statements, not calls.** The file is split into top-level
+    statements (`statements`: a newline outside brackets, unless the line ends
+    mid-expression or the next opens `} else {`, `.chain()`…), and each one that
+    is not a step call is named by its own text, with any library step it hides
+    — `if (…) { genStage(…) }`, `node {}`, `timeout {}`, a Jenkins `stage('x')
+    {}`, a `sh` in a parallel branch all used to vanish without a word. A known
+    name in Groovy's parenthesis-free form (`sleep 30`, `parallel a: {…}`) is a
+    call. `errorStage`/`skipStage` are named as the library's internal helpers.
+    `properties([…])` entries that are not parameters (`buildDiscarder`,
+    `pipelineTriggers`) are named as job properties the builder does not write
+    back.
+  - **A string is held as its Groovy value**, `${…}` being the one thing that
+    means interpolation — so `readString` reads the way Groovy does (a
+    single-quoted `${f}` is the shell's and is held as `\${f}`; a double-quoted
+    `$VAR` becomes `${VAR}`; `\$` is `$`, `\n` a newline) and `quote` writes it
+    back that way, never escaping inside a `${…}`. `stringEnd` is the one place
+    every scan skips a string, and it knows a GString's `${…}` can hold quotes.
+  - **Groovy where a value goes is kept, never quoted into a literal.** In a
+    text field `image: DEFAULT_IMAGE` becomes `"${DEFAULT_IMAGE}"` (same value);
+    a call in an expression field stays a call. A flag, number, list or entries
+    field cannot hold Groovy (`unshallow: isRelease`), so that comes in empty
+    and is named. `__tests__/chaos/` is a deliberately abusive real-world file
+    and its expected warnings, pinned line for line.
 - **The list you reorder is the list you edit.** `StageList.tsx` is one column of
   `StageCard.tsx`s: the header is the card collapsed (grip, position, title,
   description, ▲/▼, ×) and expanding it drops the whole argument editor in
@@ -787,7 +810,10 @@ no external system — the only server-side state is saved pipeline documents.
   variables a shell command interpolates (`${tag}` — `quote` already keeps
   such a string a GString) and functions a Closure command calls. Import lifts
   every top-level `def`/`import`/`@Field` statement into it (`splitDefs`),
-  function bodies included, before the step calls are read. `usedParamNames`
+  function bodies included, before the step calls are read — and a declaration
+  by type (`final String X = …`, `String stamp() {`) too. A variable that sat
+  *after* a stage now runs before every one, so that move is a warning; a
+  function or `@Field` is hoisted by Groovy anyway and is not. `usedParamNames`
   scans it too.
 - **`sleep` is Jenkins' own step** (`builtin: true` in the catalog), the one
   step with no `genStage` arguments.

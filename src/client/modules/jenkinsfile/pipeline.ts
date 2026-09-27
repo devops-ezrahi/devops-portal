@@ -313,6 +313,22 @@ export function validatePipeline(pipeline: DraftPipeline): PipelineErrors {
       });
     }
 
+    // podLauncher errors on a workspace outside DYNAMIC_PVC_MIN_SIZE..MAX_SIZE,
+    // and resourcesValidator on a key it does not list. The resources editor
+    // only draws the four allowed keys, so an imported fifth would otherwise be
+    // invisible and still emitted.
+    const storage = find("requestStorage");
+    if (isSet(storage, stage.args) && !(Number(stage.args.requestStorage) >= 1 && Number(stage.args.requestStorage) <= 100)) {
+      found.push("requestStorage must be between 1 and 100.");
+    }
+    const allowed = find("resources")?.allowedKeys;
+    if (allowed && typeof stage.args.resources !== "string") {
+      for (const [key] of pairsOf(stage.args.resources)) {
+        if (key.trim() && !allowed.includes(key.trim()))
+          found.push(`resources has ${key.trim()}, which the library rejects — it takes ${allowed.join(", ")}.`);
+      }
+    }
+
     if (found.length) errors.stages[stage.id] = found;
   }
 
