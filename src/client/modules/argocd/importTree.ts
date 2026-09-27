@@ -120,7 +120,12 @@ export function importTree(files: RepoFile[]): TreeImport {
         // A group value (`color: yellow`) the base files template with
         // `{{ .Values.color }}` is the chart's to read, not a catalog field —
         // kept as extra values, which is exactly right, so nothing to warn about.
-        .filter((w) => !templated.has(w.split(":")[0]))
+        // So is one the folder itself names (`color: black` in dev/black), even
+        // when every templated value moved into the folders' own values files.
+        .filter((w) => {
+          const key = w.split(":")[0];
+          return !templated.has(key) && !name.split("/").includes(String(defaultsDoc[key]));
+        })
         .forEach((w) => warnings.push(`${name}/defaults.yaml: ${w}`));
     const entries: ArgocdNamespace["releases"] = [];
     const groups: Record<string, string> = {};
@@ -154,13 +159,22 @@ export function importTree(files: RepoFile[]): TreeImport {
   // ---- the wiring files name the repos ---------------------------------------
   const wiring = readWiring(ROOT_APPSETS.map((p) => docAt(byPath, p)).find(Boolean) ?? null);
 
+  // A top-level folder holding no tree file at all (the converter's input/,
+  // a docs/ folder) is one line, not one per file; a stray file inside a tree
+  // folder is still named on its own.
+  const treeTops = new Set(["base", ...[...nsNames].map((n) => n.split("/")[0])]);
+  const outside = new Map<string, number>();
   for (const path of byPath.keys()) {
     if (ROOT_FILES.includes(path)) continue;
     if (path.startsWith("base/")) continue;
     // Read above: a folder's defaults.yaml, or anything under its values/.
     if ([...nsNames].some((n) => path === `${n}/defaults.yaml` || path.startsWith(`${n}/values/`))) continue;
-    warnings.push(`${path}: not part of a tree this builder writes — left in the repo, not imported.`);
+    const top = path.split("/")[0];
+    if (path.includes("/") && !treeTops.has(top)) outside.set(top, (outside.get(top) ?? 0) + 1);
+    else warnings.push(`${path}: not part of a tree this builder writes — left in the repo, not imported.`);
   }
+  for (const [top, n] of outside)
+    warnings.push(`${top}/: ${n} file${n === 1 ? "" : "s"} outside the tree — left in the repo, not imported.`);
   if (!releases.length) warnings.push("No `base/*.yaml` files found — this does not look like a universal-chart values repo.");
 
   return { ...wiring, releases, namespaces, warnings };

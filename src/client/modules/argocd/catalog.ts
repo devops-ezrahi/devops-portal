@@ -1884,6 +1884,7 @@ F({
     }),
   ],
   emit: (v) => (nz(v.body) ? { affinity: raw(v.body) } : null),
+  load: (doc) => ({ body: yamlText(doc.affinity) }),
   notes: [
     "Hard anti-affinity with more replicas than nodes leaves the extras Pending forever. Soft is the right default for most StatefulSets.",
     "Match on app.kubernetes.io/name — that is exactly what this chart sets as the selector label, and its value is your nameOverride.",
@@ -1907,6 +1908,8 @@ F({
     S("drop", "container: capabilities.drop", { placeholder: "ALL" }),
     S("add", "container: capabilities.add", { placeholder: "NET_BIND_SERVICE" }),
     B("cRunAsNonRoot", "container: runAsNonRoot", { path: "securityContext.runAsNonRoot" }),
+    N("cRunAsUser", "container: runAsUser", { path: "securityContext.runAsUser", placeholder: "1000" }),
+    B("privileged", "container: privileged", { path: "securityContext.privileged" }),
   ],
   emit: (v) => {
     const p: Values = {};
@@ -1921,6 +1924,8 @@ F({
     if (typeof v.allowPrivilegeEscalation === "boolean") c.allowPrivilegeEscalation = v.allowPrivilegeEscalation;
     if (v.readOnlyRootFilesystem) c.readOnlyRootFilesystem = true;
     if (v.cRunAsNonRoot) c.runAsNonRoot = true;
+    putn(c, "runAsUser", v.cRunAsUser);
+    if (v.privileged) c.privileged = true;
     const caps: Values = {};
     const split = (s: unknown) =>
       String(s ?? "")

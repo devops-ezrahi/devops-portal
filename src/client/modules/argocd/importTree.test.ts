@@ -221,6 +221,21 @@ describe("importTree", () => {
     expect(recovered.warnings.some((w) => w.startsWith("README.yaml:"))).toBe(true);
   });
 
+  it("folds a folder with no tree file in it into one line, but names a stray file inside the tree", () => {
+    const built = buildTree(tree());
+    const ns = built.find((f) => f.path.endsWith("/defaults.yaml"))!.path.split("/")[0];
+    const recovered = importTree([
+      ...built,
+      { path: "input/dev/web.yaml", text: "kind: Deployment\n" },
+      { path: "input/prd/web.yaml", text: "kind: Deployment\n" },
+      { path: `${ns}/notes.yaml`, text: "hello: world\n" },
+    ]);
+    expect(recovered.warnings).toEqual([
+      `${ns}/notes.yaml: not part of a tree this builder writes — left in the repo, not imported.`,
+      "input/: 2 files outside the tree — left in the repo, not imported.",
+    ]);
+  });
+
   it("says so when the repo is not a values tree at all", () => {
     const recovered = importTree([{ path: "Chart.yaml", text: "name: something\n" }]);
     expect(recovered.releases).toEqual([]);
@@ -311,6 +326,12 @@ describe("variant folders and grouped values", () => {
     const written = docs(again);
     const read = docs(repo.filter((f) => f.path !== "rootApplicationSet.yaml"));
     for (const path of Object.keys(read)) expect(written[path], path).toEqual(read[path]);
+  });
+
+  it("does not warn about a folder's own group value, even when nothing in base templates it", () => {
+    expect(importTree(repo).warnings.join("\n")).not.toMatch(/color/);
+    const extra = importTree(repo.map((f) => (f.path === "prd/black/defaults.yaml" ? { ...f, text: "color: black\nowner: team-a\n" } : f)));
+    expect(extra.warnings.join("\n")).toMatch(/prd\/black\/defaults\.yaml: owner:/);
   });
 
   it("says so when one folder has the same release file in two groups", () => {
