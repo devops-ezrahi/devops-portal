@@ -5,6 +5,7 @@ import { config } from "../../config";
 import { normalizeRepoUrl } from "../../gitUrl";
 import { log } from "../../log";
 import { TreeStore } from "./TreeStore";
+import { convertToUniversal } from "./convert";
 import { pullValuesTree, pushValuesTree } from "./valuesGit";
 import { safeDirPath, safeRef, safeRepoUrl, safeTreePath } from "./valuesRepo";
 import type { ArgocdTree } from "../../types";
@@ -26,13 +27,13 @@ const treeBody = z.object({
     // through an import or a hand-edited field too, and `safeRepoUrl` refuses
     // everything but http(s) — so an SSH URL stored verbatim is a tree whose
     // push fails later, with the reason three screens away.
-    repoUrl: z.string().trim().max(300).transform(normalizeRepoUrl),
+    repoUrl: z.string().trim().max(300).transform((url) => normalizeRepoUrl(url, config.git.url)),
     path: z.string().trim().max(200),
     appsetPath: z.string().trim().max(200),
     revision: z.string().trim().max(100),
   }),
   values: z.object({
-    repoUrl: z.string().trim().max(300).transform(normalizeRepoUrl),
+    repoUrl: z.string().trim().max(300).transform((url) => normalizeRepoUrl(url, config.git.url)),
     revision: z.string().trim().max(100),
     path: z.string().trim().max(200),
   }),
@@ -50,7 +51,12 @@ const treeBody = z.object({
   namespaces: z
     .array(
       z.object({
-        name: z.string().trim().max(80),
+        // A folder path: `prd`, or a variant under it such as `prd/yellow`.
+        // Not pattern-checked here — autosave sends half-typed names; the
+        // push's `safeTreePath` is what guards the paths written from it.
+        name: z.string().trim().max(120),
+        groups: z.record(z.string(), z.string().regex(/^[\w.-]+(\/[\w.-]+)*$/).max(120)).optional(),
+        absent: z.array(z.string().min(1)).max(200).optional(),
         defaults: z
           .object({
             features: z.record(z.string(), featureState),
@@ -80,7 +86,7 @@ const pullBody = z.object({
   // `transform` runs before `refine`, so the SSH form is rewritten and *then*
   // checked — which is what lets someone paste the URL their git host showed
   // them without the portal needing an SSH key.
-  repoUrl: z.string().trim().max(300).transform(normalizeRepoUrl).refine(safeRepoUrl, "Only http(s) git URLs can be cloned"),
+  repoUrl: z.string().trim().max(300).transform((url) => normalizeRepoUrl(url, config.git.url)).refine(safeRepoUrl, "Only http(s) git URLs can be cloned"),
   revision: z.string().trim().max(100).refine(safeRef, "Not a branch or tag name"),
   path: z.string().trim().max(200).refine(safeDirPath, "Not a path inside the repository"),
 });
@@ -111,6 +117,32 @@ const pushBody = z.object({
   branch: z.string().trim().max(100).refine(safeRef, "Not a branch name").optional(),
   message: z.string().trim().min(1).max(200).optional(),
 });
+
+/**
+ * Kubernetes YAML or a Helm chart to convert. Every name becomes a directory
+ * and a file name inside the converter's input tree, so they are held to the
+ * DNS label rule Kubernetes itself applies — which also rules out `..` and `/`.
+ */
+const dnsLabel = z
+  .string()
+  .trim()
+  .max(63)
+  .regex(/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, "Use a Kubernetes name: lowercase letters, digits and dashes");
+
+const convertBody = z
+  .object({
+    chartRepoUrl: pullBody.shape.repoUrl,
+    chartRevision: pullBody.shape.revision,
+    namespace: dnsLabel,
+    // `color=black,yellow` per entry: each becomes one `--env-group`, which puts
+    // `ms1-yellow` in `<ns>/yellow/` with `{{ .Values.color }}` in its base.
+    envGroups: z.array(z.string().trim().regex(/^[a-z][a-zA-Z0-9_]*=[a-z0-9-]+(,[a-z0-9-]+)*$/, "An env group is key=token,token")).max(5).optional(),
+    yaml: z.string().trim().max(45 * 1024 * 1024).optional(),
+    helm: z
+      .object({ archive: z.string().min(1).max(4 * 1024 * 1024), values: z.string().max(512_000).optional() })
+      .optional(),
+  })
+  .refine((b) => !!b.yaml || !!b.helm, "Nothing to convert — paste YAML, add a file or a chart");
 
 export function createArgocdRouter(store: TreeStore = new TreeStore()): express.Router {
   const router = express.Router();
@@ -143,11 +175,16 @@ export function createArgocdRouter(store: TreeStore = new TreeStore()): express.
 
   router.get("/api/argocd/trees", (req, res) => {
     const all = store.all();
+    // The token lives on the same config object and must never reach a browser.
+    const { valuesToken: _secret, ...defaults } = config.argocd;
     res.json({
       trees: isAdmin(req.user!) ? all : all.filter((t) => t.createdBy === req.user!.id),
       // Rides along on the list the view already fetches, rather than a second
       // endpoint — these only pre-fill a new tree, they do not constrain one.
-      defaults: config.argocd,
+      defaults,
+      // The Bitbucket base, so repo fields show an example on the host people
+      // actually use rather than github.com.
+      gitUrl: config.git.url,
       // So the two git buttons render disabled with a reason, instead of
       // failing on click. Same trick as `defaults`: no second request.
       gitEnabled: !!(config.argocd.valuesToken || config.git.enabled),
@@ -241,14 +278,29 @@ export function createArgocdRouter(store: TreeStore = new TreeStore()): express.
   router.post("/api/argocd/pull", async (req, res, next) => {
     try {
       const { repoUrl, revision, path } = pullBody.parse(req.body);
-      const files = await pullValuesTree(repoUrl, revision, path);
-      if (!files.length) {
-        res.status(404).json({ error: `No YAML files under ${path || "the repository root"} on ${revision}` });
+      const pulled = await pullValuesTree(repoUrl, revision, path);
+      if (!pulled.files.length) {
+        res.status(404).json({ error: `No YAML files under ${path || "the repository root"} on ${pulled.revision}` });
         return;
       }
-      // `repoUrl` is echoed because it may not be the one that was sent — an
-      // SSH URL was rewritten above, and the tree should record what cloned.
-      res.json({ files, repoUrl });
+      // `repoUrl` and `revision` are echoed because they may not be the ones
+      // that were sent — an SSH URL was rewritten above, a `main` the repo does
+      // not have was read from its default branch — and the tree should record
+      // what cloned.
+      res.json({ files: pulled.files, repoUrl, revision: pulled.revision });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * Plain manifests or a Helm chart in, a universal-chart values tree out — the
+   * same file layout a pull returns, so the browser reads it with `importTree`
+   * and the result is committed like any other tree.
+   */
+  router.post("/api/argocd/convert", async (req, res, next) => {
+    try {
+      res.json(await convertToUniversal(convertBody.parse(req.body)));
     } catch (err) {
       next(err);
     }

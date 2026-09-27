@@ -153,7 +153,7 @@ describe("validatePipeline", () => {
 
 describe("catalog", () => {
   it("gives every step the common genStage arguments", () => {
-    for (const step of STEPS.filter((s) => s.callStyle !== "bare")) {
+    for (const step of STEPS.filter((s) => s.callStyle !== "bare" && !s.builtin)) {
       const names = step.args.map((a) => a.name);
       expect(names).toContain("title");
       expect(names).toContain("commands");

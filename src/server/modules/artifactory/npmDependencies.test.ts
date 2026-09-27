@@ -22,6 +22,13 @@ describe("npmRegistryFromUrl", () => {
     );
   });
 
+  it("reads the scope-in-filename layout npm publish writes to Artifactory", () => {
+    const url =
+      "https://artifactory.app.iaf/artifactory/athena-npm-sagi-virtual/%40ampproject/remapping/-/%40ampproject/remapping-2.3.0.tgz";
+    expect(npmRegistryFromUrl(url)).toBe("https://artifactory.app.iaf/artifactory/api/npm/athena-npm-sagi-virtual");
+    expect(npmIdentityFromUrl(url)).toEqual({ name: "@ampproject/remapping", version: "2.3.0" });
+  });
+
   // Artifactory serves the bytes at /artifactory/<repo>, but npm asking there
   // gets the HTML UI back — "Unexpected token '<'". The API endpoint is the fix.
   it("rewrites an Artifactory storage path to the npm API endpoint", () => {

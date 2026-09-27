@@ -6,15 +6,9 @@ import { git } from "../../git";
 import { pickJenkinsfile, pullJenkinsfile, pushJenkinsfile } from "./repoGit";
 import type { JenkinsfilePipeline } from "../../types";
 
-// Not GitHub, so the PR step is skipped and the note explains why — which lets
-// the whole clone -> write -> commit -> push chain run for real against a bare
-// repo on disk, with no network and nothing stubbed. Same trick as
-// `modules/argocd/valuesGit.test.ts`.
-// The real `githubRepo` is kept: a bare repo on disk is not a GitHub URL either.
-vi.mock("../../github", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../github")>()),
-  openPullRequest: async () => "https://github.com/o/r/pull/1",
-}));
+// A bare repo on disk is neither GitHub nor Bitbucket, so the PR step is
+// skipped and the note explains why — the clone -> write -> commit -> push
+// chain runs for real, with no network and nothing stubbed.
 
 let root = "";
 

@@ -79,7 +79,7 @@ export function diffTree(files: GeneratedFile[], repo: RepoFile[], deletes: bool
 function canonical(text: string): string | null {
   const doc = parseValues(text);
   if (!doc) return null;
-  return toYaml(sortKeys(doc) as Values);
+  return toYaml(sortKeys(doc) as Values, true);
 }
 
 /** Every map in a document, key-sorted. Sequences keep their order — there it is the value. */

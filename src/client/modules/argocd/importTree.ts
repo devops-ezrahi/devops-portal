@@ -1,4 +1,4 @@
-import { importValues, releaseNameFrom } from "./import";
+import { importValues } from "./import";
 import { parseValues } from "./build";
 import { isPlainObject } from "./values";
 import { NON_NAMESPACE_DIRS } from "./tree";
@@ -22,9 +22,9 @@ import type { Values } from "./values";
  *   and a header comment, so `API Gateway` comes back as `api-gateway` unless
  *   the chart sets `nameOverride`. `slug` is idempotent, so a second round trip
  *   is byte-stable.
- * - A namespace override that restated a value its base file already had.
- *   `subtractDefaults` dropped it on the way out, because it is a no-op in the
- *   deployed document — and a re-emit drops it again.
+ * - A namespace override that restated one of the chart's own defaults its
+ *   base file already had (`subtractChartDefaults`). Any other restated value
+ *   is kept: it was set there, and dropping it read as a removal.
  *
  * A tree written by `convert_to_universal_chart.py` rather than by this builder
  * imports on the same terms, with its comments and key order gone.
@@ -43,8 +43,10 @@ export type RepoFile = { path: string; text: string };
 
 const uid = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
 
-const ROOT_APPSET = "root-applicationSet.yaml";
-const ROOT_APP = "root-application.yaml";
+// The converter renamed them (`rootApplicationSet.yaml`, `rootApplication.yaml.txt`);
+// a repo may carry either spelling. Neither is imported as values.
+const ROOT_APPSETS = ["rootApplicationSet.yaml", "root-applicationSet.yaml"];
+const ROOT_FILES = [...ROOT_APPSETS, "root-application.yaml", "rootApplication.yaml.txt"];
 
 export function importTree(files: RepoFile[]): TreeImport {
   const warnings: string[] = [];
@@ -60,17 +62,42 @@ export function importTree(files: RepoFile[]): TreeImport {
     own.forEach((w) => warnings.push(`${path}: ${w}`));
     const id = uid("r");
     idBySlug.set(slug, id);
-    releases.push({ id, name: releaseNameFrom(text) || slug, features, extraValues });
+    // The file name *is* the release — the ApplicationSet names the Helm
+    // release after it — so neither override renames it (a fullnameOverride is
+    // the running workload's raw name, and may be templated).
+    releases.push({ id, name: slug, features, extraValues });
   }
   releases.sort((a, b) => a.name.localeCompare(b.name));
 
-  // ---- namespaces: every other top-level directory --------------------------
+  // ---- namespaces: every folder holding a defaults.yaml or a values/ --------
+  // A folder is a namespace (`prd`) or a variant under one (`prd/yellow`,
+  // `prd/yellow/eu`) — the chart's ms-applicationSet deploys each separately
+  // into the namespace its path starts with. `values/` may nest grouping
+  // sub-folders (`values/group1/ms1.yaml`); the release is still the file name.
   const nsNames = new Set<string>();
-  for (const path of byPath.keys()) {
-    const [dir, ...rest] = path.split("/");
-    if (!rest.length || NON_NAMESPACE_DIRS.includes(dir)) continue;
-    nsNames.add(dir);
+  /** folder -> release slug -> { text, group } */
+  const valuesIn = new Map<string, Map<string, { text: string; group: string; path: string }>>();
+  for (const [path, text] of byPath) {
+    if (NON_NAMESPACE_DIRS.includes(path.split("/")[0])) continue;
+    const defaults = /^(.+)\/defaults\.yaml$/.exec(path);
+    const values = /^(.+?)\/values\/(?:(.+)\/)?([^/]+)\.yaml$/.exec(path);
+    if (defaults) nsNames.add(defaults[1]);
+    if (!values) continue;
+    const [, folder, group = "", slug] = values;
+    nsNames.add(folder);
+    const own = valuesIn.get(folder) ?? new Map();
+    if (own.has(slug)) {
+      warnings.push(`${path}: a second ${slug}.yaml in ${folder}/values — a release is named after its file, so only ${own.get(slug)!.path} was read.`);
+      continue;
+    }
+    own.set(slug, { text, group, path });
+    valuesIn.set(folder, own);
   }
+
+  // Top-level keys base/ reads through tpl: `{{ .Values.color }}` -> color.
+  const templated = new Set(
+    [...byPath].filter(([p]) => p.startsWith("base/")).flatMap(([, t]) => [...t.matchAll(/\.Values\.(\w+)/g)].map((m) => m[1]))
+  );
 
   const namespaces: ArgocdNamespace[] = [];
   for (const name of [...nsNames].sort()) {
@@ -81,34 +108,49 @@ export function importTree(files: RepoFile[]): TreeImport {
     const defaultsDoc = docAt(byPath, `${name}/defaults.yaml`) ?? {};
     const defaultsImport = importValues(toYaml(defaultsDoc));
     if (Object.keys(defaultsDoc).length)
-      defaultsImport.warnings.forEach((w) => warnings.push(`${name}/defaults.yaml: ${w}`));
+      defaultsImport.warnings
+        // A group value (`color: yellow`) the base files template with
+        // `{{ .Values.color }}` is the chart's to read, not a catalog field —
+        // kept as extra values, which is exactly right, so nothing to warn about.
+        .filter((w) => !templated.has(w.split(":")[0]))
+        .forEach((w) => warnings.push(`${name}/defaults.yaml: ${w}`));
     const entries: ArgocdNamespace["releases"] = [];
+    const groups: Record<string, string> = {};
 
     for (const [slug, id] of idBySlug) {
-      const text = byPath.get(`${name}/values/${slug}.yaml`);
-      if (text === undefined) continue;
-      const fragment = parseValues(text) ?? {};
+      const file = valuesIn.get(name)?.get(slug);
+      if (file === undefined) continue;
+      if (file.group) groups[id] = file.group;
+      const fragment = parseValues(file.text) ?? {};
       // An empty fragment is a release this namespace runs without overriding
       // anything. The draft's own convention is to carry no entry for that —
       // writing `{}` would show a phantom override on every card.
       if (!Object.keys(fragment).length) continue;
       const imported = importValues(toYaml(fragment));
-      imported.warnings.forEach((w) => warnings.push(`${name}/values/${slug}.yaml: ${w}`));
+      imported.warnings.forEach((w) => warnings.push(`${file.path}: ${w}`));
       entries.push({ release: id, features: imported.features, extraValues: imported.extraValues });
     }
+    for (const [slug, file] of valuesIn.get(name) ?? [])
+      if (!idBySlug.has(slug)) warnings.push(`${file.path}: no base/${slug}.yaml for it — not imported.`);
+    // No values file here = this folder does not run that release.
+    const absent = [...idBySlug].filter(([slug]) => !valuesIn.get(name)?.has(slug)).map(([, id]) => id);
     namespaces.push({
       name,
+      ...(Object.keys(groups).length ? { groups } : {}),
+      ...(absent.length ? { absent } : {}),
       releases: entries,
       defaults: { features: defaultsImport.features, extraValues: defaultsImport.extraValues },
     });
   }
 
   // ---- the wiring files name the repos ---------------------------------------
-  const wiring = readWiring(docAt(byPath, ROOT_APPSET));
+  const wiring = readWiring(ROOT_APPSETS.map((p) => docAt(byPath, p)).find(Boolean) ?? null);
 
   for (const path of byPath.keys()) {
-    if (path === ROOT_APPSET || path === ROOT_APP) continue;
-    if (path.startsWith("base/") || [...nsNames].some((n) => path.startsWith(`${n}/`))) continue;
+    if (ROOT_FILES.includes(path)) continue;
+    if (path.startsWith("base/")) continue;
+    // Read above: a folder's defaults.yaml, or anything under its values/.
+    if ([...nsNames].some((n) => path === `${n}/defaults.yaml` || path.startsWith(`${n}/values/`))) continue;
     warnings.push(`${path}: not part of a tree this builder writes — left in the repo, not imported.`);
   }
   if (!releases.length) warnings.push("No `base/*.yaml` files found — this does not look like a universal-chart values repo.");

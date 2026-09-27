@@ -40,6 +40,12 @@ describe("checkValues", () => {
 
   it("catches a mount with no volume behind it", () => {
     expect(say(withImage({ volumeMounts: { data: { mountPath: "/var/data" } } }))).toContain("has no matching volume");
+    expect(
+      say(withImage({
+        volumes: { cfg: { configMap: { name: "c" } } },
+        volumeMounts: { "cfg:a.properties": { name: "cfg", mountPath: "/a", subPath: "a.properties" } },
+      }))
+    ).not.toContain("has no matching volume");
     expect(say(withImage({ volumes: { data: { emptyDir: { sizeLimit: "1Gi" } } }, volumeMounts: { data: { mountPath: "/var/data" } } }))).toBe("");
   });
 
@@ -130,5 +136,21 @@ describe("checkValues", () => {
     // Not just "the ones that happen to be set" — the sweep has to have covered
     // real ground, or the assertion above passes on an empty loop.
     expect(seen.size).toBeGreaterThan(8);
+  });
+});
+
+describe("values go through tpl", () => {
+  const base: Values = { image: { repository: "r" } };
+  const texts = (doc: Values) => checkValues({ ...base, ...doc }).map((p) => p.text);
+
+  it("flags a Go template carried as data, and a field that is not the release's", () => {
+    expect(texts({ configMaps: { am: { data: { "slack.tmpl": '{{ define "slack.title" }}x{{ end }}' } } } }).join()).toMatch(/literal \{\{/);
+    expect(texts({ configMaps: { am: { data: { t: "{{ .CommonLabels.alertname }}" } } } }).join()).toMatch(/literal \{\{/);
+  });
+
+  it("leaves real tpl, and the escape, alone", () => {
+    expect(texts({ route: { host: "api.{{ .Values.environment }}.example.org" } }).join()).not.toMatch(/literal/);
+    expect(texts({ configMaps: { am: { data: { t: '{{ "{{" }} define "x" }}' } } } }).join()).not.toMatch(/literal/);
+    expect(texts({ env: { NS: { value: "{{ .Release.Namespace }}" } } }).join()).not.toMatch(/literal/);
   });
 });

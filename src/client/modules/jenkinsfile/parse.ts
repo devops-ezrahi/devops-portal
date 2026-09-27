@@ -1,6 +1,6 @@
 import { STEPS, stepSpec, type ArgKind } from "./catalog";
 import { PARAM_TYPES } from "./params";
-import { createStage, newPipeline, type DraftPipeline } from "./pipeline";
+import { createStage, newPipeline, stageId, type DraftPipeline } from "./pipeline";
 import { newParam } from "./params";
 import type { JenkinsfileParam, JenkinsfileStage } from "../../../server/types";
 
@@ -386,8 +386,19 @@ function stageFrom(name: string, body: string, warnings: string[]): JenkinsfileS
   // A `bare` step takes its one argument with no key in front of it —
   // populateEnvVars([SERVICE: 'x']) — so the first positional value is it.
   if (spec.callStyle === "bare") {
-    const first = entries[0];
-    if (first) stage.args[spec.args[0].name] = coerce(spec.args[0].kind, readValue(first.value));
+    const arg = spec.args[0];
+    const keyed = entries.filter((e) => e.key !== null);
+    const named = keyed.length === 1 && keyed[0].key === arg.name ? keyed[0] : null;
+    let value: Value | null = null;
+    if (named) value = readValue(named.value); // populateEnvVars(envVars: [...])
+    // populateEnvVars(SERVICE: 'x', TEAM_NAME: 'y') — Groovy collects named
+    // arguments into one map, so this is the same call as the bracketed form.
+    else if (keyed.length) value = { t: "map", v: keyed.map((e) => [e.key!, readValue(e.value)] as [string, Value]) };
+    else if (entries[0]) value = readValue(entries[0].value);
+    if (value) {
+      if (value.t !== "map") warnings.push(`${name}: its argument is not a literal map, so it was left empty`);
+      stage.args[arg.name] = coerce(arg.kind, value);
+    }
     return stage;
   }
 
@@ -404,6 +415,75 @@ function stageFrom(name: string, body: string, warnings: string[]): JenkinsfileS
     stage.args[arg.name] = coerce(arg.kind, readValue(value));
   }
   return stage;
+}
+
+/**
+ * `parallel('A': { genStage(…) }, 'B': { … })` — one box, one card per branch,
+ * which is the shape the generator writes back.
+ */
+function parallelFrom(body: string, warnings: string[]): JenkinsfileStage[] {
+  const stages: JenkinsfileStage[] = [];
+  const group = `g-${stageId()}`;
+  for (const { key, value } of splitTop(body).map(splitEntry)) {
+    const branch = readValue(value);
+    if (branch.t !== "closure") {
+      warnings.push(`parallel: ignored ${key ?? "an entry"} — only branches (closures) are kept`);
+      continue;
+    }
+    const calls = topLevelCalls(branch.v);
+    if (calls.length > 1)
+      warnings.push(`parallel: branch ${key} runs ${calls.length} steps in a row; each became its own parallel branch`);
+    for (const call of calls) {
+      const stage = stageFrom(call.name, call.body, warnings);
+      if (!stage) {
+        warnings.push(`parallel: skipped ${call.name}() in branch ${key} — not a step the builder knows`);
+        continue;
+      }
+      stages.push({ ...stage, group });
+    }
+  }
+  return stages;
+}
+
+/**
+ * Top-level `def` variables and functions (plus `import` and `@Field` lines),
+ * lifted out whole — a function body included — into the pipeline's Groovy
+ * block. What is left is the calls the rest of the reader looks for.
+ */
+export function splitDefs(src: string): { defs: string; rest: string } {
+  const defs: string[] = [];
+  let rest = "";
+  let depth = 0;
+  let from = -1; // start of the statement being lifted, -1 when none
+  for (let i = 0; i < src.length; ) {
+    const c = src[i];
+    if (depth === 0 && from < 0 && (i === 0 || src[i - 1] === "\n") && /^[ \t]*(def|import|@Field)\b/.test(src.slice(i, i + 40)))
+      from = i;
+    if (c === "'" || c === '"') {
+      const quote = src.startsWith(c.repeat(3), i) ? c.repeat(3) : c;
+      let j = i + quote.length;
+      while (j < src.length && !src.startsWith(quote, j)) j += src[j] === "\\" ? 2 : 1;
+      if (from < 0) rest += src.slice(i, j + quote.length);
+      i = j + quote.length;
+      continue;
+    }
+    if (c === "{" || c === "[" || c === "(") depth += 1;
+    if (c === "}" || c === "]" || c === ")") depth -= 1;
+    if (from >= 0 && depth === 0 && (c === "\n" || i === src.length - 1)) {
+      // `def f(x)` with its `{` on the next line still belongs to it.
+      const after = src.slice(i + 1).match(/^\s*\{/);
+      if (!after) {
+        defs.push(src.slice(from, i + 1).trimEnd());
+        from = -1;
+        i += 1;
+        continue;
+      }
+    }
+    if (from < 0) rest += c;
+    i += 1;
+  }
+  if (from >= 0) defs.push(src.slice(from).trimEnd());
+  return { defs: defs.join("\n"), rest };
 }
 
 /**
@@ -427,9 +507,16 @@ export function parseJenkinsfile(text: string): ImportResult {
     );
   }
 
-  for (const call of topLevelCalls(src)) {
+  const { defs, rest } = splitDefs(src);
+  pipeline.groovy = defs;
+
+  for (const call of topLevelCalls(rest)) {
     if (call.name === "properties") {
       pipeline.params.push(...paramsFrom(call.body, warnings));
+      continue;
+    }
+    if (call.name === "parallel") {
+      pipeline.stages.push(...parallelFrom(call.body, warnings));
       continue;
     }
     const stage = stageFrom(call.name, call.body, warnings);

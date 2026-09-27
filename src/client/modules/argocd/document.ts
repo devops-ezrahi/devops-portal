@@ -1,5 +1,11 @@
-import { defaultValues } from "./catalog";
+import { defaultValues, mapRows, parsePorts } from "./catalog";
+import type { FeatureState } from "./catalog";
 import type { TreeDefaults, TreeInput } from "./api";
+import { buildValues } from "./build";
+import { importValues } from "./import";
+import type { TreeImport } from "./importTree";
+import { deepMerge } from "./values";
+import { toYaml } from "./yaml";
 import type { ArgocdNamespace, ArgocdRelease, ArgocdTree } from "../../../server/types";
 
 /**
@@ -64,6 +70,28 @@ export function migrateTreeDefaults(tree: ArgocdTree): { tree: ArgocdTree; overr
   return { tree: { ...tree, namespaces, defaults: undefined }, overridesBase };
 }
 
+/**
+ * A tree saved when the Service's ports were `name=port:targetPort` text, with
+ * them turned into the rows the form now edits. Emit still reads the text, so
+ * nothing deploys differently either way — this is what keeps them on screen.
+ */
+export function migrateServicePorts(tree: ArgocdTree): ArgocdTree {
+  const fix = (features: Record<string, FeatureState> = {}) => {
+    const service = features.service;
+    if (typeof service?.v.ports !== "string") return features;
+    return { ...features, service: { ...service, v: { ...service.v, ports: mapRows(parsePorts(service.v.ports)) } } };
+  };
+  return {
+    ...tree,
+    releases: tree.releases.map((r) => ({ ...r, features: fix(r.features) })),
+    namespaces: tree.namespaces.map((ns) => ({
+      ...ns,
+      releases: ns.releases.map((e) => ({ ...e, features: fix(e.features) })),
+      defaults: ns.defaults && { ...ns.defaults, features: fix(ns.defaults.features) },
+    })),
+  };
+}
+
 export function newTree(defaults?: TreeDefaults): DraftTree {
   return {
     id: "",
@@ -102,3 +130,54 @@ export const initialFeature = (id: string) => ({ on: true, v: defaultValues(id) 
 
 /** A tree nobody has typed into — autosave must not litter the list with these. */
 export const isEmptyTree = (tree: DraftTree) => !tree.releases.length && !tree.namespaces.length;
+
+/**
+ * A converted tree folded into the one on screen, so converting adds
+ * microservices to a tree that is already connected and commits with it.
+ *
+ * - A microservice with the same name is replaced — converting again is how an
+ *   updated manifest comes in — and keeps its id, so its tabs survive.
+ * - Into a namespace the tree already has, the converter's `<ns>/defaults.yaml`
+ *   is folded into each converted microservice's own entry: that namespace
+ *   keeps the defaults it has, and the converted values still land exactly as
+ *   the converter layered them.
+ * - A new namespace comes across whole.
+ */
+export function mergeConverted(tree: DraftTree, imported: TreeImport): { tree: DraftTree; replaced: string[] } {
+  const replaced: string[] = [];
+  const idOf = new Map<string, string>();
+  const releases = [...tree.releases];
+  for (const r of imported.releases) {
+    const at = releases.findIndex((x) => x.name === r.name);
+    if (at < 0) {
+      releases.push(r);
+      idOf.set(r.id, r.id);
+    } else {
+      replaced.push(r.name);
+      releases[at] = { ...r, id: releases[at].id };
+      idOf.set(r.id, releases[at].id);
+    }
+  }
+
+  const namespaces = [...tree.namespaces];
+  for (const ns of imported.namespaces) {
+    const entries = ns.releases.map((e) => ({ ...e, release: idOf.get(e.release) ?? e.release }));
+    const absent = ns.absent?.map((id) => idOf.get(id) ?? id);
+    const at = namespaces.findIndex((x) => x.name === ns.name);
+    if (at < 0) {
+      namespaces.push({ ...ns, releases: entries, ...(absent ? { absent } : {}) });
+      continue;
+    }
+    const defaults = buildValues(ns.defaults?.features ?? {}, ns.defaults?.extraValues);
+    const folded = entries.map((e) => {
+      const { features, extraValues } = importValues(toYaml(deepMerge(defaults, buildValues(e.features, e.extraValues))));
+      return { ...e, features, extraValues };
+    });
+    const target = namespaces[at];
+    namespaces[at] = {
+      ...target,
+      releases: [...target.releases.filter((e) => !folded.some((f) => f.release === e.release)), ...folded],
+    };
+  }
+  return { tree: { ...tree, releases, namespaces }, replaced };
+}

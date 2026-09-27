@@ -1,7 +1,7 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { config } from "./config";
 import { redactSecrets } from "./redact";
+import { tokenFor } from "./repoGuards";
 
 const execFileAsync = promisify(execFile);
 
@@ -39,11 +39,40 @@ export function withCredentials(repoUrl: string, token: string, username = ""): 
 
 /**
  * The GIT_URL/GIT_TOKEN form, for the AI module's registered repos. Re-exported
- * from there so its own callers and test keep the name they had.
+ * from there so its own callers and test keep the name they had. Only a repo on
+ * the `GIT_URL` host gets the token (`tokenFor`) — any other host clones
+ * anonymously rather than being handed the organisation's credential.
  */
 export function authenticatedRepoUrl(repoUrl: string): string {
-  if (!config.git.enabled) return repoUrl;
-  return withCredentials(repoUrl, config.git.token, config.git.username);
+  const { token, username } = tokenFor(repoUrl);
+  return withCredentials(repoUrl, token, username);
+}
+
+/** The branch a remote's HEAD points at — `master` on many a Bitbucket repo — or "" when it will not say. */
+export async function defaultBranch(authedUrl: string): Promise<string> {
+  const out = await git(["ls-remote", "--symref", "--", authedUrl, "HEAD"]).catch(() => "");
+  return /^ref:\s+refs\/heads\/(\S+)\s+HEAD/m.exec(out)?.[1] ?? "";
+}
+
+/**
+ * A shallow clone of `revision`, and the branch that was actually cloned.
+ *
+ * Every builder pre-fills `main`, and plenty of repos — most Bitbucket ones —
+ * are on `master`. A branch the remote does not have is therefore retried on
+ * the remote's own default rather than failed; the caller hands the answer
+ * back so the field says what was really read.
+ */
+export async function cloneAt(authedUrl: string, revision: string, dir: string, timeoutMs?: number): Promise<string> {
+  try {
+    await git(["clone", "--depth", "1", "--branch", revision, "--", authedUrl, dir], undefined, timeoutMs);
+    return revision;
+  } catch (err) {
+    if (!/Remote branch .* not found/i.test(err instanceof Error ? err.message : "")) throw err;
+    const head = await defaultBranch(authedUrl);
+    if (!head || head === revision) throw err;
+    await git(["clone", "--depth", "1", "--branch", head, "--", authedUrl, dir], undefined, timeoutMs);
+    return head;
+  }
 }
 
 /**

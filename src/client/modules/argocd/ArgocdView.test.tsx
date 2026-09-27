@@ -159,12 +159,18 @@ describe("ArgocdView", () => {
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
-    // A workload with no image is what the chart's own schema refuses, and the
-    // workload defaults to a Deployment whether or not anything was typed. It
-    // is said twice on purpose — once in the list under the form, once on the
-    // Image card itself — so both places are asserted.
     const listed = () => document.querySelector(".ag-problems")?.textContent ?? "";
     const onCard = () => document.querySelector('[data-feature-card="image"] .ag-feature-problems')?.textContent ?? "";
+    // Base is not what deploys — the converter writes the repository beside
+    // each namespace's tag — so base alone missing one is not a problem.
+    expect(listed()).not.toMatch(/No image.repository/);
+
+    // A namespace is: a workload with no image is what the chart's own schema
+    // refuses, and the workload defaults to a Deployment whether or not
+    // anything was typed. It is said twice on purpose — once in the list under
+    // the form, once on the Image card itself — so both places are asserted.
+    fireEvent.click(screen.getByRole("button", { name: /Namespace/ }));
+    rename("namespace", "shop-web");
     await waitFor(() => expect(listed()).toMatch(/No image.repository/));
     expect(onCard()).toMatch(/No image.repository/);
 
@@ -335,7 +341,7 @@ describe("ArgocdView", () => {
   it("says what the override light means, and takes the override back out", async () => {
     const tree = saved({
       releases: [{ id: "r1", name: "storefront", features: { image: { on: true, v: { repository: "nginx", tag: "1.0.0" } } } }],
-      namespaces: [{ name: "prod", releases: [{ release: "r1", features: { image: { on: true, v: { tag: "2.0.0" } } } }] }],
+      namespaces: [{ name: "prod", releases: [{ release: "r1", features: { image: { on: true, v: { tag: "2.0.0", pullPolicy: "Always" } } } }] }],
     });
     listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
     view();
@@ -353,6 +359,101 @@ describe("ArgocdView", () => {
     expect(feature("Image & pull secrets").querySelector(".ag-override-tag")).toBeNull();
     fireEvent.click(screen.getByLabelText("prod/values/storefront.yaml"));
     expect(document.querySelector(".ag-file-body")!.textContent).not.toContain("2.0.0");
+    // Only the second copy went: a value only prod sets is not an override.
+    expect(document.querySelector(".ag-file-body")!.textContent).toContain("pullPolicy: Always");
+
+    // A press that deleted a value has no undo of its own — Ctrl+Z is it.
+    fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
+    expect(feature("Image & pull secrets").querySelector(".ag-override-tag")).not.toBeNull();
+    fireEvent.click(screen.getByLabelText("prod/values/storefront.yaml"));
+    expect(document.querySelector(".ag-file-body")!.textContent).toContain("2.0.0");
+  });
+
+  it("offers to move an override out of the layer that holds the other copy, and only that one", async () => {
+    const tree = saved({
+      releases: [
+        { id: "r1", name: "storefront", features: {} },
+        { id: "r2", name: "cart", features: {} },
+      ],
+      namespaces: [
+        {
+          name: "prod",
+          defaults: { features: { replicas: { on: true, v: { replicaCount: "3" } } } },
+          releases: [{ release: "r1", features: { replicas: { on: true, v: { replicaCount: "6" } } } }],
+        },
+      ],
+    });
+    listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
+    view();
+    fireEvent.click(await screen.findByText("Dev User #1"));
+    fireEvent.click(card("Layers", /prod/));
+
+    const replicas = feature("Replicas & rollout");
+    fireEvent.click(within(replicas).getByRole("button", { name: /What is the override on Replicas/ }));
+    expect(within(replicas).queryByRole("button", { name: "Move out of base" })).toBeNull();
+    fireEvent.click(within(replicas).getByRole("button", { name: "Move out of defaults" }));
+
+    // prod's defaults no longer say 3; cart, which took it, now says so itself.
+    fireEvent.click(screen.getByLabelText("prod/defaults.yaml"));
+    expect(document.querySelector(".ag-file-body")!.textContent).not.toContain("replicaCount");
+    fireEvent.click(screen.getByLabelText("prod/values/cart.yaml"));
+    expect(document.querySelector(".ag-file-body")!.textContent).toContain("replicaCount: 3");
+  });
+
+  it("a value set in a namespace's defaults replaces each microservice's own copy there", async () => {
+    const tree = saved({
+      releases: [
+        { id: "r1", name: "storefront", features: {} },
+        { id: "r2", name: "cart", features: {} },
+      ],
+      namespaces: [
+        {
+          name: "prod",
+          defaults: { features: { replicas: { on: true, v: { replicaCount: "3" } } } },
+          releases: [
+            { release: "r1", features: { replicas: { on: true, v: { replicaCount: "6" } } } },
+            { release: "r2", features: { replicas: { on: true, v: { replicaCount: "4" } } } },
+          ],
+        },
+      ],
+    });
+    listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
+    view();
+    fireEvent.click(await screen.findByText("Dev User #1"));
+    fireEvent.click(card("Layers", /prod/));
+    fireEvent.click(screen.getByRole("button", { name: /^prod defaults/ }));
+    fireEvent.change(within(feature("Replicas & rollout")).getByLabelText("replicaCount"), { target: { value: "5" } });
+
+    const shown = () => document.querySelector(".ag-file-body")?.textContent ?? "";
+    fireEvent.click(screen.getByLabelText("prod/defaults.yaml"));
+    expect(shown()).toContain("replicaCount: 5");
+    fireEvent.click(screen.getByLabelText("prod/values/storefront.yaml"));
+    expect(shown()).not.toContain("replicaCount");
+    fireEvent.click(screen.getByLabelText("prod/values/cart.yaml"));
+    expect(shown()).not.toContain("replicaCount");
+  });
+
+  it("continues an inherited list here: greyed entries, then an Add that adds this namespace's own", async () => {
+    const env = (name: string, value: string) => ({ name, kind: "value", value });
+    const tree = saved({
+      releases: [{ id: "r1", name: "storefront", features: { env: { on: true, v: { items: [env("DB_URL", "db")] } } } }],
+      namespaces: [{ name: "prod", releases: [] }],
+    });
+    listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
+    view();
+    fireEvent.click(await screen.findByText("Dev User #1"));
+    fireEvent.click(card("Layers", /prod/));
+
+    const envCard = feature("Environment variables");
+    // One Add, and it is not the greyed one.
+    const adds = within(envCard).getAllByRole("button", { name: /Add variable/ });
+    expect(adds).toHaveLength(1);
+    expect(adds[0]).toBeEnabled();
+    // No blank placeholder entry of this layer's own until Add is pressed.
+    expect(within(envCard).getAllByText("DB_URL", { selector: ".ag-entry-title" })).toHaveLength(1);
+    expect(within(envCard).queryByText("#1")).toBeNull();
+    fireEvent.click(adds[0]);
+    expect(within(envCard).getByText("#1")).toBeInTheDocument();
   });
 
   it("never offers `enabled` as an optional field — ticking the feature is what sets it", async () => {

@@ -24,6 +24,8 @@ const pipelineBody = z.object({
   // sends the configured name (optionally `@branch`) or nothing at all.
   library: z.string().trim().max(200),
   envVars: z.record(z.string(), z.string()),
+  // Top-level Groovy — variables and functions the stages use. Written as typed.
+  groovy: z.string().max(100_000).optional(),
   params: z
     .array(
       z.object({
@@ -45,7 +47,7 @@ const pipelineBody = z.object({
   // screens away.
   repo: z
     .object({
-      repoUrl: z.string().trim().max(300).transform(normalizeRepoUrl),
+      repoUrl: z.string().trim().max(300).transform((url) => normalizeRepoUrl(url, config.git.url)),
       revision: z.string().trim().max(100),
       path: z.string().trim().max(200),
     })
@@ -57,6 +59,8 @@ const pipelineBody = z.object({
         step: z.string().min(1),
         args: z.record(z.string(), z.unknown()),
         collapsed: z.boolean().optional(),
+        parallel: z.boolean().optional(),
+        group: z.string().max(40).optional(),
       })
     )
     .max(100),
@@ -75,7 +79,7 @@ const pullBody = z.object({
     .string()
     .trim()
     .max(300)
-    .transform(normalizeRepoUrl)
+    .transform((url) => normalizeRepoUrl(url, config.git.url))
     .refine(safeRepoUrl, "Only http(s) git URLs can be cloned"),
   revision: z.string().trim().max(100).refine(safeRef, "Not a branch or tag name"),
   // Empty means "find it" — which is the normal case, and the reason this
@@ -147,6 +151,8 @@ export function createJenkinsfileRouter(store: PipelineStore = new PipelineStore
       // So the two git buttons render disabled with a reason, instead of
       // failing on click. Same trick as `sharedLibrary`: no second request.
       gitEnabled: config.git.enabled || !!config.jenkinsfile.githubToken,
+      // For the repo fields' example URL — see `exampleRepoUrl`.
+      gitUrl: config.git.url,
     });
   });
 
@@ -260,7 +266,9 @@ export function createJenkinsfileRouter(store: PipelineStore = new PipelineStore
       }
       // `repoUrl` is echoed because it may not be the one that was sent — an
       // SSH URL was rewritten above, and the pipeline should record what cloned.
-      res.json({ ...result, repoUrl, revision });
+      // The result carries the branch actually read: a `main` the repo does
+      // not have was read from its default branch.
+      res.json({ ...result, repoUrl });
     } catch (err) {
       next(err);
     }

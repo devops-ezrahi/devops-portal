@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { applyDemotion, applyPromotion, findEnvSpecific, findPromotions } from "./promote";
+import { applyDefaultsDemotion, applyDemotion, applyPromotion, findEnvSpecific, findPromotions, removeShadowed } from "./promote";
 import { buildValues } from "./build";
-import { deepMerge } from "./values";
+import { deepMerge, shadowing } from "./values";
 import type { ArgocdTree } from "../../../server/types";
 
 const on = (v: Record<string, unknown> = {}) => ({ on: true, v });
@@ -140,6 +140,47 @@ describe("applyDemotion", () => {
   });
 });
 
+describe("applyDefaultsDemotion", () => {
+  const withDefault = () =>
+    tree({
+      releases: [
+        { id: "r1", name: "checkout", features: {} },
+        { id: "r2", name: "cart", features: { replicas: on({ replicaCount: "1" }) } },
+        { id: "r3", name: "search", features: {} },
+      ],
+      namespaces: [
+        {
+          name: "prod",
+          defaults: { features: { replicas: on({ replicaCount: "3" }) } },
+          releases: [
+            { release: "r1", features: { replicas: on({ replicaCount: "6" }) } },
+            { release: "r3", features: { replicas: on({ replicaCount: "4" }) } },
+          ],
+        },
+      ],
+    });
+
+  it("takes the value out of the defaults, and nothing in the namespace deploys differently", () => {
+    const before = withDefault();
+    const after = applyDefaultsDemotion(before, 0, "r1", { replicaCount: 6 });
+    const ns = after.namespaces[0];
+    expect(buildValues(ns.defaults!.features, ns.defaults!.extraValues).replicaCount).toBeUndefined();
+    const deployed = (t: ArgocdTree, id: string) => {
+      const r = t.releases.find((x) => x.id === id)!;
+      const e = t.namespaces[0].releases.find((x) => x.release === id);
+      const d = t.namespaces[0].defaults;
+      return deepMerge(
+        deepMerge(buildValues(r.features, r.extraValues), buildValues(d?.features ?? {}, d?.extraValues)),
+        e ? buildValues(e.features, e.extraValues) : {}
+      ).replicaCount;
+    };
+    // cart took the default over its base's 1, so it gets a copy of the 3;
+    // search already said 4 and keeps it.
+    expect(["r1", "r2", "r3"].map((id) => deployed(after, id))).toEqual(["r1", "r2", "r3"].map((id) => deployed(before, id)));
+    expect(ns.releases.find((e) => e.release === "r3")!.features.replicas.v.replicaCount).toBe("4");
+  });
+});
+
 describe("findEnvSpecific", () => {
   /** Base pins a tag and a hostname; nothing overrides either yet. */
   const pinned = () => {
@@ -210,5 +251,27 @@ describe("findEnvSpecific", () => {
     const t = pinned();
     t.namespaces = [];
     expect(findEnvSpecific(t)).toEqual([]);
+  });
+});
+
+describe("removeShadowed", () => {
+  it("drops the overridden repository and keeps the namespace's own tag", () => {
+    const below = { image: { repository: "registry/base", tag: "1.0" } };
+    const features = { image: { on: true, v: { repository: "registry/prod", tag: "2.0" } } };
+    // tag differs too, so both shadow — but a tag base lacks would stay:
+    const next = removeShadowed(features, "image", { image: { repository: "registry/base" } });
+    expect(buildValues(next)).toEqual({ image: { tag: "2.0" } });
+    expect(buildValues(removeShadowed(features, "image", below))).toEqual({});
+  });
+
+  it("treats env vars one by one: only a variable base also sets differently goes", () => {
+    const row = (name: string, value: string) => ({ name, kind: "value", value });
+    const below = buildValues({ env: { on: true, v: { items: [row("LOG_LEVEL", "info"), row("TZ", "UTC")] } } });
+    const features = { env: { on: true, v: { items: [row("LOG_LEVEL", "debug"), row("MODE", "production")] } } };
+
+    // MODE is only here — not an override; LOG_LEVEL is.
+    expect(Object.keys(shadowing(buildValues(features), below))).toEqual(["env"]);
+    expect(buildValues(removeShadowed(features, "env", below))).toEqual({ env: { MODE: { value: "production" } } });
+    expect(shadowing(buildValues({ env: { on: true, v: { items: [row("MODE", "production")] } } }), below)).toEqual({});
   });
 });

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JenkinsfilePipeline, PortalUser } from "../../../server/types";
 
@@ -158,6 +158,47 @@ describe("JenkinsfileView", () => {
     expect(code()).toContain("genStage(");
     expect(code()).toContain("commands: [\n        'npm ci',\n        'npm run build'\n    ]");
     expect(code().indexOf("genStage")).toBeLessThan(code().indexOf("sonarStage"));
+  });
+
+  it("builds a parallel block as a box, branch by branch, and ungroups it", () => {
+    const { code } = renderView();
+    fireEvent.click(screen.getByRole("button", { name: /Add parallel block/ }));
+    const box = () => screen.getByRole("listitem", { name: "Parallel block" });
+    // The box opens empty; nothing is written until a stage is in it.
+    expect(within(box()).queryAllByRole("button", { name: /^Expand / })).toHaveLength(0);
+    expect(code()).not.toContain("parallel(");
+    for (let i = 0; i < 2; i++) {
+      fireEvent.click(within(box()).getByRole("button", { name: "Add stage to this block" }));
+      fireEvent.click(screen.getByRole("button", { name: "Add Sleep" }));
+    }
+
+    expect(within(box()).getAllByRole("button", { name: /^Expand / })).toHaveLength(2);
+    expect(code()).toMatch(/^parallel\(\n {4}'Sleep': \{/m);
+    expect(code()).toContain("'Sleep 2': {");
+
+    // A stage added from the list's own button lands outside the box.
+    fireEvent.click(screen.getByRole("button", { name: "Add stage" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Sleep" }));
+    expect(within(box()).getAllByRole("button", { name: /^Expand / })).toHaveLength(2);
+
+    fireEvent.click(within(box()).getByRole("button", { name: "Ungroup" }));
+    expect(screen.queryByRole("listitem", { name: "Parallel block" })).not.toBeInTheDocument();
+    expect(code()).not.toContain("parallel(");
+  });
+
+  it("keeps the pipeline options folded until opened", () => {
+    renderView();
+    expect(screen.getByRole("button", { name: /Pipeline options/ })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: /Import the shared library/ })).toBeNull();
+  });
+
+  it("writes the Groovy block before the stages", () => {
+    const { code } = renderView();
+    fireEvent.click(screen.getByRole("button", { name: /Pipeline options/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add Groovy variables and functions/ }));
+    fireEvent.change(screen.getByLabelText("Groovy variables and functions"), { target: { value: "def tag = '1.0'" } });
+    addStage("Sleep");
+    expect(code().indexOf("def tag = '1.0'")).toBeLessThan(code().indexOf("sleep("));
   });
 
   it("says nothing about a stage until you leave it", () => {
@@ -534,6 +575,7 @@ genStage(title: 'Build', image: 'python311', commands: ['npm ci'])`,
 
   it("adds the @Library line only when asked, and only takes a branch", () => {
     const { code } = renderView();
+    fireEvent.click(screen.getByRole("button", { name: /Pipeline options/ }));
     expect(code()).not.toContain("@Library");
 
     fireEvent.click(screen.getByRole("button", { name: /Import the shared library/ }));
@@ -548,6 +590,7 @@ genStage(title: 'Build', image: 'python311', commands: ['npm ci'])`,
 
   it("offers boolean, string and choice parameters, and writes the one picked", () => {
     const { code } = renderView();
+    fireEvent.click(screen.getByRole("button", { name: /Pipeline options/ }));
 
     fireEvent.click(screen.getByRole("button", { name: /Add pipeline parameters/ }));
     expect(

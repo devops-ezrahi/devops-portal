@@ -99,6 +99,34 @@ export function commonSubtree(docs: Values[]): Values {
   return common;
 }
 
+/**
+ * What a namespace file writes: its own values, minus only those that restate
+ * a lower layer **and** are the chart's own default too.
+ *
+ * Ticking a feature on writes the chart's defaults into the layer
+ * (`defaultValues`), and those are noise when base already says the same. A
+ * value someone set — an image repository equal to base's, read out of the
+ * repo's own namespace file — is not noise: dropping it made the preview show
+ * the repository "removed" from a file nobody had touched.
+ */
+export function subtractChartDefaults(values: Values, below: Values, chart: Values): Values {
+  const out: Values = {};
+  for (const [key, val] of Object.entries(values)) {
+    if (!Object.prototype.hasOwnProperty.call(below, key)) {
+      out[key] = val;
+      continue;
+    }
+    const under = below[key];
+    if (isPlainObject(val) && isPlainObject(under)) {
+      const sub = subtractChartDefaults(val, under, isPlainObject(chart[key]) ? (chart[key] as Values) : {});
+      if (Object.keys(sub).length) out[key] = sub;
+    } else if (!(deepEqual(val, under) && deepEqual(val, chart[key]))) {
+      out[key] = val;
+    }
+  }
+  return out;
+}
+
 /** The exact inverse: drop whatever a lower layer already supplies. */
 export function subtractDefaults(values: Values, defaults: Values | undefined): Values {
   if (!defaults || !Object.keys(defaults).length) return values;

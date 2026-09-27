@@ -1,5 +1,5 @@
 import type { JenkinsfilePipeline } from "../../../../server/types";
-import { isSshUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
+import { exampleRepoUrl, isSshUrl, normalizeRepoUrl, repoWebUrl } from "../../../../server/gitUrl";
 import { Help } from "../../../Help";
 import { RepoPanel as GitRepoPanel } from "../../../RepoPanel";
 
@@ -29,18 +29,20 @@ type Props = {
   onPull: () => void;
   pulling: boolean;
   gitEnabled: boolean;
+  gitUrl: string;
   /** How much a pull would replace — nothing to warn about when it is zero. */
   stageCount: number;
   error?: string;
 };
 
-export function RepoPanel({ repo, onChange, onPull, pulling, gitEnabled, stageCount, error }: Props) {
+export function RepoPanel({ repo, onChange, onPull, pulling, gitEnabled, gitUrl, stageCount, error }: Props) {
   return (
     <GitRepoPanel
       role="Repo"
       repoUrl={repo.repoUrl}
       revision={repo.revision}
       sub={repo.path}
+      link={repoWebUrl(repo.repoUrl, repo.revision, repo.path, true)}
       blocked={gitBlocked(repo, gitEnabled)}
       error={error}
       onPull={onPull}
@@ -52,12 +54,12 @@ export function RepoPanel({ repo, onChange, onPull, pulling, gitEnabled, stageCo
         <input
           aria-label="Repository URL"
           value={repo.repoUrl}
-          placeholder="https://github.com/org/service.git"
+          placeholder={exampleRepoUrl(gitUrl, "service")}
           onChange={(e) => onChange({ ...repo, repoUrl: e.target.value })}
-          onBlur={(e) => onChange({ ...repo, repoUrl: normalizeRepoUrl(e.target.value) })}
+          onBlur={(e) => onChange({ ...repo, repoUrl: normalizeRepoUrl(e.target.value, gitUrl) })}
         />
         {isSshUrl(repo.repoUrl) && (
-          <small className="field-hint">SSH URL — this becomes {normalizeRepoUrl(repo.repoUrl)} on save.</small>
+          <small className="field-hint">SSH URL — this becomes {normalizeRepoUrl(repo.repoUrl, gitUrl)} on save.</small>
         )}
       </div>
       <label>

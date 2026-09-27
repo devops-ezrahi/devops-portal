@@ -1657,6 +1657,10 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   animation: fade-up 180ms var(--ease-out) forwards;
 }
 
+.drop-zone-warn {
+  color: #e0b457;
+}
+
 /* Amber, not red: the job did what was asked minus one part of it — the same
    palette the Jenkinsfile import warnings use. */
 .warn-banner {
@@ -3013,6 +3017,51 @@ code {
   animation: row-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* Runs alongside the card above — indented under it with a rule down the
+   side, so a parallel group reads as one block of branches. */
+/* A parallel block: the cards inside it run at once, one branch each. */
+.jf-parallel-box {
+  list-style: none;
+  border: 1px dashed #20c7bd;
+  border-radius: 8px;
+  padding: 8px 10px 10px;
+  background: rgba(32, 199, 189, 0.04);
+}
+
+.jf-parallel-box.drop-into {
+  background: rgba(32, 199, 189, 0.12);
+}
+
+.jf-parallel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #20c7bd;
+}
+
+.jf-parallel-head .ghost-button {
+  margin-left: auto;
+}
+
+.jf-parallel-empty {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #6f8088;
+}
+
+.jf-parallel-box .jf-adder {
+  margin-top: 8px;
+}
+
+.jf-adders {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .jf-card.open {
   border-color: #24343b;
   background: #0d1417;
@@ -4228,6 +4277,48 @@ input.jf-title {
   font-size: 12.5px;
 }
 
+/* A ConfigMap file: the coloured copy behind a transparent textarea. The
+   shadow repeats `.ag-editor textarea`'s box exactly (border, padding, wrap),
+   so every character lands on top of its coloured twin. */
+.ag-code {
+  position: relative;
+}
+
+.ag-code-shadow {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: #0d1316;
+  line-height: normal;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ag-code-shadow code.hljs {
+  background: transparent;
+  padding: 0;
+  font: inherit;
+}
+
+.ag-editor .ag-code textarea {
+  position: relative;
+  background: transparent;
+  color: transparent;
+  caret-color: #f4f7f8;
+  line-height: normal;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.ag-editor .ag-code textarea::placeholder {
+  color: #55707a;
+}
+
 /* ---- repositories ---- */
 
 /* Two repos with different jobs, so the summary names both rather than
@@ -4363,7 +4454,8 @@ input.jf-title {
   color: #4a5a62;
 }
 
-.ag-chart-summary:hover .edit-toggle,
+/* Each lights on its own hover, so the link and the pencil read as two buttons. */
+.ag-chart-summary .edit-toggle:hover,
 .ag-chart-summary .edit-toggle[aria-expanded="true"] { color: #b9c6cc }
 
 /* ---- the New tree dialog ---- */
@@ -4538,6 +4630,36 @@ input.jf-title {
 
 /* A namespace's defaults: one wide bar above the microservice squares — what
    every one of them starts from, not another one of them. */
+/* Heading and sort on one row, so the sort never moves with what is under it. */
+.ag-grid-headrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ag-grid-headrow .ag-grid-head { margin: 0 }
+
+.ag-grid-sort {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #6f8088;
+}
+
+.ag-grid-sort select {
+  width: auto;
+  min-height: 0;
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+.ag-card-shell[draggable="true"] > .ag-card { cursor: grab }
+.ag-card-shell[data-drag="source"] { opacity: 0.45 }
+.ag-card-shell[data-drag="target"] > .ag-card { outline: 2px dashed #20c7bd; outline-offset: 2px }
+
 .ag-ns-defaults-shell {
   display: flex;
   align-items: center;
@@ -4713,6 +4835,23 @@ input.jf-title {
 .ag-promote code { font-size: 11.5px; color: #9fe4dc }
 .ag-promote strong { color: #f2f6f7 }
 .ag-promote .ghost-button { margin-left: auto }
+
+/* The offers fold into one line, so a tree full of them does not push the
+   editor a screen down. */
+.ag-suggestions { margin-top: 10px }
+.ag-suggestions > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 12.5px;
+  color: #9fe4dc;
+}
+.ag-suggestions > summary::-webkit-details-marker { display: none }
+.ag-suggestions > summary svg { transition: transform 0.15s }
+.ag-suggestions[open] > summary svg { transform: rotate(90deg) }
+.ag-suggestions .ag-promote { margin-top: 6px }
 
 /* The other direction — a base value only an environment can answer — is not a
    row under the grid but a line on the microservice's own card: it is a fact
@@ -5128,12 +5267,40 @@ input.jf-title {
 /* What a microservice inherits from the tree's defaults: shown, not editable,
    with the way back to where it is editable. Greyed, because it is not this
    microservice's decision — but it is in this microservice's file. */
+/* The body's own column tracks, so an inherited field is exactly the size and
+   position it has when edited rather than stretched across the box. The negative
+   margin cancels border + padding, giving the box the body's width; auto-fill
+   (not the body's auto-fit) keeps the empty tracks a lone field would collapse.
+   Not `subgrid`: Chrome does not pass it through a fieldset's content box. */
 .ag-inherited {
   grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  margin: 0 -11px;
+  min-width: 0;
   border: 1px dashed #26333a;
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 6px 10px 10px;
   background: #0d1418;
+}
+
+.ag-inherited legend {
+  padding: 0 4px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Read-only: what a lower layer sets, greyed and not typeable here. */
+.ag-inherited > :not(legend) {
+  opacity: 0.55;
 }
 
 .ag-inherited-link {
@@ -5150,15 +5317,6 @@ input.jf-title {
 }
 
 .ag-inherited-link:hover { color: #9fe4dc }
-
-.ag-inherited pre {
-  margin: 4px 0 0;
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: #7d8f97;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
 
 /* The same problem the list under the form shows, repeated on the card it is
    about: pressing it there lands here, and a card with no sign of why is the
@@ -5425,7 +5583,9 @@ input.jf-title {
   border-radius: 8px;
   background: #0d1316;
   overflow: auto;
-  max-height: max(240px, calc(100vh - 220px));
+  /* A fixed height, not a cap: sized to the file, pressing a short one after a
+     long one shortened the page under the pointer and the browser scrolled it. */
+  height: max(240px, calc(100vh - 220px));
   font-size: 12.5px;
   line-height: 1.6;
 }
@@ -5574,4 +5734,18 @@ input.jf-title {
 .jf-new-choice:disabled:hover {
   border-color: #223038;
   background: #101a1e;
+}
+
+/* The two list-level Add buttons share one row; their palettes open against
+   the row, not against the (narrow) button that opened them. */
+.jf-adders {
+  position: relative;
+}
+
+.jf-adders .jf-adder {
+  position: static;
+}
+
+.jf-groovy-editor .jf-import-text {
+  min-height: 140px;
 }

@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+const BB = "https://bitbucket.example.com";
+
 async function loadWithGit(git: Record<string, unknown>) {
   vi.resetModules();
   vi.doMock("../../config", () => ({
@@ -21,21 +23,26 @@ describe("authenticatedRepoUrl", () => {
   });
 
   it("puts the token in alone when GIT_USERNAME is unset", async () => {
-    const { authenticatedRepoUrl } = await loadWithGit({ token: "pat-123", enabled: true });
+    const { authenticatedRepoUrl } = await loadWithGit({ url: BB, token: "pat-123", enabled: true });
     expect(authenticatedRepoUrl("https://bitbucket.example.com/scm/dem/dp.git")).toBe(
       "https://pat-123@bitbucket.example.com/scm/dem/dp.git"
     );
   });
 
   it("uses username:token when GIT_USERNAME is set", async () => {
-    const { authenticatedRepoUrl } = await loadWithGit({ token: "pat-123", username: "svc", enabled: true });
+    const { authenticatedRepoUrl } = await loadWithGit({ url: BB, token: "pat-123", username: "svc", enabled: true });
     expect(authenticatedRepoUrl("https://bitbucket.example.com/scm/dem/dp.git")).toBe(
       "https://svc:pat-123@bitbucket.example.com/scm/dem/dp.git"
     );
   });
 
+  it("sends GIT_TOKEN to the GIT_URL host only — any other host clones anonymously", async () => {
+    const { authenticatedRepoUrl } = await loadWithGit({ url: BB, token: "pat-123", enabled: true });
+    expect(authenticatedRepoUrl("https://github.com/devops-ezrahi/homelab.git")).toBe("https://github.com/devops-ezrahi/homelab.git");
+  });
+
   it("leaves an SSH-form URL alone even when GIT_TOKEN is set", async () => {
-    const { authenticatedRepoUrl } = await loadWithGit({ token: "pat-123", enabled: true });
+    const { authenticatedRepoUrl } = await loadWithGit({ url: BB, token: "pat-123", enabled: true });
     expect(authenticatedRepoUrl("git@github.com:devops-ezrahi/homelab.git")).toBe(
       "git@github.com:devops-ezrahi/homelab.git"
     );

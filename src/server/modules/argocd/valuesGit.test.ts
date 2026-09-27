@@ -1,18 +1,14 @@
 import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { git } from "../../git";
 import { pullValuesTree, pushValuesTree } from "./valuesGit";
 import type { ArgocdTree } from "../../types";
 
-// Not GitHub, so the PR step is skipped and the note explains why — which lets
-// the whole clone -> write -> commit -> push chain run for real against a bare
-// repo on disk, with no network and nothing stubbed.
-vi.mock("../../github", async () => ({
-  githubRepo: () => null,
-  openPullRequest: async () => "https://github.com/o/r/pull/1",
-}));
+// A bare repo on disk is neither GitHub nor Bitbucket, so the PR step is
+// skipped and the note explains why — the clone -> write -> commit -> push
+// chain runs for real, with no network and nothing stubbed.
 
 let remote = "";
 let work = "";
@@ -101,14 +97,20 @@ describe("pushValuesTree", () => {
 
 describe("pullValuesTree", () => {
   it("reads the tree back out of the repo it was pushed to", async () => {
-    const files = await pullValuesTree(remote, "portal/argocd-ag-0009", "");
+    const { files } = await pullValuesTree(remote, "portal/argocd-ag-0009", "");
     const paths = files.map((f) => f.path);
     expect(paths).toContain("base/api.yaml");
     expect(files.find((f) => f.path === "base/api.yaml")!.text).toContain("tag: 2.0.0");
   });
 
   it("reads only the subdirectory it is pointed at", async () => {
-    const files = await pullValuesTree(remote, "portal/argocd-ag-0009", "apps");
+    const { files } = await pullValuesTree(remote, "portal/argocd-ag-0009", "apps");
     expect(files.map((f) => f.path)).toEqual(["base/api.yaml"]);
+  });
+
+  it("falls back to the remote's default branch when the one asked for does not exist", async () => {
+    // The bare remote's HEAD is `main` — the `master`-vs-`main` case, reversed.
+    const pulled = await pullValuesTree(remote, "no-such-branch", "");
+    expect(pulled.revision).toBe("main");
   });
 });

@@ -3,6 +3,7 @@ import { Check, KeyRound, Link2, Plus, X } from "lucide-react";
 import { useId, type ReactNode } from "react";
 import type { FieldSpec, KvPair, RowCol } from "../catalog";
 import type { Values } from "../values";
+import { highlightFile } from "../highlight";
 
 /**
  * One field of one feature, rendered from its `FieldKind` — the `ArgField.tsx`
@@ -14,6 +15,7 @@ export function FeatureField({
   value,
   onChange,
   onRemove,
+  from,
   ...extras
 }: {
   spec: FieldSpec;
@@ -21,18 +23,22 @@ export function FeatureField({
   onChange: (value: unknown) => void;
   /** Put this field back on the add list. Absent on the ones that cannot leave. */
   onRemove?: () => void;
+  /** A read-only copy of a lower layer's value — named apart from this layer's own field. */
+  from?: string;
 } & RowExtras) {
-  const id = `ag-field-${spec.key}`;
+  const id = from ? `ag-field-${from.replace(/\W+/g, "-")}-${spec.key}` : `ag-field-${spec.key}`;
   // A list, a map or a block of YAML gets the whole width of the feature; only
   // the one-line fields sit in the column grid beside each other.
   const wide = spec.kind === "rows" || spec.kind === "kv" || spec.kind === "text" || spec.kind === "yaml";
   return (
     <div className={`ag-field${wide ? " ag-field-wide" : ""}`}>
-      <span className="ag-field-label-row">
+      {/* A continued list is labelled by the greyed block right above it. */}
+      {!extras.bare && <span className="ag-field-label-row">
         {/* `htmlFor`, so the `?` can sit beside the label rather than inside
             it — a label wrapping a button names the button too. */}
         <label className="ag-field-label" htmlFor={id}>
           {spec.label}
+          {from && <span className="sr-only"> from {from}</span>}
         </label>
         {spec.hint && (
           <Help label={spec.label}>
@@ -46,6 +52,7 @@ export function FeatureField({
           <button
             type="button"
             className="ag-field-remove"
+            data-undo
             aria-label={`Remove ${spec.label}`}
             title="Back to the optional list"
             onClick={onRemove}
@@ -53,7 +60,7 @@ export function FeatureField({
             <X size={12} aria-hidden="true" />
           </button>
         )}
-      </span>
+      </span>}
       <Control spec={spec} id={id} value={value} onChange={onChange} {...extras} />
     </div>
   );
@@ -61,6 +68,40 @@ export function FeatureField({
 
 /** Rows a textarea needs for `text`, plus one to show there is room to type. */
 const lineCount = (text: unknown): number => String(text ?? "").split("\n").length + 1;
+
+/**
+ * A file's contents, coloured by its name. A textarea cannot colour its own
+ * text, so the highlighted copy sits behind a transparent one — the Jenkinsfile
+ * import dialog's trick. It grows a row per line, so there is no scroll to sync.
+ */
+function CodeArea({
+  lang,
+  value,
+  placeholder,
+  onChange,
+}: {
+  lang: string;
+  value: string;
+  placeholder?: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="ag-code">
+      <pre className="ag-textarea ag-code-shadow" aria-hidden="true">
+        {/* The trailing newline matches the empty last line a textarea reserves. */}
+        <code className="hljs" dangerouslySetInnerHTML={{ __html: highlightFile(lang, value) + "\n" }} />
+      </pre>
+      <textarea
+        className="ag-textarea"
+        rows={Math.max(2, lineCount(value), lineCount(placeholder))}
+        value={value}
+        placeholder={placeholder}
+        spellCheck={false}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
+  );
+}
 
 /**
  * What a row needs beyond its own value: the names this release already
@@ -78,6 +119,14 @@ export type RowExtras = {
   onEnv?: (name: string) => void;
   /** What is already an envFrom source. */
   inEnv?: Set<string>;
+  /**
+   * This layer's entries of a list a lower layer already has: no label and no
+   * blank placeholder entry, just its own entries and the Add button — the
+   * greyed block above is where the list starts.
+   */
+  bare?: boolean;
+  /** A greyed copy of a list that is continued below it — the Add button is the continuation's. */
+  noAdd?: boolean;
 };
 
 function Control({
@@ -136,7 +185,7 @@ function Control({
         />
       );
     case "kv":
-      return <KvRows rows={(value as KvPair[]) ?? []} onChange={onChange} />;
+      return <KvRows rows={(value as KvPair[]) ?? []} onChange={onChange} bare={extras.bare} noAdd={extras.noAdd} />;
     case "rows":
       return (
         <ObjectRows spec={spec} rows={(value as Values[]) ?? []} onChange={onChange} {...extras} />
@@ -155,8 +204,18 @@ function Control({
 }
 
 /** Key/value pairs, not an object: an object cannot hold a half-typed key rename. */
-function KvRows({ rows, onChange }: { rows: KvPair[]; onChange: (rows: KvPair[]) => void }) {
-  const shown = rows.length ? rows : [{ k: "", v: "" }];
+function KvRows({
+  rows,
+  onChange,
+  bare,
+  noAdd,
+}: {
+  rows: KvPair[];
+  onChange: (rows: KvPair[]) => void;
+  bare?: boolean;
+  noAdd?: boolean;
+}) {
+  const shown = rows.length || bare ? rows : [{ k: "", v: "" }];
   const set = (i: number, patch: Partial<KvPair>) =>
     onChange(shown.map((r, n) => (n === i ? { ...r, ...patch } : r)));
   return (
@@ -169,6 +228,7 @@ function KvRows({ rows, onChange }: { rows: KvPair[]; onChange: (rows: KvPair[])
             type="button"
             className="icon-button"
             aria-label="Remove this entry"
+            data-undo
             // Removing the last row removes the value: without this the × on a
             // single row looks like it does nothing, since one blank row is
             // always rendered.
@@ -178,9 +238,11 @@ function KvRows({ rows, onChange }: { rows: KvPair[]; onChange: (rows: KvPair[])
           </button>
         </div>
       ))}
-      <button type="button" className="ghost-button ag-add" onClick={() => onChange([...shown, { k: "", v: "" }])}>
-        <Plus size={15} aria-hidden="true" /> Add
-      </button>
+      {!noAdd && (
+        <button type="button" className="ghost-button ag-add" onClick={() => onChange([...shown, { k: "", v: "" }])}>
+          <Plus size={15} aria-hidden="true" /> Add
+        </button>
+      )}
     </div>
   );
 }
@@ -204,10 +266,13 @@ function ObjectRows({
   mounted,
   onEnv,
   inEnv,
+  bare,
+  noAdd,
 }: { spec: FieldSpec; rows: Values[]; onChange: (rows: Values[]) => void } & RowExtras) {
   const cols = spec.cols ?? [];
   const listId = useId();
-  const shown = rows.length ? rows : [{}];
+  const list = Array.isArray(rows) ? rows : [];
+  const shown = list.length || bare ? list : [{}];
   const set = (i: number, patch: Values) => onChange(shown.map((r, n) => (n === i ? { ...r, ...patch } : r)));
   return (
     <div className="ag-rows">
@@ -245,6 +310,7 @@ function ObjectRows({
               type="button"
               className="icon-button"
               aria-label="Remove this entry"
+              data-undo
               onClick={() => onChange(shown.filter((_, n) => n !== i))}
             >
               <X size={15} aria-hidden="true" />
@@ -273,6 +339,13 @@ function ObjectRows({
                   placeholder={col.placeholder}
                   onChange={(v) => set(i, { [col.key]: v })}
                 />
+              ) : col.kind === "text" && col.lang ? (
+                <CodeArea
+                  lang={col.lang(row)}
+                  value={String(row[col.key] ?? "")}
+                  placeholder={col.placeholder}
+                  onChange={(v) => set(i, { [col.key]: v })}
+                />
               ) : col.kind === "text" ? (
                 <textarea
                   className="ag-textarea"
@@ -295,9 +368,11 @@ function ObjectRows({
           ))}
         </div>
       ))}
-      <button type="button" className="ghost-button ag-add" onClick={() => onChange([...shown, {}])}>
-        <Plus size={15} aria-hidden="true" /> {spec.addLabel ?? "Add"}
-      </button>
+      {!noAdd && (
+        <button type="button" className="ghost-button ag-add" onClick={() => onChange([...shown, {}])}>
+          <Plus size={15} aria-hidden="true" /> {spec.addLabel ?? "Add"}
+        </button>
+      )}
     </div>
   );
 }

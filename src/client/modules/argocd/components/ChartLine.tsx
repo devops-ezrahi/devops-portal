@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Pencil } from "lucide-react";
-import { normalizeRepoUrl } from "../../../../server/gitUrl";
+import { ExternalLink, Pencil } from "lucide-react";
+import { exampleRepoUrl, normalizeRepoUrl, repoWebUrl } from "../../../../server/gitUrl";
 import { Help } from "../../../Help";
 import { repoName } from "./RepoPanel";
 import type { DraftTree } from "../document";
@@ -18,11 +18,11 @@ import type { DraftTree } from "../document";
 export function ChartLine({
   tree,
   onChange,
-  onRootAppName,
+  gitUrl,
 }: {
   tree: DraftTree;
   onChange: (chart: DraftTree["chart"]) => void;
-  onRootAppName: (name: string) => void;
+  gitUrl: string;
 }) {
   const [editing, setEditing] = useState(false);
 
@@ -43,6 +43,18 @@ export function ChartLine({
         <span className="ag-chart-paths">
           {tree.chart.path || "."} · {tree.chart.appsetPath || "ms-applicationSet"}
         </span>
+        {repoWebUrl(tree.chart.repoUrl) && (
+          <a
+            className="icon-button edit-toggle"
+            href={repoWebUrl(tree.chart.repoUrl, tree.chart.revision, tree.chart.path)}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Open the chart repo in git"
+            title={`Open ${repoName(tree.chart.repoUrl)} in git`}
+          >
+            <ExternalLink size={14} aria-hidden="true" />
+          </a>
+        )}
         <button
           type="button"
           className="icon-button edit-toggle"
@@ -60,9 +72,9 @@ export function ChartLine({
             <span>Chart repo URL</span>
             <input
               value={tree.chart.repoUrl}
-              placeholder="https://github.com/devops-ezrahi/universal-chart.git"
+              placeholder={exampleRepoUrl(gitUrl, "universal-chart")}
               onChange={(e) => onChange({ ...tree.chart, repoUrl: e.target.value })}
-              onBlur={(e) => onChange({ ...tree.chart, repoUrl: normalizeRepoUrl(e.target.value) })}
+              onBlur={(e) => onChange({ ...tree.chart, repoUrl: normalizeRepoUrl(e.target.value, gitUrl) })}
             />
           </label>
           <label>
@@ -87,16 +99,6 @@ export function ChartLine({
               placeholder="ms-applicationSet"
               value={tree.chart.appsetPath}
               onChange={(e) => onChange({ ...tree.chart, appsetPath: e.target.value })}
-            />
-          </label>
-          <label>
-            {/* Wiring, not values — it names the one object applied by hand,
-                so it belongs beside the chart rather than in the tree's data. */}
-            <span>Root Application name</span>
-            <input
-              value={tree.rootAppName}
-              placeholder="platform-root"
-              onChange={(e) => onRootAppName(e.target.value)}
             />
           </label>
         </div>

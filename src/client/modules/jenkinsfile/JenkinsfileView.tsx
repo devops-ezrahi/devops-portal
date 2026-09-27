@@ -1,4 +1,4 @@
-import { Check, Pencil, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { Check, ChevronRight, Pencil, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { ListSizeToggle } from "../../ListSizeToggle";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
@@ -27,6 +27,7 @@ import {
   type DraftPipeline,
 } from "./pipeline";
 import { JenkinsfilePreview } from "./components/JenkinsfilePreview";
+import { GroovyBlock } from "./components/GroovyBlock";
 import { LibraryField } from "./components/LibraryField";
 import { ParamsEditor, paramScope } from "./components/ParamsEditor";
 import { PipelineList } from "./components/PipelineList";
@@ -101,9 +102,13 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
   const [images, setImages] = useState<PickableImage[]>([]);
   const [newOpen, setNewOpen] = useState(false);
   const [naming, setNaming] = useState(false);
+  // Per viewer, not per pipeline: it is about how much of the screen the
+  // settings above the stages may take, which is the same whatever is open.
+  const [optionsOpen, setOptionsOpen] = useState(readOptionsOpen);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   /** Whether a git credential exists at all — the repo buttons say so when it does not. */
   const [gitEnabled, setGitEnabled] = useState(false);
+  const [gitUrl, setGitUrl] = useState("");
   const [pulling, setPulling] = useState(false);
   const [push, setPush] = useState<PushState>({ kind: "idle" });
   /** Why the connected repository could not be read — shown on the repo panel, where it can be fixed. */
@@ -127,6 +132,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
         setPipelines(result.pipelines);
         if (result.sharedLibrary) setSharedLibrary(result.sharedLibrary);
         setGitEnabled(!!result.gitEnabled);
+        setGitUrl(result.gitUrl ?? "");
         // Reopen whatever was last open, so Refresh lands back where you were.
         // Only into an untouched draft: a load that resolves late must not take
         // the editor away from a pipeline already opened by hand.
@@ -180,7 +186,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
     [pipelines, showAll, isAdmin, user.id]
   );
   const code = useMemo(() => toGroovy(draft), [draft]);
-  const usedParams = useMemo(() => usedParamNames(draft.stages), [draft.stages]);
+  const usedParams = useMemo(() => usedParamNames(draft.stages, draft.groovy), [draft.stages, draft.groovy]);
   const errors = useMemo(() => {
     const all = validatePipeline(draft);
     return {
@@ -276,7 +282,8 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
       setDraft((prev) => ({
         ...prev,
         // An empty path meant "find it"; what was found is where Commit writes.
-        repo: prev.repo && !prev.repo.path ? { ...prev.repo, path: result.path } : prev.repo,
+        // A branch the repo lacks was read from its default — the one Commit has to target.
+        repo: prev.repo && { ...prev.repo, revision: result.revision || prev.repo.revision, path: prev.repo.path || result.path },
         library: parsed.pipeline.library,
         params: parsed.pipeline.params,
         stages: parsed.pipeline.stages,
@@ -339,15 +346,20 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
     ...draft.params.map(paramScope),
   ]);
 
-  function handleAddStage(step: string) {
+  function handleAddStage(step: string, group?: string) {
     const stage = createStage(step);
-    log("jenkinsfile", "adding stage", step, stage.id);
-    // populateEnvVars is a preamble wherever it is put, so it goes to the front —
-    // anything reading $SERVICE has to run after it.
-    setDraft((prev) => ({
-      ...prev,
-      stages: step === "populateEnvVars" ? [stage, ...prev.stages] : [...prev.stages, stage],
-    }));
+    log("jenkinsfile", "adding stage", step, stage.id, group ?? "");
+    setDraft((prev) => {
+      // populateEnvVars is a preamble wherever it is put, so it goes to the front —
+      // anything reading $SERVICE has to run after it.
+      if (step === "populateEnvVars") return { ...prev, stages: [stage, ...prev.stages] };
+      if (!group) return { ...prev, stages: [...prev.stages, stage] };
+      // Into a box: after its last branch, or at the end when the box is new.
+      const last = prev.stages.map((s) => s.group).lastIndexOf(group);
+      const stages = [...prev.stages];
+      stages.splice(last < 0 ? stages.length : last + 1, 0, { ...stage, group });
+      return { ...prev, stages };
+    });
   }
 
   function toggleStage(id: string) {
@@ -543,6 +555,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
             <div className="jf-section">
               <RepoPanel
                 repo={repo}
+                gitUrl={gitUrl}
                 onChange={(next) => patchDraft({ repo: next })}
                 onPull={() => void handlePull()}
                 pulling={pulling}
@@ -552,29 +565,60 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
               />
             </div>
 
+            {/* Library, parameters and Groovy fold behind one row,
+                so the stages can sit near the top once they are set. Folded, the
+                row says what is set, so nothing hidden is a surprise. Siblings
+                rather than a wrapper, so `.jf-section + .jf-section` still rules
+                them apart. */}
             <div className="jf-section">
-              <LibraryField
-                value={draft.library}
-                name={sharedLibrary}
-                onChange={(library) => patchDraft({ library })}
-              />
+              <button
+                type="button"
+                className="jf-card-toggle"
+                aria-expanded={optionsOpen}
+                onClick={() => {
+                  setOptionsOpen(!optionsOpen);
+                  writeOptionsOpen(!optionsOpen);
+                }}
+              >
+                <ChevronRight className={`jf-group-chevron${optionsOpen ? " open" : ""}`} size={15} aria-hidden="true" />
+                <span className="jf-stage-text">
+                  <strong>Pipeline options</strong>
+                  {!optionsOpen && <small>{optionsSummary(draft)}</small>}
+                </span>
+              </button>
             </div>
 
-            <div
-              className="jf-section"
-              data-touch-scope={PIPELINE_SCOPE}
-              onBlur={(e) => {
-                if (!e.relatedTarget || !e.currentTarget.contains(e.relatedTarget)) touch(PIPELINE_SCOPE);
-              }}
-            >
-              <ParamsEditor
-                params={draft.params}
-                used={usedParams}
-                touched={touched}
-                onLeave={touch}
-                onChange={(params) => patchDraft({ params })}
-              />
-            </div>
+            {optionsOpen && (
+              <>
+              <div className="jf-section">
+                <LibraryField
+                  value={draft.library}
+                  name={sharedLibrary}
+                  onChange={(library) => patchDraft({ library })}
+                />
+              </div>
+
+              <div
+                className="jf-section"
+                data-touch-scope={PIPELINE_SCOPE}
+                onBlur={(e) => {
+                  if (!e.relatedTarget || !e.currentTarget.contains(e.relatedTarget)) touch(PIPELINE_SCOPE);
+                }}
+              >
+                <ParamsEditor
+                  params={draft.params}
+                  used={usedParams}
+                  touched={touched}
+                  onLeave={touch}
+                  onChange={(params) => patchDraft({ params })}
+                />
+              </div>
+
+              <div className="jf-section">
+                <GroovyBlock value={draft.groovy ?? ""} onChange={(groovy) => patchDraft({ groovy })} />
+              </div>
+              </>
+            )}
 
             <div className="jf-section jf-builder">
               <StageList
@@ -614,6 +658,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
 
       {newOpen && (
         <NewPipelineDialog
+          gitUrl={gitUrl}
           onScratch={handleNew}
           onImport={handleImport}
           onClose={() => setNewOpen(false)}
@@ -622,4 +667,32 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
       )}
     </ImagesContext.Provider>
   );
+}
+
+const OPTIONS_OPEN_KEY = "jenkinsfile.optionsOpen";
+
+function readOptionsOpen(): boolean {
+  try {
+    // Folded by default; opened only once someone has opened it here.
+    return localStorage.getItem(OPTIONS_OPEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeOptionsOpen(open: boolean) {
+  try {
+    localStorage.setItem(OPTIONS_OPEN_KEY, open ? "1" : "0");
+  } catch {
+    // Private window or blocked storage — the fold just resets next time.
+  }
+}
+
+/** What the folded options row says is set, so folding hides nothing silently. */
+function optionsSummary(draft: DraftPipeline): string {
+  const parts: string[] = [];
+  if (draft.library) parts.push(`@Library ${draft.library}`);
+  if (draft.params.length) parts.push(`${draft.params.length} param${draft.params.length === 1 ? "" : "s"}`);
+  if (draft.groovy?.trim()) parts.push("Groovy block");
+  return parts.length ? parts.join(" · ") : "Shared library, parameters, Groovy — none set";
 }

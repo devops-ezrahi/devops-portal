@@ -1,6 +1,6 @@
-import { FilePlus2, GitBranch, TriangleAlert, X } from "lucide-react";
+import { FileCode2, FilePlus2, GitBranch, TriangleAlert, X } from "lucide-react";
 import { useState } from "react";
-import { isSshUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
+import { exampleRepoUrl, isSshUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
 import { Help } from "../../../Help";
 import { pullValues } from "../api";
 import { importTree, type TreeImport } from "../importTree";
@@ -22,11 +22,16 @@ import { importTree, type TreeImport } from "../importTree";
 export function NewTreeDialog({
   onScratch,
   onConnect,
+  onConvert,
   onClose,
+  gitUrl,
 }: {
   onScratch: () => void;
+  /** Start empty and convert plain manifests or a Helm chart into it. */
+  onConvert: () => void;
   onConnect: (imported: TreeImport, repoUrl: string, revision: string, path: string) => void;
   onClose: () => void;
+  gitUrl: string;
 }) {
   const [connecting, setConnecting] = useState(false);
   const [repoUrl, setRepoUrl] = useState("");
@@ -35,13 +40,13 @@ export function NewTreeDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   /** Held back once, so an import that drops something says so before it happens. */
-  const [pending, setPending] = useState<{ imported: TreeImport; repoUrl: string } | null>(null);
+  const [pending, setPending] = useState<{ imported: TreeImport; repoUrl: string; revision: string } | null>(null);
 
   const rewritten = isSshUrl(repoUrl);
 
   async function handleConnect() {
     if (pending) {
-      onConnect(pending.imported, pending.repoUrl, revision, path);
+      onConnect(pending.imported, pending.repoUrl, pending.revision, path);
       return;
     }
     setBusy(true);
@@ -51,12 +56,12 @@ export function NewTreeDialog({
       // pasting is the common case, and a blur handler is not a guarantee.
       // The server normalises too — that is the authoritative one — but what
       // is sent should match what the field says it will send.
-      const result = await pullValues(normalizeRepoUrl(repoUrl), revision, path);
+      const result = await pullValues(normalizeRepoUrl(repoUrl, gitUrl), revision, path);
       const imported = importTree(result.files);
       // The repo URL is the server's, not the field's: an SSH URL was rewritten
       // before the clone, and the tree should record what actually worked.
-      if (imported.warnings.length) setPending({ imported, repoUrl: result.repoUrl });
-      else onConnect(imported, result.repoUrl, revision, path);
+      if (imported.warnings.length) setPending({ imported, repoUrl: result.repoUrl, revision: result.revision || revision });
+      else onConnect(imported, result.repoUrl, result.revision || revision, path);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not read that repository");
     } finally {
@@ -89,6 +94,14 @@ export function NewTreeDialog({
                 back to it from here.
               </small>
             </button>
+            <button type="button" className="ag-new-choice" onClick={onConvert}>
+              <FileCode2 size={20} aria-hidden="true" />
+              <strong>Convert YAML or a Helm chart</strong>
+              <small>
+                Turn plain Kubernetes manifests or a packaged chart into universal-chart values, then connect a repo
+                and commit them.
+              </small>
+            </button>
           </div>
         ) : (
           <div className="request-form">
@@ -104,16 +117,16 @@ export function NewTreeDialog({
                 autoFocus
                 aria-label="Repository URL"
                 value={repoUrl}
-                placeholder="git@github.com:org/microservices-values.git"
+                placeholder={exampleRepoUrl(gitUrl, "microservices-values")}
                 onChange={(e) => {
                   setRepoUrl(e.target.value);
                   setPending(null);
                 }}
-                onBlur={() => setRepoUrl((u) => normalizeRepoUrl(u))}
+                onBlur={() => setRepoUrl((u) => normalizeRepoUrl(u, gitUrl))}
               />
               {rewritten && (
                 <small className="field-hint">
-                  SSH URL — this becomes <code>{normalizeRepoUrl(repoUrl)}</code>.
+                  SSH URL — this becomes <code>{normalizeRepoUrl(repoUrl, gitUrl)}</code>.
                 </small>
               )}
             </div>

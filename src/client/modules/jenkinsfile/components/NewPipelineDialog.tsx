@@ -1,6 +1,6 @@
 import { FilePlus2, FileUp, GitBranch, TriangleAlert, Upload, X } from "lucide-react";
 import { useRef, useState } from "react";
-import { isSshUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
+import { exampleRepoUrl, isSshUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
 import type { JenkinsfilePipeline } from "../../../../server/types";
 import { pullJenkinsfile } from "../api";
 import { highlightGroovy } from "../highlight";
@@ -27,11 +27,13 @@ export function NewPipelineDialog({
   onImport,
   onClose,
   gitEnabled,
+  gitUrl,
 }: {
   onScratch: () => void;
   onImport: (pipeline: DraftPipeline, warnings: string[], repo?: Repo) => void;
   onClose: () => void;
   gitEnabled: boolean;
+  gitUrl: string;
 }) {
   const [importing, setImporting] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -63,7 +65,7 @@ export function NewPipelineDialog({
       // pasting is the common case, and a blur handler is not a guarantee. The
       // server normalises too — that is the authoritative one — but what is
       // sent should match what the field says it will send.
-      const result = await pullJenkinsfile(normalizeRepoUrl(repoUrl), revision, path.trim());
+      const result = await pullJenkinsfile(normalizeRepoUrl(repoUrl, gitUrl), revision, path.trim());
       const parsed = parseJenkinsfile(result.text);
       // The repo is the server's answer, not the field's: an SSH URL was
       // rewritten before the clone, and the path was very likely found rather
@@ -120,16 +122,16 @@ export function NewPipelineDialog({
               <input
                 autoFocus
                 value={repoUrl}
-                placeholder="git@github.com:org/checkout-service.git"
+                placeholder={exampleRepoUrl(gitUrl, "checkout-service")}
                 onChange={(e) => {
                   setRepoUrl(e.target.value);
                   setPending(null);
                 }}
-                onBlur={() => setRepoUrl((u) => normalizeRepoUrl(u))}
+                onBlur={() => setRepoUrl((u) => normalizeRepoUrl(u, gitUrl))}
               />
               {rewritten ? (
                 <small className="field-hint">
-                  SSH URL — this becomes <code>{normalizeRepoUrl(repoUrl)}</code>. The portal authenticates with a
+                  SSH URL — this becomes <code>{normalizeRepoUrl(repoUrl, gitUrl)}</code>. The portal authenticates with a
                   token rather than a key, so it clones over https.
                 </small>
               ) : (

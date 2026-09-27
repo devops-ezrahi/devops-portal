@@ -26,7 +26,7 @@ export type RepoFile = { path: string; text: string };
 export function listTrees() {
   // `defaults` rides along rather than needing its own endpoint — the builder
   // needs it before it can offer a new tree.
-  return request<{ trees: ArgocdTree[]; defaults: TreeDefaults; gitEnabled: boolean }>("/api/argocd/trees");
+  return request<{ trees: ArgocdTree[]; defaults: TreeDefaults; gitEnabled: boolean; gitUrl: string }>("/api/argocd/trees");
 }
 
 export function createTree(input: TreeInput) {
@@ -44,8 +44,9 @@ export function deleteTree(id: string) {
 /** Read an existing tree out of a values repo. Reversing it is `importTree`'s job. */
 export function pullValues(repoUrl: string, revision: string, path: string) {
   // `repoUrl` comes back because the server may have rewritten it — an SSH URL
-  // is normalised to its https form before anything is cloned.
-  return request<{ files: RepoFile[]; repoUrl: string }>("/api/argocd/pull", {
+  // is normalised to its https form before anything is cloned — and `revision`
+  // because a branch the repo does not have is read from its default instead.
+  return request<{ files: RepoFile[]; repoUrl: string; revision: string }>("/api/argocd/pull", {
     method: "POST",
     body: JSON.stringify({ repoUrl, revision, path }),
   });
@@ -60,4 +61,25 @@ export function pushTree(id: string, files: RepoFile[], branch?: string, message
     `/api/argocd/trees/${id}/push`,
     { method: "POST", body: JSON.stringify({ files, branch, message }) }
   );
+}
+
+export type ConvertRequest = {
+  chartRepoUrl: string;
+  chartRevision: string;
+  namespace: string;
+  envGroups?: string[];
+  yaml?: string;
+  helm?: { archive: string; values?: string };
+};
+
+/**
+ * Plain Kubernetes YAML or a packaged Helm chart, converted by the chart
+ * repo's own `convert_to_universal_chart.py` into the files a values tree
+ * holds — the same shape `pullValues` returns, read with `importTree`.
+ */
+export function convertManifests(body: ConvertRequest) {
+  return request<{ files: RepoFile[]; warnings: string[] }>("/api/argocd/convert", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }

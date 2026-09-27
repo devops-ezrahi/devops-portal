@@ -1,6 +1,6 @@
 import { importValues } from "./import";
 import { buildValues } from "./build";
-import { commonSubtree, deepEqual, isPlainObject, subtractDefaults } from "./values";
+import { commonSubtree, deepEqual, isPlainObject, shadowing, subtractDefaults } from "./values";
 import { toYaml } from "./yaml";
 import type { ArgocdRelease, ArgocdTree } from "../../../server/types";
 import type { FeatureState } from "./catalog";
@@ -34,7 +34,7 @@ export type Promotion = {
 };
 
 /** Every leaf path in a document, dotted. */
-function leafPaths(doc: Values, prefix = ""): string[] {
+export function leafPaths(doc: Values, prefix = ""): string[] {
   return Object.entries(doc).flatMap(([k, v]) => {
     const path = prefix ? `${prefix}.${k}` : k;
     return isPlainObject(v) && Object.keys(v).length ? leafPaths(v, path) : [path];
@@ -155,6 +155,63 @@ export function applyDemotion(tree: ArgocdTree, releaseId: string, shadowed: Val
   return { ...tree, releases, namespaces };
 }
 
+/**
+ * `applyDemotion` one layer up: the value leaves namespace `nsIndex`'s
+ * defaults, and every other microservice there that was taking the default
+ * gets its own copy. The one that started this keeps its own value, so nothing
+ * deploys differently — the defaults just stop being a second source for it.
+ */
+export function applyDefaultsDemotion(tree: ArgocdTree, nsIndex: number, releaseId: string, shadowed: Values): ArgocdTree {
+  const ns = tree.namespaces[nsIndex];
+  if (!ns) return tree;
+  const defaults = buildValues(ns.defaults?.features ?? {}, ns.defaults?.extraValues);
+  const paths = leafPaths(shadowed).filter((path) => atPath(defaults, path) !== undefined);
+  if (!paths.length) return tree;
+
+  let entries = ns.releases;
+  for (const r of tree.releases) {
+    if (r.id === releaseId) continue;
+    const existing = entries.find((e) => e.release === r.id);
+    const doc = existing ? buildValues(existing.features, existing.extraValues) : {};
+    const missing = paths.filter((path) => atPath(doc, path) === undefined);
+    if (!missing.length) continue;
+    missing.forEach((path) => putPath(doc, path, atPath(defaults, path)));
+    const imported = importValues(toYaml(doc));
+    const entry = { release: r.id, features: imported.features, extraValues: imported.extraValues };
+    entries = existing ? entries.map((e) => (e.release === r.id ? entry : e)) : [...entries, entry];
+  }
+
+  const left = importValues(toYaml(withoutPaths(defaults, paths)));
+  const namespaces = tree.namespaces.map((n, i) =>
+    i === nsIndex ? { ...n, releases: entries, defaults: { features: left.features, extraValues: left.extraValues } } : n
+  );
+  return { ...tree, namespaces };
+}
+
+/**
+ * "Remove override" on one feature of a namespace layer: drop only the values
+ * that shadow something below (`shadowing`), not the whole feature. Overriding
+ * `image.repository` must not take the namespace's own `image.tag` with it, and
+ * an env var only this namespace sets is not an override of anything.
+ *
+ * Returns the new feature map — the feature gone if nothing of it is left.
+ */
+export function removeShadowed(
+  features: Record<string, FeatureState>,
+  id: string,
+  below: Values
+): Record<string, FeatureState> {
+  const state = features[id];
+  if (!state) return features;
+  const doc = buildValues({ [id]: state });
+  const left = withoutPaths(doc, leafPaths(shadowing(doc, below)));
+  const next = { ...features };
+  const kept = Object.keys(left).length ? (importValues(toYaml(left)).features[id] as FeatureState | undefined) : undefined;
+  if (kept) next[id] = kept;
+  else delete next[id];
+  return next;
+}
+
 /** `deepMerge` with the override winning, but returning the same object shape the catalog reads. */
 function deepMergeInto(base: Values, over: Values): Values {
   const out: Values = { ...base };
@@ -237,7 +294,7 @@ export const ENV_SPECIFIC_PATHS = [
 ];
 
 /** A copy of `doc` without the given dotted paths, dropping any map they leave empty. */
-function withoutPaths(doc: Values, drop: string[], prefix = ""): Values {
+export function withoutPaths(doc: Values, drop: string[], prefix = ""): Values {
   const out: Values = {};
   for (const [k, v] of Object.entries(doc)) {
     const path = prefix ? `${prefix}.${k}` : k;
@@ -294,6 +351,9 @@ export function findEnvSpecific(tree: ArgocdTree): EnvSpecific[] {
     for (const path of ENV_SPECIFIC_PATHS) {
       const value = atPath(base, path);
       if (value === undefined) continue;
+      // `api.{{ .Values.environment }}.example.org` is already per-environment:
+      // the chart renders it with tpl against each folder's own defaults.
+      if (typeof value === "string" && value.includes("{{")) continue;
       const plain = namespaces.filter((_, i) => atPath(overrides[i], path) === undefined);
       if (!plain.length) continue;
       paths.push(path);

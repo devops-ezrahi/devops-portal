@@ -92,6 +92,8 @@ type Props = {
   revision: string;
   /** A path inside the repo worth showing on the collapsed bar. */
   sub?: string;
+  /** The repo's own web page (`repoWebUrl`), opened from the bar. */
+  link?: string;
   blocked: string;
   /** Why the repository could not be read — shown above the fields, where it can be fixed. */
   error?: string;
@@ -103,7 +105,7 @@ type Props = {
   children: ReactNode;
 };
 
-export function RepoPanel({ role, repoUrl, revision, sub, blocked, error, onPull, pulling, replaces, children }: Props) {
+export function RepoPanel({ role, repoUrl, revision, sub, link, blocked, error, onPull, pulling, replaces, children }: Props) {
   const [open, setOpen] = useState(false);
   /**
    * A pull replaces what is in the builder, so the first press on a document
@@ -146,6 +148,11 @@ export function RepoPanel({ role, repoUrl, revision, sub, blocked, error, onPull
         </button>
 
         <div className="git-repo-actions">
+          {link && (
+            <a className="ghost-button" href={link} target="_blank" rel="noreferrer" title={`Open ${repoName(repoUrl)} in git`}>
+              <ExternalLink size={16} aria-hidden="true" /> Open
+            </a>
+          )}
           <button
             type="button"
             className="ghost-button"

@@ -11,7 +11,7 @@ import { describeError, log, userMessage } from "../../log";
 import { redactSecrets } from "../../redact";
 import { createTmpDir, removeTmpDir } from "../../tmp";
 import { discoverPackages, packAndUpload } from "../artifactory/npmPackages";
-import { BitbucketApi, BitbucketError } from "./BitbucketApi";
+import { BitbucketApi, BitbucketError } from "../../bitbucket";
 import { simulatedWhiteningJob, whiteningSimulation } from "./devSimulation";
 import type { PortalUser, WhiteningApi, WhiteningJob, WhiteningScenario } from "../../types";
 

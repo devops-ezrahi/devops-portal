@@ -1,3 +1,4 @@
+import { featureForPath } from "./catalog";
 import { enabled, list, obj, present } from "./values";
 import type { Values } from "./values";
 
@@ -26,7 +27,8 @@ function hasCpuTarget(hpa: Values): boolean {
   return list(hpa.metrics).some((m) => obj(m.resource).name === "cpu" && obj(obj(m.resource).target).type === "Utilization");
 }
 
-export function checkValues(doc: Values): Problem[] {
+/** `inBase`: the document is base alone, which leaves the image repository to each namespace. */
+export function checkValues(doc: Values, inBase = false): Problem[] {
   const out: Problem[] = [];
   const bad = (text: string, feature?: string) => out.push({ level: "bad", text, ...(feature ? { feature } : {}) });
   const warn = (text: string, feature?: string) => out.push({ level: "warn", text, ...(feature ? { feature } : {}) });
@@ -99,8 +101,13 @@ export function checkValues(doc: Values): Problem[] {
   if (enabled(monitor) && monitor.port && servicePorts.length && !servicePorts.includes(String(monitor.port)))
     warn(`ServiceMonitor scrapes port ${monitor.port}, which is not one of the Service ports (${servicePorts.join(", ")}).`, "servicemonitor");
 
-  const defined = new Set([...Object.keys(obj(doc.volumes)), ...Object.keys(obj(doc.volumeClaimTemplates))]);
-  Object.keys(obj(doc.volumeMounts)).forEach((name) => {
+  // A mount's key is only a map key — `vol:file.properties` when one volume is
+  // mounted twice by subPath — and its `name` field, when set, is what the pod
+  // actually references. Volumes can carry the same override.
+  const named = (m: Record<string, unknown>) =>
+    Object.entries(m).map(([key, v]) => String(obj(v).name || key));
+  const defined = new Set([...named(obj(doc.volumes)), ...named(obj(doc.volumeClaimTemplates))]);
+  named(obj(doc.volumeMounts)).forEach((name) => {
     if (!defined.has(name)) bad(`Mount ${name} has no matching volume or volumeClaimTemplate. The pod will not start.`, "mounts");
   });
 
@@ -153,8 +160,32 @@ export function checkValues(doc: Values): Problem[] {
     });
   });
 
-  if (!obj(doc.image).repository && workload !== "none")
+  // Base is not what deploys: the converter writes the repository beside its
+  // tag in each namespace's values file, so base legitimately has none.
+  if (!inBase && !obj(doc.image).repository && workload !== "none")
     bad("No image.repository. The chart's schema requires it for any workload that runs pods.", "image");
+
+  // The chart runs every string value through Helm's `tpl` once, so a `{{`
+  // that is not a template expression (an Alertmanager or Go template inside
+  // a ConfigMap) fails the render. `extraDeploy` is rendered on its own terms.
+  const walk = (node: unknown, path: string) => {
+    if (typeof node === "string") {
+      if (LITERAL_BRACES.test(node))
+        bad(`${path} contains a literal {{ — the chart renders every value with tpl. Escape it as {{ "{{" }}.`, featureForPath(path));
+    } else if (node && typeof node === "object") {
+      for (const [key, value] of Object.entries(node)) walk(value, path ? `${path}.${key}` : key);
+    }
+  };
+  for (const [key, value] of Object.entries(doc)) if (key !== "extraDeploy") walk(value, key);
 
   return out;
 }
+
+/**
+ * A `{{` that tpl would get wrong: `define`/`template`/`block` (a Go template
+ * carried as data), or a field that is not one of the release's own
+ * (`{{ .CommonLabels.alertname }}` renders empty). `{{ .Values.x }}`,
+ * `{{ if … }}`, `{{ $v }}` and the escape `{{ "{{" }}` are all fine.
+ */
+const LITERAL_BRACES =
+  /\{\{-?\s*(?:(?:define|template|block)\b|\.(?!(?:Values|Release|Chart|Capabilities|Template|Files)\b)[A-Za-z])/;

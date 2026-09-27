@@ -104,8 +104,11 @@ function npmUrlParts(sourceUrl: string): { registry: string; name: string; filen
   // lastIndexOf, so a registry whose own base path happens to contain a bare `-`
   // segment cannot shadow the real marker.
   const dash = segments.lastIndexOf("-");
-  // The marker is always second-to-last: `.../-/<file>.tgz`.
-  if (dash < 1 || dash !== segments.length - 2) return null;
+  // The marker is second-to-last (`.../-/<file>.tgz`), or third-to-last when the
+  // file carries its scope too — `npm publish` against Artifactory writes
+  // `@scope/name/-/@scope/name-1.0.0.tgz`.
+  const scopedFile = dash === segments.length - 3 && segments[dash + 1].startsWith("@");
+  if (dash < 1 || (dash !== segments.length - 2 && !scopedFile)) return null;
 
   // A scope can only ever be the first of the two name segments.
   const nameSegments = dash >= 2 && segments[dash - 2].startsWith("@") ? 2 : 1;

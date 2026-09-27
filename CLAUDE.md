@@ -97,7 +97,7 @@ Key variables (see `.env.example`):
 | `ARTIFACTORY_DOCKER_REPO`                                    | —               | Docker repo the Whitening module pushes retagged images to via `skopeo`                                                     |
 | `ARTIFACTORY_MAVEN_REPO` / `_RPM_REPO` / `_PYPI_REPO` / `_CONDA_REPO` / `_HELM_REPO` | —       | Per-type repos the Artifactory module routes detected artifacts to (`packageTypes.ts`); unset = that type is skipped with a log line. Helm is the one that is not routed by filename: a chart is a `.tgz` exactly like an npm package, so `readTarballIdentity` decides from the manifest inside (`<chart>/Chart.yaml` vs `package/package.json`). |
 | `NPM_SOURCE_TOKEN`                                            | —               | Credential for the *source* npm registry when a URL copy is submitted with **Include dependencies** ticked. That path derives the registry from the pasted tarball URL (`<registry>/<name>/-/<file>.tgz`), writes it plus this token into a throwaway `.npmrc`, and runs a real `npm install` — once per target platform, since optional deps are platform-gated. Unset is normal: a public registry needs nothing, and a source registry on the same host as `ARTIFACTORY_URL` reuses `ARTIFACTORY_TOKEN` automatically. |
-| `GIT_URL` / `GIT_TOKEN`                                      | —               | Bitbucket Server base URL + HTTP access token; required for the Whitening module to open pull requests. The AI module reuses the same token to authenticate `git clone` for registered `ai-*` project repos (unset = clone stays unauthenticated, so public repos still work). The **Jenkinsfile** builder reuses it too, for reading a Jenkinsfile out of a Bitbucket repo and committing one back. The token only ever reaches the `GIT_URL` host (`tokenFor`). |
+| `GIT_URL` / `GIT_TOKEN`                                      | —               | Bitbucket Server base URL + HTTP access token; required for the Whitening module to open pull requests. The AI module reuses the same token to authenticate `git clone` for registered `ai-*` project repos on the `GIT_URL` host — any other host clones anonymously (unset = clone stays unauthenticated, so public repos still work). The **Jenkinsfile** builder reuses it too, for reading a Jenkinsfile out of a Bitbucket repo and committing one back. The token only ever reaches the `GIT_URL` host (`tokenFor`). |
 | `GITHUB_TOKEN`                                               | —               | The Jenkinsfile builder's credential for repos on **github.com** (`jenkinsfileTokenFor`), where `GIT_TOKEN` cannot go. Sent to github.com only; it pushes the branch and opens the PR through `openPullRequest`. Either this or `GIT_URL`+`GIT_TOKEN` enables Connect/Pull/Commit. Any other host clones anonymously. |
 | `GIT_USERNAME`                                               | —               | Empty (default) puts the token alone in the clone URL; set it only if Bitbucket wants `username:token` basic auth           |
 | `JENKINS_IMAGES_PATH`                                        | —               | Artifactory storage path whose child folders name the agent images the Jenkinsfile builder's `image` field suggests (e.g. `docker-local/jenkins-agents`). One AQL search per hour per pod returns the names *and* each image's `SCREAMING_CASE` Docker labels (`JDK=17`), which are shown beside the name. Unset, or unreachable, = the field is plain free text exactly as before. |
@@ -433,11 +433,13 @@ half-resolved tree is a broken offline install that gives no sign it is broken.
   an `AbortError` while a timeout becomes a message. Three copies of that is
   three places to swallow a Stop.
 
-**The Upload tab takes files, not just a folder.** A drop is read as a list of
-roots: one folder keeps its contents at the archive root (which is what the
-Maven layout check reads), while several roots each keep their own name, or two
-dropped trees overwrite each other. `Choose files` is the same path through a
-picker, since a browser file picker cannot select a directory.
+**The Upload tab takes files, never a folder.** A dropped folder is refused
+with a line saying to zip or tar it first, and the drop zone says the same up
+front. Walking and zipping a `node_modules` in the tab is what took it out; an
+archive is one file, and the server unpacks it and routes what is inside
+exactly as the folder would have been (see *an archive may just be carrying a
+folder*). `Choose files` is the same path through a picker. The streaming
+zip/part upload below still carries the files that are dropped.
 
 **A `node_modules` holds more package folders than it has packages** — this
 repo's own is 884 folders for 799 packages, because npm nests a second copy of
@@ -484,10 +486,16 @@ work around it rather than pretend otherwise:
   not share a directory), or the token's account lacks *Modify Reporter* on the
   project — and both come back as a 400 that fails the **whole** create. So the
   reporter is dropped and the create retried once: filing as the service account
-  is a worse ticket, but a ticket. The rejection is remembered in the same
-  `unknownReporters` set "my tickets" already keeps, so one 400 settles it for
-  the process instead of costing every create a doubled round trip. That set is
-  also what falls "my tickets" back to `reporter = currentUser()`.
+  is a worse ticket, but a ticket. **Nothing about a refusal is remembered
+  between creates** — not the reporter, not a field the create screen refused.
+  Both used to be (`unknownReporters`, `offCreateScreen`), and one bad value or
+  one failed "my tickets" poll then filed every later ticket as the service
+  account on the default priority until the pod restarted. A refusal now costs
+  one extra round trip per create. `unknownReporters` survives only as the
+  listing's shortcut to `reporter = currentUser()`.
+  `JIRA_MAINTENANCE_ISSUE_TYPE` may be the type's numeric id (`3`), sent as
+  `{"id": …}` and unquoted in JQL — what a localised instance resolves when
+  the display name does not match.
 - **A new ticket is exactly what the admin queue queries for.** `listAdminTickets`
   filters on four things — `project`, `JIRA_TICKET_LABEL`,
   `JIRA_MAINTENANCE_ISSUE_TYPE` and `sprint = <the board's active sprint>` — and
@@ -758,6 +766,27 @@ no external system — the only server-side state is saved pipeline documents.
   on its own line becomes `'npm install'`, not `'"npm install",'`. `unwrap` in
   `groovy.ts` only strips a quote pair that wraps the whole line with none of
   that quote inside it, so `echo "hi"` and `"$A" = "$B"` survive untouched.
+- **`parallel` is a box in the list.** *Add parallel block* opens an empty
+  one with no palette (held in `StageList`'s `emptyBoxes` until a stage lands
+  in it — an empty box is never saved), its own *Add stage* adds inside it, and dragging a collapsed card onto a card in a box
+  joins it (anywhere else leaves it). Underneath it is still one flat list:
+  consecutive stages sharing `JenkinsfileStage.group` are one box, so
+  reordering is the same three drag handlers — a drop also says which box.
+  `parallelGroups` writes each box as one `parallel('<title>': { … }, …)`, even
+  with a single branch, since that is what is on screen; `parse.ts` reads such a
+  block back into one box (a branch with several steps, or `failFast`, is
+  imported with a warning). Records from when it was a per-card `parallel`
+  flag are migrated by `toDraft` (`migrateParallel`). `populateEnvVars` never
+  joins a box — it sets the env everything after it reads.
+- **Top-level Groovy** (`JenkinsfilePipeline.groovy`, `GroovyBlock.tsx`) is
+  written as typed between the parameters and the first stage: `def`
+  variables a shell command interpolates (`${tag}` — `quote` already keeps
+  such a string a GString) and functions a Closure command calls. Import lifts
+  every top-level `def`/`import`/`@Field` statement into it (`splitDefs`),
+  function bodies included, before the step calls are read. `usedParamNames`
+  scans it too.
+- **`sleep` is Jenkins' own step** (`builtin: true` in the catalog), the one
+  step with no `genStage` arguments.
 - **Drag and drop is native HTML5**, no library — three handlers over an array
   in `StageList.tsx`, and it is the only way to reorder. A card is draggable only
   while collapsed: a text input inside an expanded card cannot be selected with
@@ -825,9 +854,12 @@ out of ArgoCD rather than copied:
   `safeRef`, `safeDirPath`, `safeFilePath`, and `tokenFor`. `valuesRepo.ts`
   re-exports the first three and keeps `safeTreePath`, because the `.yaml` suffix
   is a rule about a values tree and not about git.
-- `src/server/github.ts` — moved up from `modules/argocd/`. It was never
-  ArgoCD-specific; off GitHub both modules push the branch and say the pull
-  request is a manual step, which is the same sentence.
+- `src/server/pullRequest.ts` — `openPullRequest` / `canOpenPullRequest`,
+  dispatching on the repo URL to `github.ts` (github.com) or `bitbucket.ts`
+  (Whitening's `BitbucketApi`, moved up; any `<base>/scm/<project>/<repo>.git`
+  URL, with the REST API taken from the same `<base>`). The token is the one
+  the push already used, so a PR never sends a credential to a new host. A
+  repo on neither gets its branch pushed and a note to open the PR by hand.
 
 **Two credentials, each tied to one host.** On Bitbucket the builder reuses
 `GIT_URL`/`GIT_TOKEN`, the same credential Whitening and AI already use for
@@ -872,11 +904,22 @@ a real no-op ("the repository already matches this pipeline") instead of a fresh
 commit with identical content. `pushValuesTree` now does the same, which is what
 its own test was asking for.
 
-Left out on purpose: **Bitbucket pull requests**. Whitening's `BitbucketApi` can
-open one and the dispatch would be a second `if`, but that is ArgoCD's semantics
-changed for one module — off GitHub the branch is pushed and the note says to
-open the PR by hand. Worth revisiting for both modules at once, not for this one
-alone.
+**Pasted SSH URLs are rewritten to HTTPS** (`gitUrl.ts`). Any host but
+github.com / gitlab.com / bitbucket.org is taken to be Bitbucket Server, whose
+HTTPS clone path carries `/scm/` where its SSH one does not — so it is put
+back, and the SSH port dropped. When the SSH host is `GIT_URL`'s, the URL is
+rebuilt on `GIT_URL` itself, so a Bitbucket served on `:7990` or under
+`/bitbucket` keeps both — and still matches the host `tokenFor` hands the token
+to. Every caller passes `GIT_URL` in (the routers from `config`, the fields from
+the list response), because `gitUrl.ts` must stay import-free for the browser.
+`repoWebUrl` keeps a context path too (`/bitbucket/projects/P/repos/r/browse`).
+
+**A branch the repo does not have falls back to its default.** Every builder
+pre-fills `main`, and most Bitbucket repos are on `master`. `cloneAt` (`git.ts`)
+retries a "Remote branch … not found" on the branch `git ls-remote --symref
+HEAD` names; Pull/Connect (both builders) and Convert's chart clone go through
+it, and the pull responses carry the branch actually read, which the client
+writes back into the revision field — so the next Commit targets it too.
 
 ## ArgoCD: the universal-chart GitOps builder
 
@@ -895,13 +938,30 @@ same wiring:
 base/<release>.yaml              # the microservice, the same in every namespace — like a chart's values.yaml
 <ns>/defaults.yaml               # set once for every microservice in <ns> — layered over base
 <ns>/values/<release>.yaml       # this microservice in <ns>, only what differs — applied last, so it wins
-root-applicationSet.yaml         # one Application per namespace directory
-root-application.yaml            # app-of-apps: the one object applied by hand
 ```
 
-The converter writes the two root files only with `--argocd-manifests` (flat
-`base/` + `<ns>/` is its default since the fork merge). This builder always
-writes them, and `importTree` reads a tree with or without them.
+**A namespace is a folder, and may be a variant.** `prd/yellow` and
+`prd/black` both deploy into `prd`, share `base/`, and each carry their own
+`defaults.yaml` + `values/` — the chart's ms-applicationSet takes that as its
+`folder`. `ArgocdNamespace.name` is the folder path, so a variant is just a
+namespace whose name has a `/`. `values/` may hold grouping sub-folders
+(`values/group1/ms1.yaml`); the release is still named after its file, and
+`ArgocdNamespace.groups` remembers each release's sub-folder so a rebuild
+writes it back in place rather than beside it (two files of one name in a
+folder are two Applications of one name). `importTree` finds folders by their
+`defaults.yaml` or `values/`, anywhere below the root.
+
+**The root Application/ApplicationSet are not generated.** They are set up once
+by whoever runs ArgoCD, not per tree. `importTree` still reads the repos out of
+one a repo already has, under either name (`rootApplicationSet.yaml`, the
+converter's current one, or `root-applicationSet.yaml`).
+
+**Every value goes through `tpl`** in the chart now, so base can say
+`host: api.{{ .Values.environment }}.example.org` against each folder's
+defaults. `findEnvSpecific` therefore skips a templated value, and
+`checkValues` flags a `{{` tpl would mangle (`{{ define`, or a field that is not
+the release's own like Alertmanager's `{{ .CommonLabels }}`) with the escape to
+use instead.
 
 `checkValues` carries the converter's per-release findings from that merge
 (nodePort on ClusterIP, emptyDir without sizeLimit, a PVC `volumeName` with no
@@ -913,10 +973,9 @@ left to the converter — one release's document cannot see its namespace.
 is no longer generated at all:
 
 ```
-kubectl apply -f root-application.yaml      once, by hand
-  root-applicationSet.yaml                  one App per namespace directory
-    ms-applicationSet chart                 one AppSet per namespace
-      one Application per <ns>/values/*.yaml
+root Application / ApplicationSet           set up once, outside this builder
+  ms-applicationSet chart                   one AppSet per namespace / variant folder
+    one Application per <folder>/values/**/*.yaml
 ```
 
 Adding a namespace is adding a directory; adding a release is adding a file.
@@ -1047,6 +1106,12 @@ defaults of its own.
   pass is gone), because a defaults file holding values nobody typed there is a
   file nobody can explain. A value every microservice sets alike stays in each
   one's own file; `findPromotions` still offers the base-ward move.
+  - **Setting a value in defaults sets it for every microservice there.** A
+    microservice's own *different* copy of a path that edit just changed is
+    dropped from its namespace file (`patchScope`, via `removeShadowed`), so a
+    tag typed once shows on every card; Ctrl+Z brings the copies back. The
+    converter writes only labels and group values into `defaults.yaml`, so a
+    converted tree starts with nothing to collide.
   - **Import reads `<ns>/defaults.yaml` whole** as that namespace's defaults —
     whoever wrote it, the portal or the converter — and folds nothing into the
     overrides, which were written against base + these defaults and read back
@@ -1072,11 +1137,11 @@ defaults of its own.
   shop-prod defaults* and linking to that scope. Never merged into one block:
   under a single label, a base value read as though the namespace set it. Base and a namespace's defaults inherit nothing. A
   feature only a lower layer sets still opens (an unticked box beside a value
-  that deploys is the invisible-value problem `enabled` already taught this
-  module about) and shows the fragment as YAML — one block covers all eight
-  field kinds, and a greyed-out input still reads as something you might be
-  able to type into. Ticking the feature and setting it here is what overrides
-  it.
+  module about). Each layer is drawn with the feature's own field controls
+  inside a `<fieldset disabled>` — greyed, not typeable, reading exactly as the
+  value would to edit — whose legend is the link to where it can be edited
+  (a disabled fieldset's first legend stays pressable). Ticking the feature and
+  setting it here is what overrides it.
 - **"Overridden" means a second copy of one value** — a key this namespace sets
   that base or the namespace's defaults *also* set, to something else
   (`shadowing` in `values.ts`). That drives the orange card, its `override`
@@ -1095,6 +1160,27 @@ defaults of its own.
     its own copy, and nothing deploys differently. That is the fix a real
     per-environment difference wants (perf's bigger requests, prod's bigger
     claim), and it is what cleared the example tree's 31 second copies.
+    Each *Move out* is offered only when that layer holds the other copy:
+    *Move out of defaults* (`applyDefaultsDemotion`) is the same move one
+    layer up — the value leaves `<ns>/defaults.yaml` and every other
+    microservice in that namespace still taking it gets its own copy.
+- **A list a lower layer has is continued, not restarted.** Env vars,
+  volumes, labels — any `rows`/`kv` field — show the inherited entries greyed,
+  then this layer's own entries and the one working Add button under them; no
+  blank placeholder entry, no second label. Entries merge by name, so what is
+  added here is added to base's. A feature whose fragment holds a YAML
+  sequence (`ingress.hosts`, `extraDeploy`) is excluded (`sequenceIn`): Helm
+  replaces a sequence whole, so "adding one" there would drop the greyed ones.
+- **Ctrl+Z undoes a ×.** A text box has its own undo; a button that removes a
+  value had none. Every × in a feature card is `data-undo`, and the view's
+  capture-phase click handler snapshots the tree before it runs; Remove
+  override, the Move out/Move to base offers and deleting a microservice or
+  namespace snapshot explicitly. Ctrl+Z pops it unless focus is in a text
+  field (that is the field's own undo) or the module is hidden. Only
+  `releases`/`namespaces` are restored — the first save mints the id, and
+  restoring that would fork the tree. The stack clears on open/new/connect/pull.
+- **The "Move to base" suggestions fold into one line** (`<details>`), open or
+  closed per viewer in `localStorage`.
 - **A problem is shown twice: in the list under the form, and on the card it
   names.** Pressing it in the list is what scrolls to the card — and arriving at
   a card with no sign of why is the other half of the same complaint. Same
@@ -1145,6 +1231,15 @@ defaults of its own.
   chart repo at runtime, so there is no clone step and no way for a network
   failure to leave the builder empty. Same call, same reasons, as
   `jenkinsfile/catalog.ts`.
+- **A values file reads by importance, one block per key.** Top-level keys
+  follow `FEATURES` registration order (`orderKeys`) — workload, image,
+  replicas, container, env, ports, resources, probes, storage, networking,
+  config, scaling, scheduling, and the names/stamps (`identity`) near the end —
+  with a blank line between them (`toYaml(doc, true)`, used by `buildTree` and
+  the diff's canonical form only; every other `toYaml` is a round-trip and stays
+  tight). The converter's `TOP_LEVEL_KEY_ORDER` is the same list: **reorder a
+  feature here and change it there**, or a converted tree and a built one lay
+  the same file out differently.
 - **Writing YAML is hand-rolled, reading it is not.** `yaml.ts` is ported from
   the chart's own emitter (stable key order, block scalars, `{}` for the empty
   ones); parsing goes through the `yaml` package, because a hand-rolled parser
@@ -1185,6 +1280,12 @@ defaults of its own.
   what it *overrides*. So a values file is written for all of them, empty ones
   included — `<ns>/values/` **is** the fan-out, so a release with no file there
   is a release that does not deploy.
+- **Pressing a file in the preview opens the scope that writes it** — Base and
+  that microservice for `base/<ms>.yaml`, the namespace's Defaults for
+  `<ns>/defaults.yaml`, the namespace and microservice for
+  `<ns>/values/[group/]<ms>.yaml` (`openFile` in `ArgocdView`; the longest
+  namespace name wins, since a variant folder is `prd/yellow`). A repo-only
+  file has no scope and just shows.
 - **The preview is the directory listing the values repo will hold**, folders
   and all, and the catalog's categories collapse to the ones a layer actually
   uses. Both exist for the same reason: a namespace override touches two
@@ -1194,6 +1295,68 @@ defaults of its own.
   via `TreeStore` — `PipelineStore` in miniature. **These are user documents, so
   `DELETE` really deletes.** Autosave, minted names and the ownership rules are
   the Jenkinsfile builder's, unchanged.
+
+## ArgoCD: converting plain YAML or a Helm chart
+
+**Convert** (New's third choice — there is no topbar button) turns Kubernetes
+manifests or a packaged chart into universal-chart values, then folds them into
+the open tree — which keeps its repository, so it commits like anything else,
+and a new one connects from the repository panel as usual.
+
+- **The converter is `convert_to_universal_chart.py` itself, not a port.**
+  `POST /api/argocd/convert` shallow-clones the tree's own chart repo at the
+  tree's own revision and runs `gitops-factory/convert_to_universal_chart.py`
+  from there (`--skip-verify`), so the converter is always the one shipped
+  beside that chart version and nothing is vendored. Its output is the layout
+  `importTree` already reads, so the browser takes it exactly like a pull.
+- **A Helm chart is rendered first**, with `helm template <name> <chart> -n
+  <ns> [-f values]` where `<name>` is the chart's own `Chart.yaml` name, and the
+  render then goes through the **same splitter as pasted YAML** — a chart that
+  renders several Deployments/StatefulSets is several microservices, not one.
+  There is no name field to fill in. The image carries `helm` (from
+  `alpine/helm`) and `python3-yaml` for this.
+- **YAML may be dirty** — pasted into the box or added as files, which append
+  to the same box. It is split into microservices by the chart repo's own
+  `gitops-factory/namespace_importer.py` (the `oc`-driven namespace puller),
+  run with its `run_oc` answered from the paste (`SPLIT_DUMP` in `convert.ts`)
+  — so grouping (`part-of` → `app` → workload name), `shared.yaml`, store
+  placement and metadata stripping are the importer's, not a port. A
+  reference the paste lacks is the importer's fetch failure, shown as a
+  warning.
+- **A namespace is a folder, as it is to the converter** (`<input>/<ns>/`).
+  `SPLIT_DUMP` groups documents by their own `metadata.namespace` and pulls
+  each namespace separately, so a paste spanning `shop-dev` and `shop-prod`
+  lands in two folders. The dialog's **Default namespace** only takes the
+  documents that name none — which is everything `helm template` renders. It is
+  prefilled from the first namespace in the paste, and the dialog lists every
+  one it found. A `metadata.namespace` that is not a DNS label fails the
+  convert rather than becoming a directory name.
+- `mergeConverted` (`document.ts`): a same-named microservice is replaced in
+  place (keeping its id); into a namespace the tree already has, the
+  converter's `<ns>/defaults.yaml` is folded into each converted entry so the
+  existing defaults are untouched.
+
+**What the converter leaves out of base, and why the portal agrees.**
+
+- **No `nameOverride` anywhere.** The ms-applicationSet chart sets
+  `helm.releaseName` to the values file's name, so the chart's `fullname` is
+  already `<microservice>`. Before that, the Application name (`<ms>-<ns
+  suffix>`) was the release name, and every converted base carried
+  `nameOverride: <ms>` only to undo it. `fullnameOverride` stays: it pins a
+  running workload whose raw name differs from its file, so its Service and
+  PVCs are not renamed. `importTree` therefore names each release after its
+  **base file** — the file is the release — never after either override.
+- **The image repository travels with its tag** into `<ns>/values/<ms>.yaml`,
+  not into base as well. So base alone has no `image.repository`, and
+  `checkValues(doc, inBase)` skips the "No image.repository" problem there;
+  a namespace, which is what deploys, still gets it. The base card shows the
+  repository a namespace deploys rather than "no image".
+
+**A namespace file keeps what was set in it.** `buildTree` subtracts only the
+chart's own defaults (`subtractChartDefaults` — what ticking a feature writes)
+from a namespace file, not every value base also has. Dropping every restated
+value made a repo's own `image.repository` show as "removed" in the diff of a
+file nobody had touched.
 
 ## ArgoCD: the preview is a diff against the connected branch
 
@@ -1494,7 +1657,8 @@ CI does bump → build → pack.
 The app runs in a single container fronted by oauth2-proxy (bundled into the
 same image — see `scripts/entrypoint.sh`; the image also carries `git`, `unzip`,
 `maven` + a headless JRE and `python3-pip`, the last two for the Artifactory
-module's dependency resolvers), deployed onto the `k3d-homelab`
+module's dependency resolvers, and `helm` + `python3-yaml` for the ArgoCD
+module's Convert), deployed onto the `k3d-homelab`
 cluster maintained in the sibling `../homelab` repo (see that repo's
 `CLAUDE.md` for cluster-wide setup). The `Dockerfile` is self-building from
 source — the builder stage runs `npm run build` itself, and `.dockerignore`

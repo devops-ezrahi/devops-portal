@@ -1,8 +1,7 @@
 import { ArrowUpRight, ChevronDown, ChevronRight, Plus, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
-import { BY_ID, CATEGORIES, FEATURES, defaultValues, primaryFields } from "../catalog";
+import { BY_ID, CATEGORIES, FEATURES, defaultValues, isRecord, primaryFields } from "../catalog";
 import { buildValues } from "../build";
-import { toYaml } from "../yaml";
 import { Help } from "../../../Help";
 import { FeatureField } from "./FeatureField";
 import type { FeatureSpec, FeatureState, FieldSpec } from "../catalog";
@@ -16,6 +15,8 @@ import type { Values } from "../values";
  */
 export type InheritedFrom = "base" | "nsDefaults";
 export type Inherited = { state: FeatureState; from: InheritedFrom; label: string };
+/** Which layers below hold the other copy of an overridden feature — each one is its own way out. */
+export type OverrideOf = { base: boolean; defaults: boolean };
 
 /** The features a release is not a release without — pinned above the categories. */
 const REQUIRED = FEATURES.filter((f) => f.req);
@@ -28,6 +29,14 @@ function addRow(features: Record<string, FeatureState>, id: string, row: Values)
   if (rows.some((r) => String(r.name ?? "").trim() === row.name)) return;
   features[id] = { on: true, v: { ...v, items: [...rows, row] } };
 }
+
+/**
+ * Whether a feature's fragment holds a YAML sequence at its own level or one
+ * below (`ingress.hosts`, `extraDeploy`) — the lists Helm replaces rather than
+ * merges. Deeper ones sit inside a name-keyed entry and merge with it.
+ */
+const sequenceIn = (doc: Values): boolean =>
+  Object.values(doc).some((v) => Array.isArray(v) || (isRecord(v) && Object.values(v).some(Array.isArray)));
 
 /** Whether a field holds anything worth showing on screen without being asked for. */
 function hasValue(value: unknown): boolean {
@@ -53,6 +62,9 @@ export function FeatureEditor({
   jump,
   onJumped,
   onMoveOutOfBase,
+  onMoveOutOfDefaults,
+  defaultsLabel = "this namespace's defaults",
+  onRemoveOverride,
   inherited,
   onOpenInherited,
   problems,
@@ -65,8 +77,8 @@ export function FeatureEditor({
   isBase: boolean;
   extraValues: string;
   extraError: string | null;
-  /** Features whose value differs from base — marked with the same dot the namespace tile carries. */
-  overriding?: Set<string>;
+  /** Features holding a second copy of a value below, and which layer holds the other one. */
+  overriding?: Map<string, OverrideOf>;
   /** A feature to open and scroll to, from a press on a microservice card's chip. */
   jump?: { feature: string; n: number };
   /**
@@ -76,6 +88,12 @@ export function FeatureEditor({
   onJumped?: () => void;
   /** Resolve an override by taking the value out of base instead — see `applyDemotion`. */
   onMoveOutOfBase?: (id: string) => void;
+  /** The same, when the other copy is the namespace's defaults — see `applyDefaultsDemotion`. */
+  onMoveOutOfDefaults?: (id: string) => void;
+  /** How the popover names the namespace's defaults (`shop-prod defaults`). */
+  defaultsLabel?: string;
+  /** Drop this layer's second copies from one feature — see `removeShadowed`. */
+  onRemoveOverride?: (id: string) => void;
   /**
    * What the layers under this one already say — the tree's defaults in base,
    * those plus the microservice's base in a namespace override. Shown greyed,
@@ -142,14 +160,12 @@ export function FeatureEditor({
   }
 
   /**
-   * Drop a feature out of this layer entirely, so the microservice falls back
-   * to whatever base says. Not `on: false` — that is "off here", which in an
-   * override file is a different statement from "not overridden here".
+   * Take this layer's second copies out of a feature, so those values fall back
+   * to base — and only those: the rest of what the namespace sets stays. Not
+   * `on: false`, which in an override file means "off here".
    */
   function removeOverride(id: string) {
-    const next = { ...features };
-    delete next[id];
-    onChange(next);
+    onRemoveOverride?.(id);
   }
 
   /** The rows one feature holds, whichever `rows` field it keeps them in. */
@@ -219,6 +235,20 @@ export function FeatureEditor({
     return overriding?.has(id) ? " overridden" : "";
   }
 
+  function light(spec: FeatureSpec) {
+    const of = overriding?.get(spec.id);
+    if (!of) return null;
+    return (
+      <OverrideLight
+        name={spec.name}
+        where={[of.base && "base", of.defaults && defaultsLabel].filter(Boolean).join(" and ")}
+        onRemove={() => removeOverride(spec.id)}
+        onMoveOut={of.base && onMoveOutOfBase ? () => onMoveOutOfBase(spec.id) : undefined}
+        onMoveOutOfDefaults={of.defaults && onMoveOutOfDefaults ? () => onMoveOutOfDefaults(spec.id) : undefined}
+      />
+    );
+  }
+
   function setField(id: string, key: string, value: unknown) {
     const state = features[id] ?? { on: true, v: defaultValues(id) };
     onChange({ ...features, [id]: { ...state, on: true, v: { ...state.v, [key]: value } } });
@@ -233,13 +263,7 @@ export function FeatureEditor({
             <div className="ag-feature-head">
               <span className="ag-feature-name">{spec.name}</span>
               <FeatureHelp spec={spec} />
-              {overriding?.has(spec.id) && (
-                <OverrideLight
-                  name={spec.name}
-                  onRemove={() => removeOverride(spec.id)}
-                  onMoveOut={onMoveOutOfBase && (() => onMoveOutOfBase(spec.id))}
-                />
-              )}
+              {light(spec)}
             </div>
             <FeatureBody
               spec={spec}
@@ -301,13 +325,7 @@ export function FeatureEditor({
                       <span className="ag-feature-name">{spec.name}</span>
                     </label>
                     <FeatureHelp spec={spec} />
-                    {overriding?.has(spec.id) && (
-                      <OverrideLight
-                  name={spec.name}
-                  onRemove={() => removeOverride(spec.id)}
-                  onMoveOut={onMoveOutOfBase && (() => onMoveOutOfBase(spec.id))}
-                />
-                    )}
+                    {light(spec)}
                   </div>
                   {(on || fromBelow) && (
                     <FeatureBody
@@ -364,16 +382,29 @@ export function FeatureEditor({
  * step with base forever, so the popover says to drop it if it is not earning
  * that, and does it in one press.
  */
-function OverrideLight({ name, onRemove, onMoveOut }: { name: string; onRemove: () => void; onMoveOut?: () => void }) {
+function OverrideLight({
+  name,
+  where,
+  onRemove,
+  onMoveOut,
+  onMoveOutOfDefaults,
+}: {
+  name: string;
+  /** The layer(s) holding the other copy — "base", "shop-prod defaults", or both. */
+  where: string;
+  onRemove: () => void;
+  onMoveOut?: () => void;
+  onMoveOutOfDefaults?: () => void;
+}) {
   return (
     <Help label={`the override on ${name}`} interactive trigger={<span className="ag-override-tag">override</span>}>
       <p>
-        <strong>{name}</strong> is set both here and in base (or this namespace's defaults), to different values — two
-        sources for one value, and this one wins.
+        <strong>{name}</strong> is set both here and in {where}, to different values — two sources for one value, and
+        this one wins.
       </p>
       <p>
-        Keep one. If every namespace needs its own, take it out of base; if this namespace does not really differ,
-        remove it here.
+        Keep one. If each one needs its own, take it out of {where}; if this one does not really differ, remove it
+        here.
       </p>
       {/* Click only. These used to fire on mousedown as well, and the popover
           opens on hover — so a press meant for something underneath, landing
@@ -386,6 +417,13 @@ function OverrideLight({ name, onRemove, onMoveOut }: { name: string; onRemove: 
       {onMoveOut && (
         <button type="button" className="ghost-button ag-override-remove" onClick={onMoveOut}>
           Move out of base
+        </button>
+      )}{" "}
+      {/* The same one layer up: every other microservice in this namespace
+          gets its own copy of the default, so nothing deploys differently. */}
+      {onMoveOutOfDefaults && (
+        <button type="button" className="ghost-button ag-override-remove" onClick={onMoveOutOfDefaults}>
+          Move out of defaults
         </button>
       )}
     </Help>
@@ -454,30 +492,33 @@ function FeatureBody({
   // Computed over what is actually on offer: with `nameOverride` gone in base,
   // the next field is what the feature opens on, not nothing.
   const primary = new Set(primaryFields({ ...spec, fields }).map((f) => f.key));
-  // A field still sitting on its own default is not "filled in" — it is the
-  // chart's answer, not anyone's decision, so it stays on the add list even
-  // though `defaultValues` put it in the state when the feature was switched on.
-  const isShown = (f: FieldSpec) => {
-    const value = state?.v?.[f.key];
-    if (primary.has(f.key) || added.has(f.key)) return true;
-    // An unticked box is only "filled in" when it contradicts a default that is
-    // `true` — an import writes every key it reads, so plain `false` on a field
-    // that defaults to off is the absence of a decision, not one.
-    if (value === false) return f.def === true;
-    return hasValue(value) && value !== f.def;
-  };
+
+  // A value set by hand, rather than one sitting on the chart's own answer.
+  const setByHand = (f: FieldSpec, value: unknown) => (value === false ? f.def === true : hasValue(value) && value !== f.def);
+  const isShown = (f: FieldSpec) => primary.has(f.key) || added.has(f.key) || setByHand(f, state?.v?.[f.key]);
   // `enabled` is never offered: ticking the feature is what switches it on, and
   // its emit writes `enabled: true` regardless. It still *shows* when it holds
   // `false` — an imported document saying so must not become an invisible value.
   const rest = fields.filter((f) => !isShown(f) && f.key !== "enabled");
 
-  // What the tree's defaults put in this file, as the values themselves rather
-  // than as a second set of controls: every field kind is covered by one block,
-  // and a disabled input still reads as something you might be able to type in.
+  // What a lower layer puts in this file, drawn with the same controls as this
+  // layer's own fields, disabled: the value reads exactly as it would to edit,
+  // and the legend is the way to where it can be.
   const below = (inherited ?? [])
     .filter((i) => i.state.on)
-    .map((i) => ({ ...i, yaml: toYaml(buildValues({ [spec.id]: i.state })) }))
-    .filter((i) => i.yaml.trim() && i.yaml.trim() !== "{}");
+    .map((i) => ({ ...i, fields: spec.fields.filter((f) => f.key !== "enabled" && setByHand(f, i.state.v?.[f.key])) }))
+    .filter((i) => i.fields.length);
+
+  // A list a lower layer already has is *continued* here, not restarted: its
+  // entries show greyed and the one Add button under them adds this layer's
+  // own. That only holds where the chart merges entries by name — a list that
+  // renders as a YAML sequence is replaced whole by a layer above, so adding
+  // one there would silently drop the greyed ones, and it keeps its own box.
+  const continued = new Set(
+    below
+      .filter((i) => !sequenceIn(buildValues({ [spec.id]: i.state })))
+      .flatMap((i) => i.fields.filter((f) => f.kind === "rows" || f.kind === "kv").map((f) => f.key))
+  );
 
   // The problems list sits under the whole form, so a warning about this
   // feature is read a screen away from the field it names. It is repeated here
@@ -497,18 +538,38 @@ function FeatureBody({
         </ul>
       )}
       {below.map((i) => (
-        <div className="ag-inherited" key={i.from}>
-          <button type="button" className="ag-inherited-link" onClick={() => onOpenInherited?.(i.from)}>
-            <ArrowUpRight size={12} aria-hidden="true" /> from {i.label}
-          </button>
-          <pre>{i.yaml}</pre>
-        </div>
+        // `disabled` on the fieldset greys every control inside it natively —
+        // except its first <legend>, so the link out stays pressable.
+        <fieldset className="ag-inherited" disabled key={i.from}>
+          <legend>
+            <button type="button" className="ag-inherited-link" onClick={() => onOpenInherited?.(i.from)}>
+              <ArrowUpRight size={12} aria-hidden="true" /> from {i.label}
+            </button>
+          </legend>
+          {i.fields.map((field) => (
+            <FeatureField
+              key={field.key}
+              spec={field}
+              value={i.state.v?.[field.key]}
+              from={i.label}
+              noAdd={continued.has(field.key)}
+              onChange={() => {}}
+              rowsFor={rowsFor}
+              mounted={mounted}
+              inEnv={inEnv}
+            />
+          ))}
+        </fieldset>
       ))}
-      {fields.filter(isShown).map((field) => (
+      {[
+        ...fields.filter((f) => continued.has(f.key)),
+        ...fields.filter((f) => !continued.has(f.key) && isShown(f)),
+      ].map((field) => (
         <FeatureField
           key={field.key}
           spec={field}
           value={state?.v?.[field.key]}
+          bare={continued.has(field.key)}
           onChange={(value) => onField(spec.id, field.key, value)}
           rowsFor={rowsFor}
           mounted={mounted}
@@ -521,7 +582,7 @@ function FeatureBody({
           // off `isShown` again — dropping it from `added` alone would leave
           // whatever was typed emitting from a field nobody can see.
           onRemove={
-            primary.has(field.key)
+            primary.has(field.key) || continued.has(field.key)
               ? undefined
               : () => {
                   setAdded((prev) => {

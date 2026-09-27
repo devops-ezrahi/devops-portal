@@ -177,33 +177,6 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-async function collectEntries(dirEntry: FileSystemDirectoryEntry, prefix = ""): Promise<FileEntry[]> {
-  const reader = dirEntry.createReader();
-  const allChildren: FileSystemEntry[] = [];
-  for (;;) {
-    const batch: FileSystemEntry[] = await new Promise((resolve) =>
-      reader.readEntries(resolve, () => resolve([]))
-    );
-    if (batch.length === 0) break;
-    allChildren.push(...batch);
-  }
-
-  const results = await Promise.all(
-    allChildren.map(async (child): Promise<FileEntry[]> => {
-      if (child.isFile) {
-        const fileEntry = child as FileSystemFileEntry;
-        const file = await new Promise<File>((resolve, reject) =>
-          fileEntry.file(resolve, reject)
-        );
-        return [{ file, path: prefix + child.name }];
-      }
-      return collectEntries(child as FileSystemDirectoryEntry, prefix + child.name + "/");
-    })
-  );
-
-  return results.flat();
-}
-
 export function FolderUploadForm({ onSubmitted, onError }: Props) {
   const [dragOver, setDragOver] = useState(false);
   const [scannedFolder, setScannedFolder] = useState<ScannedFolder | null>(null);
@@ -236,46 +209,28 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
       .filter((entry): entry is FileSystemEntry => !!entry);
     if (roots.length === 0) return log("artifactory/upload", "drop with no items");
 
-    const name = roots.length === 1 ? roots[0].name : `${roots.length} items`;
-    log("artifactory/upload", "scanning drop", { name, roots: roots.length });
+    // Folders are refused: walking and zipping one in the tab is what took it
+    // out on a real node_modules. An archive is one file, and the server
+    // unpacks it and routes what is inside exactly as the folder would be.
+    const folder = roots.find((entry) => entry.isDirectory);
+    if (folder) {
+      warn("artifactory/upload", "folder dropped", { name: folder.name });
+      onError(`"${folder.name}" is a folder — zip or tar it first (e.g. tar czf ${folder.name}.tar.gz ${folder.name}), then drop the archive.`);
+      return;
+    }
+    log("artifactory/upload", "scanning drop", { roots: roots.length });
     setScanning(true);
-    const startedAt = performance.now();
     try {
-      // Only the file handles are collected here. Nothing is read and nothing is
-      // compressed until the button is pressed, so the drop is over in about as
-      // long as it takes to walk the tree.
-      //
-      // A lone folder keeps its contents at the root of the archive, which is
-      // what the Maven layout check reads; several roots each keep their own
-      // name, or two dropped trees would overwrite each other's files.
-      const collected = await Promise.all(
-        roots.map(async (entry): Promise<FileEntry[]> => {
-          if (entry.isFile) {
-            const file = await new Promise<File>((resolve, reject) =>
-              (entry as FileSystemFileEntry).file(resolve, reject)
-            );
-            return [{ file, path: entry.name }];
-          }
-          const prefix = roots.length > 1 ? `${entry.name}/` : "";
-          return collectEntries(entry as FileSystemDirectoryEntry, prefix);
-        })
+      const files = await Promise.all(
+        roots.map((entry) => new Promise<File>((resolve, reject) => (entry as FileSystemFileEntry).file(resolve, reject)))
       );
-      const entries = collected.flat();
-      if (entries.length === 0) {
-        warn("artifactory/upload", "drop held no files", { name });
-        onError("Nothing to upload — that folder is empty.");
-        return;
-      }
-      const totalBytes = entries.reduce((sum, e) => sum + e.file.size, 0);
-      log("artifactory/upload", "scan done", {
-        name,
-        files: entries.length,
-        totalBytes,
-        ms: Number((performance.now() - startedAt).toFixed(0)),
+      setScannedFolder({
+        name: files.length === 1 ? files[0].name : `${files.length} files`,
+        entries: files.map((file) => ({ file, path: file.name })),
+        totalBytes: files.reduce((sum, f) => sum + f.size, 0),
       });
-      setScannedFolder({ name, entries, totalBytes });
     } catch (err) {
-      logError("artifactory/upload", "scan failed", name, err);
+      logError("artifactory/upload", "scan failed", "drop", err);
       onError("Failed to read what was dropped.");
     } finally {
       setScanning(false);
@@ -383,26 +338,26 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
         >
           <FolderOpen size={36} aria-hidden="true" />
           {scanning ? (
-            <span>Scanning folder...</span>
+            <span>Reading files...</span>
           ) : (
             <>
               <span>
-                Drop a folder or files here{" "}
+                Drop files here{" "}
                 <Help label="what can be dropped">
                   <p>
-                    A <code>node_modules</code>, a <code>~/.m2/repository</code> tree or a flat folder of jars.
-                  </p>
-                  <p>
-                    Or any number of loose <code>.tgz</code> / <code>.jar</code> / <code>.whl</code> /{" "}
+                    Any number of loose <code>.tgz</code> / <code>.jar</code> / <code>.whl</code> /{" "}
                     <code>.rpm</code> / <code>.conda</code> files.
                   </p>
                   <p>
-                    A <code>.zip</code> / <code>.tar</code> / <code>.tar.gz</code> of any
-                    of those works too — one that is not itself a package is unpacked on the server and
-                    whatever it holds is routed the same way.
+                    Or a <code>.zip</code> / <code>.tar</code> / <code>.tar.gz</code> of a <code>node_modules</code>, a{" "}
+                    <code>~/.m2/repository</code> tree or a folder of jars — it is unpacked on the server and whatever
+                    it holds is routed as if dropped loose.
                   </p>
                 </Help>
               </span>
+              <small className="drop-zone-warn">
+                Folders can't be uploaded — zip or tar your dependency folder first.
+              </small>
               <label className="ghost-button file-picker">
                 Choose files
                 <input type="file" multiple onChange={handlePicked} />
