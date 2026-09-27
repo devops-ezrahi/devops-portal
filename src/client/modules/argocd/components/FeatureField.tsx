@@ -145,7 +145,8 @@ function Control({
   switch (spec.kind) {
     case "boolean":
       return (
-        <input id={id} type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} />
+        // Unset shows the chart's own default, as a select does below.
+        <input id={id} type="checkbox" checked={!!(value ?? spec.def)} onChange={(e) => onChange(e.target.checked)} />
       );
     case "number":
       return (

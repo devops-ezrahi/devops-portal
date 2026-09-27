@@ -735,9 +735,7 @@ F({
         const mode = nz(r.defaultMode) ? Number(r.defaultMode) : undefined;
         if (k === "configMap") return { configMap: clean({ name: r.src, defaultMode: mode }) };
         if (k === "secret") return { secret: clean({ secretName: r.src, defaultMode: mode }) };
-        // An emptyDir with no sizeLimit is `{}`, and `clean` drops an empty
-        // object — written plainly it came out as a volume with no source at all.
-        if (k === "emptyDir") return { emptyDir: nz(r.sizeLimit) ? { sizeLimit: r.sizeLimit } : (raw("{}") as unknown as Values) };
+        if (k === "emptyDir") return { emptyDir: nz(r.sizeLimit) ? { sizeLimit: r.sizeLimit } : {} };
         if (k === "emptyDir (memory)") return { emptyDir: clean({ medium: "Memory", sizeLimit: r.sizeLimit }) };
         if (k === "persistentVolumeClaim") return { persistentVolumeClaim: { claimName: r.src } };
         if (k === "nfs") return { nfs: clean({ server: r.server, path: r.path }) };
@@ -820,7 +818,9 @@ F({
   emit: (v) =>
     some({
       pvc: mapOf(v.items, (r) => {
-        const o: Values = { accessModes: flow([r.accessMode || "ReadWriteOnce"]) };
+        // "" is an imported row that sets no accessModes — a namespace override
+        // of base's row, usually. A row added here and never touched is undefined.
+        const o: Values = r.accessMode === "" ? {} : { accessModes: flow([r.accessMode || "ReadWriteOnce"]) };
         put(o, "size", r.size);
         put(o, "storageClassName", r.storageClassName);
         put(o, "volumeMode", r.volumeMode);
@@ -831,7 +831,7 @@ F({
   load: (doc) => ({
     items: mapRows(doc.pvc, (b) => ({
       size: b.size,
-      accessMode: rowsOf(b.accessModes)[0],
+      accessMode: rowsOf(b.accessModes)[0] ?? "",
       storageClassName: b.storageClassName,
       volumeMode: b.volumeMode,
       volumeName: b.volumeName,
@@ -866,7 +866,9 @@ F({
   emit: (v) =>
     some({
       volumeClaimTemplates: mapOf(v.items, (r) => {
-        const o: Values = { accessModes: flow([r.accessMode || "ReadWriteOnce"]) };
+        // "" is an imported row that sets no accessModes — a namespace override
+        // of base's row, usually. A row added here and never touched is undefined.
+        const o: Values = r.accessMode === "" ? {} : { accessModes: flow([r.accessMode || "ReadWriteOnce"]) };
         put(o, "size", r.size);
         put(o, "storageClassName", r.storageClassName);
         return o;
@@ -876,7 +878,7 @@ F({
   load: (doc) => ({
     items: mapRows(doc.volumeClaimTemplates, (b) => ({
       size: b.size,
-      accessMode: rowsOf(b.accessModes)[0],
+      accessMode: rowsOf(b.accessModes)[0] ?? "",
       storageClassName: b.storageClassName,
     })),
   }),
@@ -1840,7 +1842,7 @@ F({
   id: "scheduling",
   cat: "sched",
   name: "Scheduling",
-  keys: ["nodeSelector", "tolerations", "topologySpreadConstraints", "priorityClassName", "runtimeClassName", "schedulerName"],
+  keys: ["nodeSelector", "tolerations", "topologySpreadConstraints", "priorityClassName", "runtimeClassName", "schedulerName", "hostNetwork"],
   blurb: "Which nodes these pods are allowed on, and how evenly they spread once they are.",
   fields: [
     KV("nodeSelector", "nodeSelector"),
@@ -1849,6 +1851,7 @@ F({
     S("priorityClassName", "priorityClassName", { path: "priorityClassName", placeholder: "high-priority" }),
     S("runtimeClassName", "runtimeClassName", { path: "runtimeClassName", placeholder: "gvisor" }),
     S("schedulerName", "schedulerName", { path: "schedulerName" }),
+    B("hostNetwork", "hostNetwork", { path: "hostNetwork" }),
   ],
   emit: (v) => {
     const o: Values = {};
@@ -1859,6 +1862,7 @@ F({
     put(o, "priorityClassName", v.priorityClassName);
     put(o, "runtimeClassName", v.runtimeClassName);
     put(o, "schedulerName", v.schedulerName);
+    if (v.hostNetwork) o.hostNetwork = true;
     return some(o);
   },
   load: (doc) => ({
@@ -2006,7 +2010,9 @@ F({
     TX("imagePullSecrets", "imagePullSecrets", { placeholder: "ghcr-pull" }),
   ],
   emit: (v) => {
-    const o: Values = { create: v.create !== false };
+    // Unset (an imported file that does not say) stays unset: the chart's own
+    // default is `create: true`, and restating it moves a value between layers.
+    const o: Values = typeof v.create === "boolean" ? { create: v.create } : {};
     put(o, "name", v.name);
     if (v.automountServiceAccountToken === false) o.automountServiceAccountToken = false;
     const a = kvOf(v.annotations);
@@ -2020,7 +2026,7 @@ F({
   load: (doc) => {
     const sa = isRecord(doc.serviceAccount) ? doc.serviceAccount : {};
     return {
-      create: sa.create !== false,
+      create: typeof sa.create === "boolean" ? sa.create : undefined,
       name: sa.name ?? "",
       automountServiceAccountToken: sa.automountServiceAccountToken !== false,
       annotations: pairsOf(sa.annotations),
@@ -2253,15 +2259,22 @@ F({
   id: "podmeta",
   cat: "core",
   name: "Pod metadata",
-  keys: ["podAnnotations", "podLabels", "labels"],
+  keys: ["podAnnotations", "podLabels", "labels", "annotations"],
   blurb: "Annotations and labels on the pod template — where a scrape hint, a mesh opt-out or a cost-allocation label goes — plus the workload object's own labels.",
   fields: [
     KV("podAnnotations", "podAnnotations"),
     KV("podLabels", "podLabels"),
     KV("labels", "labels", { hint: "On the Deployment / StatefulSet / DaemonSet object itself, not on its pods." }),
+    KV("annotations", "annotations", { hint: "On the Deployment / StatefulSet / DaemonSet object itself, not on its pods." }),
   ],
-  emit: (v) => some({ podAnnotations: kvOf(v.podAnnotations), podLabels: kvOf(v.podLabels), labels: kvOf(v.labels) }),
-  load: (doc) => ({ podAnnotations: pairsOf(doc.podAnnotations), podLabels: pairsOf(doc.podLabels), labels: pairsOf(doc.labels) }),
+  emit: (v) =>
+    some({ podAnnotations: kvOf(v.podAnnotations), podLabels: kvOf(v.podLabels), labels: kvOf(v.labels), annotations: kvOf(v.annotations) }),
+  load: (doc) => ({
+    podAnnotations: pairsOf(doc.podAnnotations),
+    podLabels: pairsOf(doc.podLabels),
+    labels: pairsOf(doc.labels),
+    annotations: pairsOf(doc.annotations),
+  }),
   notes: [
     "Changing a pod annotation rolls the pods, which is exactly how checksums forces a restart on a config change.",
   ],

@@ -73,7 +73,7 @@ export function emitNode(node: unknown, ind: number, out: string[]): string[] {
   if (Array.isArray(node)) {
     node.forEach((it) => {
       if (it && typeof it === "object" && !isRaw(it) && !isFlow(it) && !Array.isArray(it)) {
-        const c = clean(it as Record<string, unknown>);
+        const c = it as Record<string, unknown>;
         if (!Object.keys(c).length) {
           out.push(pad + "- {}");
           return;
@@ -92,7 +92,11 @@ export function emitNode(node: unknown, ind: number, out: string[]): string[] {
   }
   for (const k of Object.keys(node as Record<string, unknown>)) {
     const v = (node as Record<string, unknown>)[k];
-    if (v === undefined || v === null) continue;
+    if (v === undefined) continue;
+    if (v === null) {
+      out.push(pad + k + ": null");
+      continue;
+    }
     if (isRaw(v)) {
       out.push(pad + k + ":");
       String(v.__raw)
@@ -108,7 +112,7 @@ export function emitNode(node: unknown, ind: number, out: string[]): string[] {
       out.push(pad + k + ":");
       emitNode(v, ind + 2, out);
     } else if (typeof v === "object") {
-      const c = clean(v as Record<string, unknown>);
+      const c = v as Record<string, unknown>;
       if (!Object.keys(c).length) {
         out.push(pad + k + ": {}");
         continue;

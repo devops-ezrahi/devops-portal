@@ -1263,7 +1263,12 @@ defaults of its own.
   the chart's own emitter (stable key order, block scalars, `{}` for the empty
   ones); parsing goes through the `yaml` package, because a hand-rolled parser
   is the kind of 85%-correct thing that fails silently — on values that are
-  about to be deployed.
+  about to be deployed. **The writer writes what it is given**, `""`, `{}` and
+  `null` included, below the top level: those came out of a repo file (an empty
+  ConfigMap still deploys, `node-role…/worker: ""` still schedules). Dropping an
+  unset *form field* is each `emit`'s job (`put`/`some`/`nz`). It used to
+  `clean()` every nested map, and a repo read and written straight back showed
+  hundreds of edits nobody made.
 - **Import keeps what it cannot show.** `import.ts` reloads each feature through
   its `load` (or generically, from each field's `path`), then re-emits and
   subtracts: whatever the re-emit fails to reproduce under a key a *switched-on*
