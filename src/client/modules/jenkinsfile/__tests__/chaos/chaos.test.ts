@@ -21,6 +21,7 @@ describe("the chaos Jenkinsfile", () => {
   it("takes every library step it can reach, in file order", () => {
     expect(pipeline.library).toBe("jenkins-k8s-shared-library@release/2.x");
     expect(pipeline.stages.map((s) => s.step)).toEqual([
+      "groovy",
       "populateEnvVars",
       "semVerStage",
       "genStage",
@@ -67,7 +68,7 @@ describe("the chaos Jenkinsfile", () => {
   });
 
   it("keeps the Groovy each argument means", () => {
-    const build = pipeline.stages[2].args;
+    const build = pipeline.stages[3].args;
     expect(build.title).toBe("Build ${env.SERVICE} — ${params.TARGET_ENV == 'prod' ? \"PRD\" : 'non-prd'}");
     expect(build.commands).toEqual([
       "mvn -B -ntp clean package -DskipTests",
@@ -75,26 +76,31 @@ describe("the chaos Jenkinsfile", () => {
       "printf 'line1\\nline2\\n' > out.txt",
       `echo "it's done"`,
     ]);
-    expect(pipeline.stages[0].args.envVars).toContainEqual(["BRANCH_TYPE", "${isRelease ? 'release' : 'development'}"]);
-    expect(pipeline.stages[1].args.postCommands).toEqual(['echo "VERSION=$VERSION"', "echo branch type $BRANCH_TYPE"]);
-    expect(pipeline.stages[4].args.image).toBe("${DEFAULT_IMAGE}");
-    expect(pipeline.stages[16].args).toEqual({ time: 30 });
-    expect(pipeline.stages[19].args.skipStage).toBe("shouldSkip('tag')");
+    expect(pipeline.stages[1].args.envVars).toContainEqual(["BRANCH_TYPE", "${isRelease ? 'release' : 'development'}"]);
+    expect(pipeline.stages[2].args.postCommands).toEqual(['echo "VERSION=$VERSION"', "echo branch type $BRANCH_TYPE"]);
+    expect(pipeline.stages[5].args.image).toBe("${DEFAULT_IMAGE}");
+    expect(pipeline.stages[17].args).toEqual({ time: 30 });
+    expect(pipeline.stages[20].args.skipStage).toBe("shouldSkip('tag')");
     expect(pipeline.params[3].defaultValue).toBe("First line\nsecond line with a 'quote' ");
     expect(pipeline.params[5].choices).toEqual(["info", "debug", "warn"]);
-    expect(pipeline.groovy).toContain("final String DEFAULT_IMAGE = 'mvn353-jdk17'");
-    expect(pipeline.groovy).toContain("String timestamp() {");
+  });
+
+  it("keeps the file's own declarations as the first card, in their order", () => {
+    const head = String(pipeline.stages[0].args.code);
+    expect(head.startsWith("import groovy.transform.Field\nimport java.text.SimpleDateFormat\n@Field String REGISTRY")).toBe(true);
+    expect(head).toContain("final String DEFAULT_IMAGE = 'mvn353-jdk17'");
+    expect(head).toContain("String timestamp() {");
+    expect(pipeline.groovy).toBe("");
   });
 
   it("keeps what is not a step call as Groovy, where it was", () => {
-    expect(pipeline.stages[8].args.code).toBe("parallel buildMatrix(['billing-core', 'billing-api'])");
-    const wrapped = String(pipeline.stages[18].args.code);
+    expect(pipeline.stages[9].args.code).toBe("parallel buildMatrix(['billing-core', 'billing-api'])");
+    const wrapped = String(pipeline.stages[19].args.code);
     expect(wrapped.startsWith("if (params.TARGET_ENV == 'prod') {")).toBe(true);
     expect(wrapped).toContain("node('built-in') {");
     // Assigned after a stage, so it stays after it rather than moving to the top.
     expect(wrapped.endsWith("def version = env.VERSION")).toBe(true);
-    expect(pipeline.groovy).not.toContain("def version");
-    expect(pipeline.stages[20].args.code).toBe("errorStage('Guard', 'this should never run')\nskipStage('Skipped on purpose')\nnotify('SUCCESS')");
+    expect(pipeline.stages[21].args.code).toBe("errorStage('Guard', 'this should never run')\nskipStage('Skipped on purpose')\nnotify('SUCCESS')");
   });
 
   it("writes a file that reads back to itself, byte for byte, with nothing to report", () => {
@@ -208,17 +214,19 @@ describe("properties", () => {
 });
 
 describe("top-level declarations", () => {
-  it("lifts one declared by type, not only by def", () => {
+  it("keeps one declared by type as Groovy, not only one declared by def", () => {
     const { pipeline, warnings } = only("final String IMG = 'x'\nList<String> MODS = ['a']\nString stamp() {\n  'now'\n}\nsleep(time: 1)");
     expect(warnings).toEqual([]);
-    expect(pipeline.groovy).toBe("final String IMG = 'x'\nList<String> MODS = ['a']\nString stamp() {\n  'now'\n}");
+    expect(pipeline.stages.map((s) => s.args.code ?? s.step)).toEqual([
+      "final String IMG = 'x'\nList<String> MODS = ['a']\nString stamp() {\n  'now'\n}",
+      "sleep",
+    ]);
   });
 
-  it("keeps a variable assigned after a stage where it was — but lifts a function", () => {
+  it("keeps variables and functions where they were", () => {
     const { pipeline, warnings } = only("sleep(time: 1)\ndef f() { 1 }\ndef v = env.VERSION");
     expect(warnings).toEqual([]);
-    expect(pipeline.groovy).toBe("def f() { 1 }");
-    expect(pipeline.stages.map((s) => s.args.code ?? s.step)).toEqual(["sleep", "def v = env.VERSION"]);
+    expect(pipeline.stages.map((s) => s.args.code ?? s.step)).toEqual(["sleep", "def f() { 1 }\ndef v = env.VERSION"]);
   });
 
   it("says when an @Library it cannot read was left out", () => {

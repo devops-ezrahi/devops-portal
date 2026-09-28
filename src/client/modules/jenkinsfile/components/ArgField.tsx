@@ -5,7 +5,7 @@ import { KIND_LABEL, type ArgSpec, type ObjectField } from "../catalog";
 import { closureOf, pairsOf, type MapPairs } from "../pipeline";
 import type { PickableImage } from "../api";
 import { ImagePicker } from "./ImagePicker";
-import { GroovyEditor } from "./GroovyBlock";
+import { GroovyEditor } from "./GroovyEditor";
 
 type Props = {
   spec: ArgSpec;

@@ -649,8 +649,9 @@ no external system — the only server-side state is saved pipeline documents.
     statements (`statements`: a newline outside brackets, unless the line ends
     mid-expression or the next opens `} else {`, `.chain()`…). One that is not a
     step call — `if (…) { genStage(…) }`, `node {}`, `timeout {}`, a Jenkins
-    `stage('x') {}`, a helper's call, `errorStage`, `parallel buildMatrix(…)` —
-    **becomes a Groovy card where it stood**, a run of them one card, so the
+    `stage('x') {}`, a helper's call, `errorStage`, `parallel buildMatrix(…)`,
+    a `def` or a function — **becomes a Groovy card where it stood**, a run of
+    them one card, so the
     file keeps doing what it did. They all used to vanish, then to be named and
     dropped. Only a statement inside a *parallel branch* is still named and
     dropped, since a Groovy card is not a branch; and a file with no library
@@ -816,16 +817,17 @@ no external system — the only server-side state is saved pipeline documents.
   what the library's steps say. Its header shows its first line, and it opens
   on add, since there is nothing to it until something is typed. `groovy` is
   the builder's own name, so `parse.ts` never reads a `groovy(…)` call as one.
-- **Top-level Groovy** (`JenkinsfilePipeline.groovy`, `GroovyBlock.tsx`) is
-  written as typed between the parameters and the first stage: `def`
-  variables a shell command interpolates (`${tag}` — `quote` already keeps
-  such a string a GString) and functions a Closure command calls. Import lifts
-  every top-level `def`/`import`/`@Field` statement into it (`splitDefs`),
-  function bodies included, before the step calls are read — and a declaration
-  by type (`final String X = …`, `String stamp() {`) too — except a variable
-  assigned *after* a stage, which stays where it was as a Groovy card: lifted,
-  it would run before the stage it reads. A function or `@Field` is hoisted by
-  Groovy anyway, so it is lifted. `usedParamNames` scans it too.
+- **There is no Groovy block above the stages any more** — Groovy cards
+  replaced it. Variables a shell command interpolates (`${tag}` — `quote`
+  already keeps such a string a GString) and functions a Closure command calls
+  are a card like anything else, and the importer leaves a file's own
+  declarations where they stood (the old `splitDefs` lifted them all to the
+  top, which moved a `def v = env.VERSION` above the stage it read from).
+  **`import` lines are the one exception**: Groovy takes them only at the top
+  of the file, so `toGroovy` lifts them out of whatever card holds them to just
+  under `@Library`. A record saved with a `groovy` block is migrated by
+  `toDraft` into a leading card and saved back with `groovy: ""`, once — the
+  field stays in the schema only so old records still load.
 - **`sleep` is Jenkins' own step** (`builtin: true` in the catalog), the one
   step with no `genStage` arguments.
 - **Drag and drop is native HTML5**, no library — three handlers over an array
@@ -1694,6 +1696,13 @@ Never force-push to `main`.
 npm test          # vitest run (unit + integration)
 npm run build     # tsc --noEmit + vite build (type-check included)
 ```
+
+**CI skips `npm test` by default.** The workflow's `skip_tests` input
+defaults to `true`, and a push (which has no inputs) follows that default, so
+a push to `main`/`dev` releases on the type-check and build alone. To include
+the suite, run the workflow by hand with *skip_tests* unticked
+(`gh workflow run CI --ref dev -f skip_tests=false`). Run it locally before
+merging — that is now the only place it runs unless asked.
 
 ## Versioning & releases
 

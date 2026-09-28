@@ -565,63 +565,6 @@ function parallelFrom(body: string, warnings: string[]): JenkinsfileStage[] {
 }
 
 /**
- * What `splitDefs` lifts: `def`, `import` and `@Field` statements, and a
- * declaration by type — `final String X = …`, `String stamp() {`,
- * `List<String> MODS = […]`.
- */
-const DECL =
-  /^[ \t]*(?:(?:def|import|@Field)\b|(?:(?:final|static)\s+)*(?:void|[A-Z][\w.]*(?:<[^>\n]*>)?(?:\[\])?)\s+[A-Za-z_]\w*\s*[=(])/;
-
-/** A lifted statement that assigns a value when it runs, rather than declaring a function or a field. */
-const RUNS = /^\s*(?!import\b|@Field\b)[^(]*[^=!<>]=(?![=~])/;
-
-/**
- * Top-level `def` variables and functions (plus `import` and `@Field` lines),
- * lifted out whole — a function body included — into the pipeline's Groovy
- * block. What is left is the calls the rest of the reader looks for.
- *
- * The block is written before every stage, so a variable assigned *after* one
- * is not lifted: above `semVerStage()`, `def v = env.VERSION` would read
- * nothing. It stays in `rest`, where it becomes a Groovy card in place.
- */
-export function splitDefs(src: string): { defs: string; rest: string } {
-  const defs: string[] = [];
-  let rest = "";
-  let depth = 0;
-  let from = -1; // start of the statement being lifted, -1 when none
-  for (let i = 0; i < src.length; ) {
-    const c = src[i];
-    if (depth === 0 && from < 0 && (i === 0 || src[i - 1] === "\n") && DECL.test(src.slice(i, i + 200))) from = i;
-    if (c === "'" || c === '"') {
-      const end = stringEnd(src, i);
-      if (from < 0) rest += src.slice(i, end);
-      i = end;
-      continue;
-    }
-    if (c === "{" || c === "[" || c === "(") depth += 1;
-    if (c === "}" || c === "]" || c === ")") depth -= 1;
-    if (from >= 0 && depth === 0 && (c === "\n" || i === src.length - 1)) {
-      // `def f(x)` with its `{` on the next line still belongs to it.
-      const after = src.slice(i + 1).match(/^\s*\{/);
-      if (!after) {
-        const text = src.slice(from, i + 1).trimEnd();
-        // A variable assigned after a stage stays where it is — lifted, it
-        // would run before the stage it reads from — and becomes a Groovy card.
-        if (RUNS.test(text) && STEP_CALL.test(rest)) rest += src.slice(from, i + 1);
-        else defs.push(text);
-        from = -1;
-        i += 1;
-        continue;
-      }
-    }
-    if (from < 0) rest += c;
-    i += 1;
-  }
-  if (from >= 0) defs.push(src.slice(from).trimEnd());
-  return { defs: defs.join("\n"), rest };
-}
-
-/**
  * Reads a whole Jenkinsfile. Always returns a pipeline: an unrecognisable file
  * gives an empty one plus the reasons, which is what the import dialog shows.
  */
@@ -637,10 +580,7 @@ export function parseJenkinsfile(text: string): ImportResult {
   else if (/@Library\b/.test(src))
     warnings.push("@Library: only one quoted library name can be read, so the import line was left out.");
 
-  const { defs, rest } = splitDefs(src);
-  pipeline.groovy = defs;
-
-  for (const statement of statements(rest)) {
+  for (const statement of statements(src)) {
     // The annotation, its `_`, and a shebang are the file's framing, not steps.
     if (/^(@Library\b|#!|_$)/.test(statement)) continue;
     const call = callOf(statement);

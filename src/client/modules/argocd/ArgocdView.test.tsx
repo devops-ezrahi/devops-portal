@@ -299,6 +299,33 @@ describe("ArgocdView", () => {
     vi.useRealTimers();
   });
 
+  it("switches an inherited feature off in one namespace with its own tick", async () => {
+    const tree = saved({
+      releases: [{ id: "r1", name: "storefront", features: { service: { on: true, v: { type: "ClusterIP" } } } }],
+      namespaces: [{ name: "prod", releases: [{ release: "r1", features: {} }] }],
+    });
+    listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
+    view();
+    fireEvent.click(await screen.findByText("Dev User #1"));
+    fireEvent.click(card("Layers", /prod/));
+
+    const serviceCard = () => screen.getByText("Service", { selector: ".ag-feature-name" }).closest(".ag-feature")!;
+    const box = () => serviceCard().querySelector<HTMLInputElement>("input[type=checkbox]")!;
+    // Base turns it on, so the tick here says so rather than sitting empty.
+    expect(box().checked).toBe(true);
+    expect(serviceCard()).toHaveTextContent("on · inherited");
+
+    fireEvent.click(box());
+    expect(box().checked).toBe(false);
+    expect(serviceCard()).toHaveClass("off-here");
+    expect(serviceCard()).toHaveTextContent("off here");
+
+    // Ticking again hands it back to base instead of keeping a copy of `true`.
+    fireEvent.click(box());
+    expect(box().checked).toBe(true);
+    expect(serviceCard()).toHaveTextContent("on · inherited");
+  });
+
   it("takes you to the fields a chip is about, and marks what a namespace overrides", async () => {
     const tree = saved({
       releases: [
@@ -488,10 +515,11 @@ describe("ArgocdView", () => {
     fireEvent.click(await screen.findByText("Dev User #1"));
 
     const tick = () => within(feature("Service")).getAllByRole("checkbox")[0] as HTMLInputElement;
-    // The false itself stays on screen — an invisible one is worse than a wrong one.
-    expect(within(feature("Service")).getByLabelText("enabled")).not.toBeChecked();
+    // The false stays on screen as the tick itself — unticked, and tagged off.
+    expect(tick()).not.toBeChecked();
+    expect(feature("Service")).toHaveTextContent("off");
     fireEvent.click(tick());
-    fireEvent.click(tick());
+    expect(tick()).toBeChecked();
 
     // Back to the chart's own answer, so the field drops off the card entirely
     // — and the file says what the tick means.
@@ -776,11 +804,10 @@ describe("ArgocdView", () => {
     // Networking is already open: the greyed base values under this layer are
     // what decides which categories a namespace override lands on.
 
-    // Ticking a feature on writes the chart's own answers into the layer, and
-    // every one of them is already what base says — so the override file is
-    // empty and there is nothing to warn about.
+    // Base switches it on, so it is ticked here already — and nothing in this
+    // layer differs yet, so there is nothing to warn about.
     const route = () => feature("OpenShift Route");
-    fireEvent.click(route().querySelector("input[type=checkbox]")!);
+    expect(route().querySelector<HTMLInputElement>("input[type=checkbox]")!.checked).toBe(true);
     const light = () => within(route()).queryByRole("button", { name: /override on OpenShift Route/ });
     expect(light()).toBeNull();
 
