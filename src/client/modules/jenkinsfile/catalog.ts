@@ -501,8 +501,10 @@ export const STEPS: StepSpec[] = [
         label: "Groovy",
         required: true,
         hint:
-          "Written as typed, at this point in the file. Functions declared in the Groovy block above the stages can " +
-          "be called here, and library steps can be called inside an if or try.",
+          "Written as typed, at this point in the file — variables, functions, an if or try around a library step. " +
+          "A function can be called from anywhere in the file; a variable only after the card that sets it. " +
+          "`import` lines are moved to the top of the file, where Groovy needs them. A `def` variable is " +
+          "local to the script body, so a function cannot see it — mark it `@Field` for that.",
       },
     ],
   },

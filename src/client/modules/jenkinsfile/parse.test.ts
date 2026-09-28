@@ -167,7 +167,8 @@ describe("populateEnvVars", () => {
     const text = "def envs = [SERVICE: 'billing']\n\npopulateEnvVars(envs)";
     const { pipeline, warnings } = parseJenkinsfile(text);
     expect(warnings).toEqual([]);
-    expect(pipeline.stages[0].args.envVars).toBe("envs");
+    expect(pipeline.stages[0].args.code).toBe("def envs = [SERVICE: 'billing']");
+    expect(pipeline.stages[1].args.envVars).toBe("envs");
     expect(toGroovy(pipeline)).toContain("populateEnvVars(envs)");
   });
 });
@@ -229,28 +230,34 @@ describe("Groovy variables and functions", () => {
     "}",
   ].join("\n");
 
-  it("writes them before the stages and reads them back out of the file", () => {
+  it("writes a Groovy card where it sits, its imports at the top, and reads it back", () => {
     const pipeline = {
       ...newPipeline(),
-      groovy,
-      stages: [{ ...createStage("genStage"), args: { title: "Build", image: "node", commands: ["docker build -t ${registry}:${tag} ."] } }],
+      library: "lib",
+      params: [{ ...newParam(), name: "X" }],
+      stages: [
+        { ...createStage("groovy"), args: { code: groovy } },
+        { ...createStage("genStage"), args: { title: "Build", image: "node", commands: ["docker build -t ${registry}:${tag} ."] } },
+      ],
     };
     const text = toGroovy(pipeline);
-    expect(text.indexOf("def notify")).toBeLessThan(text.indexOf("genStage("));
+    // Groovy takes an import only above everything else, @Library aside.
+    const at = (s: string) => text.indexOf(s);
+    expect([at("@Library"), at("import groovy"), at("properties("), at("@Field"), at("def notify"), at("genStage(")]).toEqual(
+      [...[at("@Library"), at("import groovy"), at("properties("), at("@Field"), at("def notify"), at("genStage(")]].sort((a, b) => a - b)
+    );
     // `${` keeps the command a GString, so the variables interpolate.
     expect(text).toContain('"docker build -t ${registry}:${tag} ."');
 
     const { pipeline: back, warnings } = parseJenkinsfile(text);
     expect(warnings).toEqual([]);
-    expect(back.groovy).toBe(groovy);
-    expect(back.stages).toHaveLength(1);
+    expect(back.stages.map((s) => s.args.code ?? s.step)).toEqual([groovy, "genStage"]);
     expect(toGroovy(back)).toBe(text);
   });
 
   it("takes a function whose brace sits on the next line", () => {
     const { pipeline } = parseJenkinsfile("def f()\n{\n  echo 'x'\n}\nsleep(time: 1)\n");
-    expect(pipeline.groovy).toBe("def f()\n{\n  echo 'x'\n}");
-    expect(pipeline.stages.map((s) => s.step)).toEqual(["sleep"]);
+    expect(pipeline.stages.map((s) => s.args.code ?? s.step)).toEqual(["def f()\n{\n  echo 'x'\n}", "sleep"]);
   });
 });
 

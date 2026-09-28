@@ -192,13 +192,20 @@ describe("JenkinsfileView", () => {
     expect(screen.queryByRole("button", { name: /Import the shared library/ })).toBeNull();
   });
 
-  it("writes the Groovy block before the stages", () => {
+  it("moves a saved pipeline's old Groovy block into the first card, and saves it without one", async () => {
+    listPipelines.mockResolvedValueOnce({
+      pipelines: [{ ...saved, envVars: {}, groovy: "def tag = '1.0'" }],
+      sharedLibrary: "jenkins-k8s-shared-library",
+      gitEnabled: true,
+    });
     const { code } = renderView();
-    fireEvent.click(screen.getByRole("button", { name: /Pipeline options/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Add Groovy variables and functions/ }));
-    fireEvent.change(screen.getByLabelText("Groovy variables and functions"), { target: { value: "def tag = '1.0'" } });
-    addStage("Sleep");
-    expect(code().indexOf("def tag = '1.0'")).toBeLessThan(code().indexOf("sleep("));
+    await waitFor(() => expect(screen.getByText("Alex Morgan #1")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Alex Morgan #1"));
+
+    // Where the block was written — above every stage — and nowhere else.
+    expect(code().indexOf("def tag = '1.0'")).toBeLessThan(code().indexOf("semVerStage()"));
+    expect(screen.getByRole("button", { name: "Expand def tag = '1.0'" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Add Groovy variables and functions/ })).toBeNull();
   });
 
   it("says nothing about a stage until you leave it", () => {

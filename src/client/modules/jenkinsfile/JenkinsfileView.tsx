@@ -27,7 +27,6 @@ import {
   type DraftPipeline,
 } from "./pipeline";
 import { JenkinsfilePreview } from "./components/JenkinsfilePreview";
-import { GroovyBlock } from "./components/GroovyBlock";
 import { LibraryField } from "./components/LibraryField";
 import { ParamsEditor, paramScope } from "./components/ParamsEditor";
 import { PipelineList } from "./components/PipelineList";
@@ -188,7 +187,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
     [pipelines, showAll, isAdmin, user.id]
   );
   const code = useMemo(() => toGroovy(draft), [draft]);
-  const usedParams = useMemo(() => usedParamNames(draft.stages, draft.groovy), [draft.stages, draft.groovy]);
+  const usedParams = useMemo(() => usedParamNames(draft.stages), [draft.stages]);
   const errors = useMemo(() => {
     const all = validatePipeline(draft);
     return {
@@ -631,10 +630,6 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
                   onChange={(params) => patchDraft({ params })}
                 />
               </div>
-
-              <div className="jf-section">
-                <GroovyBlock value={draft.groovy ?? ""} onChange={(groovy) => patchDraft({ groovy })} />
-              </div>
               </>
             )}
 
@@ -711,6 +706,5 @@ function optionsSummary(draft: DraftPipeline): string {
   const parts: string[] = [];
   if (draft.library) parts.push(`@Library ${draft.library}`);
   if (draft.params.length) parts.push(`${draft.params.length} param${draft.params.length === 1 ? "" : "s"}`);
-  if (draft.groovy?.trim()) parts.push("Groovy block");
-  return parts.length ? parts.join(" · ") : "Shared library, parameters, Groovy — none set";
+  return parts.length ? parts.join(" · ") : "Shared library, parameters — none set";
 }

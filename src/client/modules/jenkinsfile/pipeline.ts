@@ -91,10 +91,16 @@ function migrateParallel(stages: JenkinsfileStage[]): JenkinsfileStage[] {
 export function toDraft(pipeline: JenkinsfilePipeline): DraftPipeline {
   const { envVars, ...rest } = pipeline;
   const legacy = Object.entries(envVars ?? {});
-  const stages = migrateParallel(pipeline.stages);
+  // A record written when Groovy had its own block above the stages carries
+  // it as `groovy`. It became the first card, which is exactly where the block
+  // was written; the save below writes `""` back, so this runs once.
+  const groovy = pipeline.groovy?.trim()
+    ? [{ ...createStage("groovy"), args: { code: pipeline.groovy.trim() }, collapsed: true }]
+    : [];
+  const stages = [...groovy, ...migrateParallel(pipeline.stages)];
   return {
     ...rest,
-    groovy: pipeline.groovy ?? "",
+    groovy: "",
     params: (pipeline.params ?? []).map(toParam),
     // A record written before populateEnvVars became a card carries its map at
     // the top level. Migrate it into the leading stage on open; the save below
@@ -119,7 +125,8 @@ export function toInput(draft: DraftPipeline) {
     // Always empty: the map moved into a stage, and PUT merges over the stored
     // record, so sending nothing would leave a migrated pipeline's old copy behind.
     envVars: {},
-    groovy: draft.groovy ?? "",
+    // Always empty, for the reason `envVars` is: the block moved into a card.
+    groovy: "",
     params: draft.params.filter((p) => p.name.trim()).map((p) => ({ ...p, name: p.name.trim() })),
     // Omitted rather than sent as undefined when nothing is connected: the
     // server reads an absent `repo` as "leave the connection alone", so a

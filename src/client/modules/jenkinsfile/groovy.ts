@@ -223,17 +223,26 @@ export function toGroovy(pipeline: DraftPipeline): string {
   const blocks: string[] = [];
   if (pipeline.library.trim()) blocks.push(`@Library('${pipeline.library.trim()}') _`);
 
+  // Groovy takes `import` only at the top of the file, so a card's imports are
+  // lifted to just under @Library; the rest of the card stays where it sits.
+  const isImport = (line: string) => /^import\s/.test(line);
+  const imports: string[] = [];
+  const stages = pipeline.stages.map((stage) => {
+    if (stage.step !== "groovy") return stage;
+    const lines = String(stage.args.code ?? "").split("\n");
+    imports.push(...lines.filter(isImport));
+    return { ...stage, args: { ...stage.args, code: lines.filter((l) => !isImport(l)).join("\n") } };
+  });
+  if (imports.length) blocks.push(imports.join("\n"));
+
   const params = pipeline.params.filter((p) => p.name.trim());
   if (params.length) {
     const declared = params.map((p) => `${INDENT}${INDENT}${paramToGroovy(p)}`);
     blocks.push(`properties([\n${INDENT}parameters([\n${declared.join(",\n")}\n${INDENT}])\n])`);
   }
 
-  // Variables and functions the stages use, as typed — declared before them.
-  if (pipeline.groovy?.trim()) blocks.push(pipeline.groovy.trim());
-
   // A box is a parallel block even with one branch in it: that is what is on screen.
-  for (const group of parallelGroups(pipeline.stages)) {
+  for (const group of parallelGroups(stages)) {
     const text = group[0].group && !UNBOXED_STEPS.includes(group[0].step) ? parallelToGroovy(group) : stageToGroovy(group[0]);
     if (text) blocks.push(text);
   }
