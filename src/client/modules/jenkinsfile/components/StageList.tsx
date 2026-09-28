@@ -1,7 +1,7 @@
 import { ChevronsDownUp, ChevronsUpDown, Columns2, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Help } from "../../../Help";
-import { SINGLETON_STEPS, STEPS } from "../catalog";
+import { SINGLETON_STEPS, STEPS, UNBOXED_STEPS } from "../catalog";
 import { moveStage, pairsOf, stageId } from "../pipeline";
 import { StageCard } from "./StageCard";
 import type { JenkinsfileStage } from "../../../../server/types";
@@ -25,12 +25,12 @@ type Drop = { index: number; group?: string };
 /** A run of the list as drawn: one card on its own, or a parallel box of them. */
 type Segment = { group?: string; items: { stage: JenkinsfileStage; index: number }[] };
 
-/** populateEnvVars never races — it sets the env everything after it reads. */
-const groupOf = (stage: JenkinsfileStage) => (stage.step === "populateEnvVars" ? undefined : stage.group);
+/** Some cards never race — see `UNBOXED_STEPS`. */
+const groupOf = (stage: JenkinsfileStage) => (UNBOXED_STEPS.includes(stage.step) ? undefined : stage.group);
 
 function withGroup(stage: JenkinsfileStage, group: string | undefined): JenkinsfileStage {
   const { group: _old, ...rest } = stage;
-  return group && stage.step !== "populateEnvVars" ? { ...rest, group } : rest;
+  return group && !UNBOXED_STEPS.includes(stage.step) ? { ...rest, group } : rest;
 }
 
 /**
@@ -134,7 +134,7 @@ export function StageList({ stages, errors, onToggle, onCollapseAll, onReorder, 
   /** The Add button and its palette. `key` is `""` for the list's own, or the box it adds into. */
   function adderFor(key: string, button: React.ReactNode) {
     const open = palette === key;
-    const steps = key ? available.filter((s) => s.step !== "populateEnvVars") : available;
+    const steps = key ? available.filter((s) => !UNBOXED_STEPS.includes(s.step)) : available;
     const target = key || undefined;
     return (
       <div className="jf-adder" ref={open ? adder : undefined}>

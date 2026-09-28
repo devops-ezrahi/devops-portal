@@ -42,6 +42,13 @@ export type RowCol = {
   lang?: (row: Values) => string;
 };
 
+/** A file read in the browser: its UTF-8 text and the same bytes as base64. */
+export type PickedFile = { name: string; text: string; base64: string };
+
+/** `nginx.conf` -> `nginx-conf`: a name a Kubernetes object may carry. */
+const objectName = (file: string) =>
+  file.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 63) || "files";
+
 export type FieldSpec = {
   key: string;
   kind: FieldKind;
@@ -58,6 +65,12 @@ export type FieldSpec = {
   cols?: RowCol[];
   /** The label on a `rows` field's add button, e.g. "Add variable". */
   addLabel?: string;
+  /**
+   * A `rows` field that takes files: dropped on an entry (or picked beside the
+   * add button, onto `{}`), they become that entry — the one row, plus any more
+   * it takes to hold them.
+   */
+  fromFiles?: (row: Values, files: PickedFile[]) => Values[];
   def?: unknown;
   /**
    * Shown whenever the feature is open. Everything else is on the "add" list
@@ -257,8 +270,20 @@ const TX = (key: string, label: string, o: Extra = {}): FieldSpec => ({ key, kin
 const YA = (key: string, label: string, o: Extra = {}): FieldSpec => ({ key, kind: "yaml", label, ...o });
 const RW = (key: string, label: string, cols: RowCol[], o: Extra = {}): FieldSpec => ({ key, kind: "rows", label, cols, ...o });
 
+/**
+ * Every feature's last, optional field: what its own fields cannot say, as YAML
+ * merged over what they emit (`buildValues`). An import puts a feature's
+ * leftovers here — a live Route's `serviceName`, a probe's `scheme: HTTP` — so
+ * they show on the card they belong to instead of in the release's extra values.
+ */
+export const MORE_KEY = "__more";
+const MORE = YA(MORE_KEY, "Other settings", {
+  hint: "Keys this form has no field for — written as-is, merged over the fields above.",
+});
+
 export const FEATURES: FeatureSpec[] = [];
-const F = (spec: FeatureSpec): FeatureSpec => {
+const F = (own: FeatureSpec): FeatureSpec => {
+  const spec = { ...own, fields: [...own.fields, MORE] };
   FEATURES.push(spec);
   return spec;
 };
@@ -723,9 +748,7 @@ F({
         const mode = nz(r.defaultMode) ? Number(r.defaultMode) : undefined;
         if (k === "configMap") return { configMap: clean({ name: r.src, defaultMode: mode }) };
         if (k === "secret") return { secret: clean({ secretName: r.src, defaultMode: mode }) };
-        // An emptyDir with no sizeLimit is `{}`, and `clean` drops an empty
-        // object — written plainly it came out as a volume with no source at all.
-        if (k === "emptyDir") return { emptyDir: nz(r.sizeLimit) ? { sizeLimit: r.sizeLimit } : (raw("{}") as unknown as Values) };
+        if (k === "emptyDir") return { emptyDir: nz(r.sizeLimit) ? { sizeLimit: r.sizeLimit } : {} };
         if (k === "emptyDir (memory)") return { emptyDir: clean({ medium: "Memory", sizeLimit: r.sizeLimit }) };
         if (k === "persistentVolumeClaim") return { persistentVolumeClaim: { claimName: r.src } };
         if (k === "nfs") return { nfs: clean({ server: r.server, path: r.path }) };
@@ -808,7 +831,9 @@ F({
   emit: (v) =>
     some({
       pvc: mapOf(v.items, (r) => {
-        const o: Values = { accessModes: flow([r.accessMode || "ReadWriteOnce"]) };
+        // "" is an imported row that sets no accessModes — a namespace override
+        // of base's row, usually. A row added here and never touched is undefined.
+        const o: Values = r.accessMode === "" ? {} : { accessModes: flow([r.accessMode || "ReadWriteOnce"]) };
         put(o, "size", r.size);
         put(o, "storageClassName", r.storageClassName);
         put(o, "volumeMode", r.volumeMode);
@@ -819,7 +844,7 @@ F({
   load: (doc) => ({
     items: mapRows(doc.pvc, (b) => ({
       size: b.size,
-      accessMode: rowsOf(b.accessModes)[0],
+      accessMode: rowsOf(b.accessModes)[0] ?? "",
       storageClassName: b.storageClassName,
       volumeMode: b.volumeMode,
       volumeName: b.volumeName,
@@ -854,7 +879,9 @@ F({
   emit: (v) =>
     some({
       volumeClaimTemplates: mapOf(v.items, (r) => {
-        const o: Values = { accessModes: flow([r.accessMode || "ReadWriteOnce"]) };
+        // "" is an imported row that sets no accessModes — a namespace override
+        // of base's row, usually. A row added here and never touched is undefined.
+        const o: Values = r.accessMode === "" ? {} : { accessModes: flow([r.accessMode || "ReadWriteOnce"]) };
         put(o, "size", r.size);
         put(o, "storageClassName", r.storageClassName);
         return o;
@@ -864,7 +891,7 @@ F({
   load: (doc) => ({
     items: mapRows(doc.volumeClaimTemplates, (b) => ({
       size: b.size,
-      accessMode: rowsOf(b.accessModes)[0],
+      accessMode: rowsOf(b.accessModes)[0] ?? "",
       storageClassName: b.storageClassName,
     })),
   }),
@@ -1325,7 +1352,18 @@ F({
         { key: "fileName", label: "File key", placeholder: "nginx.conf" },
         { key: "fileBody", label: "File contents", kind: "text", placeholder: "server {\n  listen 80;\n}", lang: (r) => String(r.fileName ?? "") },
       ],
-      { addLabel: "Add ConfigMap", hint: "Another file in the same ConfigMap is another row with the same name." }
+      {
+        addLabel: "Add ConfigMap",
+        hint: "Another file in the same ConfigMap is another row with the same name. Drop files on a ConfigMap to add them to it.",
+        // One file per row, as the form already holds them; the first fills the
+        // row it was dropped on if that row has no file yet.
+        // ponytail: read as UTF-8 text — a binary file wants binaryData, which the form does not model.
+        fromFiles: (row, files) => {
+          const name = nz(row.name) ? row.name : objectName(files[0].name);
+          const rows = files.map((f) => ({ name, fileName: f.name, fileBody: f.text }));
+          return nz(row.fileName) || nz(row.fileBody) ? [row, ...rows] : [{ ...row, ...rows[0] }, ...rows.slice(1)];
+        },
+      }
     ),
   ],
   // A ConfigMap often carries several files (a log4j2.xml *and* a .properties).
@@ -1380,7 +1418,17 @@ F({
         { key: "stringData", label: "stringData", kind: "text", placeholder: "APP_ENV=prod" },
         { key: "data", label: "data", kind: "text", placeholder: "APP_ENV=cHJvZA==" },
       ],
-      { addLabel: "Add Secret" }
+      {
+        addLabel: "Add Secret",
+        hint: "Drop files on a Secret to add each one as a `data` key, base64-encoded — binary files included.",
+        fromFiles: (row, files) => [
+          {
+            ...row,
+            name: nz(row.name) ? row.name : objectName(files[0].name),
+            data: [String(row.data ?? "").trim(), ...files.map((f) => `${f.name}=${f.base64}`)].filter(Boolean).join("\n"),
+          },
+        ],
+      }
     ),
   ],
   emit: (v) =>
@@ -1561,6 +1609,7 @@ const jobRow = (b: Values): Values => {
     containerName: b.containerName,
     serviceAccountName: b.serviceAccountName,
     command: rowsOf(b.command).join("\n"),
+    args: rowsOf(b.args).join("\n"),
     env: envText(b.env),
     imageRepo: im.repository,
     imageTag: im.tag,
@@ -1609,6 +1658,7 @@ F({
         { key: "containerName", label: "jobTemplate.containerName" },
         { key: "serviceAccountName", label: "jobTemplate.serviceAccountName", placeholder: "backup-sa" },
         { key: "command", label: "jobTemplate.command", kind: "text", placeholder: "/app/backup" },
+        { key: "args", label: "jobTemplate.args", kind: "text", placeholder: "--full\n--verbose" },
         { key: "env", label: "jobTemplate.env", kind: "text", placeholder: "DATABASE_URL@secret:db-secret/DATABASE_URL" },
         { key: "imageRepo", label: "jobTemplate.image.repository" },
         { key: "imageTag", label: "jobTemplate.image.tag" },
@@ -1635,6 +1685,7 @@ F({
         put(jt, "containerName", r.containerName);
         put(jt, "serviceAccountName", r.serviceAccountName);
         if (listOf(r.command).length) jt.command = listOf(r.command);
+        if (listOf(r.args).length) jt.args = listOf(r.args);
         const en = jobEnv(r.env);
         if (en) jt.env = en;
         const im = clean({ repository: r.imageRepo, tag: r.imageTag, pullPolicy: r.imagePull });
@@ -1680,6 +1731,7 @@ F({
         { key: "containerName", label: "containerName", placeholder: "migrate" },
         { key: "serviceAccountName", label: "serviceAccountName" },
         { key: "command", label: "command", kind: "text", placeholder: "python\nmanage.py\nmigrate" },
+        { key: "args", label: "args", kind: "text", placeholder: "--noinput" },
         { key: "env", label: "env", kind: "text", placeholder: "DATABASE_URL@secret:db-secret/DATABASE_URL" },
         { key: "imageRepo", label: "image.repository" },
         { key: "imageTag", label: "image.tag" },
@@ -1700,6 +1752,7 @@ F({
         put(o, "containerName", r.containerName);
         put(o, "serviceAccountName", r.serviceAccountName);
         if (listOf(r.command).length) o.command = listOf(r.command);
+        if (listOf(r.args).length) o.args = listOf(r.args);
         const en = jobEnv(r.env);
         if (en) o.env = en;
         const im = clean({ repository: r.imageRepo, tag: r.imageTag });
@@ -1823,7 +1876,7 @@ F({
   id: "scheduling",
   cat: "sched",
   name: "Scheduling",
-  keys: ["nodeSelector", "tolerations", "topologySpreadConstraints", "priorityClassName", "runtimeClassName", "schedulerName"],
+  keys: ["nodeSelector", "tolerations", "topologySpreadConstraints", "priorityClassName", "runtimeClassName", "schedulerName", "hostNetwork"],
   blurb: "Which nodes these pods are allowed on, and how evenly they spread once they are.",
   fields: [
     KV("nodeSelector", "nodeSelector"),
@@ -1832,6 +1885,7 @@ F({
     S("priorityClassName", "priorityClassName", { path: "priorityClassName", placeholder: "high-priority" }),
     S("runtimeClassName", "runtimeClassName", { path: "runtimeClassName", placeholder: "gvisor" }),
     S("schedulerName", "schedulerName", { path: "schedulerName" }),
+    B("hostNetwork", "hostNetwork", { path: "hostNetwork" }),
   ],
   emit: (v) => {
     const o: Values = {};
@@ -1842,6 +1896,7 @@ F({
     put(o, "priorityClassName", v.priorityClassName);
     put(o, "runtimeClassName", v.runtimeClassName);
     put(o, "schedulerName", v.schedulerName);
+    if (v.hostNetwork) o.hostNetwork = true;
     return some(o);
   },
   load: (doc) => ({
@@ -1867,6 +1922,7 @@ F({
     }),
   ],
   emit: (v) => (nz(v.body) ? { affinity: raw(v.body) } : null),
+  load: (doc) => ({ body: yamlText(doc.affinity) }),
   notes: [
     "Hard anti-affinity with more replicas than nodes leaves the extras Pending forever. Soft is the right default for most StatefulSets.",
     "Match on app.kubernetes.io/name — that is exactly what this chart sets as the selector label, and its value is your nameOverride.",
@@ -1890,6 +1946,8 @@ F({
     S("drop", "container: capabilities.drop", { placeholder: "ALL" }),
     S("add", "container: capabilities.add", { placeholder: "NET_BIND_SERVICE" }),
     B("cRunAsNonRoot", "container: runAsNonRoot", { path: "securityContext.runAsNonRoot" }),
+    N("cRunAsUser", "container: runAsUser", { path: "securityContext.runAsUser", placeholder: "1000" }),
+    B("privileged", "container: privileged", { path: "securityContext.privileged" }),
   ],
   emit: (v) => {
     const p: Values = {};
@@ -1904,6 +1962,8 @@ F({
     if (typeof v.allowPrivilegeEscalation === "boolean") c.allowPrivilegeEscalation = v.allowPrivilegeEscalation;
     if (v.readOnlyRootFilesystem) c.readOnlyRootFilesystem = true;
     if (v.cRunAsNonRoot) c.runAsNonRoot = true;
+    putn(c, "runAsUser", v.cRunAsUser);
+    if (v.privileged) c.privileged = true;
     const caps: Values = {};
     const split = (s: unknown) =>
       String(s ?? "")
@@ -1984,7 +2044,9 @@ F({
     TX("imagePullSecrets", "imagePullSecrets", { placeholder: "ghcr-pull" }),
   ],
   emit: (v) => {
-    const o: Values = { create: v.create !== false };
+    // Unset (an imported file that does not say) stays unset: the chart's own
+    // default is `create: true`, and restating it moves a value between layers.
+    const o: Values = typeof v.create === "boolean" ? { create: v.create } : {};
     put(o, "name", v.name);
     if (v.automountServiceAccountToken === false) o.automountServiceAccountToken = false;
     const a = kvOf(v.annotations);
@@ -1998,7 +2060,7 @@ F({
   load: (doc) => {
     const sa = isRecord(doc.serviceAccount) ? doc.serviceAccount : {};
     return {
-      create: sa.create !== false,
+      create: typeof sa.create === "boolean" ? sa.create : undefined,
       name: sa.name ?? "",
       automountServiceAccountToken: sa.automountServiceAccountToken !== false,
       annotations: pairsOf(sa.annotations),
@@ -2231,15 +2293,22 @@ F({
   id: "podmeta",
   cat: "core",
   name: "Pod metadata",
-  keys: ["podAnnotations", "podLabels", "labels"],
+  keys: ["podAnnotations", "podLabels", "labels", "annotations"],
   blurb: "Annotations and labels on the pod template — where a scrape hint, a mesh opt-out or a cost-allocation label goes — plus the workload object's own labels.",
   fields: [
     KV("podAnnotations", "podAnnotations"),
     KV("podLabels", "podLabels"),
     KV("labels", "labels", { hint: "On the Deployment / StatefulSet / DaemonSet object itself, not on its pods." }),
+    KV("annotations", "annotations", { hint: "On the Deployment / StatefulSet / DaemonSet object itself, not on its pods." }),
   ],
-  emit: (v) => some({ podAnnotations: kvOf(v.podAnnotations), podLabels: kvOf(v.podLabels), labels: kvOf(v.labels) }),
-  load: (doc) => ({ podAnnotations: pairsOf(doc.podAnnotations), podLabels: pairsOf(doc.podLabels), labels: pairsOf(doc.labels) }),
+  emit: (v) =>
+    some({ podAnnotations: kvOf(v.podAnnotations), podLabels: kvOf(v.podLabels), labels: kvOf(v.labels), annotations: kvOf(v.annotations) }),
+  load: (doc) => ({
+    podAnnotations: pairsOf(doc.podAnnotations),
+    podLabels: pairsOf(doc.podLabels),
+    labels: pairsOf(doc.labels),
+    annotations: pairsOf(doc.annotations),
+  }),
   notes: [
     "Changing a pod annotation rolls the pods, which is exactly how checksums forces a restart on a config change.",
   ],

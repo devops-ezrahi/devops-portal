@@ -204,6 +204,8 @@ export function isEmptyArg(kind: ArgKind, value: unknown): boolean {
       return typeof value !== "boolean";
     case "integer":
       return value === "" || value === null || value === undefined || Number.isNaN(Number(value));
+    case "code":
+      return String(value ?? "").trim() === "";
     case "expression":
       // Records written before the skip condition became an expression hold a
       // real boolean here; `false` is still "not set" for those.
@@ -215,6 +217,8 @@ export function isEmptyArg(kind: ArgKind, value: unknown): boolean {
     case "stringList":
       return linesOf(value).length === 0;
     case "stringMap":
+      // A string is a Groovy expression standing in for the map (`envs`).
+      if (typeof value === "string") return !value.trim();
       return pairsOf(value).every(([k, v]) => !k.trim() || !String(v ?? "").trim());
     case "objectList":
       return (
@@ -311,6 +315,22 @@ export function validatePipeline(pipeline: DraftPipeline): PipelineErrors {
       });
     }
 
+    // podLauncher errors on a workspace outside DYNAMIC_PVC_MIN_SIZE..MAX_SIZE,
+    // and resourcesValidator on a key it does not list. The resources editor
+    // only draws the four allowed keys, so an imported fifth would otherwise be
+    // invisible and still emitted.
+    const storage = find("requestStorage");
+    if (isSet(storage, stage.args) && !(Number(stage.args.requestStorage) >= 1 && Number(stage.args.requestStorage) <= 100)) {
+      found.push("requestStorage must be between 1 and 100.");
+    }
+    const allowed = find("resources")?.allowedKeys;
+    if (allowed && typeof stage.args.resources !== "string") {
+      for (const [key] of pairsOf(stage.args.resources)) {
+        if (key.trim() && !allowed.includes(key.trim()))
+          found.push(`resources has ${key.trim()}, which the library rejects — it takes ${allowed.join(", ")}.`);
+      }
+    }
+
     if (found.length) errors.stages[stage.id] = found;
   }
 
@@ -325,5 +345,10 @@ export function hasErrors(errors: PipelineErrors): boolean {
 export function stageLabel(stage: JenkinsfileStage): string {
   const title = String(stage.args.title ?? "").trim();
   if (title) return title;
+  // A Groovy card has no title: its first line is what tells two of them apart.
+  if (stage.step === "groovy") {
+    const first = String(stage.args.code ?? "").split("\n").map((l) => l.trim()).find(Boolean) ?? "";
+    if (first) return first.length > 60 ? `${first.slice(0, 59)}…` : first;
+  }
   return stepSpec(stage.step)?.defaults?.title ?? stepSpec(stage.step)?.label ?? stage.step;
 }

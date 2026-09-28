@@ -4006,6 +4006,8 @@ code {
   margin: 0;
   padding-left: 22px;
   color: #b9c8cd;
+  max-height: 40vh;
+  overflow: auto;
 }
 
 .jf-broken-icon {
@@ -4626,6 +4628,28 @@ input.jf-title {
      first stayed tall — the same cards, two different sizes. `1fr` makes every
      row the height of the tallest card in the grid. */
   grid-auto-rows: 1fr;
+}
+
+/* A values sub-folder (`values/b2b/`): its microservices boxed under its name.
+   Beside the main grid rather than inside it — `grid-auto-rows: 1fr` would
+   stretch every row there to the height of the box. */
+.ag-ms-folder {
+  margin-top: 12px;
+  padding: 18px 10px 10px;
+  border: 1px dashed #3a4a52;
+  border-radius: 10px;
+  position: relative;
+}
+
+.ag-ms-folder-label {
+  position: absolute;
+  top: -9px;
+  left: 12px;
+  padding: 0 6px;
+  background: var(--panel, #11181b);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: #8fa3ab;
 }
 
 /* A namespace's defaults: one wide bar above the microservice squares — what
@@ -5382,6 +5406,34 @@ input.jf-title {
   margin-right: auto;
 }
 
+/* A `{{ .Values.color }}` in a name, shown as the blank it is: `certs-[color]`. */
+.ag-tpl-chip {
+  display: inline-block;
+  margin: 0 1px;
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px dashed rgba(159, 228, 220, 0.55);
+  background: rgba(159, 228, 220, 0.1);
+  font-weight: 600;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+/* What a templated field becomes in each folder — quiet, under the input. */
+.ag-tpl-resolves {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  font-size: 11px;
+  color: var(--muted, #8b98a5);
+  overflow-wrap: anywhere;
+}
+.ag-tpl-resolves code {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: #c9d4de;
+}
+.ag-tpl-missing { color: #f0b35a }
+
 /* The offer to wire a claim, ConfigMap or Secret into the container. Quiet: it
    sits on every named row of those three features until it has been taken. */
 .ag-mount {
@@ -5421,6 +5473,10 @@ input.jf-title {
 .ag-field-label { font-weight: 700 }
 
 .ag-add { justify-self: start }
+
+/* A file dragged over a ConfigMap/Secret entry, or over the list for a new one. */
+.ag-entry.ag-drop, .ag-rows.ag-drop { outline: 2px dashed #2dd4bf; outline-offset: 2px }
+label.ag-add { cursor: pointer }
 
 /* ---- generated files ---- */
 
@@ -5611,6 +5667,27 @@ input.jf-title {
 
 .ag-scope-actions .ag-grid-head { margin: 0; margin-right: auto }
 
+/* A section folded to its heading row: everything else in it is put away. */
+.ag-fold {
+  display: inline-flex;
+  padding: 2px;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.ag-fold:hover { background: rgba(159, 228, 220, 0.08) }
+.ag-fold svg { transition: transform 0.15s }
+.ag-fold[aria-expanded="false"] svg { transform: rotate(-90deg) }
+
+.ag-section.folded > :not(.ag-grid-headrow, .ag-scope-actions, .ag-preview),
+.ag-section.folded .ag-preview > :not(.ag-preview-head),
+.ag-section.folded .ag-scope-actions > :not(.ag-grid-head) {
+  display: none;
+}
+
 .ag-scope-actions {
   display: flex;
   gap: 8px;
@@ -5706,6 +5783,25 @@ input.jf-title {
   padding-left: 18px;
   display: grid;
   gap: 4px;
+  /* Every warning is listed; a long list scrolls so a modal still fits a short window. */
+  max-height: 40vh;
+  overflow: auto;
+}
+
+.ag-notes summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ag-notes summary .icon-button {
+  margin-left: auto;
+}
+
+.ag-notes[open] summary {
+  margin-bottom: 6px;
 }
 
 /* Jenkinsfile: the connected repository.

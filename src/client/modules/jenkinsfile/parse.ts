@@ -1,4 +1,4 @@
-import { STEPS, stepSpec, type ArgKind } from "./catalog";
+import { KIND_LABEL, STEPS, stepSpec, type ArgKind } from "./catalog";
 import { PARAM_TYPES } from "./params";
 import { createStage, newPipeline, stageId, type DraftPipeline } from "./pipeline";
 import { newParam } from "./params";
@@ -23,10 +23,28 @@ type Value =
   | { t: "list"; v: Value[] }
   | { t: "map"; v: [string, Value][] }
   | { t: "closure"; v: string }
-  | { t: "call"; name: string; args: Value[] }
+  | { t: "call"; name: string; args: Value[]; src: string }
   | { t: "expr"; v: string };
 
 const IDENT = /[A-Za-z_$][A-Za-z0-9_$.]*/y;
+
+/**
+ * The index just past the string literal that opens at `i`. Every scan below
+ * skips strings through this one function, because a GString's `${…}` may hold
+ * quotes of its own — `"${ok ? "PRD" : 'dev'}"`, `"${xs.join(",")}"` — and
+ * ending the string at the first inner quote left that comma outside it.
+ */
+function stringEnd(src: string, i: number): number {
+  const c = src[i];
+  const quote = src.startsWith(c.repeat(3), i) ? c.repeat(3) : c;
+  let j = i + quote.length;
+  while (j < src.length && !src.startsWith(quote, j)) {
+    if (src[j] === "\\") j += 2;
+    else if (c === '"' && src.startsWith("${", j)) j = matchBracket(src, j + 1, "{", "}").next;
+    else j += 1;
+  }
+  return Math.min(j + quote.length, src.length);
+}
 
 /**
  * Comments have to go before anything else scans the source, but a `//` inside
@@ -38,12 +56,9 @@ export function stripComments(src: string): string {
   for (let i = 0; i < src.length; ) {
     const c = src[i];
     if (c === "'" || c === '"') {
-      const triple = src.startsWith(c.repeat(3), i);
-      const quote = triple ? c.repeat(3) : c;
-      let j = i + quote.length;
-      while (j < src.length && !src.startsWith(quote, j)) j += src[j] === "\\" ? 2 : 1;
-      out += src.slice(i, Math.min(j + quote.length, src.length));
-      i = j + quote.length;
+      const end = stringEnd(src, i);
+      out += src.slice(i, end);
+      i = end;
     } else if (src.startsWith("//", i)) {
       const nl = src.indexOf("\n", i);
       i = nl === -1 ? src.length : nl;
@@ -69,11 +84,7 @@ function matchBracket(src: string, start: number, open: string, close: string): 
   for (let i = start; i < src.length; ) {
     const c = src[i];
     if (c === "'" || c === '"') {
-      const triple = src.startsWith(c.repeat(3), i);
-      const quote = triple ? c.repeat(3) : c;
-      let j = i + quote.length;
-      while (j < src.length && !src.startsWith(quote, j)) j += src[j] === "\\" ? 2 : 1;
-      i = j + quote.length;
+      i = stringEnd(src, i);
       continue;
     }
     if (c === open) depth += 1;
@@ -87,19 +98,38 @@ function matchBracket(src: string, start: number, open: string, close: string): 
   return { body: src.slice(start + 1), next: src.length };
 }
 
+const ESCAPES: Record<string, string> = { "\\": "\\", "'": "'", '"': '"', n: "\n", t: "\t", r: "\r" };
+
+/**
+ * A string literal's value, in the one form the builder holds every string in:
+ * `${…}` is an interpolation and everything else is literal text — which is
+ * what `quote` in groovy.ts writes back. So this has to read the way Groovy
+ * does: a single-quoted `${f}` is literal (the *shell* variable in `sh 'echo
+ * ${f}'`) and is held escaped as `\${f}`; a double-quoted `$VERSION` is
+ * interpolated and becomes `${VERSION}`; `\$` is a plain `$` and `\n` a newline.
+ */
 function readString(src: string, i: number): { value: string; next: number } {
   const c = src[i];
-  const triple = src.startsWith(c.repeat(3), i);
-  const quote = triple ? c.repeat(3) : c;
+  const quote = src.startsWith(c.repeat(3), i) ? c.repeat(3) : c;
+  const gstring = c === '"';
   let j = i + quote.length;
   let out = "";
   while (j < src.length && !src.startsWith(quote, j)) {
+    const dollar = gstring && src[j] === "$" ? /^\$([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)/.exec(src.slice(j, j + 200)) : null;
     if (src[j] === "\\" && j + 1 < src.length) {
-      // Only the escapes the generator emits are unescaped; anything else keeps
-      // its backslash, which is what a regex or a Windows path in there wants.
+      // `\${` stays escaped, since that is how a literal `${` is held. An
+      // escape Groovy does not have keeps its backslash, which is what a regex
+      // or a Windows path in there wants.
       const n = src[j + 1];
-      out += n === "\\" || n === "'" || n === '"' ? n : `\\${n}`;
+      out += n === "$" ? (src[j + 2] === "{" ? "\\$" : "$") : (ESCAPES[n] ?? `\\${n}`);
       j += 2;
+    } else if (src.startsWith("${", j)) {
+      const next = gstring ? matchBracket(src, j + 1, "{", "}").next : j + 2;
+      out += gstring ? src.slice(j, next) : "\\${";
+      j = next;
+    } else if (dollar) {
+      out += `\${${dollar[1]}}`;
+      j += dollar[0].length;
     } else {
       out += src[j];
       j += 1;
@@ -116,11 +146,7 @@ function splitTop(src: string): string[] {
   for (let i = 0; i < src.length; ) {
     const c = src[i];
     if (c === "'" || c === '"') {
-      const triple = src.startsWith(c.repeat(3), i);
-      const quote = triple ? c.repeat(3) : c;
-      let j = i + quote.length;
-      while (j < src.length && !src.startsWith(quote, j)) j += src[j] === "\\" ? 2 : 1;
-      i = j + quote.length;
+      i = stringEnd(src, i);
       continue;
     }
     if (c === "[" || c === "(" || c === "{") depth += 1;
@@ -141,16 +167,13 @@ function splitEntry(src: string): { key: string | null; value: string } {
   for (let i = 0; i < src.length; ) {
     const c = src[i];
     if (c === "'" || c === '"') {
-      const triple = src.startsWith(c.repeat(3), i);
-      const quote = triple ? c.repeat(3) : c;
-      let j = i + quote.length;
-      while (j < src.length && !src.startsWith(quote, j)) j += src[j] === "\\" ? 2 : 1;
+      const end = stringEnd(src, i);
       // A quoted key is legal: 'my-key': 'v'.
-      const after = skipSpace(src, j + quote.length);
+      const after = skipSpace(src, end);
       if (depth === 0 && src[after] === ":") {
         return { key: readString(src, i).value, value: src.slice(after + 1) };
       }
-      i = j + quote.length;
+      i = end;
       continue;
     }
     if (c === "[" || c === "(" || c === "{") depth += 1;
@@ -198,7 +221,7 @@ export function readValue(raw: string): Value {
     const open = skipSpace(src, m[0].length);
     const { body, next } = matchBracket(src, open, "(", ")");
     if (skipSpace(src, next) >= src.length) {
-      return { t: "call", name: m[0], args: callArgs(body) };
+      return { t: "call", name: m[0], args: callArgs(body), src };
     }
   }
   return { t: "expr", v: src };
@@ -221,49 +244,92 @@ function callArgs(body: string): Value[] {
   return named.length ? [{ t: "map", v: named }, ...positional] : positional;
 }
 
-/** Top-level `name(...)` calls, in source order. */
-function topLevelCalls(src: string): { name: string; body: string }[] {
-  const calls: { name: string; body: string }[] = [];
+const CONTINUES_LINE = /(,|=|\+|&&|\|\||\?|->)$/;
+const OPENS_CONTINUATION = /\s*(\{|\.|\?|:|&&|\|\||else\b|catch\b|finally\b)/y;
+
+/**
+ * The statements of a run of Groovy, in source order. One ends at a newline or
+ * `;` outside any bracket — unless the text carries on: a line ending in a comma
+ * or an operator, or a next line opening with `{`, `.`, `else`, `catch` and the
+ * like. Reading statements rather than hunting for calls is what lets anything
+ * that is *not* a step call be named instead of skipped over without a word.
+ */
+function statements(src: string): string[] {
+  const out: string[] = [];
   let depth = 0;
+  let start = 0;
   for (let i = 0; i < src.length; ) {
     const c = src[i];
     if (c === "'" || c === '"') {
-      const triple = src.startsWith(c.repeat(3), i);
-      const quote = triple ? c.repeat(3) : c;
-      let j = i + quote.length;
-      while (j < src.length && !src.startsWith(quote, j)) j += src[j] === "\\" ? 2 : 1;
-      i = j + quote.length;
+      i = stringEnd(src, i);
       continue;
     }
-    if (c === "{" || c === "[") {
-      depth += 1;
-      i += 1;
-      continue;
-    }
-    if (c === "}" || c === "]") {
-      depth -= 1;
-      i += 1;
-      continue;
-    }
-    // `@` excluded so the @Library annotation is not read as a call named Library.
-    if (depth === 0 && /[A-Za-z_$]/.test(c) && !/[A-Za-z0-9_$.@]/.test(src[i - 1] ?? "")) {
-      IDENT.lastIndex = i;
-      const m = IDENT.exec(src);
-      if (m) {
-        const open = skipSpace(src, i + m[0].length);
-        if (src[open] === "(") {
-          const { body, next } = matchBracket(src, open, "(", ")");
-          calls.push({ name: m[0], body });
-          i = next;
-          continue;
-        }
-        i += m[0].length;
-        continue;
+    if (c === "(" || c === "[" || c === "{") depth += 1;
+    else if (c === ")" || c === "]" || c === "}") depth -= 1;
+    else if (depth <= 0 && (c === ";" || c === "\n")) {
+      const text = src.slice(start, i).trim();
+      OPENS_CONTINUATION.lastIndex = i + 1;
+      if (c === ";" || !(CONTINUES_LINE.test(text) || OPENS_CONTINUATION.test(src))) {
+        if (text) out.push(text);
+        start = i + 1;
       }
     }
     i += 1;
   }
-  return calls;
+  const last = src.slice(start).trim();
+  if (last) out.push(last);
+  return out;
+}
+
+/** The calls the reader takes: every library step, plus the two it handles itself. */
+const READ = new Set([...STEPS.filter((s) => s.callStyle !== "raw").map((s) => s.step), "parallel", "properties"]);
+
+/**
+ * A statement that is exactly one call, or null. Takes Groovy's
+ * parenthesis-free form too — `sleep 30`, `parallel a: {…}` — but only for a
+ * name the reader knows, so `return x` or `echo 'y'` is never mistaken for one.
+ */
+function callOf(text: string): { name: string; body: string } | null {
+  IDENT.lastIndex = 0;
+  const m = IDENT.exec(text);
+  if (!m) return null;
+  const open = skipSpace(text, m[0].length);
+  if (text[open] === "(") {
+    const { body, next } = matchBracket(text, open, "(", ")");
+    return skipSpace(text, next) >= text.length ? { name: m[0], body } : null;
+  }
+  if (READ.has(m[0]) && open > m[0].length && open < text.length && !/[=.+\-*/<>!?:&|]/.test(text[open])) {
+    return { name: m[0], body: text.slice(open) };
+  }
+  return null;
+}
+
+/** A statement or value squeezed onto one short line — enough to find it in the file. */
+function excerpt(text: string): string {
+  const line = text.replace(/\s+/g, " ").trim();
+  return line.length > 60 ? `${line.slice(0, 59)}…` : line;
+}
+
+const STEP_CALL = new RegExp(`\\b(${[...READ].filter((s) => stepSpec(s)).join("|")})\\s*\\(`);
+
+/** `vars/` files the library's own steps call. They are the library's, but not steps anyone builds a pipeline from. */
+const HELPERS = ["errorStage", "skipStage", "podLauncher", "nodeExecutor"];
+
+/** Why a top-level statement was not imported — naming any library step it hid. */
+function skipped(text: string): string {
+  const call = callOf(text);
+  const why = /^pipeline\s*\{/.test(text)
+    ? "this looks like a declarative pipeline (pipeline { … }). The builder writes scripted files that call the shared library's steps, so its stages could not be read"
+    : !call
+      ? "the builder reads step calls, not the Groovy wrapped around them"
+      : HELPERS.includes(call.name)
+        ? "a helper the library's own steps call, which the builder has no card for"
+        : "not a step in the shared library";
+  const inside = [...new Set([...text.matchAll(new RegExp(STEP_CALL, "g"))].map((m) => `${m[1]}()`))];
+  const held = inside.length
+    ? ` It holds ${inside.join(", ")}, which only become${inside.length === 1 ? "s a card" : " cards"} when called at the top level.`
+    : "";
+  return `Skipped \`${excerpt(text)}\` — ${why}.${held}`;
 }
 
 /** A parsed value as the plain text a single-line field holds. */
@@ -274,8 +340,14 @@ function asText(value: Value): string {
     case "bool":
     case "num":
       return String(value.v);
+    // Groovy standing where a string goes — a variable, a ternary, a call — is
+    // held as the GString that interpolates it, which is the same value. Taken
+    // as its own text instead, `image: DEFAULT_IMAGE` came back as the image
+    // literally named 'DEFAULT_IMAGE'.
     case "expr":
-      return value.v;
+      return value.v ? `\${${value.v}}` : "";
+    case "call":
+      return `\${${value.src}}`;
     default:
       return "";
   }
@@ -304,6 +376,31 @@ function asPairs(value: Value): [string, string][] {
   return [];
 }
 
+/**
+ * Whether a field of this kind can hold what was read. A flag, a number, a list
+ * or a list of entries has nowhere to put Groovy that computes one —
+ * `unshallow: isRelease`, `flags: MVN_FLAGS` — so that argument comes in empty,
+ * and the caller says so.
+ */
+function fits(kind: ArgKind, value: Value): boolean {
+  switch (kind) {
+    case "boolean":
+      return value.t === "bool" || (value.t === "str" && /^(true|false)$/.test(value.v));
+    case "integer":
+      return value.t === "num" || (value.t === "str" && /^\d+$/.test(value.v.trim()));
+    case "stringList":
+      return value.t === "list" || value.t === "str";
+    case "commands":
+      return value.t === "list" || value.t === "str" || value.t === "closure";
+    case "objectList":
+      return value.t === "map" || (value.t === "list" && value.v.every((entry) => entry.t === "map"));
+    case "stringMap":
+      return value.t !== "closure" && value.t !== "str" && !(value.t === "list" && value.v.length);
+    default:
+      return value.t !== "closure" && value.t !== "list" && value.t !== "map";
+  }
+}
+
 /** One parsed argument, shaped the way the editor and generator hold that kind. */
 function coerce(kind: ArgKind, value: Value): unknown {
   switch (kind) {
@@ -314,13 +411,15 @@ function coerce(kind: ArgKind, value: Value): unknown {
     case "expression":
       // Raw Groovy either way — a quoted string here would lose its quotes on
       // the way back out, so a literal keeps them.
-      return value.t === "str" ? `'${value.v}'` : asText(value);
+      return value.t === "str" ? `'${value.v}'` : value.t === "call" ? value.src : value.t === "expr" ? value.v : asText(value);
     case "stringList":
       return asLines(value);
     case "commands":
       return value.t === "closure" ? { closure: dedent(value.v) } : asLines(value);
     case "stringMap":
-      return asPairs(value);
+      // A variable (`populateEnvVars(envs)`, `def envs = [...]` above) or a
+      // call is kept as the Groovy it is, and written back verbatim.
+      return value.t === "expr" ? value.v : value.t === "call" ? value.src : asPairs(value);
     case "objectList":
       return value.t === "list"
         ? value.v.map((entry) => Object.fromEntries(asPairs(entry)))
@@ -353,23 +452,32 @@ function paramFrom(call: Value): JenkinsfileParam | null {
     description: asText(fields.get("description") ?? { t: "str", v: "" }),
     // Every type stores its default as a string, booleans included.
     defaultValue: defaultValue ? asText(defaultValue) : "",
-    ...(spec.type === "choice" ? { choices: choices ? asLines(choices) : [] } : {}),
+    // The older form is one newline-separated string: choices: "a\nb".
+    ...(spec.type === "choice"
+      ? { choices: choices?.t === "str" ? choices.v.split("\n") : choices ? asLines(choices) : [] }
+      : {}),
   };
 }
 
 /**
  * `properties([parameters([...])])` — the arguments arrive nested two lists
  * deep, so this digs for the `parameters` call rather than assuming a shape.
+ * Whatever else sits in there (`buildDiscarder`, `pipelineTriggers`) is a job
+ * property the builder does not keep, and is named as one.
  */
 function paramsFrom(body: string, warnings: string[]): JenkinsfileParam[] {
   const found: JenkinsfileParam[] = [];
   function walk(value: Value) {
     if (value.t === "list") return value.v.forEach(walk);
-    if (value.t !== "call") return;
-    if (value.name === "parameters") return value.args.forEach(walk);
+    if (value.t === "call" && value.name === "parameters") return value.args.forEach(walk);
     const param = paramFrom(value);
-    if (param) found.push(param);
-    else warnings.push(`Skipped an unsupported parameter type: ${value.name}`);
+    if (param) return found.push(param);
+    const text = excerpt(value.t === "call" ? value.src : value.t === "expr" ? value.v : JSON.stringify(value.v));
+    warnings.push(
+      value.t === "call" && PARAM_TYPES.some((t) => t.fn === value.name)
+        ? `properties: skipped \`${text}\` — a parameter with no name`
+        : `properties: skipped \`${text}\` — only the parameters are read, so this job property will not be written back`
+    );
   }
   splitTop(body).map(readValue).forEach(walk);
   return found;
@@ -377,7 +485,8 @@ function paramsFrom(body: string, warnings: string[]): JenkinsfileParam[] {
 
 function stageFrom(name: string, body: string, warnings: string[]): JenkinsfileStage | null {
   const spec = stepSpec(name);
-  if (!spec) return null;
+  // `groovy` is the builder's own card, not something a file calls.
+  if (!spec || spec.callStyle === "raw") return null;
 
   // Open, unlike a stage added by hand: an imported file is one you are reading.
   const stage = { ...createStage(name), collapsed: false };
@@ -396,24 +505,33 @@ function stageFrom(name: string, body: string, warnings: string[]): JenkinsfileS
     else if (keyed.length) value = { t: "map", v: keyed.map((e) => [e.key!, readValue(e.value)] as [string, Value]) };
     else if (entries[0]) value = readValue(entries[0].value);
     if (value) {
-      if (value.t !== "map") warnings.push(`${name}: its argument is not a literal map, so it was left empty`);
+      if (value.t !== "map" && value.t !== "expr" && value.t !== "call")
+        warnings.push(`${name}: its argument is not a literal map, so it was left empty`);
       stage.args[arg.name] = coerce(arg.kind, value);
     }
     return stage;
   }
 
-  for (const { key, value } of entries) {
-    if (key === null) {
-      warnings.push(`${name}: ignored a positional argument`);
-      continue;
-    }
-    const arg = spec.args.find((a) => a.name === key);
+  entries.forEach(({ key, value }, n) => {
+    // Jenkins' own steps take their first argument bare: `sleep 30`.
+    const arg = key === null ? (spec.builtin && n === 0 ? spec.args[0] : undefined) : spec.args.find((a) => a.name === key);
     if (!arg) {
-      warnings.push(`${name}: ignored an argument the builder does not know — ${key}`);
-      continue;
+      warnings.push(
+        key === null
+          ? `${name}: ignored a positional argument — \`${excerpt(value)}\``
+          : `${name}: ignored an argument the builder does not know — ${key}`
+      );
+      return;
     }
-    stage.args[arg.name] = coerce(arg.kind, readValue(value));
-  }
+    const read = readValue(value);
+    if (!fits(arg.kind, read)) {
+      warnings.push(
+        `${name}: ${arg.name} is \`${excerpt(value)}\`, which a ${KIND_LABEL[arg.kind]} field cannot hold — ` +
+          `it came in ${arg.kind === "boolean" ? "as false" : "empty"}`
+      );
+    }
+    stage.args[arg.name] = coerce(arg.kind, read);
+  });
   return stage;
 }
 
@@ -427,28 +545,44 @@ function parallelFrom(body: string, warnings: string[]): JenkinsfileStage[] {
   for (const { key, value } of splitTop(body).map(splitEntry)) {
     const branch = readValue(value);
     if (branch.t !== "closure") {
-      warnings.push(`parallel: ignored ${key ?? "an entry"} — only branches (closures) are kept`);
+      warnings.push(
+        `parallel: ignored \`${excerpt(key === null ? value : `${key}: ${value}`)}\` — only branches written out as { … } closures can be read`
+      );
       continue;
     }
-    const calls = topLevelCalls(branch.v);
-    if (calls.length > 1)
-      warnings.push(`parallel: branch ${key} runs ${calls.length} steps in a row; each became its own parallel branch`);
-    for (const call of calls) {
-      const stage = stageFrom(call.name, call.body, warnings);
-      if (!stage) {
-        warnings.push(`parallel: skipped ${call.name}() in branch ${key} — not a step the builder knows`);
-        continue;
-      }
-      stages.push({ ...stage, group });
+    const found: JenkinsfileStage[] = [];
+    for (const text of statements(branch.v)) {
+      const call = callOf(text);
+      const stage = call && stageFrom(call.name, call.body, warnings);
+      if (stage) found.push({ ...stage, group });
+      else warnings.push(`parallel: in branch ${key} — ${skipped(text)}`);
     }
+    if (found.length > 1)
+      warnings.push(`parallel: branch ${key} runs ${found.length} steps in a row; each became its own parallel branch`);
+    stages.push(...found);
   }
   return stages;
 }
 
 /**
+ * What `splitDefs` lifts: `def`, `import` and `@Field` statements, and a
+ * declaration by type — `final String X = …`, `String stamp() {`,
+ * `List<String> MODS = […]`.
+ */
+const DECL =
+  /^[ \t]*(?:(?:def|import|@Field)\b|(?:(?:final|static)\s+)*(?:void|[A-Z][\w.]*(?:<[^>\n]*>)?(?:\[\])?)\s+[A-Za-z_]\w*\s*[=(])/;
+
+/** A lifted statement that assigns a value when it runs, rather than declaring a function or a field. */
+const RUNS = /^\s*(?!import\b|@Field\b)[^(]*[^=!<>]=(?![=~])/;
+
+/**
  * Top-level `def` variables and functions (plus `import` and `@Field` lines),
  * lifted out whole — a function body included — into the pipeline's Groovy
  * block. What is left is the calls the rest of the reader looks for.
+ *
+ * The block is written before every stage, so a variable assigned *after* one
+ * is not lifted: above `semVerStage()`, `def v = env.VERSION` would read
+ * nothing. It stays in `rest`, where it becomes a Groovy card in place.
  */
 export function splitDefs(src: string): { defs: string; rest: string } {
   const defs: string[] = [];
@@ -457,14 +591,11 @@ export function splitDefs(src: string): { defs: string; rest: string } {
   let from = -1; // start of the statement being lifted, -1 when none
   for (let i = 0; i < src.length; ) {
     const c = src[i];
-    if (depth === 0 && from < 0 && (i === 0 || src[i - 1] === "\n") && /^[ \t]*(def|import|@Field)\b/.test(src.slice(i, i + 40)))
-      from = i;
+    if (depth === 0 && from < 0 && (i === 0 || src[i - 1] === "\n") && DECL.test(src.slice(i, i + 200))) from = i;
     if (c === "'" || c === '"') {
-      const quote = src.startsWith(c.repeat(3), i) ? c.repeat(3) : c;
-      let j = i + quote.length;
-      while (j < src.length && !src.startsWith(quote, j)) j += src[j] === "\\" ? 2 : 1;
-      if (from < 0) rest += src.slice(i, j + quote.length);
-      i = j + quote.length;
+      const end = stringEnd(src, i);
+      if (from < 0) rest += src.slice(i, end);
+      i = end;
       continue;
     }
     if (c === "{" || c === "[" || c === "(") depth += 1;
@@ -473,7 +604,11 @@ export function splitDefs(src: string): { defs: string; rest: string } {
       // `def f(x)` with its `{` on the next line still belongs to it.
       const after = src.slice(i + 1).match(/^\s*\{/);
       if (!after) {
-        defs.push(src.slice(from, i + 1).trimEnd());
+        const text = src.slice(from, i + 1).trimEnd();
+        // A variable assigned after a stage stays where it is — lifted, it
+        // would run before the stage it reads from — and becomes a Groovy card.
+        if (RUNS.test(text) && STEP_CALL.test(rest)) rest += src.slice(from, i + 1);
+        else defs.push(text);
         from = -1;
         i += 1;
         continue;
@@ -497,37 +632,46 @@ export function parseJenkinsfile(text: string): ImportResult {
 
   const library = /@Library\s*\(\s*(['"])([^'"]*)\1\s*\)/.exec(src);
   if (library) pipeline.library = library[2];
-
-  // A declarative file is a different language from what this builder writes:
-  // its stages live inside `pipeline { stages { stage('x') { … } } }`, and none
-  // of them are the library's steps. Say so rather than importing nothing.
-  if (/^\s*pipeline\s*\{/m.test(src)) {
-    warnings.push(
-      "This looks like a declarative pipeline (pipeline { … }). The builder writes scripted files that call the shared library's steps, so its stages could not be read."
-    );
-  }
+  else if (/@Library\b/.test(src))
+    warnings.push("@Library: only one quoted library name can be read, so the import line was left out.");
 
   const { defs, rest } = splitDefs(src);
   pipeline.groovy = defs;
 
-  for (const call of topLevelCalls(rest)) {
-    if (call.name === "properties") {
+  for (const statement of statements(rest)) {
+    // The annotation, its `_`, and a shebang are the file's framing, not steps.
+    if (/^(@Library\b|#!|_$)/.test(statement)) continue;
+    const call = callOf(statement);
+    if (call?.name === "properties") {
       pipeline.params.push(...paramsFrom(call.body, warnings));
       continue;
     }
-    if (call.name === "parallel") {
+    // A parallel with no { … } branch written out — `parallel buildMatrix(mods)` —
+    // has nothing to box; it falls through and is kept as Groovy.
+    if (call?.name === "parallel" && splitTop(call.body).some((e) => readValue(splitEntry(e).value).t === "closure")) {
       pipeline.stages.push(...parallelFrom(call.body, warnings));
       continue;
     }
-    const stage = stageFrom(call.name, call.body, warnings);
+    const stage = call && stageFrom(call.name, call.body, warnings);
     if (stage) pipeline.stages.push(stage);
-    else if (call.name !== "parameters") {
-      warnings.push(`Skipped ${call.name}() — not a step in the shared library.`);
+    else if (call?.name === "parameters") continue;
+    // Not the builder's to rewrite: the builder writes scripted files.
+    else if (/^pipeline\s*\{/.test(statement)) warnings.push(skipped(statement));
+    else {
+      // Anything else — an `if` around a stage, a helper's call, `node {}` — is
+      // kept as Groovy right where it was, one card for a run of it.
+      const last = pipeline.stages[pipeline.stages.length - 1];
+      if (last?.step === "groovy") last.args.code = `${last.args.code}\n${statement}`;
+      else pipeline.stages.push({ ...createStage("groovy"), args: { code: statement }, collapsed: false });
     }
   }
 
-  if (!pipeline.stages.length && !warnings.length) {
-    warnings.push(`No library steps found. The builder knows: ${STEPS.map((s) => s.step).join(", ")}.`);
+  if (!pipeline.stages.some((s) => s.step !== "groovy") && !warnings.length) {
+    warnings.push(
+      `No library steps found${pipeline.stages.length ? " — the file came in as Groovy" : ""}. The builder knows: ${[...READ]
+        .filter((s) => stepSpec(s))
+        .join(", ")}.`
+    );
   }
   return { pipeline, warnings };
 }

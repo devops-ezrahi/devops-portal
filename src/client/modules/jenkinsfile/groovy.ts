@@ -1,4 +1,4 @@
-import { stepSpec, type ArgKind, type ArgSpec } from "./catalog";
+import { UNBOXED_STEPS, stepSpec, type ArgKind, type ArgSpec } from "./catalog";
 import { closureOf, isEmptyArg, linesOf, pairsOf, type DraftPipeline } from "./pipeline";
 import { PARAM_TYPES } from "./params";
 import type { JenkinsfileParam, JenkinsfileStage } from "../../../server/types";
@@ -6,16 +6,31 @@ import type { JenkinsfileParam, JenkinsfileStage } from "../../../server/types";
 const INDENT = "    ";
 
 /**
+ * One `${…}` interpolation (quoted strings and one level of braces allowed
+ * inside it), a `\${` held literal, or any other single character.
+ */
+const GSTRING_PART = /\\\$\{|\$\{(?:[^{}'"]|'[^']*'|"[^"]*"|\{[^{}]*\})*\}|[\s\S]/g;
+const ESCAPED: Record<string, string> = { "\\": "\\\\", "\n": "\\n", "\t": "\\t", "\r": "\\r" };
+
+/**
  * A string containing `${` has to stay a GString or the interpolation is lost —
  * `title: "Build ${env.SERVICE}"` is exactly what the library's own steps write.
  * Everything else gets single quotes, which need no escaping of `$`.
+ *
+ * Inside a GString only the text *between* interpolations is escaped: a `"` in
+ * `${ok ? "PRD" : 'dev'}` is Groovy code, and `\"` there does not compile. A
+ * `\${` is how the builder holds a literal `${` (parse.ts' `readString`), so it
+ * goes out as written, and a lone `$` is escaped so it does not interpolate.
  */
 function quote(raw: string): string {
   const value = String(raw);
   if (value.includes("${")) {
-    return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+    const body = value.replace(GSTRING_PART, (t) =>
+      t.length > 1 ? t : t === '"' ? '\\"' : t === "$" ? "\\$" : (ESCAPED[t] ?? t)
+    );
+    return `"${body}"`;
   }
-  return `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+  return `'${value.replace(/[\\'\n\t\r]/g, (t) => (t === "'" ? "\\'" : ESCAPED[t]))}'`;
 }
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -69,6 +84,9 @@ function renderValue(kind: ArgKind, value: unknown, indent: string): string {
       // Emitted raw — the point of the field is to write `params.skipImage`, not
       // the string "params.skipImage". Older records hold a real boolean here.
       return typeof value === "boolean" ? String(value) : String(value).trim();
+    case "code":
+      // Groovy as typed; only the blank lines around it are where the cursor stopped.
+      return String(value).replace(/^\s*\n/, "").trimEnd();
     case "boolean":
       return value ? "true" : "false";
     case "integer":
@@ -91,7 +109,8 @@ function renderValue(kind: ArgKind, value: unknown, indent: string): string {
     case "stringList":
       return bracket(linesOf(value).map(unwrap).filter(Boolean).map(quote), indent);
     case "stringMap":
-      return bracket(mapEntries(value), indent);
+      // An expression standing in for the map (`envs`) is Groovy, written as typed.
+      return typeof value === "string" ? value.trim() : bracket(mapEntries(value), indent);
     case "objectList":
       return bracket(
         (value as Record<string, unknown>[])
@@ -115,6 +134,7 @@ function setArgs(stage: JenkinsfileStage): { spec: ArgSpec; value: unknown }[] {
 
 export function stageToGroovy(stage: JenkinsfileStage): string {
   const args = setArgs(stage);
+  if (stepSpec(stage.step)?.callStyle === "raw") return args.length ? renderValue(args[0].spec.kind, args[0].value, "") : "";
   if (args.length === 0) return `${stage.step}()`;
 
   // `bare` steps take their one argument as the whole call, with no key in
@@ -158,8 +178,7 @@ export function parallelGroups(stages: JenkinsfileStage[]): JenkinsfileStage[][]
   const groups: JenkinsfileStage[][] = [];
   for (const stage of stages) {
     const last = groups[groups.length - 1];
-    // populateEnvVars never races: it sets the env everything after it reads.
-    const group = stage.step === "populateEnvVars" ? undefined : stage.group;
+    const group = UNBOXED_STEPS.includes(stage.step) ? undefined : stage.group;
     if (group && last?.[0].group === group) last.push(stage);
     else groups.push([stage]);
   }
@@ -214,8 +233,10 @@ export function toGroovy(pipeline: DraftPipeline): string {
   if (pipeline.groovy?.trim()) blocks.push(pipeline.groovy.trim());
 
   // A box is a parallel block even with one branch in it: that is what is on screen.
-  for (const group of parallelGroups(pipeline.stages))
-    blocks.push(group[0].group && group[0].step !== "populateEnvVars" ? parallelToGroovy(group) : stageToGroovy(group[0]));
+  for (const group of parallelGroups(pipeline.stages)) {
+    const text = group[0].group && !UNBOXED_STEPS.includes(group[0].step) ? parallelToGroovy(group) : stageToGroovy(group[0]);
+    if (text) blocks.push(text);
+  }
 
   return blocks.length ? `${blocks.join("\n\n")}\n` : "";
 }

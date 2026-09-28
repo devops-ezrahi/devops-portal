@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { importValues } from "./import";
+import { buildValues, parseValues } from "./build";
+import { toYaml } from "./yaml";
 
 /**
  * Every feature whose value is a `name`-keyed map is edited as rows, and rows
@@ -288,6 +290,18 @@ topologySpreadConstraints:
   - maxSkew: 1
     topologyKey: kubernetes.io/hostname
     whenUnsatisfiable: DoNotSchedule
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          topologyKey: kubernetes.io/hostname
+          labelSelector:
+            matchLabels:
+              app: web
+securityContext:
+  privileged: true
+  runAsUser: 0
 `;
 
 describe("importing every rows-based feature", () => {
@@ -337,4 +351,32 @@ describe("importing every rows-based feature", () => {
     const empty = importValues("configMaps: {}\nimage:\n  repository: nginx\n");
     expect(empty.features.configmaps).toBeUndefined();
   });
+});
+
+/**
+ * A file read out of a repo and written straight back must not change — the
+ * preview diffs against the branch, and every value the writer dropped showed
+ * as an edit nobody made. Each of these is a shape `convert_to_universal_chart.py`
+ * really writes that used to come back different.
+ */
+describe("a file comes back exactly as it was read", () => {
+  const cases: Record<string, string> = {
+    "an empty string in a map": 'configMaps:\n  c1:\n    data:\n      a: ""\n      b: x\n',
+    "a ConfigMap with no data": "configMaps:\n  c1: {}\n  c2:\n    data:\n      b: x\n",
+    "an env var set to empty": 'env:\n  E:\n    value: ""\n  F:\n    value: y\n',
+    "a nodeSelector label with no value": 'nodeSelector:\n  node-role.kubernetes.io/worker: ""\n  zone: a\n',
+    "hostPath type left empty": 'volumes:\n  v:\n    hostPath:\n      path: /var/log\n      type: ""\n',
+    "empty labels": "secrets:\n  s:\n    type: Opaque\n    labels: {}\n    data:\n      a: YQ==\n",
+    "a ServiceAccount that does not say create": "serviceAccount:\n  name: payments\n",
+    "a claim override that sets only its size": "volumeClaimTemplates:\n  data:\n    size: 10Gi\n",
+    "a null inside a list item": "ingress:\n  enabled: true\n  hosts:\n    - host: a.b\n      paths:\n        - path: /\n          pathType: Prefix\n          portName: null\n",
+    "workload annotations and hostNetwork": "annotations:\n  note: hi\nhostNetwork: true\n",
+  };
+  for (const [name, text] of Object.entries(cases)) {
+    it(name, () => {
+      const imported = importValues(text);
+      expect(imported.warnings).toEqual([]);
+      expect(parseValues(toYaml(buildValues(imported.features, imported.extraValues)))).toEqual(parseValues(text));
+    });
+  }
 });

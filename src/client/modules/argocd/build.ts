@@ -1,5 +1,5 @@
 import { parse as parseYaml } from "yaml";
-import { BY_ID, FEATURES, orderKeys } from "./catalog";
+import { BY_ID, FEATURES, MORE_KEY, orderKeys } from "./catalog";
 import { deepMerge, isPlainObject } from "./values";
 import type { FeatureState } from "./catalog";
 import type { Values } from "./values";
@@ -24,6 +24,9 @@ export function buildValues(features: Record<string, FeatureState>, extraValues?
       fragment = null;
     }
     if (fragment) doc = deepMerge(doc, fragment);
+    // The feature's "Other settings" — what its fields cannot say, merged over them.
+    const more = parseValues(state.v?.[MORE_KEY] as string | undefined);
+    if (more) doc = deepMerge(doc, more);
   });
   const extra = parseValues(extraValues);
   if (extra) doc = deepMerge(doc, extra);

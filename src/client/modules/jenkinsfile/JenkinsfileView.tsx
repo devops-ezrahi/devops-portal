@@ -1,4 +1,4 @@
-import { Check, ChevronRight, Pencil, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { Check, ChevronRight, Pencil, Plus, Trash2, TriangleAlert, X } from "lucide-react";
 import { ListSizeToggle } from "../../ListSizeToggle";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
@@ -32,7 +32,7 @@ import { LibraryField } from "./components/LibraryField";
 import { ParamsEditor, paramScope } from "./components/ParamsEditor";
 import { PipelineList } from "./components/PipelineList";
 import { ImagesContext } from "./components/ArgField";
-import { NewPipelineDialog } from "./components/NewPipelineDialog";
+import { NewPipelineDialog, WarningList } from "./components/NewPipelineDialog";
 import { CommitButton, PushResult, type PushState } from "../../RepoPanel";
 import { EMPTY_REPO, gitBlocked, RepoPanel } from "./components/RepoPanel";
 import { StageList } from "./components/StageList";
@@ -113,6 +113,8 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
   const [push, setPush] = useState<PushState>({ kind: "idle" });
   /** Why the connected repository could not be read — shown on the repo panel, where it can be fixed. */
   const [repoError, setRepoError] = useState("");
+  /** Every warning from the last Pull, in full — a toast only fits the first. */
+  const [pullNotes, setPullNotes] = useState<string[]>([]);
   /** The id the next write should PUT to. A ref, because the write queue reads it after an await. */
   const idRef = useRef("");
   /**
@@ -230,6 +232,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
     // The result line belongs to the pipeline that was committed, not to the
     // next one opened.
     setPush({ kind: "idle" });
+    setPullNotes([]);
   }
 
   /** Both ways of starting: `start` is the pipeline to open, empty or imported. */
@@ -242,6 +245,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
     setTouched(new Set([...start.stages.map((stage) => stage.id), ...start.params.map(paramScope)]));
     setSaveState("idle");
     setPush({ kind: "idle" });
+    setPullNotes([]);
     setNewOpen(false);
     localStorage.removeItem(LAST_OPENED_KEY);
   }
@@ -295,13 +299,11 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
           ...parsed.pipeline.params.map(paramScope),
         ])
       );
-      if (parsed.warnings.length)
-        onError(`Pulled with ${parsed.warnings.length} warning(s). First: ${parsed.warnings[0]}`);
+      setPullNotes(parsed.warnings);
     } catch (err) {
       logError("jenkinsfile", "pull failed", err);
       const message = err instanceof Error ? err.message : "Could not read that repository";
       setRepoError(message);
-      onError(message);
     } finally {
       setPulling(false);
     }
@@ -347,7 +349,8 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
   ]);
 
   function handleAddStage(step: string, group?: string) {
-    const stage = createStage(step);
+    // A Groovy card is nothing until something is typed into it, so it opens.
+    const stage = step === "groovy" ? { ...createStage(step), collapsed: false } : createStage(step);
     log("jenkinsfile", "adding stage", step, stage.id, group ?? "");
     setDraft((prev) => {
       // populateEnvVars is a preamble wherever it is put, so it goes to the front —
@@ -462,7 +465,6 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
         <h1>Jenkinsfile</h1>
         <div className="jf-topbar-actions">
           <span className={`jf-save-state ${saveState}`} role="status">
-            {saveState === "saving" && "Saving…"}
             {saveState === "error" && (
               <>
                 <TriangleAlert size={15} aria-hidden="true" /> Not saved
@@ -563,6 +565,22 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
                 stageCount={draft.stages.length}
                 error={repoError}
               />
+              {pullNotes.length > 0 && (
+                <details open className="jf-import-warnings ag-notes">
+                  <summary>
+                    {pullNotes.length} warning(s) from the pull
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label="Dismiss the warnings"
+                      onClick={() => setPullNotes([])}
+                    >
+                      <X size={15} aria-hidden="true" />
+                    </button>
+                  </summary>
+                  <WarningList warnings={pullNotes} />
+                </details>
+              )}
             </div>
 
             {/* Library, parameters and Groovy fold behind one row,

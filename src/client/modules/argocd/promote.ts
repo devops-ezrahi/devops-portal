@@ -2,6 +2,7 @@ import { importValues } from "./import";
 import { buildValues } from "./build";
 import { commonSubtree, deepEqual, isPlainObject, shadowing, subtractDefaults } from "./values";
 import { toYaml } from "./yaml";
+import { runs } from "./tree";
 import type { ArgocdRelease, ArgocdTree } from "../../../server/types";
 import type { FeatureState } from "./catalog";
 import type { Values } from "./values";
@@ -49,11 +50,12 @@ export function leafPaths(doc: Values, prefix = ""): string[] {
  * promoting the other two's would change what the third deploys.
  */
 export function findPromotions(tree: ArgocdTree): Promotion[] {
-  const namespaces = tree.namespaces.filter((n) => n.name.trim());
-  if (namespaces.length < 2) return [];
+  const named = tree.namespaces.filter((n) => n.name.trim());
 
   const out: Promotion[] = [];
   for (const release of tree.releases) {
+    const namespaces = named.filter((ns) => runs(ns, release.id));
+    if (namespaces.length < 2) continue;
     const fragments: Values[] = [];
     for (const ns of namespaces) {
       const entry = ns.releases.find((e) => e.release === release.id);
@@ -131,6 +133,7 @@ export function applyDemotion(tree: ArgocdTree, releaseId: string, shadowed: Val
   const base = buildValues(release.features, release.extraValues);
 
   const namespaces = tree.namespaces.map((ns) => {
+    if (!runs(ns, releaseId)) return ns;
     const defaults = buildValues(ns.defaults?.features ?? {}, ns.defaults?.extraValues);
     const existing = ns.releases.find((e) => e.release === releaseId);
     const doc = existing ? buildValues(existing.features, existing.extraValues) : {};
@@ -170,7 +173,7 @@ export function applyDefaultsDemotion(tree: ArgocdTree, nsIndex: number, release
 
   let entries = ns.releases;
   for (const r of tree.releases) {
-    if (r.id === releaseId) continue;
+    if (r.id === releaseId || !runs(ns, r.id)) continue;
     const existing = entries.find((e) => e.release === r.id);
     const doc = existing ? buildValues(existing.features, existing.extraValues) : {};
     const missing = paths.filter((path) => atPath(doc, path) === undefined);
@@ -330,11 +333,15 @@ function putPath(doc: Values, path: string, value: unknown): void {
  * the fallback, and nagging about it would be nagging about a solved problem.
  */
 export function findEnvSpecific(tree: ArgocdTree): EnvSpecific[] {
-  const namespaces = tree.namespaces.filter((n) => n.name.trim());
-  if (!namespaces.length) return [];
+  const named = tree.namespaces.filter((n) => n.name.trim());
 
   const out: EnvSpecific[] = [];
   for (const release of tree.releases) {
+    // Only where it deploys: a release that runs in qa alone is not "taken as-is"
+    // by prd — and with one namespace, base *is* that namespace's value, so
+    // there is nothing environment-agnostic to keep it out of.
+    const namespaces = named.filter((ns) => runs(ns, release.id));
+    if (namespaces.length < 2) continue;
     const base = buildValues(release.features, release.extraValues);
     // A namespace's defaults are that namespace answering for itself too: a
     // monorepo tag set there means the base tag is no longer taken as-is.

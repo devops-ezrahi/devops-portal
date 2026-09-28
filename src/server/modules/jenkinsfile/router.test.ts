@@ -77,6 +77,19 @@ describe("jenkinsfile pipelines", () => {
     await request(app).post("/api/jenkinsfile/pipelines").set(alex).send({ ...body, stages: [{}] }).expect(400);
   });
 
+  // Seen importing a real Jenkinsfile: the import took it, and then every
+  // autosave 400'd, so the pipeline could never be kept.
+  it("saves every parameter type, and what a real Jenkinsfile's parameters hold", async () => {
+    const app = await appOn(mkdtempSync(join(tmpdir(), "jf-test-")));
+    const params = [
+      { name: "NOTES", type: "text", defaultValue: "a\nb", description: "x".repeat(1500) },
+      { name: "TOKEN", type: "password", defaultValue: "", description: "" },
+      { name: "SERVICE", type: "choice", defaultValue: "", description: "", choices: Array.from({ length: 120 }, (_, i) => `svc-${i}`) },
+    ];
+    const created = await request(app).post("/api/jenkinsfile/pipelines").set(alex).send({ ...body, params }).expect(201);
+    expect(created.body.pipeline.params.map((p: { type: string }) => p.type)).toEqual(["text", "password", "choice"]);
+  });
+
   it("numbers each author's pipelines separately, and reuses a number once freed", async () => {
     const app = await appOn(mkdtempSync(join(tmpdir(), "jf-test-")));
 

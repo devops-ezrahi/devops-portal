@@ -385,7 +385,7 @@ export type JenkinsfileStage = {
 };
 
 /** The parameter types Jenkins' `parameters([...])` block accepts. */
-export type JenkinsfileParamType = "boolean" | "string" | "choice";
+export type JenkinsfileParamType = "boolean" | "string" | "text" | "choice" | "password";
 
 /** One entry of the pipeline's `properties([parameters([...])])` block. */
 export type JenkinsfileParam = {

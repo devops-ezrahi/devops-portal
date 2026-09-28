@@ -496,6 +496,10 @@ work around it rather than pretend otherwise:
   `JIRA_MAINTENANCE_ISSUE_TYPE` may be the type's numeric id (`3`), sent as
   `{"id": …}` and unquoted in JQL — what a localised instance resolves when
   the display name does not match.
+- **Priorities are renamed on the way to Jira.** The portal shows five
+  (`Lowest`…`Highest`); the instance's own names are `Trivial`, `Low`,
+  `Normal`, `Warning`, `Major` (`jiraPriorityName` in `priority.ts`), and
+  `parsePriority` maps them back when a ticket is read.
 - **A new ticket is exactly what the admin queue queries for.** `listAdminTickets`
   filters on four things — `project`, `JIRA_TICKET_LABEL`,
   `JIRA_MAINTENANCE_ISSUE_TYPE` and `sprint = <the board's active sprint>` — and
@@ -641,6 +645,32 @@ no external system — the only server-side state is saved pipeline documents.
   declarative `pipeline { … }` file is named as such rather than importing as
   nothing. The round-trip is what the tests pin: parsing the generator's own
   output must regenerate it byte for byte.
+  - **It reads statements, not calls.** The file is split into top-level
+    statements (`statements`: a newline outside brackets, unless the line ends
+    mid-expression or the next opens `} else {`, `.chain()`…). One that is not a
+    step call — `if (…) { genStage(…) }`, `node {}`, `timeout {}`, a Jenkins
+    `stage('x') {}`, a helper's call, `errorStage`, `parallel buildMatrix(…)` —
+    **becomes a Groovy card where it stood**, a run of them one card, so the
+    file keeps doing what it did. They all used to vanish, then to be named and
+    dropped. Only a statement inside a *parallel branch* is still named and
+    dropped, since a Groovy card is not a branch; and a file with no library
+    step at all still says so. A known name in Groovy's parenthesis-free form
+    (`sleep 30`, `parallel a: {…}`) is a call.
+    `properties([…])` entries that are not parameters (`buildDiscarder`,
+    `pipelineTriggers`) are named as job properties the builder does not write
+    back.
+  - **A string is held as its Groovy value**, `${…}` being the one thing that
+    means interpolation — so `readString` reads the way Groovy does (a
+    single-quoted `${f}` is the shell's and is held as `\${f}`; a double-quoted
+    `$VAR` becomes `${VAR}`; `\$` is `$`, `\n` a newline) and `quote` writes it
+    back that way, never escaping inside a `${…}`. `stringEnd` is the one place
+    every scan skips a string, and it knows a GString's `${…}` can hold quotes.
+  - **Groovy where a value goes is kept, never quoted into a literal.** In a
+    text field `image: DEFAULT_IMAGE` becomes `"${DEFAULT_IMAGE}"` (same value);
+    a call in an expression field stays a call. A flag, number, list or entries
+    field cannot hold Groovy (`unshallow: isRelease`), so that comes in empty
+    and is named. `__tests__/chaos/` is a deliberately abusive real-world file
+    and its expected warnings, pinned line for line.
 - **The list you reorder is the list you edit.** `StageList.tsx` is one column of
   `StageCard.tsx`s: the header is the card collapsed (grip, position, title,
   description, ▲/▼, ×) and expanding it drops the whole argument editor in
@@ -776,15 +806,26 @@ no external system — the only server-side state is saved pipeline documents.
   with a single branch, since that is what is on screen; `parse.ts` reads such a
   block back into one box (a branch with several steps, or `failFast`, is
   imported with a warning). Records from when it was a per-card `parallel`
-  flag are migrated by `toDraft` (`migrateParallel`). `populateEnvVars` never
-  joins a box — it sets the env everything after it reads.
+  flag are migrated by `toDraft` (`migrateParallel`). `UNBOXED_STEPS` never
+  join a box: `populateEnvVars` sets the env everything after it reads, and a
+  Groovy card is statements, not a branch.
+- **Groovy between the stages is a card** (`step: "groovy"`, `callStyle:
+  "raw"`, one `code` argument of kind `code`), in the palette like any step.
+  Its text is written verbatim where the card sits — an `if` around a stage, a
+  helper's call, a `def` the next stages read — so a pipeline is not limited to
+  what the library's steps say. Its header shows its first line, and it opens
+  on add, since there is nothing to it until something is typed. `groovy` is
+  the builder's own name, so `parse.ts` never reads a `groovy(…)` call as one.
 - **Top-level Groovy** (`JenkinsfilePipeline.groovy`, `GroovyBlock.tsx`) is
   written as typed between the parameters and the first stage: `def`
   variables a shell command interpolates (`${tag}` — `quote` already keeps
   such a string a GString) and functions a Closure command calls. Import lifts
   every top-level `def`/`import`/`@Field` statement into it (`splitDefs`),
-  function bodies included, before the step calls are read. `usedParamNames`
-  scans it too.
+  function bodies included, before the step calls are read — and a declaration
+  by type (`final String X = …`, `String stamp() {`) too — except a variable
+  assigned *after* a stage, which stays where it was as a Groovy card: lifted,
+  it would run before the stage it reads. A function or `@Field` is hoisted by
+  Groovy anyway, so it is lifted. `usedParamNames` scans it too.
 - **`sleep` is Jenkins' own step** (`builtin: true` in the catalog), the one
   step with no `genStage` arguments.
 - **Drag and drop is native HTML5**, no library — three handlers over an array
@@ -949,7 +990,12 @@ namespace whose name has a `/`. `values/` may hold grouping sub-folders
 `ArgocdNamespace.groups` remembers each release's sub-folder so a rebuild
 writes it back in place rather than beside it (two files of one name in a
 folder are two Applications of one name). `importTree` finds folders by their
-`defaults.yaml` or `values/`, anywhere below the root.
+`defaults.yaml` or `values/`, anywhere below the root. **`base/` mirrors that
+sub-folder** — the chart reads `base/group1/ms1.yaml` for
+`<ns>/values/group1/ms1.yaml` — so `importTree` reads a grouped base file as
+its release and `buildTree` writes base back into the group (`releaseGroup`:
+the first namespace that names one). Flat base beside grouped values fails to
+render. The microservice grid boxes each group under its name.
 
 **The root Application/ApplicationSet are not generated.** They are set up once
 by whoever runs ArgoCD, not per tree. `importTree` still reads the repos out of
@@ -962,6 +1008,16 @@ defaults. `findEnvSpecific` therefore skips a templated value, and
 `checkValues` flags a `{{` tpl would mangle (`{{ define`, or a field that is not
 the release's own like Alertmanager's `{{ .CommonLabels }}`) with the escape to
 use instead.
+
+**A template reads as the blank it is.** Keys are `tpl`'d too, so a converted
+base has `volumes: { settings-{{ .Values.color }}: … }`, and CronJobs, sidecars
+and ConfigMaps named the same way. `templates.ts` resolves `{{ .Values.x }}` /
+`{{ .Release.Namespace }}` against every folder the open file renders for
+(`TemplateScopes`, set in `ArgocdView`: each running folder's defaults plus its
+own override; one folder when editing an override). An entry title shows the
+placeholder as a chip (`settings-[color]`), and a templated field gets a quiet
+`→ settings-black · settings-yellow` line under it — amber naming the folders
+that leave the value unset, which the chart would render empty.
 
 `checkValues` carries the converter's per-release findings from that merge
 (nodePort on ClusterIP, emptyDir without sizeLimit, a PVC `volumeName` with no
@@ -1071,6 +1127,11 @@ defaults of its own.
   under Storage, and a row added out of sight is a press that seems to do
   nothing. The `mountPath` is deliberately left empty: where it lands is the one
   thing nobody can guess, and it is the next field on screen.
+- **A ConfigMap or Secret takes files.** Dropped on an entry, or picked with
+  **From files…** under the list (`FieldSpec.fromFiles`), each file becomes a
+  ConfigMap row (`fileName`/`fileBody`, as text) or a Secret `data` line
+  (`name=<base64>`, so binary files survive). A new entry is named after the
+  first file.
 - **A column that names another feature's object suggests them.**
   `RowCol.suggest` returns the feature whose row names to offer — a mount offers
   this release's volumes, a volume's source offers its ConfigMaps, Secrets or
@@ -1244,13 +1305,24 @@ defaults of its own.
   the chart's own emitter (stable key order, block scalars, `{}` for the empty
   ones); parsing goes through the `yaml` package, because a hand-rolled parser
   is the kind of 85%-correct thing that fails silently — on values that are
-  about to be deployed.
+  about to be deployed. **The writer writes what it is given**, `""`, `{}` and
+  `null` included, below the top level: those came out of a repo file (an empty
+  ConfigMap still deploys, `node-role…/worker: ""` still schedules). Dropping an
+  unset *form field* is each `emit`'s job (`put`/`some`/`nz`). It used to
+  `clean()` every nested map, and a repo read and written straight back showed
+  hundreds of edits nobody made.
 - **Import keeps what it cannot show.** `import.ts` reloads each feature through
   its `load` (or generically, from each field's `path`), then re-emits and
-  subtracts: whatever the re-emit fails to reproduce goes into `extraValues`
-  — merged last, so it wins — and is named in the warnings the dialog shows
-  before anything is replaced. `jenkinsfile/parse.ts`'s rule, and the
-  round-trip is what `import.test.ts` pins.
+  subtracts: whatever the re-emit fails to reproduce under a key a *switched-on*
+  feature owns goes into that feature's **Other settings** (`__more`, the last
+  field every feature gets from `F`, deep-merged over its emit by
+  `buildValues`) — so a live Route's `serviceName` or a probe's `scheme: HTTP`
+  shows on the card it belongs to, with no warning. Anything else goes into
+  `extraValues` — merged last, so it wins — and is named in the warnings the
+  dialog shows before anything is replaced. `jenkinsfile/parse.ts`'s rule, and
+  the round-trip is what `import.test.ts` pins. Every warning is listed, never
+  the first few: the connect dialog scrolls, and a Pull/Convert leaves the full
+  list under the repository panel until dismissed.
 - **Every `mapOf` has a `load` that inverts it.** Seventeen features keep their
   value as a `name`-keyed map edited as rows, and a row is exactly what a
   field's `path` cannot read back — so a pull ticked ConfigMaps, Volumes,
@@ -1471,6 +1543,12 @@ per-module choices:
   a `?` inside a row that is itself a button would be a button inside a button.
   That last rule is why the `?` sits *beside* a label rather than inside it, and
   why `Help`'s own click handler calls `preventDefault`/`stopPropagation`.
+- **The red banner at the top is for failures only** — a save, list or
+  delete the server refused. Warnings from a pull or convert, and a repo that
+  could not be read, are already said in place under the repository panel;
+  repeating them in red read as the page being broken. Autosave shows nothing
+  while it works (it flashed "Saving…" on every keystroke) and only
+  *Not saved* when it fails.
 - **The topbar is `<h1>` then actions, primary last.** "New" is
   `className="primary"` with `<Plus size={18} />` in every module — Tickets,
   Artifactory ("New Job"), Whitening, AI ("New chat") and Jenkinsfile. Secondary

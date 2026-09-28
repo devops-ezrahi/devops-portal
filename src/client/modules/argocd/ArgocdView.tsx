@@ -9,6 +9,7 @@ import {
   Plus,
   Trash2,
   TriangleAlert,
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ListSizeToggle } from "../../ListSizeToggle";
@@ -29,7 +30,7 @@ import { buildValues, extraValuesError, parseValues } from "./build";
 import { checkValues } from "./checks";
 import { BY_ID, featureForPath } from "./catalog";
 import { deepMerge, obj, shadowing, subtractDefaults } from "./values";
-import { buildTree, slug } from "./tree";
+import { buildTree, releaseGroup, runs, slug } from "./tree";
 import {
   SHARED_RELEASE_NAME,
   isEmptyTree,
@@ -67,12 +68,14 @@ import { TreeList } from "./components/TreeList";
 import type { FeatureState } from "./catalog";
 import type { ImportResult } from "./import";
 import { importTree, type TreeImport } from "./importTree";
+import { TemplateScopes, type TemplateScope } from "./templates";
 import { toYaml } from "./yaml";
 
 /** The tree the Refresh button (and a page reload) reopens. */
 const LAST_OPENED_KEY = "argocd.lastOpened";
 /** Whether the "move to base" suggestions were folded away — per viewer, like the list size. */
 const SUGGESTIONS_KEY = "argocd.suggestions";
+const FOLDED_KEY = "argocd.folded";
 
 /** How long to sit on a change before writing it. One keystroke is not an edit. */
 const AUTOSAVE_MS = 800;
@@ -110,6 +113,8 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   const [naming, setNaming] = useState(false);
   /** Why the last Pull failed — shown on the repo panel, where the URL or branch can be fixed. */
   const [pullError, setPullError] = useState("");
+  /** Every warning from the last connect/pull/convert, in full — a toast only fits the first. */
+  const [notes, setNotes] = useState<{ from: string; items: string[] } | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
@@ -149,6 +154,39 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       return true;
     }
   });
+  /** Sections folded to their heading, per viewer — a long tree is organised by putting parts away. */
+  const [folded, setFolded] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(FOLDED_KEY) ?? "[]") as string[]);
+    } catch {
+      return new Set();
+    }
+  });
+  function toggleFold(section: string) {
+    setFolded((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(section)) next.add(section);
+      try {
+        localStorage.setItem(FOLDED_KEY, JSON.stringify([...next]));
+      } catch {
+        /* not remembered, still folded */
+      }
+      return next;
+    });
+  }
+  const sectionClass = (section: string) => `ag-section${folded.has(section) ? " folded" : ""}`;
+  const foldButton = (section: string, label: string) => (
+    <button
+      type="button"
+      className="ag-fold"
+      aria-expanded={!folded.has(section)}
+      aria-label={`${folded.has(section) ? "Show" : "Hide"} ${label}`}
+      title={folded.has(section) ? "Show" : "Hide"}
+      onClick={() => toggleFold(section)}
+    >
+      <ChevronDown size={14} aria-hidden="true" />
+    </button>
+  );
 
   function snapshot() {
     if (undo.current.at(-1) === draftRef.current) return;
@@ -268,6 +306,26 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   const extraError = extraValuesError(extraValues);
   const nsName = namespace?.name.trim() || "this namespace";
   const scopeLabel = editingDefaults ? `every microservice in ${nsName}` : layer === BASE ? "base" : nsName;
+  /**
+   * The folders the open file renders for, with the values its `{{ .Values.x }}`
+   * read there: every folder running this release for base, just the one for
+   * an override or a namespace's defaults.
+   */
+  const templateScopes = useMemo<TemplateScope[]>(() => {
+    const folders = namespace
+      ? [namespace]
+      : draft.namespaces.filter((ns) => release && !(ns.absent ?? []).includes(release.id));
+    return folders.map((ns) => {
+      const own = ns.releases.find((e) => e.release === release?.id);
+      return {
+        folder: ns.name.trim(),
+        values: deepMerge(
+          buildValues(ns.defaults?.features ?? {}, ns.defaults?.extraValues),
+          editingDefaults ? {} : buildValues(own?.features ?? {}, own?.extraValues)
+        ),
+      };
+    });
+  }, [namespace, draft.namespaces, release, editingDefaults]);
   /** This namespace's defaults as values — `<ns>/defaults.yaml`, layered over base. */
   const nsDefaultValues = useMemo(
     () => buildValues(namespace?.defaults?.features ?? {}, namespace?.defaults?.extraValues),
@@ -305,6 +363,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         /** A repository some namespace deploys — what base shows when the repository lives beside each tag. */
         let deployedRepo: unknown;
         draft.namespaces.forEach((ns, i) => {
+          if (!runs(ns, r.id)) return;
           const entry = ns.releases.find((e) => e.release === r.id);
           const override = entry ? buildValues(entry.features, entry.extraValues) : {};
           const nsDefaults = buildValues(ns.defaults?.features ?? {}, ns.defaults?.extraValues);
@@ -334,11 +393,12 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         return {
           id: r.id,
           name: r.name,
+          group: releaseGroup(draft, r.id) || undefined,
           image: String(shown.repository ?? deployedRepo ?? ""),
           tag: shown.tag ? String(shown.tag) : here ? null : undefined,
           resources,
           extras: [...extras].map(([kind, extra]) => ({ kind, ...extra })),
-          overrides: { count: overridden, total: draft.namespaces.length },
+          overrides: { count: overridden, total: draft.namespaces.filter((ns) => runs(ns, r.id)).length },
           envSpecific: env && { paths: env.paths, namespaces: env.namespaces },
         };
       }),
@@ -447,10 +507,11 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       .filter(([id, state]) => state.on && BY_ID[id]?.cluster)
       .map(([id]) => id);
     const clusterFeatures = clusterIds.map((id) => BY_ID[id].name);
-    if (clusterFeatures.length && draft.namespaces.length > 1)
+    const deployedIn = draft.namespaces.filter((ns) => runs(ns, release.id)).length;
+    if (clusterFeatures.length && deployedIn > 1)
       found.push({
         level: "warn",
-        text: `${clusterFeatures.join(", ")} are cluster-scoped, and this tree deploys ${release.name || "this release"} into ${draft.namespaces.length} namespaces — every one of them would own the same object.`,
+        text: `${clusterFeatures.join(", ")} are cluster-scoped, and this tree deploys ${release.name || "this release"} into ${deployedIn} namespaces — every one of them would own the same object.`,
         feature: clusterIds[0],
       });
     // Base values only an environment can answer. They used to be said only on
@@ -472,10 +533,11 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       });
     });
     return found;
-  }, [release, features, extraValues, layer, draft.namespaces.length, nsDefaultValues, envSpecific, namespace?.name]);
+  }, [release, features, extraValues, layer, draft.namespaces, nsDefaultValues, envSpecific, namespace?.name]);
 
   function handleOpen(saved: ArgocdTree) {
     undo.current = [];
+    setNotes(null);
     log("argocd", "opening tree", saved.id);
     localStorage.setItem(LAST_OPENED_KEY, saved.id);
     // Defaults used to be tree-wide; each namespace now takes a copy. A copied
@@ -501,6 +563,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
 
   function handleScratch() {
     undo.current = [];
+    setNotes(null);
     log("argocd", "new tree");
     setNewOpen(false);
     setPush({ kind: "idle" });
@@ -527,13 +590,12 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     const first = tree.releases.find((r) => r.name === imported.releases[0]?.name);
     if (first) setReleaseId(first.id);
     setLayer(BASE);
-    const notes = [
+    const items = [
       replaced.length ? `Replaced ${replaced.join(", ")} with the converted version.` : "",
-      ...imported.warnings.slice(0, 1),
-      ...reportWarnings.slice(0, 2),
+      ...imported.warnings,
+      ...reportWarnings,
     ].filter(Boolean);
-    const total = imported.warnings.length + reportWarnings.length;
-    if (notes.length) onError(`Converted${total ? ` with ${total} note(s)` : ""}. ${notes.join(" ")}`);
+    setNotes(items.length ? { from: "the convert", items } : null);
   }
 
   /**
@@ -575,8 +637,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     persisted.current = "";
     setSaveState("idle");
     localStorage.removeItem(LAST_OPENED_KEY);
-    if (imported.warnings.length)
-      onError(`Imported with ${imported.warnings.length} warning(s). First: ${imported.warnings[0]}`);
+    setNotes(imported.warnings.length ? { from: "connecting", items: imported.warnings } : null);
   }
 
   /** Re-read the connected repo, replacing this tree's contents with what is in it. */
@@ -604,13 +665,11 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       }));
       setReleaseId(imported.releases[0]?.id ?? "");
       setLayer(BASE);
-      if (imported.warnings.length)
-        onError(`Pulled with ${imported.warnings.length} warning(s). First: ${imported.warnings[0]}`);
+      setNotes(imported.warnings.length ? { from: "the pull", items: imported.warnings } : null);
     } catch (err) {
       logError("argocd", "pull failed", err);
       const message = err instanceof Error ? err.message : "Could not read that repository";
       setPullError(message);
-      onError(message);
     } finally {
       setPulling(false);
     }
@@ -792,7 +851,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   /** A file pressed in the preview opens the scope that writes it. A repo-only file has none and just shows. */
   function openFile(path: string) {
     const bySlug = (s: string) => draft.releases.find((r) => slug(r.name) === s)?.id;
-    const base = /^base\/([^/]+)\.yaml$/.exec(path);
+    const base = /^base\/(?:.+\/)?([^/]+)\.yaml$/.exec(path);
     if (base) {
       const id = bySlug(base[1]);
       if (id) {
@@ -990,7 +1049,6 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         <h1>ArgoCD</h1>
         <div className="ag-topbar-actions">
           <span className={`ag-save-state ${saveState}`} role="status">
-            {saveState === "saving" && "Saving…"}
             {saveState === "error" && (
               <>
                 <TriangleAlert size={15} aria-hidden="true" /> Not saved
@@ -1095,12 +1153,32 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 gitUrl={gitUrl}
                 releaseCount={draft.releases.length}
               />
+              {notes && (
+                <details open className="ag-import-warnings ag-notes">
+                  <summary>
+                    {notes.items.length} warning(s) from {notes.from}
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label="Dismiss the warnings"
+                      onClick={() => setNotes(null)}
+                    >
+                      <X size={15} aria-hidden="true" />
+                    </button>
+                  </summary>
+                  <ul>
+                    {notes.items.map((w) => (
+                      <li key={w}>{w}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
             </div>
             {/* Namespaces first, microservices second. The namespace is the
                 wider choice — it says which environment everything below is
                 about — and a microservice card read differently depending on a
                 layer selected further down the page. */}
-            <div className="ag-section">
+            <div className={sectionClass("namespaces")}>
               {/* Renamed and removed on the tile itself. The strip that used to
                   do both sat under the grid and acted on whatever was selected,
                   so the name being typed was one row away from the tile showing
@@ -1124,6 +1202,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 onReorder={reorderNamespaces}
                 heading={
                   <h3 className="ag-grid-head">
+                    {foldButton("namespaces", "namespaces")}
                     Namespaces
                     <Help label="a namespace">
                       <p>Which layer the form below edits: the shared base, or one namespace's overrides.</p>
@@ -1136,10 +1215,11 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
               />
             </div>
 
-            <div className="ag-section">
+            <div className={sectionClass("microservices")}>
               <ReleaseGrid
                 heading={
                   <h3 className="ag-grid-head">
+                    {foldButton("microservices", "microservices")}
                     Microservices
                     <Help label="a microservice card">
                       <p>One card per microservice, listing the Kubernetes objects it puts in the cluster.</p>
@@ -1225,9 +1305,10 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
             </div>
 
             {(release || editingDefaults) && (
-              <div className="ag-section">
+              <div className={sectionClass("editor")}>
                 <div className="ag-scope-actions">
                   <h3 className="ag-grid-head">
+                    {foldButton("editor", "the values editor")}
                     {editingDefaults
                       ? `${nsName} defaults`
                       : layer === BASE
@@ -1263,6 +1344,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 </div>
 
 
+                <TemplateScopes.Provider value={templateScopes}>
                 <FeatureEditor
                   // Remounted per scope, so which categories are open is
                   // decided by what that layer actually holds.
@@ -1285,10 +1367,11 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   onChange={setFeatures}
                   onExtraChange={setExtra}
                 />
+                </TemplateScopes.Provider>
               </div>
             )}
 
-            <div className="ag-section">
+            <div className={sectionClass("files")}>
               {problems.length > 0 && (
                 <ul className="ag-problems">
                   {problems.map((p) => (
@@ -1312,6 +1395,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 </ul>
               )}
               <FilePreview
+                fold={foldButton("files", "the files")}
                 files={files}
                 onDownload={handleDownload}
                 repo={repoFiles}

@@ -1,9 +1,10 @@
 import { Help } from "../../../Help";
-import { Check, KeyRound, Link2, Plus, X } from "lucide-react";
-import { useId, type ReactNode } from "react";
-import type { FieldSpec, KvPair, RowCol } from "../catalog";
+import { Check, FileUp, KeyRound, Link2, Plus, X } from "lucide-react";
+import { useContext, useId, useState, type DragEvent, type ReactNode } from "react";
+import type { FieldSpec, KvPair, PickedFile, RowCol } from "../catalog";
 import type { Values } from "../values";
 import { highlightFile } from "../highlight";
+import { hasTemplate, resolveTemplate, templateParts, TemplateScopes } from "../templates";
 
 /**
  * One field of one feature, rendered from its `FieldKind` — the `ArgField.tsx`
@@ -144,7 +145,8 @@ function Control({
   switch (spec.kind) {
     case "boolean":
       return (
-        <input id={id} type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} />
+        // Unset shows the chart's own default, as a select does below.
+        <input id={id} type="checkbox" checked={!!(value ?? spec.def)} onChange={(e) => onChange(e.target.checked)} />
       );
     case "number":
       return (
@@ -172,6 +174,7 @@ function Control({
     case "text":
     case "yaml":
       return (
+        <>
         <textarea
           id={id}
           className="ag-textarea"
@@ -183,6 +186,8 @@ function Control({
           spellCheck={false}
           onChange={(e) => onChange(e.target.value)}
         />
+        <Resolves value={value} />
+        </>
       );
     case "kv":
       return <KvRows rows={(value as KvPair[]) ?? []} onChange={onChange} bare={extras.bare} noAdd={extras.noAdd} />;
@@ -192,13 +197,16 @@ function Control({
       );
     default:
       return (
-        <input
-          id={id}
-          type="text"
-          value={String(value ?? "")}
-          placeholder={spec.placeholder}
-          onChange={(e) => onChange(e.target.value)}
-        />
+        <>
+          <input
+            id={id}
+            type="text"
+            value={String(value ?? "")}
+            placeholder={spec.placeholder}
+            onChange={(e) => onChange(e.target.value)}
+          />
+          <Resolves value={value} />
+        </>
       );
   }
 }
@@ -256,6 +264,20 @@ function entryTitle(spec: FieldSpec, row: Values, index: number): string {
   return value || `#${index + 1}`;
 }
 
+/** Each file's text and its bytes as base64 — a Secret wants the one, a ConfigMap the other. */
+async function readFiles(files: FileList | File[]): Promise<PickedFile[]> {
+  return Promise.all(
+    [...files].map(async (file) => {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = "";
+      for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      return { name: file.name, text: new TextDecoder().decode(bytes), base64: btoa(binary) };
+    })
+  );
+}
+
+const carriesFiles = (e: DragEvent) => e.dataTransfer.types.includes("Files");
+
 /** A list of maps is a list of boxes — three bare inputs say nothing about which is which. */
 function ObjectRows({
   spec,
@@ -274,14 +296,46 @@ function ObjectRows({
   const list = Array.isArray(rows) ? rows : [];
   const shown = list.length || bare ? list : [{}];
   const set = (i: number, patch: Values) => onChange(shown.map((r, n) => (n === i ? { ...r, ...patch } : r)));
+  const fromFiles = spec.fromFiles;
+  /** Which entry a file is being dragged over; `shown.length` is the list itself (a new entry). */
+  const [dropAt, setDropAt] = useState<number | null>(null);
+  // Onto entry `i` replaces that entry with what it becomes; past the end appends.
+  const takeFiles = async (i: number, files: FileList | File[]) => {
+    if (!fromFiles || !files.length) return;
+    const made = fromFiles(shown[i] ?? {}, await readFiles(files));
+    onChange([...shown.slice(0, i), ...made, ...shown.slice(i + 1)]);
+  };
+  const dropProps = (i: number) =>
+    fromFiles
+      ? {
+          onDragOver: (e: DragEvent) => {
+            if (!carriesFiles(e)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            setDropAt(i);
+          },
+          onDragLeave: (e: DragEvent) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropAt(null);
+          },
+          onDrop: (e: DragEvent) => {
+            if (!carriesFiles(e)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            setDropAt(null);
+            void takeFiles(i, e.dataTransfer.files);
+          },
+        }
+      : {};
   return (
-    <div className="ag-rows">
+    <div className={`ag-rows${dropAt === shown.length ? " ag-drop" : ""}`} {...dropProps(shown.length)}>
       {shown.map((row, i) => (
-        <div className="ag-entry" key={i}>
+        <div className={`ag-entry${dropAt === i ? " ag-drop" : ""}`} key={i} {...dropProps(i)}>
           <div className="ag-entry-head">
             {/* An entry names itself once it has a name — a column of
                 "Variables 1, Variables 2" says nothing about which is which. */}
-            <span className="ag-entry-title">{entryTitle(spec, row, i)}</span>
+            <span className="ag-entry-title">
+              <TemplateText text={entryTitle(spec, row, i)} />
+            </span>
             {/* A claim nothing mounts is storage the pod never sees, and wiring
                 it up by hand means a volume in one feature and a mount in
                 another. Once taken the button stays, disabled, saying so —
@@ -340,12 +394,15 @@ function ObjectRows({
                   onChange={(v) => set(i, { [col.key]: v })}
                 />
               ) : col.kind === "text" && col.lang ? (
-                <CodeArea
-                  lang={col.lang(row)}
-                  value={String(row[col.key] ?? "")}
-                  placeholder={col.placeholder}
-                  onChange={(v) => set(i, { [col.key]: v })}
-                />
+                <>
+                  <CodeArea
+                    lang={col.lang(row)}
+                    value={String(row[col.key] ?? "")}
+                    placeholder={col.placeholder}
+                    onChange={(v) => set(i, { [col.key]: v })}
+                  />
+                  <Resolves value={row[col.key]} />
+                </>
               ) : col.kind === "text" ? (
                 <textarea
                   className="ag-textarea"
@@ -356,13 +413,17 @@ function ObjectRows({
                   onChange={(e) => set(i, { [col.key]: e.target.value })}
                 />
               ) : (
-                <Suggested
-                  col={col}
-                  listId={`${listId}-${col.key}`}
-                  options={col.suggest && rowsFor ? rowsFor(col.suggest(row)) : []}
-                  value={String(row[col.key] ?? "")}
-                  onChange={(v) => set(i, { [col.key]: v })}
-                />
+                <>
+                  <Suggested
+                    col={col}
+                    listId={`${listId}-${col.key}`}
+                    options={col.suggest && rowsFor ? rowsFor(col.suggest(row)) : []}
+                    value={String(row[col.key] ?? "")}
+                    onChange={(v) => set(i, { [col.key]: v })}
+                  />
+                  {/* The entry's title already shows its name with the chip. */}
+                  {col.key !== "name" && <Resolves value={row[col.key]} />}
+                </>
               )}
             </label>
           ))}
@@ -372,6 +433,22 @@ function ObjectRows({
         <button type="button" className="ghost-button ag-add" onClick={() => onChange([...shown, {}])}>
           <Plus size={15} aria-hidden="true" /> {spec.addLabel ?? "Add"}
         </button>
+      )}
+      {!noAdd && fromFiles && (
+        <label className="ghost-button ag-add">
+          <FileUp size={15} aria-hidden="true" /> From files…
+          <input
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              // An untouched placeholder entry is filled rather than left blank above the new one.
+              const blank = shown.length === 1 && !list.length;
+              void takeFiles(blank ? 0 : shown.length, [...(e.target.files ?? [])]);
+              e.target.value = "";
+            }}
+          />
+        </label>
       )}
     </div>
   );
@@ -478,5 +555,64 @@ function Suggested({
         </datalist>
       )}
     </>
+  );
+}
+
+/**
+ * A name with its `{{ .Values.color }}` parts as small chips — `certs-[color]` —
+ * so a templated key reads as a name with a blank in it, not a wall of braces.
+ */
+export function TemplateText({ text }: { text: string }) {
+  const scopes = useContext(TemplateScopes);
+  if (!hasTemplate(text)) return <>{text}</>;
+  const shown = [...new Set(resolveTemplate(text, scopes).flatMap((r) => (r.text ? [r.text] : [])))];
+  return (
+    <span title={shown.length ? `Per folder: ${shown.join(", ")}` : undefined}>
+      {templateParts(text).map((part, i) =>
+        typeof part === "string" ? (
+          part
+        ) : (
+          <span key={i} className="ag-tpl-chip">
+            {part.ref === "Release.Namespace" ? "namespace" : part.ref.replace(/^Values\./, "")}
+          </span>
+        )
+      )}
+    </span>
+  );
+}
+
+/**
+ * What a templated value becomes in each folder it deploys to, under the field:
+ * `→ settings-black · settings-yellow`. A folder whose layers leave the value
+ * unset is named in amber — the chart would render that part empty there.
+ */
+function Resolves({ value }: { value: unknown }) {
+  const scopes = useContext(TemplateScopes);
+  // A file's contents: the first line that holds a placeholder, which is the one worth reading.
+  const text = typeof value === "string" ? (value.split("\n").find(hasTemplate) ?? "") : "";
+  if (!scopes.length || !text) return null;
+  const all = resolveTemplate(text, scopes);
+  const byText = new Map<string, string[]>();
+  all.forEach((r) => r.text !== undefined && byText.set(r.text, [...(byText.get(r.text) ?? []), r.folder]));
+  const missing = all.filter((r) => r.missing);
+  return (
+    <span className="ag-tpl-resolves">
+      {byText.size > 0 && (
+        <span>
+          <span aria-hidden="true">→ </span>
+          {[...byText].map(([out, folders], i) => (
+            <span key={out} title={folders.join(", ")}>
+              {i > 0 && " · "}
+              <code>{out}</code>
+            </span>
+          ))}
+        </span>
+      )}
+      {missing.length > 0 && (
+        <span className="ag-tpl-missing">
+          {missing[0].missing} is not set in {missing.map((r) => r.folder).join(", ")}
+        </span>
+      )}
+    </span>
   );
 }

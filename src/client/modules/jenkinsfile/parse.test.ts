@@ -116,11 +116,10 @@ describe("parseJenkinsfile", () => {
       genStage(title: 'Build', image: 'ubi8', somethingNew: 'x')
       deployToMars(title: 'Launch')
     `);
-    expect(pipeline.stages).toHaveLength(1);
-    expect(warnings).toEqual([
-      "genStage: ignored an argument the builder does not know — somethingNew",
-      "Skipped deployToMars() — not a step in the shared library.",
-    ]);
+    // A call the library does not have is still Groovy: it is kept, in place.
+    expect(pipeline.stages.map((s) => s.step)).toEqual(["genStage", "groovy"]);
+    expect(pipeline.stages[1].args.code).toBe("deployToMars(title: 'Launch')");
+    expect(warnings).toEqual(["genStage: ignored an argument the builder does not know — somethingNew"]);
   });
 
   it("names a declarative pipeline for what it is instead of importing nothing", () => {
@@ -134,7 +133,7 @@ describe("parseJenkinsfile", () => {
   });
 
   it("says what it knows when the file has no library steps at all", () => {
-    const { pipeline, warnings } = parseJenkinsfile("echo 'nothing here'");
+    const { pipeline, warnings } = parseJenkinsfile("@Library('jenkins-k8s-shared-library') _\n// nothing here\n");
     expect(pipeline.stages).toEqual([]);
     expect(warnings[0]).toContain("No library steps found");
   });
@@ -163,8 +162,13 @@ describe("populateEnvVars", () => {
     expect(envVarsOf("populateEnvVars(envVars: [SERVICE: 'billing', TEAM_NAME: 'platform'])").envVars).toEqual(expected);
   });
 
-  it("says so when the map is a variable it cannot see into", () => {
-    expect(envVarsOf("populateEnvVars(vars)").warnings.join()).toMatch(/not a literal map/);
+  // Seen live: `def envs = [...]` at the top, then populateEnvVars(envs).
+  it("keeps a variable as the Groovy it is, and writes it back", () => {
+    const text = "def envs = [SERVICE: 'billing']\n\npopulateEnvVars(envs)";
+    const { pipeline, warnings } = parseJenkinsfile(text);
+    expect(warnings).toEqual([]);
+    expect(pipeline.stages[0].args.envVars).toBe("envs");
+    expect(toGroovy(pipeline)).toContain("populateEnvVars(envs)");
   });
 });
 

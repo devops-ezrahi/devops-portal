@@ -2,7 +2,7 @@ import { buildValues } from "./build";
 import { toYaml } from "./yaml";
 import { deepMerge, subtractChartDefaults } from "./values";
 import { FEATURES, defaultValues } from "./catalog";
-import type { ArgocdTree } from "../../../server/types";
+import type { ArgocdNamespace, ArgocdTree } from "../../../server/types";
 import type { Values } from "./values";
 
 /** What every feature writes when merely switched on — the chart's own answers. */
@@ -73,6 +73,16 @@ export function slug(name: string): string {
   );
 }
 
+/**
+ * A release's grouping sub-folder. The chart reads `base/<group>/<file>` for
+ * `<ns>/values/<group>/<file>` — base mirrors values — so every folder must keep
+ * a release in the same one, and the first namespace that names it is the answer.
+ */
+// ponytail: a release no namespace runs has no group to mirror, so its base file is flat.
+export function releaseGroup(tree: Pick<ArgocdTree, "namespaces">, releaseId: string): string {
+  return tree.namespaces.map((ns) => ns.groups?.[releaseId]).find(Boolean) ?? "";
+}
+
 /** A values file always exists, even when it is empty: a missing valueFile fails the whole render. */
 function valuesFile(path: string, doc: Values, header: string, note: string): GeneratedFile {
   const body = Object.keys(doc).length ? toYaml(doc, true) : "{}";
@@ -92,9 +102,10 @@ export function buildTree(tree: ArgocdTree): GeneratedFile[] {
   releases.forEach((r) => base.set(r.id, buildValues(r.features, r.extraValues)));
 
   releases.forEach((r) => {
+    const group = releaseGroup(tree, r.id);
     files.push(
       valuesFile(
-        `base/${slug(r.name)}.yaml`,
+        `base/${group ? `${group}/` : ""}${slug(r.name)}.yaml`,
         base.get(r.id) ?? {},
         `${HEADER}\n# ${r.name} — environment-agnostic values, shared by every namespace that runs it.`,
         "environment-agnostic"
@@ -130,7 +141,7 @@ export function buildTree(tree: ArgocdTree): GeneratedFile[] {
     );
 
     releases.forEach((release) => {
-      if (ns.absent?.includes(release.id)) return;
+      if (!runs(ns, release.id)) return;
       // The chain's own order: base, then this namespace's defaults over it.
       const below = deepMerge(base.get(release.id) ?? {}, nsDefaults);
       const doc = subtractChartDefaults(fragments.get(release.id) ?? {}, below, CHART_DEFAULTS);
@@ -147,4 +158,9 @@ export function buildTree(tree: ArgocdTree): GeneratedFile[] {
   });
 
   return files;
+}
+
+/** Whether `ns` deploys the release — every one in the tree but its `absent` ones. */
+export function runs(ns: ArgocdNamespace, releaseId: string): boolean {
+  return !ns.absent?.includes(releaseId);
 }

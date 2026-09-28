@@ -627,7 +627,7 @@ describe("ArgocdView", () => {
     Element.prototype.scrollIntoView = scroll;
     const tree = saved({
       releases: [{ id: "r1", name: "storefront", features: { image: { on: true, v: { repository: "nginx", tag: "1.0.0" } } } }],
-      namespaces: [{ name: "prod", releases: [] }],
+      namespaces: [{ name: "dev", releases: [] }, { name: "prod", releases: [] }],
     });
     listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
     view();
@@ -714,7 +714,8 @@ describe("ArgocdView", () => {
     // Choosing Base leaves the defaults, which base does not have.
     fireEvent.click(card("Layers", /Base/));
     expect(screen.queryByRole("button", { name: /^prod defaults/ })).toBeNull();
-  });
+    // Many renders of the whole editor; ~6.5s on a Windows box, over the 5s default.
+  }, 15000);
 
   it("moves Defaults saved tree-wide onto each namespace", async () => {
     const tree = saved({

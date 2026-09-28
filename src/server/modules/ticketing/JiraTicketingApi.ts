@@ -1,7 +1,7 @@
 import { usernameFor } from "../../auth";
 import { describeError, log } from "../../log";
 import { getRequestType, validateRequestFields } from "./catalog";
-import { parsePriority } from "./priority";
+import { jiraPriorityName, parsePriority } from "./priority";
 import { mapInternalStatus } from "./status";
 import { canViewTicket } from "./visibility";
 import type {
@@ -380,7 +380,7 @@ export class JiraTicketingApi implements TicketingApi {
     // set. It is not on the appropriate screen"). So a rejected one is dropped,
     // the create retried, and the field set afterwards with a PUT, which goes
     // through the edit screen instead.
-    const optional: Record<string, unknown> = { priority: { name: input.priority } };
+    const optional: Record<string, unknown> = { priority: { name: jiraPriorityName[input.priority] } };
     if (impersonate) optional.reporter = { name: reporterName };
 
     const issueBody = (omit: Set<string>) =>

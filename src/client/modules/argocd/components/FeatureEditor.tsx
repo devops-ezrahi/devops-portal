@@ -1,6 +1,6 @@
 import { ArrowUpRight, ChevronDown, ChevronRight, Plus, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
-import { BY_ID, CATEGORIES, FEATURES, defaultValues, isRecord, primaryFields } from "../catalog";
+import { BY_ID, CATEGORIES, FEATURES, MORE_KEY, defaultValues, isRecord, primaryFields } from "../catalog";
 import { buildValues } from "../build";
 import { Help } from "../../../Help";
 import { FeatureField } from "./FeatureField";
@@ -499,7 +499,9 @@ function FeatureBody({
   // `enabled` is never offered: ticking the feature is what switches it on, and
   // its emit writes `enabled: true` regardless. It still *shows* when it holds
   // `false` — an imported document saying so must not become an invisible value.
-  const rest = fields.filter((f) => !isShown(f) && f.key !== "enabled");
+  // "Other settings" is where an import puts what the fields cannot hold — it
+  // shows once it holds something, and is not offered on every card before that.
+  const rest = fields.filter((f) => !isShown(f) && f.key !== "enabled" && f.key !== MORE_KEY);
 
   // What a lower layer puts in this file, drawn with the same controls as this
   // layer's own fields, disabled: the value reads exactly as it would to edit,
