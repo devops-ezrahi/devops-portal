@@ -9,6 +9,10 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
+      skip_tests:
+        description: "Skip npm test (the type-check and build still run)"
+        type: boolean
+        default: true
       all_deps:
         description: "Pack every dependency, not only the ones changed since the last release"
         type: boolean
@@ -32,12 +36,18 @@ jobs:
           cache: npm
 
       - run: npm ci
-      - run: npm test
+      # Off by default: a push skips the suite too, since it has no inputs to
+      # ask with. Untick skip_tests on a manual run to include it. The `==
+      # false` is deliberate — on a push `inputs.skip_tests` is null, and
+      # `!null` would run the tests the default says to skip.
+      - if: github.event_name == 'workflow_dispatch' && inputs.skip_tests == false
+        run: npm test
       - run: npm run build # tsc --noEmit && vite build
 
   # Release + image + whitening pack on push to main (stable) or dev
-  # (prerelease). Gated on `test` so a broken commit never gets released,
-  # published or handed off.
+  # (prerelease). Gated on `test`, so a commit that does not type-check or
+  # build never gets released, published or handed off — and one that fails
+  # the suite doesn't either, on a run that includes it.
   pack:
     needs: test
     if: github.event_name != 'pull_request'
