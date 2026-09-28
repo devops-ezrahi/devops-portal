@@ -1697,12 +1697,10 @@ npm test          # vitest run (unit + integration)
 npm run build     # tsc --noEmit + vite build (type-check included)
 ```
 
-**CI skips `npm test` by default.** The workflow's `skip_tests` input
-defaults to `true`, and a push (which has no inputs) follows that default, so
-a push to `main`/`dev` releases on the type-check and build alone. To include
-the suite, run the workflow by hand with *skip_tests* unticked
-(`gh workflow run CI --ref dev -f skip_tests=false`). Run it locally before
-merging — that is now the only place it runs unless asked.
+CI runs both on every push and gates the release on them. **The whitening
+pack ships no tests**: the pack step untracks `*.test.ts(x)`, `__tests__/` and
+`src/test/` (index only) before `pack.py`, which packs `git ls-files`. The
+build does not need them — nothing outside a test imports one.
 
 ## Versioning & releases
 
