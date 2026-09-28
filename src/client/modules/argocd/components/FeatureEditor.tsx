@@ -151,8 +151,36 @@ export function FeatureEditor({
     });
   }
 
+  /**
+   * For a feature the chart switches with `enabled`, the tick *is* that switch —
+   * including in a namespace override, where unticking something base turns on
+   * writes `enabled: false` here rather than dropping this layer's copy (which
+   * would leave base's `true` deploying behind an empty box).
+   */
+  function status(id: string) {
+    const state = features[id];
+    const switchable = BY_ID[id].fields.some((f) => f.key === "enabled");
+    const offHere = switchable && !!state?.on && state.v?.enabled === false;
+    // The nearest layer below that sets it decides what this one inherits.
+    const below = [...(inherited?.[id] ?? [])].reverse().find((i) => i.state.on);
+    const belowOn = !!below && (!switchable || below.state.v?.enabled !== false);
+    const checked = state?.on ? !offHere : switchable && belowOn;
+    return { switchable, offHere, belowOn, checked };
+  }
+
   function toggle(id: string, on: boolean) {
     const v = features[id]?.v ?? defaultValues(id);
+    const { switchable, belowOn } = status(id);
+    if (switchable && !on && belowOn) {
+      onChange({ ...features, [id]: { on: true, v: { ...v, enabled: false } } });
+      return;
+    }
+    // Re-ticking a feature that was only ever switched off here hands it back
+    // to the layer below, rather than leaving a copy that says what base says.
+    if (switchable && on && belowOn && JSON.stringify({ ...v, enabled: true }) === JSON.stringify({ ...defaultValues(id), enabled: true })) {
+      onChange({ ...features, [id]: { on: false, v: defaultValues(id) } });
+      return;
+    }
     // Ticking a feature on *is* `enabled: true`. A `false` left underneath from
     // an import or an earlier edit would otherwise emit a Service that renders
     // nothing — which is the opposite of what the tick just asked for.
@@ -286,7 +314,10 @@ export function FeatureEditor({
       {CATEGORIES.map((cat) => {
         const specs = OPTIONAL.filter((f) => f.cat === cat.id);
         if (!specs.length) return null;
-        const count = specs.filter((spec) => features[spec.id]?.on || inherited?.[spec.id]?.some((i) => i.state.on)).length;
+        const count = specs.filter((spec) => {
+          const s = status(spec.id);
+          return s.switchable ? s.checked : features[spec.id]?.on || s.belowOn;
+        }).length;
         const shown = open.has(cat.id);
         return (
           <section className="ag-category" key={cat.id} aria-label={cat.name}>
@@ -309,9 +340,10 @@ export function FeatureEditor({
               // unticked box beside a value that deploys is the invisible-value
               // problem `enabled` already taught this module about.
               const fromBelow = !!inherited?.[spec.id]?.some((i) => i.state.on);
+              const { switchable, offHere, belowOn, checked } = status(spec.id);
               return (
                 <div
-                  className={`ag-feature${on || fromBelow ? " on" : ""}${tone(spec.id)}`}
+                  className={`ag-feature${checked || (!switchable && fromBelow) ? " on" : ""}${offHere ? " off-here" : ""}${tone(spec.id)}`}
                   key={spec.id}
                   data-feature-card={spec.id}
                 >
@@ -321,13 +353,24 @@ export function FeatureEditor({
                       toggle the checkbox. */}
                   <div className="ag-feature-head">
                     <label className="ag-feature-label">
-                      <input type="checkbox" checked={on} onChange={(e) => toggle(spec.id, e.target.checked)} />
+                      <input type="checkbox" checked={checked} onChange={(e) => toggle(spec.id, e.target.checked)} />
                       <span className="ag-feature-name">{spec.name}</span>
                     </label>
                     <FeatureHelp spec={spec} />
-                    {light(spec)}
+                    {switchable && (checked || offHere) && (
+                      <StatusTag
+                        name={spec.name}
+                        state={offHere ? (belowOn ? "off-here" : "off") : on ? "on" : "inherited"}
+                      />
+                    )}
+                    {!offHere && light(spec)}
                   </div>
-                  {(on || fromBelow) && (
+                  {offHere ? (
+                    <p className="ag-off-note">
+                      Not deployed{isBase ? "" : " in this namespace"} — this file sets <code>enabled: false</code>. Tick it
+                      to turn it back on.
+                    </p>
+                  ) : (checked || (!switchable && fromBelow)) && (
                     <FeatureBody
                       spec={spec}
                       state={state}
@@ -426,6 +469,25 @@ function OverrideLight({
           Move out of defaults
         </button>
       )}
+    </Help>
+  );
+}
+
+const STATUS = {
+  on: { text: "on", help: "Switched on in this file." },
+  inherited: { text: "on · inherited", help: "Switched on by a layer below — nothing here says so. Untick to turn it off here only." },
+  "off-here": {
+    text: "off here",
+    help: "A layer below switches this on; this file deliberately sets enabled: false, so it is not deployed here. Tick to take the layer below's answer again.",
+  },
+  off: { text: "off", help: "This file sets enabled: false, so it is not deployed." },
+} as const;
+
+/** Whether a switchable feature deploys here, and who decided — so off is a choice you can see, not a missing tick. */
+function StatusTag({ name, state }: { name: string; state: keyof typeof STATUS }) {
+  return (
+    <Help label={`${name} status`} trigger={<span className={`ag-status-tag ${state}`}>{STATUS[state].text}</span>}>
+      <p>{STATUS[state].help}</p>
     </Help>
   );
 }

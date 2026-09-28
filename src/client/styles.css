@@ -5107,6 +5107,20 @@ input.jf-title {
 
 /* What a card is warning about is the card itself, outlined — worst first. */
 .ag-feature.overridden { border-color: #e2883c }
+/* Switched off on purpose: dashed and dimmed, still a decision someone made. */
+.ag-feature.off-here { border: 1px dashed #8a97a0; background: #0c1114 }
+.ag-feature.off-here .ag-feature-name { color: #8a97a0; text-decoration: line-through }
+.ag-off-note { margin: 6px 0 0; font-size: 12px; color: #8a97a0 }
+.ag-status-tag {
+  border: 1px solid #20c7bd66;
+  border-radius: 999px;
+  padding: 0 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #20c7bd;
+}
+.ag-status-tag.inherited { border-style: dashed; color: #7fcfc9 }
+.ag-status-tag.off, .ag-status-tag.off-here { border-color: #8a97a0; color: #c3ccd2 }
 .ag-feature.has-warn { border-color: #e0aa54 }
 .ag-feature.has-bad { border-color: #ff8d95 }
 .ag-category-head.overridden { box-shadow: inset 3px 0 0 #e2883c }
