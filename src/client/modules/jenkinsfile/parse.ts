@@ -627,7 +627,9 @@ export function splitDefs(src: string): { defs: string; rest: string } {
  */
 export function parseJenkinsfile(text: string): ImportResult {
   const warnings: string[] = [];
-  const src = stripComments(text);
+  // A file saved on Windows carries \r\n, and every scan below splits on \n —
+  // the \r then rode along into commands, Groovy cards and the round trip.
+  const src = stripComments(text.replace(/\r\n?/g, "\n"));
   const pipeline = newPipeline();
 
   const library = /@Library\s*\(\s*(['"])([^'"]*)\1\s*\)/.exec(src);

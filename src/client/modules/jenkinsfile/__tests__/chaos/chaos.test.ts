@@ -110,6 +110,15 @@ describe("the chaos Jenkinsfile", () => {
   });
 });
 
+describe("a file saved on Windows", () => {
+  it("imports exactly as the same file with \\n line endings", () => {
+    const text = fixture("scripted.Jenkinsfile").replace(/\r\n/g, "\n");
+    const crlf = parseJenkinsfile(text.replace(/\n/g, "\r\n"));
+    expect(crlf).toEqual({ ...parseJenkinsfile(text), pipeline: expect.anything() });
+    expect(toGroovy(crlf.pipeline)).toBe(toGroovy(parseJenkinsfile(text).pipeline));
+  });
+});
+
 describe("the declarative chaos file", () => {
   it("says what it is, and which library steps are inside it", () => {
     const { pipeline, warnings } = parseJenkinsfile(fixture("declarative.Jenkinsfile"));
