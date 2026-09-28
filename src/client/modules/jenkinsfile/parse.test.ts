@@ -116,11 +116,10 @@ describe("parseJenkinsfile", () => {
       genStage(title: 'Build', image: 'ubi8', somethingNew: 'x')
       deployToMars(title: 'Launch')
     `);
-    expect(pipeline.stages).toHaveLength(1);
-    expect(warnings).toEqual([
-      "genStage: ignored an argument the builder does not know — somethingNew",
-      "Skipped `deployToMars(title: 'Launch')` — not a step in the shared library.",
-    ]);
+    // A call the library does not have is still Groovy: it is kept, in place.
+    expect(pipeline.stages.map((s) => s.step)).toEqual(["genStage", "groovy"]);
+    expect(pipeline.stages[1].args.code).toBe("deployToMars(title: 'Launch')");
+    expect(warnings).toEqual(["genStage: ignored an argument the builder does not know — somethingNew"]);
   });
 
   it("names a declarative pipeline for what it is instead of importing nothing", () => {

@@ -349,7 +349,8 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
   ]);
 
   function handleAddStage(step: string, group?: string) {
-    const stage = createStage(step);
+    // A Groovy card is nothing until something is typed into it, so it opens.
+    const stage = step === "groovy" ? { ...createStage(step), collapsed: false } : createStage(step);
     log("jenkinsfile", "adding stage", step, stage.id, group ?? "");
     setDraft((prev) => {
       // populateEnvVars is a preamble wherever it is put, so it goes to the front —

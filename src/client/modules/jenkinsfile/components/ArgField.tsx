@@ -5,6 +5,7 @@ import { KIND_LABEL, type ArgSpec, type ObjectField } from "../catalog";
 import { closureOf, pairsOf, type MapPairs } from "../pipeline";
 import type { PickableImage } from "../api";
 import { ImagePicker } from "./ImagePicker";
+import { GroovyEditor } from "./GroovyBlock";
 
 type Props = {
   spec: ArgSpec;
@@ -122,6 +123,17 @@ export function ArgField({ spec, value, stepDefault, idPrefix, required, stashNa
       )}
 
       {spec.kind === "commands" && <Commands spec={spec} id={id} value={value} onChange={onChange} />}
+
+      {spec.kind === "code" && (
+        <GroovyEditor
+          id={id}
+          label={spec.label ?? spec.name}
+          autoFocus={!value}
+          placeholder={"if (params.TARGET_ENV == 'prod') {\n    genStage(title: 'Deploy', image: 'kubectl', commands: ['./deploy.sh'])\n}"}
+          value={String(value ?? "")}
+          onChange={onChange}
+        />
+      )}
 
       {spec.kind === "stringList" &&
         (spec.pickFrom === "stashNames" ? (

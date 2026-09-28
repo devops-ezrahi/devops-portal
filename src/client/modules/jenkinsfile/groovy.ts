@@ -1,4 +1,4 @@
-import { stepSpec, type ArgKind, type ArgSpec } from "./catalog";
+import { UNBOXED_STEPS, stepSpec, type ArgKind, type ArgSpec } from "./catalog";
 import { closureOf, isEmptyArg, linesOf, pairsOf, type DraftPipeline } from "./pipeline";
 import { PARAM_TYPES } from "./params";
 import type { JenkinsfileParam, JenkinsfileStage } from "../../../server/types";
@@ -84,6 +84,9 @@ function renderValue(kind: ArgKind, value: unknown, indent: string): string {
       // Emitted raw — the point of the field is to write `params.skipImage`, not
       // the string "params.skipImage". Older records hold a real boolean here.
       return typeof value === "boolean" ? String(value) : String(value).trim();
+    case "code":
+      // Groovy as typed; only the blank lines around it are where the cursor stopped.
+      return String(value).replace(/^\s*\n/, "").trimEnd();
     case "boolean":
       return value ? "true" : "false";
     case "integer":
@@ -131,6 +134,7 @@ function setArgs(stage: JenkinsfileStage): { spec: ArgSpec; value: unknown }[] {
 
 export function stageToGroovy(stage: JenkinsfileStage): string {
   const args = setArgs(stage);
+  if (stepSpec(stage.step)?.callStyle === "raw") return args.length ? renderValue(args[0].spec.kind, args[0].value, "") : "";
   if (args.length === 0) return `${stage.step}()`;
 
   // `bare` steps take their one argument as the whole call, with no key in
@@ -174,8 +178,7 @@ export function parallelGroups(stages: JenkinsfileStage[]): JenkinsfileStage[][]
   const groups: JenkinsfileStage[][] = [];
   for (const stage of stages) {
     const last = groups[groups.length - 1];
-    // populateEnvVars never races: it sets the env everything after it reads.
-    const group = stage.step === "populateEnvVars" ? undefined : stage.group;
+    const group = UNBOXED_STEPS.includes(stage.step) ? undefined : stage.group;
     if (group && last?.[0].group === group) last.push(stage);
     else groups.push([stage]);
   }
@@ -230,8 +233,10 @@ export function toGroovy(pipeline: DraftPipeline): string {
   if (pipeline.groovy?.trim()) blocks.push(pipeline.groovy.trim());
 
   // A box is a parallel block even with one branch in it: that is what is on screen.
-  for (const group of parallelGroups(pipeline.stages))
-    blocks.push(group[0].group && group[0].step !== "populateEnvVars" ? parallelToGroovy(group) : stageToGroovy(group[0]));
+  for (const group of parallelGroups(pipeline.stages)) {
+    const text = group[0].group && !UNBOXED_STEPS.includes(group[0].step) ? parallelToGroovy(group) : stageToGroovy(group[0]);
+    if (text) blocks.push(text);
+  }
 
   return blocks.length ? `${blocks.join("\n\n")}\n` : "";
 }

@@ -29,6 +29,7 @@ describe("the chaos Jenkinsfile", () => {
       "genStage",
       "genStage",
       "genStageWindows",
+      "groovy",
       "buildAndUploadImageStage",
       "buildAndUploadJarStage",
       "buildAndUploadRpmStage",
@@ -38,7 +39,9 @@ describe("the chaos Jenkinsfile", () => {
       "mirrorBranchStage",
       "sleep",
       "sleep",
+      "groovy",
       "genStage",
+      "groovy",
     ]);
     expect(pipeline.params.map((p) => [p.name, p.type])).toEqual([
       ["skipImage", "boolean"],
@@ -53,23 +56,13 @@ describe("the chaos Jenkinsfile", () => {
 
   it("names everything it left out, and nothing else", () => {
     expect(warnings).toEqual([
-      "Moved `def version = env.VERSION` above the stages — it came after one, so it now runs earlier than it did.",
       "properties: skipped `buildDiscarder(logRotator(numToKeepStr: '30', artifactNumTo…` — only the parameters are read, so this job property will not be written back",
       "properties: skipped `disableConcurrentBuilds(abortPrevious: true)` — only the parameters are read, so this job property will not be written back",
       "properties: skipped `pipelineTriggers([cron('H 2 * * 1-5'), pollSCM('H/15 * * * …` — only the parameters are read, so this job property will not be written back",
       "parallel: ignored `failFast: true` — only branches written out as { … } closures can be read",
       "parallel: branch Lint + audit runs 2 steps in a row; each became its own parallel branch",
       "parallel: in branch Notify — Skipped `echo 'parallel started'` — the builder reads step calls, not the Groovy wrapped around them.",
-      "parallel: ignored `buildMatrix(['billing-core', 'billing-api'])` — only branches written out as { … } closures can be read",
       "buildAndUploadImageStage: distributeToN is `isRelease`, which a flag field cannot hold — it came in as false",
-      "Skipped `if (params.TARGET_ENV == 'prod') { genStage(title: 'Deploy …` — the builder reads step calls, not the Groovy wrapped around them. It holds genStage(), which only becomes a card when called at the top level.",
-      "Skipped `try { genStage(title: 'Smoke', image: 'ubi8', commands: ['.…` — the builder reads step calls, not the Groovy wrapped around them. It holds genStage(), which only becomes a card when called at the top level.",
-      "Skipped `timeout(time: 1, unit: 'HOURS') { AIStage(title: 'Release n…` — the builder reads step calls, not the Groovy wrapped around them. It holds AIStage(), which only becomes a card when called at the top level.",
-      "Skipped `node('built-in') { stage('Cleanup') { cleanWs() } }` — the builder reads step calls, not the Groovy wrapped around them.",
-      "Skipped `stage('Report') { echo \"Done — ${currentBuild.currentResult…` — the builder reads step calls, not the Groovy wrapped around them.",
-      "Skipped `errorStage('Guard', 'this should never run')` — a helper the library's own steps call, which the builder has no card for.",
-      "Skipped `skipStage('Skipped on purpose')` — a helper the library's own steps call, which the builder has no card for.",
-      "Skipped `notify('SUCCESS')` — not a step in the shared library.",
     ]);
   });
 
@@ -85,12 +78,23 @@ describe("the chaos Jenkinsfile", () => {
     expect(pipeline.stages[0].args.envVars).toContainEqual(["BRANCH_TYPE", "${isRelease ? 'release' : 'development'}"]);
     expect(pipeline.stages[1].args.postCommands).toEqual(['echo "VERSION=$VERSION"', "echo branch type $BRANCH_TYPE"]);
     expect(pipeline.stages[4].args.image).toBe("${DEFAULT_IMAGE}");
-    expect(pipeline.stages[15].args).toEqual({ time: 30 });
-    expect(pipeline.stages[17].args.skipStage).toBe("shouldSkip('tag')");
+    expect(pipeline.stages[16].args).toEqual({ time: 30 });
+    expect(pipeline.stages[19].args.skipStage).toBe("shouldSkip('tag')");
     expect(pipeline.params[3].defaultValue).toBe("First line\nsecond line with a 'quote' ");
     expect(pipeline.params[5].choices).toEqual(["info", "debug", "warn"]);
     expect(pipeline.groovy).toContain("final String DEFAULT_IMAGE = 'mvn353-jdk17'");
     expect(pipeline.groovy).toContain("String timestamp() {");
+  });
+
+  it("keeps what is not a step call as Groovy, where it was", () => {
+    expect(pipeline.stages[8].args.code).toBe("parallel buildMatrix(['billing-core', 'billing-api'])");
+    const wrapped = String(pipeline.stages[18].args.code);
+    expect(wrapped.startsWith("if (params.TARGET_ENV == 'prod') {")).toBe(true);
+    expect(wrapped).toContain("node('built-in') {");
+    // Assigned after a stage, so it stays after it rather than moving to the top.
+    expect(wrapped.endsWith("def version = env.VERSION")).toBe(true);
+    expect(pipeline.groovy).not.toContain("def version");
+    expect(pipeline.stages[20].args.code).toBe("errorStage('Guard', 'this should never run')\nskipStage('Skipped on purpose')\nnotify('SUCCESS')");
   });
 
   it("writes a file that reads back to itself, byte for byte, with nothing to report", () => {
@@ -161,15 +165,20 @@ describe("statements that are not step calls", () => {
     expect(only("sleep 30").pipeline.stages[0].args).toEqual({ time: 30 });
   });
 
-  it("names a wrapper and the library steps inside it", () => {
-    expect(only("node('x') {\n  genStage(title: 'T', image: 'x')\n}").warnings).toEqual([
-      "Skipped `node('x') { genStage(title: 'T', image: 'x') }` — the builder reads step calls, not the Groovy wrapped around them. It holds genStage(), which only becomes a card when called at the top level.",
-    ]);
+  it("keeps a wrapper, library steps and all, as a Groovy card", () => {
+    const { pipeline, warnings } = only("node('x') {\n  genStage(title: 'T', image: 'x')\n}\nsleep(time: 1)");
+    expect(warnings).toEqual([]);
+    pipeline.stages.pop();
+    expect(pipeline.stages.map((s) => [s.step, s.args.code])).toEqual([["groovy", "node('x') {\n  genStage(title: 'T', image: 'x')\n}"]]);
   });
 
   it("keeps } else { and a .chain on the next line in one statement", () => {
-    const { warnings } = only("if (a) {\n  sleep(time: 1)\n}\nelse {\n  sleep(time: 2)\n}\nfoo\n  .bar()");
-    expect(warnings).toHaveLength(2);
+    const { pipeline } = only("if (a) {\n  sleep(time: 1)\n}\nelse {\n  sleep(time: 2)\n}\nsleep(time: 3)\nfoo\n  .bar()");
+    expect(pipeline.stages.map((s) => s.args.code ?? s.step)).toEqual([
+      "if (a) {\n  sleep(time: 1)\n}\nelse {\n  sleep(time: 2)\n}",
+      "sleep",
+      "foo\n  .bar()",
+    ]);
   });
 
   it("names a parallel branch that holds no step", () => {
@@ -196,10 +205,11 @@ describe("top-level declarations", () => {
     expect(pipeline.groovy).toBe("final String IMG = 'x'\nList<String> MODS = ['a']\nString stamp() {\n  'now'\n}");
   });
 
-  it("says when a variable that came after a stage is moved above it — but not a function", () => {
-    expect(only("sleep(time: 1)\ndef f() { 1 }\ndef v = env.VERSION").warnings).toEqual([
-      "Moved `def v = env.VERSION` above the stages — it came after one, so it now runs earlier than it did.",
-    ]);
+  it("keeps a variable assigned after a stage where it was — but lifts a function", () => {
+    const { pipeline, warnings } = only("sleep(time: 1)\ndef f() { 1 }\ndef v = env.VERSION");
+    expect(warnings).toEqual([]);
+    expect(pipeline.groovy).toBe("def f() { 1 }");
+    expect(pipeline.stages.map((s) => s.args.code ?? s.step)).toEqual(["sleep", "def v = env.VERSION"]);
   });
 
   it("says when an @Library it cannot read was left out", () => {

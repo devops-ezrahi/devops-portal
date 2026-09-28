@@ -647,12 +647,15 @@ no external system — the only server-side state is saved pipeline documents.
   output must regenerate it byte for byte.
   - **It reads statements, not calls.** The file is split into top-level
     statements (`statements`: a newline outside brackets, unless the line ends
-    mid-expression or the next opens `} else {`, `.chain()`…), and each one that
-    is not a step call is named by its own text, with any library step it hides
-    — `if (…) { genStage(…) }`, `node {}`, `timeout {}`, a Jenkins `stage('x')
-    {}`, a `sh` in a parallel branch all used to vanish without a word. A known
-    name in Groovy's parenthesis-free form (`sleep 30`, `parallel a: {…}`) is a
-    call. `errorStage`/`skipStage` are named as the library's internal helpers.
+    mid-expression or the next opens `} else {`, `.chain()`…). One that is not a
+    step call — `if (…) { genStage(…) }`, `node {}`, `timeout {}`, a Jenkins
+    `stage('x') {}`, a helper's call, `errorStage`, `parallel buildMatrix(…)` —
+    **becomes a Groovy card where it stood**, a run of them one card, so the
+    file keeps doing what it did. They all used to vanish, then to be named and
+    dropped. Only a statement inside a *parallel branch* is still named and
+    dropped, since a Groovy card is not a branch; and a file with no library
+    step at all still says so. A known name in Groovy's parenthesis-free form
+    (`sleep 30`, `parallel a: {…}`) is a call.
     `properties([…])` entries that are not parameters (`buildDiscarder`,
     `pipelineTriggers`) are named as job properties the builder does not write
     back.
@@ -803,18 +806,26 @@ no external system — the only server-side state is saved pipeline documents.
   with a single branch, since that is what is on screen; `parse.ts` reads such a
   block back into one box (a branch with several steps, or `failFast`, is
   imported with a warning). Records from when it was a per-card `parallel`
-  flag are migrated by `toDraft` (`migrateParallel`). `populateEnvVars` never
-  joins a box — it sets the env everything after it reads.
+  flag are migrated by `toDraft` (`migrateParallel`). `UNBOXED_STEPS` never
+  join a box: `populateEnvVars` sets the env everything after it reads, and a
+  Groovy card is statements, not a branch.
+- **Groovy between the stages is a card** (`step: "groovy"`, `callStyle:
+  "raw"`, one `code` argument of kind `code`), in the palette like any step.
+  Its text is written verbatim where the card sits — an `if` around a stage, a
+  helper's call, a `def` the next stages read — so a pipeline is not limited to
+  what the library's steps say. Its header shows its first line, and it opens
+  on add, since there is nothing to it until something is typed. `groovy` is
+  the builder's own name, so `parse.ts` never reads a `groovy(…)` call as one.
 - **Top-level Groovy** (`JenkinsfilePipeline.groovy`, `GroovyBlock.tsx`) is
   written as typed between the parameters and the first stage: `def`
   variables a shell command interpolates (`${tag}` — `quote` already keeps
   such a string a GString) and functions a Closure command calls. Import lifts
   every top-level `def`/`import`/`@Field` statement into it (`splitDefs`),
   function bodies included, before the step calls are read — and a declaration
-  by type (`final String X = …`, `String stamp() {`) too. A variable that sat
-  *after* a stage now runs before every one, so that move is a warning; a
-  function or `@Field` is hoisted by Groovy anyway and is not. `usedParamNames`
-  scans it too.
+  by type (`final String X = …`, `String stamp() {`) too — except a variable
+  assigned *after* a stage, which stays where it was as a Groovy card: lifted,
+  it would run before the stage it reads. A function or `@Field` is hoisted by
+  Groovy anyway, so it is lifted. `usedParamNames` scans it too.
 - **`sleep` is Jenkins' own step** (`builtin: true` in the catalog), the one
   step with no `genStage` arguments.
 - **Drag and drop is native HTML5**, no library — three handlers over an array

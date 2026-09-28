@@ -13,7 +13,6 @@ import { highlightGroovy } from "../highlight";
  */
 export function GroovyBlock({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const [open, setOpen] = useState(false);
-  const shadow = useRef<HTMLPreElement>(null);
 
   if (!value && !open) {
     return (
@@ -62,26 +61,54 @@ export function GroovyBlock({ value, onChange }: { value: string; onChange: (val
           <X size={15} aria-hidden="true" />
         </button>
       </div>
-      {/* The import dialog's editor: a highlighted copy behind a transparent textarea. */}
-      <div className="jf-import-editor jf-groovy-editor">
-        <pre className="jf-import-text jf-import-shadow" aria-hidden="true" ref={shadow}>
-          <code className="hljs" dangerouslySetInnerHTML={{ __html: highlightGroovy(value) + "\n" }} />
-        </pre>
-        <textarea
-          className="jf-import-text"
-          aria-label="Groovy variables and functions"
-          spellCheck={false}
-          autoFocus={!value}
-          placeholder={'def registry = "ghcr.io/shop"\n\ndef notify(String msg) {\n    echo "done: ${msg}"\n}'}
-          value={value}
-          onScroll={(e) => {
-            if (!shadow.current) return;
-            shadow.current.scrollTop = e.currentTarget.scrollTop;
-            shadow.current.scrollLeft = e.currentTarget.scrollLeft;
-          }}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      </div>
+      <GroovyEditor
+        label="Groovy variables and functions"
+        autoFocus={!value}
+        placeholder={'def registry = "ghcr.io/shop"\n\ndef notify(String msg) {\n    echo "done: ${msg}"\n}'}
+        value={value}
+        onChange={onChange}
+      />
+    </div>
+  );
+}
+
+/** The import dialog's editor: a highlighted copy behind a transparent textarea. Also a Groovy card's body. */
+export function GroovyEditor({
+  value,
+  onChange,
+  label,
+  id,
+  placeholder,
+  autoFocus,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  label: string;
+  id?: string;
+  placeholder?: string;
+  autoFocus?: boolean;
+}) {
+  const shadow = useRef<HTMLPreElement>(null);
+  return (
+    <div className="jf-import-editor jf-groovy-editor">
+      <pre className="jf-import-text jf-import-shadow" aria-hidden="true" ref={shadow}>
+        <code className="hljs" dangerouslySetInnerHTML={{ __html: highlightGroovy(value) + "\n" }} />
+      </pre>
+      <textarea
+        id={id}
+        className="jf-import-text"
+        aria-label={label}
+        spellCheck={false}
+        autoFocus={autoFocus}
+        placeholder={placeholder}
+        value={value}
+        onScroll={(e) => {
+          if (!shadow.current) return;
+          shadow.current.scrollTop = e.currentTarget.scrollTop;
+          shadow.current.scrollLeft = e.currentTarget.scrollLeft;
+        }}
+        onChange={(e) => onChange(e.target.value)}
+      />
     </div>
   );
 }

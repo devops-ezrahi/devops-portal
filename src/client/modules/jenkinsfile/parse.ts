@@ -282,7 +282,7 @@ function statements(src: string): string[] {
 }
 
 /** The calls the reader takes: every library step, plus the two it handles itself. */
-const READ = new Set([...STEPS.map((s) => s.step), "parallel", "properties"]);
+const READ = new Set([...STEPS.filter((s) => s.callStyle !== "raw").map((s) => s.step), "parallel", "properties"]);
 
 /**
  * A statement that is exactly one call, or null. Takes Groovy's
@@ -310,7 +310,7 @@ function excerpt(text: string): string {
   return line.length > 60 ? `${line.slice(0, 59)}…` : line;
 }
 
-const STEP_CALL = new RegExp(`\\b(${STEPS.map((s) => s.step).join("|")})\\s*\\(`);
+const STEP_CALL = new RegExp(`\\b(${[...READ].filter((s) => stepSpec(s)).join("|")})\\s*\\(`);
 
 /** `vars/` files the library's own steps call. They are the library's, but not steps anyone builds a pipeline from. */
 const HELPERS = ["errorStage", "skipStage", "podLauncher", "nodeExecutor"];
@@ -485,7 +485,8 @@ function paramsFrom(body: string, warnings: string[]): JenkinsfileParam[] {
 
 function stageFrom(name: string, body: string, warnings: string[]): JenkinsfileStage | null {
   const spec = stepSpec(name);
-  if (!spec) return null;
+  // `groovy` is the builder's own card, not something a file calls.
+  if (!spec || spec.callStyle === "raw") return null;
 
   // Open, unlike a stage added by hand: an imported file is one you are reading.
   const stage = { ...createStage(name), collapsed: false };
@@ -579,11 +580,11 @@ const RUNS = /^\s*(?!import\b|@Field\b)[^(]*[^=!<>]=(?![=~])/;
  * lifted out whole — a function body included — into the pipeline's Groovy
  * block. What is left is the calls the rest of the reader looks for.
  *
- * The block is written before every stage, so a variable that sat *after* one
- * now runs earlier than it did — `def v = env.VERSION` below `semVerStage()`
- * reads nothing. That is said, since it changes what the pipeline does.
+ * The block is written before every stage, so a variable assigned *after* one
+ * is not lifted: above `semVerStage()`, `def v = env.VERSION` would read
+ * nothing. It stays in `rest`, where it becomes a Groovy card in place.
  */
-export function splitDefs(src: string, warnings: string[] = []): { defs: string; rest: string } {
+export function splitDefs(src: string): { defs: string; rest: string } {
   const defs: string[] = [];
   let rest = "";
   let depth = 0;
@@ -604,9 +605,10 @@ export function splitDefs(src: string, warnings: string[] = []): { defs: string;
       const after = src.slice(i + 1).match(/^\s*\{/);
       if (!after) {
         const text = src.slice(from, i + 1).trimEnd();
-        if (RUNS.test(text) && STEP_CALL.test(rest))
-          warnings.push(`Moved \`${excerpt(text)}\` above the stages — it came after one, so it now runs earlier than it did.`);
-        defs.push(text);
+        // A variable assigned after a stage stays where it is — lifted, it
+        // would run before the stage it reads from — and becomes a Groovy card.
+        if (RUNS.test(text) && STEP_CALL.test(rest)) rest += src.slice(from, i + 1);
+        else defs.push(text);
         from = -1;
         i += 1;
         continue;
@@ -633,7 +635,7 @@ export function parseJenkinsfile(text: string): ImportResult {
   else if (/@Library\b/.test(src))
     warnings.push("@Library: only one quoted library name can be read, so the import line was left out.");
 
-  const { defs, rest } = splitDefs(src, warnings);
+  const { defs, rest } = splitDefs(src);
   pipeline.groovy = defs;
 
   for (const statement of statements(rest)) {
@@ -644,17 +646,32 @@ export function parseJenkinsfile(text: string): ImportResult {
       pipeline.params.push(...paramsFrom(call.body, warnings));
       continue;
     }
-    if (call?.name === "parallel") {
+    // A parallel with no { … } branch written out — `parallel buildMatrix(mods)` —
+    // has nothing to box; it falls through and is kept as Groovy.
+    if (call?.name === "parallel" && splitTop(call.body).some((e) => readValue(splitEntry(e).value).t === "closure")) {
       pipeline.stages.push(...parallelFrom(call.body, warnings));
       continue;
     }
     const stage = call && stageFrom(call.name, call.body, warnings);
     if (stage) pipeline.stages.push(stage);
-    else if (call?.name !== "parameters") warnings.push(skipped(statement));
+    else if (call?.name === "parameters") continue;
+    // Not the builder's to rewrite: the builder writes scripted files.
+    else if (/^pipeline\s*\{/.test(statement)) warnings.push(skipped(statement));
+    else {
+      // Anything else — an `if` around a stage, a helper's call, `node {}` — is
+      // kept as Groovy right where it was, one card for a run of it.
+      const last = pipeline.stages[pipeline.stages.length - 1];
+      if (last?.step === "groovy") last.args.code = `${last.args.code}\n${statement}`;
+      else pipeline.stages.push({ ...createStage("groovy"), args: { code: statement }, collapsed: false });
+    }
   }
 
-  if (!pipeline.stages.length && !warnings.length) {
-    warnings.push(`No library steps found. The builder knows: ${STEPS.map((s) => s.step).join(", ")}.`);
+  if (!pipeline.stages.some((s) => s.step !== "groovy") && !warnings.length) {
+    warnings.push(
+      `No library steps found${pipeline.stages.length ? " — the file came in as Groovy" : ""}. The builder knows: ${[...READ]
+        .filter((s) => stepSpec(s))
+        .join(", ")}.`
+    );
   }
   return { pipeline, warnings };
 }

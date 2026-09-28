@@ -204,6 +204,8 @@ export function isEmptyArg(kind: ArgKind, value: unknown): boolean {
       return typeof value !== "boolean";
     case "integer":
       return value === "" || value === null || value === undefined || Number.isNaN(Number(value));
+    case "code":
+      return String(value ?? "").trim() === "";
     case "expression":
       // Records written before the skip condition became an expression hold a
       // real boolean here; `false` is still "not set" for those.
@@ -343,5 +345,10 @@ export function hasErrors(errors: PipelineErrors): boolean {
 export function stageLabel(stage: JenkinsfileStage): string {
   const title = String(stage.args.title ?? "").trim();
   if (title) return title;
+  // A Groovy card has no title: its first line is what tells two of them apart.
+  if (stage.step === "groovy") {
+    const first = String(stage.args.code ?? "").split("\n").map((l) => l.trim()).find(Boolean) ?? "";
+    if (first) return first.length > 60 ? `${first.slice(0, 59)}…` : first;
+  }
   return stepSpec(stage.step)?.defaults?.title ?? stepSpec(stage.step)?.label ?? stage.step;
 }

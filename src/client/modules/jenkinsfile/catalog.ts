@@ -15,6 +15,8 @@
 
 export type ArgKind =
   | "string"
+  /** Groovy statements, written into the Jenkinsfile exactly as typed — the Groovy card's one argument. */
+  | "code"
   /** A raw Groovy expression, emitted unquoted — `params.skipImage`, `true`, `env.X == 'y'`. */
   | "expression"
   | "boolean"
@@ -84,8 +86,9 @@ export type StepSpec = {
    * `named` (the default) calls the step with `name: value` pairs, which is what
    * every `genStage` wrapper takes. `bare` passes the step's single argument as
    * the whole call — `populateEnvVars([SERVICE: 'x'])`, not `populateEnvVars(envVars: [...])`.
+   * `raw` is no call at all: the step's one argument is the Groovy itself.
    */
-  callStyle?: "named" | "bare";
+  callStyle?: "named" | "bare" | "raw";
   /** A Jenkins step rather than one of the library's — no `genStage` arguments. */
   builtin?: true;
   args: ArgSpec[];
@@ -480,6 +483,29 @@ export const STEPS: StepSpec[] = [
       },
     ],
   },
+  {
+    // Not a step: Groovy written where it sits in the list — an `if` around a
+    // stage, a helper's call, a `def` read by the stages after it. What the
+    // importer cannot turn into a card lands here instead of being dropped.
+    step: "groovy",
+    builtin: true,
+    callStyle: "raw",
+    label: "Groovy",
+    description:
+      "Groovy written into the Jenkinsfile exactly here, between the stages around it — a helper function's call, " +
+      "an if/try around a step, a variable the next stages read.",
+    args: [
+      {
+        name: "code",
+        kind: "code",
+        label: "Groovy",
+        required: true,
+        hint:
+          "Written as typed, at this point in the file. Functions declared in the Groovy block above the stages can " +
+          "be called here, and library steps can be called inside an if or try.",
+      },
+    ],
+  },
 ];
 
 /** Which of a step's arguments come from genStage rather than the step itself — used to group the picker. */
@@ -496,6 +522,7 @@ export function argSpec(step: string, arg: string): ArgSpec | undefined {
 /** What each kind is called in the UI's type badges — Groovy's word, not TypeScript's. */
 export const KIND_LABEL: Record<ArgKind, string> = {
   string: "text",
+  code: "groovy",
   expression: "groovy",
   commands: "commands",
   boolean: "flag",
@@ -520,6 +547,12 @@ export const RUNTIME_ARG_NAMES = ["image", "node"];
 export function pinsRuntime(spec: StepSpec): boolean {
   return spec.args.some((a) => a.name === "image") && !spec.defaults?.image;
 }
+
+/**
+ * Cards that never join a parallel box: populateEnvVars sets the env everything
+ * after it reads, and a Groovy card is statements, not a branch.
+ */
+export const UNBOXED_STEPS = ["populateEnvVars", "groovy"];
 
 /** Steps that make no sense more than once in a pipeline — the palette hides them once used. */
 export const SINGLETON_STEPS = ["populateEnvVars"];

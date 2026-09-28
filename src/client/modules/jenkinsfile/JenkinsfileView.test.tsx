@@ -428,18 +428,36 @@ genStage(title: 'Build', image: 'python311', commands: ['npm ci'])`,
     fireEvent.click(screen.getByRole("button", { name: /New/ }));
     fireEvent.click(screen.getByRole("button", { name: /Import an existing Jenkinsfile/ }));
     fireEvent.change(screen.getByLabelText("Or paste it here"), {
-      target: { value: "genStage(title: 'Build', image: 'ubi8')\ndeployToMars(title: 'Launch')\ndeployToMars(title: 'Launch')" },
+      target: {
+        value: "genStage(title: 'Build', image: 'ubi8')\nparallel(a: { sleep(time: 1) }, b: { echo 'x' })\nparallel(c: { sleep(time: 2) }, d: { echo 'x' })",
+      },
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Import" }));
     // Held back once — a stage that vanishes without a word is worse than one
     // the user has to re-add by hand. The skipped Groovy is shown as code, and
     // skipped twice it is listed twice.
-    expect(screen.getAllByText("deployToMars(title: 'Launch')").map((e) => e.tagName)).toEqual(["CODE", "CODE"]);
+    expect(screen.getAllByText("echo 'x'").map((e) => e.tagName)).toEqual(["CODE", "CODE"]);
 
     fireEvent.click(screen.getByRole("button", { name: "Import anyway" }));
     expect(code()).toContain("genStage(");
-    expect(code()).not.toContain("deployToMars");
+    expect(code()).not.toContain("echo 'x'");
+  });
+
+  it("adds Groovy between two stages and writes it there as typed", async () => {
+    const { code } = renderView();
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: /New/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Import an existing Jenkinsfile/ }));
+    fireEvent.change(screen.getByLabelText("Or paste it here"), {
+      target: { value: "sleep(time: 1)\nsleep(time: 2)" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+
+    fireEvent.click(screen.getByRole("button", { name: /Add stage/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Groovy" }));
+    fireEvent.change(screen.getByLabelText("Groovy"), { target: { value: "if (isRelease) {\n    notify('go')\n}" } });
+    expect(code()).toContain("sleep(time: 2)\n\nif (isRelease) {\n    notify('go')\n}");
   });
 
   it("connects a repository, builds from its Jenkinsfile and commits back to it", async () => {
