@@ -1,0 +1,11 @@
+# Auto-generated MINIMAL override for 'aaaaaaaaaaaaaaaaaaaa-very-long-name-that-is-exactly-63-chars-lo' — image, replicas,
+# plus (if present) this namespace's own structural difference from the
+# shared base/aaaaaaaaaaaaaaaaaaaa-very-long-name-that-is-exactly-63-chars-lo.yaml (see conflicts_and_warnings.txt).
+# This is the client's single source of truth for day-2 tuning; safe to hand-edit
+# and applied LAST (highest precedence) over base/aaaaaaaaaaaaaaaaaaaa-very-long-name-that-is-exactly-63-chars-lo.yaml.
+
+image:
+  repository: nginx
+  tag: '1.27'
+
+replicaCount: 1

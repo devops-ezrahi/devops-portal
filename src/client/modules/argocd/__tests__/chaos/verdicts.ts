@@ -1,3 +1,4 @@
+import type { BaseLayout } from "./argo";
 import type { Case } from "./cases";
 
 /**
@@ -11,7 +12,10 @@ export const BUG = {
   yaml11: "files are read as YAML 1.2, Helm reads YAML 1.1: `yes`/`off` become strings, `0644` becomes 644",
   quoting: "the writer leaves strings bare that Helm reads as numbers or booleans (`y`, `0x1F`, `1_000`, `.inf`)",
   nulls: "a top-level `null` or `[]` is dropped on write, so the base value it removed comes back",
-  groupBase: "a release under values/<group>/ gets base/<group>/<file>, but ms-applicationSet reads base/<file>",
+  groupBase:
+    "a release under values/<group>/ gets its base written to base/<group>/<file>, but chart main reads base/<file>: later base edits never deploy",
+  groupMixed:
+    "a release grouped in one folder and flat in another gets one base, under the group; the flat folders keep reading base/<file>, which goes stale (or is deleted under values.path), with no warning",
   rename: "a release file whose name slug() changes (`ms2.v2`) is written under a new name, deploying a second copy",
   dormant: "a folder with values/ but no defaults.yaml is not deployed, and the rebuild writes one, deploying it",
 } as const;
@@ -21,7 +25,16 @@ export type Verdict = { kind: "clean" } | { kind: "bug"; why: (typeof BUG)[keyof
 const clean: Verdict = { kind: "clean" };
 const bug = (why: (typeof BUG)[keyof typeof BUG]): Verdict => ({ kind: "bug", why });
 
-export const VERDICTS: Record<string, Verdict> = {
+/** Chart `dev` reads base/<group>/<file>; with a flat base/ the Application never rendered, and the rebuild writes it. */
+const neverRendered: Verdict = {
+  kind: "accepted",
+  why: "with chart dev this Application never rendered (no base/<group>/<file>); the rebuild writes that file",
+};
+
+/** A verdict that depends on which chart revision the repo deploys with. */
+type ByLayout = Record<BaseLayout, Verdict>;
+
+export const VERDICTS: Record<string, Verdict | ByLayout> = {
   "doc-start-marker": bug(BUG.docStart),
   "yaml11-booleans": bug(BUG.yaml11),
   "yaml11-octal-mode": bug(BUG.yaml11),
@@ -35,12 +48,12 @@ export const VERDICTS: Record<string, Verdict> = {
   "duplicate-keys": bug(BUG.unparsed),
   "multi-document-values": bug(BUG.unparsed),
   "values-not-a-map": bug(BUG.unparsed),
-  "group-subfolder-flat-base": bug(BUG.groupBase),
-  "group-subfolder-in-one-namespace-only": bug(BUG.groupBase),
-  "duplicate-release-in-two-groups": bug(BUG.groupBase),
+  "group-subfolder-flat-base": { flat: bug(BUG.groupBase), mirrored: neverRendered },
+  "group-subfolder-in-one-namespace-only": { flat: bug(BUG.groupBase), mirrored: bug(BUG.groupMixed) },
+  "duplicate-release-in-two-groups": { flat: bug(BUG.groupBase), mirrored: bug(BUG.groupMixed) },
   "dotted-release": bug(BUG.rename),
   "folder-without-defaults": bug(BUG.dormant),
-  "kitchen-sink": bug(BUG.groupBase),
+  "kitchen-sink": { flat: bug(BUG.groupBase), mirrored: bug(BUG.groupMixed) },
   "orphan-values-file": {
     kind: "accepted",
     why: "a values file with no base never rendered; it is named in a warning and left in the repo",
@@ -51,7 +64,10 @@ export const VERDICTS: Record<string, Verdict> = {
   },
 };
 
-export const verdict = (c: Case): Verdict =>
-  VERDICTS[c.id] ??
+export function verdict(c: Case, layout: BaseLayout): Verdict {
+  const v = VERDICTS[c.id];
+  if (v) return "kind" in v ? v : v[layout];
   // A BOM added after the marker hides it: `\uFEFF---` is not the line importValues splits on.
-  (c.family === "fuzz" && c.title.includes("doc-start-marker") && !c.title.includes("bom") ? bug(BUG.docStart) : clean);
+  const docStart = c.family === "fuzz" && c.title.includes("doc-start-marker") && !c.title.includes("bom");
+  return docStart ? bug(BUG.docStart) : clean;
+}

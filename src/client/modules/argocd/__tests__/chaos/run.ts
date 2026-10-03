@@ -5,7 +5,7 @@ import { buildTree } from "../../tree";
 import { deploy, drift } from "./argo";
 import type { ArgocdTree } from "../../../../../server/types";
 import type { Case, Files } from "./cases";
-import type { Deployment, Drift } from "./argo";
+import type { BaseLayout, Deployment, Drift } from "./argo";
 
 /**
  * One chaos case, end to end, the way the portal handles a real repo:
@@ -51,9 +51,9 @@ export function readTree(dir: string): Files {
 
 const pulled = (files: Files) => files.filter((f) => /\.ya?ml$/.test(f.path));
 
-export function runCase(seed: Files, c: Case): Outcome {
+export function runCase(seed: Files, c: Case, layout: BaseLayout = "mirrored"): Outcome {
   const repo = c.mutate(seed);
-  const before = deploy(repo);
+  const before = deploy(repo, layout);
   const base = { id: c.id, family: c.family, title: c.title, before, written: [], notWritten: [], unseenEdits: [] };
   let built: Files;
   let probed: Files;
@@ -74,10 +74,10 @@ export function runCase(seed: Files, c: Case): Outcome {
   const builtPaths = new Set(built.map((f) => f.path));
   const repoPaths = new Set(repo.map((f) => f.path));
   const overlayRepo = [...repo.filter((f) => !builtPaths.has(f.path)), ...built];
-  const overlay = deploy(overlayRepo);
-  const replace = deploy(built);
+  const overlay = deploy(overlayRepo, layout);
+  const replace = deploy(built, layout);
   const probedPaths = new Set(probed.map((f) => f.path));
-  const probedApps = deploy([...repo.filter((f) => !probedPaths.has(f.path)), ...probed]).apps;
+  const probedApps = deploy([...repo.filter((f) => !probedPaths.has(f.path)), ...probed], layout).apps;
   const unseenEdits = [...probedApps.values()]
     .filter((a) => !a.error && a.values?.chaosProbe === undefined)
     .map((a) => `${a.name} (reads ${a.valueFiles[0]})`);

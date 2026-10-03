@@ -104,7 +104,15 @@ export function helmMerge(base: Values, over: Values): Values {
 /** `helm template` / `helm install` reject any other release name — and the file name is the release name. */
 const HELM_RELEASE_NAME = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/;
 
-export function deploy(files: RepoFile[]): Deployment {
+/**
+ * Where an Application's base file is, which depends on the chart revision the
+ * repo deploys with. universal-chart `main` reads `base/<file>` whatever
+ * sub-folder of values/ the file sits in ("flat"); `dev` mirrors the sub-folder,
+ * `base/<group>/<file>` ("mirrored") — the layout the portal writes.
+ */
+export type BaseLayout = "flat" | "mirrored";
+
+export function deploy(files: RepoFile[], layout: BaseLayout = "mirrored"): Deployment {
   const byPath = new Map(files.map((f) => [f.path.replace(/^\.?\//, ""), f.text]));
   const apps = new Map<string, App>();
   const collisions: string[] = [];
@@ -120,7 +128,8 @@ export function deploy(files: RepoFile[]): Deployment {
       const file = path.split("/").pop()!;
       const release = file.slice(0, -".yaml".length);
       const name = `${release}-${ns.split("-").pop()}${suffix}`;
-      const valueFiles = [`base/${file}`, `${folder}/defaults.yaml`, path];
+      const sub = path.slice(prefix.length, -file.length);
+      const valueFiles = [`base/${layout === "flat" ? "" : sub}${file}`, `${folder}/defaults.yaml`, path];
       const app: App = { name, namespace: ns, folder, release, valueFiles };
       let merged: Values = {};
       // Helm refuses the release before reading a single values file.

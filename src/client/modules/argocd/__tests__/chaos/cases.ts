@@ -1,3 +1,4 @@
+import { helmParse } from "./argo";
 import type { RepoFile } from "../../importTree";
 
 /**
@@ -23,6 +24,16 @@ const edit = (f: Files, path: string, fn: (t: string) => string): Files => {
 };
 const editAll = (f: Files, test: (p: string) => boolean, fn: (t: string, p: string) => string): Files =>
   f.map((x) => (test(x.path) ? { ...x, text: fn(x.text, x.path) } : x));
+/**
+ * A re-spelling, applied file by file only where Helm still reads the same
+ * values — a regex cannot tell a multi-line plain scalar from a new key, and a
+ * format case that changed what a file means would blame the portal for it.
+ */
+const respell = (f: Files, fn: (t: string, p: string) => string): Files =>
+  editAll(f, isYaml, (t, p) => {
+    const out = fn(t, p);
+    return JSON.stringify(helmParse(out)) === JSON.stringify(helmParse(t)) ? out : t;
+  });
 const move = (f: Files, from: string, to: string): Files => put(drop(f, from), to, get(f, from)!);
 const append = (f: Files, path: string, text: string) => edit(f, path, (t) => `${t.replace(/\n*$/, "\n")}${text}`);
 const isYaml = (p: string) => p.endsWith(".yaml") && !p.startsWith("root");
@@ -63,12 +74,13 @@ const reindent = (t: string, n: number) =>
 
 export const CASES: Case[] = [
   // ======================= formatting: same values, different bytes ==========
+  { id: "identity", family: "format", title: "nothing changed: the tree exactly as committed", mutate: (f) => f },
   {
     id: "comments-everywhere",
     family: "format",
     title: "full-line and trailing comments on every key, including `{{ .Values.x }}` inside a comment",
     mutate: (f) =>
-      editAll(f, isYaml, (t) =>
+      respell(f, (t) =>
         t
           .split("\n")
           .map((l) => (/^\s*[\w-]+:\s*\S/.test(l) && !/[|>]-?\s*$/.test(l) && !l.includes("#") ? `${l}   # was {{ .Values.oldKey }}` : l))
@@ -76,28 +88,24 @@ export const CASES: Case[] = [
           .replace(/^(\w)/gm, "# section ->\n$1")
       ),
   },
-  { id: "crlf", family: "format", title: "Windows line endings in every file", mutate: (f) => editAll(f, isYaml, (t) => t.replace(/\n/g, "\r\n")) },
-  { id: "bom", family: "format", title: "UTF-8 byte-order mark at the top of every file", mutate: (f) => editAll(f, isYaml, (t) => `﻿${t}`) },
-  { id: "doc-start-marker", family: "format", title: "`---` document start marker on every file", mutate: (f) => editAll(f, isYaml, (t) => `---\n${t}`) },
-  { id: "doc-end-marker", family: "format", title: "`...` document end marker on every file", mutate: (f) => editAll(f, isYaml, (t) => `${t.replace(/\n*$/, "\n")}...\n`) },
-  { id: "indent-4", family: "format", title: "four-space indentation", mutate: (f) => editAll(f, isYaml, (t) => reindent(t, 4)) },
+  { id: "crlf", family: "format", title: "Windows line endings in every file", mutate: (f) => respell(f, (t) => t.replace(/\n/g, "\r\n")) },
+  { id: "bom", family: "format", title: "UTF-8 byte-order mark at the top of every file", mutate: (f) => respell(f, (t) => `\uFEFF${t}`) },
+  { id: "doc-start-marker", family: "format", title: "`---` document start marker on every file", mutate: (f) => respell(f, (t) => `---\n${t}`) },
+  { id: "doc-end-marker", family: "format", title: "`...` document end marker on every file", mutate: (f) => respell(f, (t) => `${t.replace(/\n*$/, "\n")}...\n`) },
+  { id: "indent-4", family: "format", title: "four-space indentation", mutate: (f) => respell(f, (t) => reindent(t, 4)) },
   {
     id: "no-trailing-newline-and-trailing-spaces",
     family: "format",
     title: "trailing spaces on lines, no newline at end of file",
-    mutate: (f) => editAll(f, isYaml, (t) => outsideBlocks(t, (l) => `${l}  `).replace(/[ \t]*\n*$/, (m) => (endsInBlock(t) ? m : ""))),
+    mutate: (f) => respell(f, (t) => outsideBlocks(t, (l) => `${l}  `).replace(/[ \t]*\n*$/, (m) => (endsInBlock(t) ? m : ""))),
   },
   {
     id: "flow-style",
     family: "format",
     title: "image and replicaCount written as one flow mapping per values file",
     mutate: (f) =>
-      valuesFiles(f).reduce(
-        (acc, p) =>
-          edit(acc, p, (t) =>
-            t.replace(/^image:\n  repository: (.+)\n  tag: (.+)\n/m, "image: {repository: $1, tag: \"$2\"}\n")
-          ),
-        f
+      respell(f, (t, p) =>
+        /\/values\//.test(p) ? t.replace(/^image:\n  repository: (.+)\n  tag: (.+)\n/m, "image: {repository: $1, tag: \"$2\"}\n") : t
       ),
   },
   {
@@ -105,14 +113,8 @@ export const CASES: Case[] = [
     family: "format",
     title: "every key and scalar double-quoted",
     mutate: (f) =>
-      valuesFiles(f).reduce(
-        (acc, p) =>
-          edit(acc, p, (t) =>
-            t.replace(/^(\s*)([\w-]+): ([^'"{}\n#][^\n#]*?)\s*$/gm, (_m, ind, k, v) =>
-              /^\d+$/.test(v) ? `${ind}"${k}": ${v}` : `${ind}"${k}": "${v}"`
-            )
-          ),
-        f
+      respell(f, (t) =>
+        t.replace(/^(\s*)([\w-]+): ([^'"{}\n#|>&*!%@`][^\n#]*?)\s*$/gm, (_m, ind, k, v) => `${ind}"${k}": ${JSON.stringify(v)}`)
       ),
   },
   {
@@ -120,7 +122,7 @@ export const CASES: Case[] = [
     family: "format",
     title: "top-level sections in reverse order",
     mutate: (f) =>
-      editAll(f, isYaml, (t) => {
+      respell(f, (t) => {
         const blocks = t.split(/\n(?=\w)/);
         const head = blocks[0].startsWith("#") ? [blocks.shift()!] : [];
         return [...head, ...blocks.reverse()].join("\n") + "\n";
@@ -500,7 +502,7 @@ export const CASES: Case[] = [
       g = underEnv(g, "dev/black/values/ms1.yaml", "  COLOR: null\n");
       g = append(g, "prd/values/ms2.yaml", "\nautoscaling:\n  enabled: yes\n");
       g = cloneFolder(g, "prd/black", "prd/black/eu");
-      g = editAll(g, isYaml, (t) => `﻿# edited by hand\n${t}`.replace(/\n/g, "\r\n"));
+      g = editAll(g, isYaml, (t) => `\uFEFF# edited by hand\n${t}`.replace(/\n/g, "\r\n"));
       return g;
     },
   },
