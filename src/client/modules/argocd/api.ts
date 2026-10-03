@@ -7,7 +7,7 @@ import type { ArgocdTree } from "../../../server/types";
  */
 export type TreeInput = Pick<
   ArgocdTree,
-  "name" | "chart" | "values" | "rootAppName" | "releases" | "namespaces" | "defaults"
+  "name" | "chart" | "values" | "rootAppName" | "releases" | "namespaces" | "defaults" | "imported"
 >;
 
 /** Where the chart and the values repo live — configured, and only a starting point. */

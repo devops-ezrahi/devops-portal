@@ -1,0 +1,11 @@
+# Auto-generated MINIMAL override for 'yaml-traps' — image, replicas,
+# plus (if present) this namespace's own structural difference from the
+# shared base/yaml-traps.yaml (see conflicts_and_warnings.txt).
+# This is the client's single source of truth for day-2 tuning; safe to hand-edit
+# and applied LAST (highest precedence) over base/yaml-traps.yaml.
+
+image:
+  repository: nginx
+  tag: '1.27'
+
+replicaCount: 1

@@ -1,9 +1,10 @@
 import { importValues } from "./import";
 import { parseValues } from "./build";
 import { isPlainObject } from "./values";
-import { NON_NAMESPACE_DIRS } from "./tree";
+import { NON_NAMESPACE_DIRS, buildTree, isTreeFile } from "./tree";
+import { fingerprint } from "./diff";
 import { toYaml } from "./yaml";
-import type { ArgocdNamespace, ArgocdRelease, ArgocdTree } from "../../../server/types";
+import type { ArgocdNamespace, ArgocdRelease, ArgocdTree, ImportedFile } from "../../../server/types";
 import type { Values } from "./values";
 
 /**
@@ -34,6 +35,8 @@ export type TreeImport = {
   chart?: ArgocdTree["chart"];
   values?: ArgocdTree["values"];
   rootAppName?: string;
+  /** See ArgocdTree.imported. */
+  imported: Record<string, ImportedFile>;
   releases: ArgocdRelease[];
   namespaces: ArgocdNamespace[];
   warnings: string[];
@@ -58,11 +61,19 @@ export function importTree(files: RepoFile[]): TreeImport {
   // base/ mirrors values/'s grouping sub-folders (`base/b2b/api.yaml` for
   // `<ns>/values/b2b/api.yaml`); the release is still named after its file.
   const basePaths = new Map<string, string>();
-  for (const [path, text] of byPath) {
+  const bySlugRelease = new Map<string, ArgocdRelease>();
+  for (const [path, text] of [...byPath].sort(([a], [b]) => a.length - b.length || a.localeCompare(b))) {
     const slug = /^base\/(?:.+\/)?([^/]+)\.yaml$/.exec(path)?.[1];
     if (!slug) continue;
     if (basePaths.has(slug)) {
-      warnings.push(`${path}: a second ${slug}.yaml in base — a release is named after its file, so only ${basePaths.get(slug)} was read.`);
+      // The same release at two base paths (`base/ms2.yaml` and
+      // `base/team-a/ms2.yaml`): which one a folder reads depends on the chart
+      // revision deploying the repo. Identical, they are one base written to
+      // both; different, the second cannot be modelled and stays as it is.
+      const first = bySlugRelease.get(slug)!;
+      if (sameValues(text, byPath.get(basePaths.get(slug)!)!)) first.basePaths = [...(first.basePaths ?? []), path];
+      else
+        warnings.push(`${path}: a second ${slug}.yaml in base, different from ${basePaths.get(slug)} — only that one is read; this file is left as it is.`);
       continue;
     }
     basePaths.set(slug, path);
@@ -72,8 +83,11 @@ export function importTree(files: RepoFile[]): TreeImport {
     idBySlug.set(slug, id);
     // The file name *is* the release — the ApplicationSet names the Helm
     // release after it — so neither override renames it (a fullnameOverride is
-    // the running workload's raw name, and may be templated).
-    releases.push({ id, name: slug, features, extraValues });
+    // the running workload's raw name, and may be templated). `file` keeps the
+    // exact stem: `slug()` would turn `ms2.v2` into a second release.
+    const release: ArgocdRelease = { id, name: slug, features, extraValues, file: slug, basePaths: [path] };
+    bySlugRelease.set(slug, release);
+    releases.push(release);
   }
   releases.sort((a, b) => a.name.localeCompare(b.name));
 
@@ -87,7 +101,9 @@ export function importTree(files: RepoFile[]): TreeImport {
   const valuesIn = new Map<string, Map<string, { text: string; group: string; path: string }>>();
   for (const [path, text] of byPath) {
     if (NON_NAMESPACE_DIRS.includes(path.split("/")[0])) continue;
-    const defaults = /^(.+)\/defaults\.yaml$/.exec(path);
+    // `<ns>/values/defaults.yaml` is a release called `defaults`, not the
+    // defaults of a folder called `<ns>/values`.
+    const defaults = /\/values\//.test(path) ? null : /^(.+)\/defaults\.yaml$/.exec(path);
     const values = /^(.+?)\/values\/(?:(.+)\/)?([^/]+)\.yaml$/.exec(path);
     if (defaults) nsNames.add(defaults[1]);
     if (!values) continue;
@@ -113,8 +129,13 @@ export function importTree(files: RepoFile[]): TreeImport {
     // it, the portal or the converter. Nothing is folded into the overrides:
     // they were written against base + these defaults, so they read back as
     // they are and rebuild to the same file.
+    const defaultsText = byPath.get(`${name}/defaults.yaml`);
     const defaultsDoc = docAt(byPath, `${name}/defaults.yaml`) ?? {};
     const defaultsImport = importValues(toYaml(defaultsDoc));
+    if (defaultsText !== undefined && importValues(defaultsText).unparsed)
+      warnings.push(`${name}/defaults.yaml: cannot be read as a YAML mapping — kept exactly as it is.`);
+    if (defaultsText === undefined)
+      warnings.push(`${name}/: has values/ but no defaults.yaml, so the root ApplicationSet does not deploy it — the rebuild leaves it that way.`);
     if (Object.keys(defaultsDoc).length)
       defaultsImport.warnings
         // A group value (`color: yellow`) the base files template with
@@ -134,6 +155,15 @@ export function importTree(files: RepoFile[]): TreeImport {
       const file = valuesIn.get(name)?.get(slug);
       if (file === undefined) continue;
       if (file.group) groups[id] = file.group;
+      const read = importValues(file.text);
+      if (read.unparsed) {
+        // Helm cannot read it either (the Application fails today). It is
+        // written back byte for byte (`imported`) rather than rebuilt as `{}`,
+        // which silently dropped every override in it and made the broken
+        // Application deploy without them.
+        warnings.push(`${file.path}: cannot be read as a YAML mapping — kept exactly as it is.`);
+        continue;
+      }
       const fragment = parseValues(file.text) ?? {};
       // An empty fragment is a release this namespace runs without overriding
       // anything. The draft's own convention is to carry no entry for that —
@@ -153,6 +183,7 @@ export function importTree(files: RepoFile[]): TreeImport {
       ...(absent.length ? { absent } : {}),
       releases: entries,
       defaults: { features: defaultsImport.features, extraValues: defaultsImport.extraValues },
+      ...(defaultsText === undefined ? { noDefaults: true } : {}),
     });
   }
 
@@ -177,7 +208,29 @@ export function importTree(files: RepoFile[]): TreeImport {
     warnings.push(`${top}/: ${n} file${n === 1 ? "" : "s"} outside the tree — left in the repo, not imported.`);
   if (!releases.length) warnings.push("No `base/*.yaml` files found — this does not look like a universal-chart values repo.");
 
-  return { ...wiring, releases, namespaces, warnings };
+  // What the rebuild writes for each file it read, right now — kept with the
+  // repo's own text so an untouched tree rebuilds byte for byte (buildTree).
+  const imported: Record<string, ImportedFile> = {};
+  for (const f of buildTree({ releases, namespaces } as unknown as ArgocdTree)) {
+    const text = byPath.get(f.path);
+    if (text !== undefined) imported[f.path] = { text, fp: fingerprint(f.text) };
+  }
+  for (const [path, text] of byPath) if (isTreeFile(path) && !imported[path]) imported[path] = { text, fp: "", keep: true };
+
+  return { ...wiring, releases, namespaces, warnings, imported };
+}
+
+/** Two files Helm reads as the same values. */
+function sameValues(a: string, b: string): boolean {
+  const pa = parseValues(a);
+  const pb = parseValues(b);
+  return pa !== null && pb !== null && JSON.stringify(sortDeep(pa)) === JSON.stringify(sortDeep(pb));
+}
+
+function sortDeep(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(sortDeep);
+  if (!isPlainObject(v)) return v;
+  return Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortDeep(v[k])]));
 }
 
 function docAt(byPath: Map<string, string>, path: string): Values | null {

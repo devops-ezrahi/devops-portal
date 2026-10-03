@@ -1,0 +1,26 @@
+# Auto-generated MINIMAL override for 'redis-cache' — image, replicas,
+# plus (if present) this namespace's own structural difference from the
+# shared base/redis-cache.yaml (see conflicts_and_warnings.txt).
+# This is the client's single source of truth for day-2 tuning; safe to hand-edit
+# and applied LAST (highest precedence) over base/redis-cache.yaml.
+
+image:
+  pullPolicy: IfNotPresent
+  repository: redis
+  tag: 7.2-alpine
+
+replicaCount: 1
+
+volumeClaimTemplates:
+  data:
+    size: 10Gi
+
+configMaps:
+  redis-cache-conf:
+    data:
+      redis.conf: |
+        dir /tmp
+        maxmemory 256mb
+        maxmemory-policy allkeys-lru
+        sentinel down-after-milliseconds mymaster 1000
+        # dev

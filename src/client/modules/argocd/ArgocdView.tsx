@@ -30,7 +30,8 @@ import { buildValues, extraValuesError, parseValues } from "./build";
 import { checkValues } from "./checks";
 import { BY_ID, featureForPath } from "./catalog";
 import { deepMerge, obj, shadowing, subtractDefaults } from "./values";
-import { buildTree, releaseGroup, runs, slug } from "./tree";
+import { buildTree, fileStem, releaseGroup, runs, slug } from "./tree";
+import { commitFiles } from "./diff";
 import {
   SHARED_RELEASE_NAME,
   isEmptyTree,
@@ -630,6 +631,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       values: { repoUrl, revision, path },
       releases: imported.releases,
       namespaces: imported.namespaces,
+      imported: imported.imported,
     });
     setReleaseId(imported.releases[0]?.id ?? "");
     setLayer(BASE);
@@ -662,6 +664,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         values: { ...prev.values, revision: result.revision || prev.values.revision },
         releases: imported.releases,
         namespaces: imported.namespaces,
+        imported: imported.imported,
       }));
       setReleaseId(imported.releases[0]?.id ?? "");
       setLayer(BASE);
@@ -692,10 +695,9 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       await queue.current;
       const id = idRef.current;
       if (!id) throw new Error("This tree has not been saved yet — try again in a moment.");
-      const result = await pushTree(
-        id,
-        files.map((f) => ({ path: f.path, text: f.text }))
-      );
+      // Against the clone the preview diffs with, when there is one: a file
+      // whose values did not change is sent as the repo has it.
+      const result = await pushTree(id, commitFiles(files, repoFiles));
       log("argocd", "pushed", { id, branch: result.branch, changed: result.changed });
       setPush({ kind: "done", ...result });
     } catch (err) {
@@ -850,7 +852,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
 
   /** A file pressed in the preview opens the scope that writes it. A repo-only file has none and just shows. */
   function openFile(path: string) {
-    const bySlug = (s: string) => draft.releases.find((r) => slug(r.name) === s)?.id;
+    const bySlug = (s: string) => draft.releases.find((r) => fileStem(r) === s)?.id;
     const base = /^base\/(?:.+\/)?([^/]+)\.yaml$/.exec(path);
     if (base) {
       const id = bySlug(base[1]);

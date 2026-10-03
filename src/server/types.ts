@@ -458,6 +458,19 @@ export type ArgocdRelease = {
   features: Record<string, ArgocdFeatureState>;
   /** Raw YAML merged last — the escape hatch, and where an import's leftovers land. */
   extraValues?: string;
+  /**
+   * The file stem it was imported from (`ms2.v2`, `Payment_API`). Written back
+   * under it, because the file name IS the Argo Application and the Helm
+   * release: `slug()`ing it renamed a working release into a second copy.
+   * Absent for a release made in the portal, which is named `slug(name)`.
+   */
+  file?: string;
+  /**
+   * Every `base/` path it was read from (`base/ms2.yaml`, `base/team-a/ms2.yaml`).
+   * The rebuild writes the base to each of them and nowhere else: which one
+   * a folder reads depends on the chart revision deploying the repo.
+   */
+  basePaths?: string[];
 };
 
 /** One namespace's overrides: only what differs from the release's base. */
@@ -493,7 +506,20 @@ export type ArgocdNamespace = {
     features: Record<string, ArgocdFeatureState>;
     extraValues?: string;
   }[];
+  /**
+   * Imported with a `values/` but no `defaults.yaml`: the root ApplicationSet
+   * (`** /defaults.yaml`) never deployed it, so no `defaults.yaml` is written for
+   * it unless defaults are set here — writing one started deploying the folder.
+   */
+  noDefaults?: boolean;
 };
+
+/**
+ * `keep`: a tree file the import could not model (a values file with no base,
+ * a `.yml`, a second file for one release) — written back as it is on every
+ * push, so a push under `values.path` never deletes what the import warned about.
+ */
+export type ImportedFile = { text: string; fp: string; keep?: boolean };
 
 export type ArgocdTree = {
   id: string;
@@ -512,6 +538,15 @@ export type ArgocdTree = {
   rootAppName: string;
   releases: ArgocdRelease[];
   namespaces: ArgocdNamespace[];
+  /**
+   * The repo's own text for every file the import read, by path, with `fp` a
+   * hash of the canonical form of what the rebuild wrote for that path right
+   * after the import. While the rebuild still writes those same values, the repo's bytes
+   * are written instead — so an untouched pull rebuilds byte for byte (comments,
+   * quoting, key order and all) and the diff and the commit hold only the files
+   * that were actually edited.
+   */
+  imported?: Record<string, ImportedFile>;
   /**
    * Legacy: tree-wide defaults from before they were per namespace. Only ever
    * read — `migrateTreeDefaults` copies them into each namespace on open, and

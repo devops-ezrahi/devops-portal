@@ -1,6 +1,6 @@
-import { parse as parseYaml } from "yaml";
 import { BY_ID, FEATURES, MORE_KEY, orderKeys } from "./catalog";
 import { deepMerge, isPlainObject } from "./values";
+import { clean, parseHelm } from "./yaml";
 import type { FeatureState } from "./catalog";
 import type { Values } from "./values";
 
@@ -23,7 +23,8 @@ export function buildValues(features: Record<string, FeatureState>, extraValues?
       // A half-typed field must not blank the whole preview.
       fragment = null;
     }
-    if (fragment) doc = deepMerge(doc, fragment);
+    // A field left empty must not reach the file as `key: ""` / `[]` / `null`.
+    if (fragment) doc = deepMerge(doc, clean(fragment));
     // The feature's "Other settings" — what its fields cannot say, merged over them.
     const more = parseValues(state.v?.[MORE_KEY] as string | undefined);
     if (more) doc = deepMerge(doc, more);
@@ -36,24 +37,18 @@ export function buildValues(features: Record<string, FeatureState>, extraValues?
 /** A YAML fragment as an object, or null for empty/unparseable text. */
 export function parseValues(text: string | undefined): Values | null {
   if (!text?.trim()) return null;
-  try {
-    const parsed = parseYaml(text) as unknown;
-    return isPlainObject(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
+  // Read the way Helm reads a values file — see `parseHelm`.
+  const { doc } = parseHelm(text);
+  return isPlainObject(doc) ? doc : null;
 }
 
 /** Whether `extraValues` is text the writer will silently drop — the editor says so. */
 export function extraValuesError(text: string | undefined): string | null {
   if (!text?.trim()) return null;
-  try {
-    const parsed = parseYaml(text) as unknown;
-    if (!isPlainObject(parsed)) return "Extra values must be a YAML mapping, not a list or a scalar.";
-    return null;
-  } catch (err) {
-    return err instanceof Error ? err.message.split("\n")[0] : "Could not parse this YAML.";
-  }
+  const { doc, error } = parseHelm(text);
+  if (error) return error;
+  if (doc !== null && !isPlainObject(doc)) return "Extra values must be a YAML mapping, not a list or a scalar.";
+  return null;
 }
 
 /** Which feature owns a top-level values key — used to route an import. */

@@ -1,0 +1,18 @@
+# Auto-generated MINIMAL override for 'old-apis' — image, replicas,
+# plus (if present) this namespace's own structural difference from the
+# shared base/old-apis.yaml (see conflicts_and_warnings.txt).
+# This is the client's single source of truth for day-2 tuning; safe to hand-edit
+# and applied LAST (highest precedence) over base/old-apis.yaml.
+
+image:
+  repository: nginx
+  tag: '1.27'
+
+replicaCount: 2
+
+cronjobs:
+  old-apis-cleanup:
+    jobTemplate:
+      image:
+        repository: busybox
+        tag: '1.36'

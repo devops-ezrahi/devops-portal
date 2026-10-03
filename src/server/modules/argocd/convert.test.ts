@@ -62,6 +62,20 @@ describe.skipIf(!canConvert)("convertToUniversal", () => {
     expect(all).toContain("MODE");
   }, 120_000);
 
+  it("converts the rest when one namespace in the paste has no workloads, and names what it dropped", async () => {
+    const stray = `apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: lost-and-found\n  namespace: some-other-namespace\ndata:\n  a: b\n`;
+    const dc = `apiVersion: apps.openshift.io/v1\nkind: DeploymentConfig\nmetadata:\n  name: legacy\n  namespace: interconn\nspec:\n  replicas: 1\n`;
+    const { files, warnings } = await convertToUniversal({
+      chartRepoUrl: chartRepo,
+      chartRevision: branch,
+      namespace: "interconn",
+      yaml: [DEPLOYMENT, stray, dc].join("---\n"),
+    });
+    expect(files.map((f) => f.path)).toContain("base/stalker.yaml");
+    expect(warnings.join("\n")).toMatch(/some-other-namespace/);
+    expect(warnings.join("\n")).toMatch(/DeploymentConfig\/legacy \(namespace interconn\): in the pasted YAML, but not carried/);
+  }, 120_000);
+
   it("splits a dirty kubectl dump into microservices, like the namespace importer", async () => {
     const dump = `apiVersion: v1
 kind: List
