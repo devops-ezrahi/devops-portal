@@ -2,7 +2,8 @@ import { parseAllDocuments } from "yaml";
 import { BY_ID, FEATURES, MORE_KEY, isRecord, nz, pairsOf } from "./catalog";
 import { buildValues, parseValues } from "./build";
 import { subtractDefaults } from "./values";
-import { toYaml } from "./yaml";
+import { parseHelm, toYaml } from "./yaml";
+import { isPlainObject } from "./values";
 import type { FeatureState, FieldSpec } from "./catalog";
 import type { Values } from "./values";
 
@@ -20,6 +21,8 @@ export type ImportResult = {
   features: Record<string, FeatureState>;
   extraValues: string;
   warnings: string[];
+  /** Helm could not read it (or it is not a mapping): the caller keeps the file's text verbatim. */
+  unparsed?: boolean;
 };
 
 function at(doc: Values, path: string): unknown {
@@ -54,6 +57,19 @@ function fromPaths(spec: { fields: FieldSpec[] }, doc: Values): Record<string, u
 /** Whether a loaded field says anything. `false` does; an empty list does not. */
 const holds = (v: unknown): boolean => (Array.isArray(v) ? v.length > 0 : v !== undefined && v !== null && v !== "");
 
+/** Chart keys the catalog does not edit but that are expected in a converted tree. */
+export const CHART_PASSTHROUGH_KEYS = new Set([
+  "chartLabels",
+  "selectorLabels",
+  "portOrder",
+  "envOrder",
+  "envFromOrder",
+  "volumeMountOrder",
+  "volumeOrder",
+  "sidecarOrder",
+  "initContainerOrder",
+]);
+
 export function importValues(text: string): ImportResult {
   const docs = parseAllDocuments(text);
   const warnings: string[] = [];
@@ -62,10 +78,16 @@ export function importValues(text: string): ImportResult {
     // pasted, which is the converter's job, not this builder's.
     warnings.push(`Only the first of ${docs.length} YAML documents was read — this reads a values.yaml, not raw manifests.`);
   }
-  const first = docs[0];
-  first?.errors.forEach((err) => warnings.push(err.message));
-  const doc = parseValues(text.split(/^---\s*$/m)[0]);
-  if (!doc) return { features: {}, extraValues: "", warnings: [...warnings, "Nothing to import: that is not a YAML mapping."] };
+  // Read the way Helm reads it (first document, YAML 1.1 scalars, last of a
+  // repeated key wins) — a file that opens with `---` used to be cut at that
+  // marker and import as nothing at all.
+  const { doc: parsed, error } = parseHelm(text);
+  if (error)
+    return { features: {}, extraValues: "", unparsed: true, warnings: [...warnings, `Cannot be read as YAML (${error}) — kept exactly as it is.`] };
+  if (parsed === null) return { features: {}, extraValues: "", warnings };
+  if (!isPlainObject(parsed))
+    return { features: {}, extraValues: "", unparsed: true, warnings: [...warnings, "That is not a YAML mapping — kept exactly as it is."] };
+  const doc: Values = parsed;
 
   const features: Record<string, FeatureState> = {};
   FEATURES.forEach((spec) => {
@@ -100,6 +122,10 @@ export function importValues(text: string): ImportResult {
       return;
     }
     extra[key] = value;
+    // The chart's own bookkeeping the converter writes (live labels and
+    // selector, list order) — nothing to edit, and nothing lost by keeping it as
+    // it is, so a pull of a converted tree does not warn on every file.
+    if (!owner && CHART_PASSTHROUGH_KEYS.has(key)) return;
     warnings.push(
       owner
         ? `${key}: kept as extra values — the ${owner.name} form read nothing from it.`

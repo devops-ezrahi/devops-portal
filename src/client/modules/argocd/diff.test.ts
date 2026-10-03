@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diffLines, diffTree, diffValues } from "./diff";
+import { commitFiles, diffLines, diffTree, diffValues } from "./diff";
 import type { GeneratedFile } from "./tree";
 
 const gen = (path: string, text: string): GeneratedFile => ({ path, text, note: "" });
@@ -99,5 +99,22 @@ describe("diffValues", () => {
   it("falls back to the raw text when a side will not parse", () => {
     const broken = "volumes: [unclosed\n";
     expect(diffValues(broken, after).some((l) => l.kind !== " ")).toBe(true);
+  });
+});
+
+describe("commitFiles", () => {
+  it("sends an unchanged file as the repository has it, and an edited one as generated", () => {
+    const files = [
+      { path: "a.yaml", text: "x: 1\ny: 2\n", note: "" },
+      { path: "b.yaml", text: "x: 2\n", note: "" },
+    ];
+    const repo = [
+      { path: "a.yaml", text: "# kept\ny: 2\nx: 1\n" },
+      { path: "b.yaml", text: "x: 1\n" },
+    ];
+    expect(commitFiles(files, repo)).toEqual([
+      { path: "a.yaml", text: "# kept\ny: 2\nx: 1\n" },
+      { path: "b.yaml", text: "x: 2\n" },
+    ]);
   });
 });

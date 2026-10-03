@@ -1,14 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { flow, raw, toYaml } from "./yaml";
+import { clean, flow, parseHelm, raw, toYaml } from "./yaml";
 import { parse } from "yaml";
 
 describe("toYaml", () => {
   it("quotes what YAML would otherwise re-type", () => {
-    expect(toYaml({ tag: "2.3", on: "yes", n: "1", ok: "v1.2.3" })).toBe('tag: "2.3"\non: "yes"\nn: "1"\nok: v1.2.3');
+    // Keys too: Helm reads a bare `on:` / `n:` key as a boolean.
+    expect(toYaml({ tag: "2.3", on: "yes", n: "1", ok: "v1.2.3" })).toBe('tag: "2.3"\n"on": "yes"\n"n": "1"\nok: v1.2.3');
   });
 
-  it("drops unset fields rather than writing them empty", () => {
-    expect(toYaml({ a: "x", b: "", c: null, d: {}, e: [] })).toBe("a: x");
+  it("quotes every string Helm's reader (go-yaml v2) would re-type", () => {
+    for (const s of ["y", "N", "off", "08", "0x1F", "0o17", "1_000", "+12", ".inf", ".nan", "1e3", "0755", "~", "NULL"])
+      expect(parseHelm(toYaml({ v: s })).doc).toEqual({ v: s });
+    for (const s of ["12:30", "2001-12-14", "=", "v1.2", "plain"]) expect(toYaml({ v: s })).toBe(`v: ${s}`);
+  });
+
+  it("writes what a document holds — an empty string, null, {} and [] are values to Helm", () => {
+    expect(toYaml({ a: "x", b: "", c: null, d: {}, e: [] })).toBe('a: x\nb: ""\nc: null\nd: {}\ne: []');
+  });
+
+  it("leaves dropping a form's unset fields to clean()", () => {
+    expect(clean({ a: "x", b: "", c: null, d: {}, e: [] })).toEqual({ a: "x" });
+  });
+
+  it("reads a values file the way Helm does", () => {
+    expect(parseHelm("---\na: yes\nb: 0644\nc: 12:30\nk: 1\nk: 2\n---\nz: 1\n").doc).toEqual({ a: true, b: 420, c: "12:30", k: 2 });
+    expect(parseHelm("a: .inf\n").error).toBeTruthy();
+    expect(parseHelm("\uFEFFa: 1\n").doc).toEqual({ a: 1 });
   });
 
   it("writes nested maps and lists of maps", () => {

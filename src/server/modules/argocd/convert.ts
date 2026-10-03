@@ -65,9 +65,36 @@ def run_oc(args):
         raise subprocess.CalledProcessError(1, args, stderr="referenced, but not in the pasted YAML")
     return types.SimpleNamespace(stdout=yaml.safe_dump(hits[0]))
 ni.run_oc = run_oc
+import os
+def written(ns):
+    seen = set()
+    for root, _, names in os.walk(os.path.join(out, ns)):
+        for n in names:
+            if n.endswith((".yaml", ".yml")):
+                try:
+                    for d in yaml.safe_load_all(open(os.path.join(root, n), encoding="utf-8")):
+                        if isinstance(d, dict):
+                            seen.add((d.get("kind"), (d.get("metadata") or {}).get("name")))
+                except yaml.YAMLError:
+                    pass
+    return seen
 for ns, ns_docs in by_ns.items():
     docs[:] = ns_docs
-    ni.handle_full_namespace(ns, types.SimpleNamespace(output=out))
+    # One namespace the importer cannot use (a stray ConfigMap whose
+    # metadata.namespace names another one: "No workloads found") used to end
+    # the whole run, and the paste's every other namespace with it.
+    try:
+        ni.handle_full_namespace(ns, types.SimpleNamespace(output=out))
+    except SystemExit as e:
+        ni.FETCH_FAILURES.append(f"Namespace '{ns}': not converted — {e.code if isinstance(e.code, str) else 'the importer stopped'}")
+        continue
+    # What the paste held that never reached the converter's input — a
+    # DeploymentConfig, an ImageStream, hand-made Endpoints — is named, not lost.
+    kept = written(ns)
+    for d in ns_docs:
+        key = (d.get("kind"), (d.get("metadata") or {}).get("name"))
+        if key[0] and key not in kept:
+            ni.FETCH_FAILURES.append(f"{key[0]}/{key[1]} (namespace {ns}): in the pasted YAML, but not carried into the conversion")
 open(failures, "w", encoding="utf-8").write(json.dumps(ni.FETCH_FAILURES))
 `;
 

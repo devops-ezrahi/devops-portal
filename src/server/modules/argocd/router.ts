@@ -45,6 +45,8 @@ const treeBody = z.object({
         name: z.string().trim().max(80),
         features: z.record(z.string(), featureState),
         extraValues: z.string().max(100_000).optional(),
+        file: z.string().max(120).regex(/^[^/\\]+$/).optional(),
+        basePaths: z.array(z.string().max(300).regex(/^base\/[^\\]+\.yaml$/)).max(20).optional(),
       })
     )
     .max(200),
@@ -63,6 +65,7 @@ const treeBody = z.object({
             extraValues: z.string().max(100_000).optional(),
           })
           .optional(),
+        noDefaults: z.boolean().optional(),
         releases: z
           .array(
             z.object({
@@ -75,6 +78,12 @@ const treeBody = z.object({
       })
     )
     .max(50),
+  // The repo text each imported file had — see ArgocdTree.imported. Bounded by
+  // what a pull can return (pullValuesTree: 500 files, 2 MB).
+  imported: z
+    .record(z.string().max(300), z.object({ text: z.string().max(2 * 1024 * 1024), fp: z.string().max(64), keep: z.boolean().optional() }))
+    .refine((m) => Object.keys(m).length <= 500, "At most 500 imported files")
+    .optional(),
 });
 
 /**

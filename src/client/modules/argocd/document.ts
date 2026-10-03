@@ -122,6 +122,7 @@ export function toInput(tree: DraftTree): TreeInput {
     rootAppName: tree.rootAppName,
     releases: tree.releases,
     namespaces: tree.namespaces,
+    ...(tree.imported ? { imported: tree.imported } : {}),
   };
 }
 

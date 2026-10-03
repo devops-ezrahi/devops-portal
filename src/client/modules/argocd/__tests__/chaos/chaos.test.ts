@@ -4,18 +4,29 @@ import { deploy, drift, helmParse } from "./argo";
 import type { BaseLayout } from "./argo";
 import { CASES, fuzzCase } from "./cases";
 import { readTree, runCase } from "./run";
-import { BUG, verdict } from "./verdicts";
+import { verdict } from "./verdicts";
 
 /**
  * Chaos against the ArgoCD builder: hand-edited variants of the grouped
  * example tree, pulled, imported, rebuilt and pushed the way the portal does
  * it, and judged by what Argo CD would deploy before and after (`argo.ts`).
  *
- * A case is `clean` when the push changes nothing Argo deploys — at the repo
- * root (overlay) and under `values.path` (replace) — and a later edit to a
- * release's base reaches every Application running it. `bug` cases do not hold
- * that today; they run as `it.fails`, so fixing one turns its test red until
- * it moves to `clean`. `accepted` drift is intended, and its test pins how.
+ * 100 cases (`cases.ts`) plus 30 seeded reformatting runs. A case is `clean`
+ * when, for an untouched pull:
+ *
+ * - the preview (`diffTree`) shows every file unchanged — nothing you did not do;
+ * - the push (`commitFiles`) would rewrite no file;
+ * - Argo deploys exactly what it did, at the repo root (overlay) and under
+ *   `values.path` (replace);
+ *
+ * and after edits:
+ *
+ * - a change to a release's base reaches every Application running it;
+ * - one image-tag edit shows as exactly one modified file in the preview and
+ *   moves exactly that Application's `image.tag`.
+ *
+ * A known bug is recorded in `verdicts.ts` and runs as `it.fails`, so fixing
+ * it turns its test red until it moves to `clean`.
  *
  * Seeds: `example-grouped` is the universal-chart-example-grouped repo's
  * `main` as GitHub has it, `converted/grouped` the richer copy the converter
@@ -41,6 +52,10 @@ function problems(o: ReturnType<typeof runCase>): string[] {
     ...(o.overlay?.drift ?? []).map((d) => `push at repo root: ${d.app} ${d.kind}: ${d.detail}`),
     ...(o.replace?.drift ?? []).map((d) => `push under values.path: ${d.app} ${d.kind}: ${d.detail}`),
     ...o.unseenEdits.map((a) => `a base edit does not reach ${a}`),
+    ...o.diffShown.map((d) => `the preview of an untouched pull shows: ${d}`),
+    ...o.committed.map((p) => `an untouched push would rewrite ${p}`),
+    ...o.editProblems,
+    ...([...o.before.apps.values()].some((a) => !a.error) && !o.edited ? ["no Application to make the one-edit check on"] : []),
   ];
 }
 
@@ -115,27 +130,12 @@ describe("the oracle reads values the way Helm does", () => {
 describe("chaos on the converter's own output (example repo, branch chaos, round 2)", () => {
   const seed = readTree(join(__dirname, "seeds", "example-chaos-edge"));
   const layout: BaseLayout = "mirrored";
-  // What a plain pull + push already changes: the converter quoted "0x1F",
-  // "1_000", ".inf"..., the writer does not (BUG.quoting); and
-  // metrics.exporter.yaml comes back as metrics-exporter.yaml (BUG.rename).
-  const KNOWN = /^push (at repo root|under values\.path): (yaml-traps-edge values|metrics[.-]exporter-edge (added|lost))|^a base edit does not reach metrics\.exporter-edge/;
-  const identity = CASES.find((c) => c.id === "identity")!;
 
-  it.fails(`known bugs: ${BUG.quoting}; ${BUG.rename}`, () => {
-    expect(problems(runCase(seed, identity, layout))).toEqual([]);
-  });
-
-  it("drifts in exactly those two Applications, and nowhere else", () => {
-    const found = problems(runCase(seed, identity, layout));
-    expect(found.filter((p) => !KNOWN.test(p))).toEqual([]);
-    expect(found.some((p) => p.includes("yaml-traps-edge"))).toBe(true);
-    expect(found.some((p) => p.includes("metrics-exporter-edge"))).toBe(true);
-  });
-
-  it.each(CASES.filter((c) => c.family === "format" && !["identity", "anchors-and-aliases", "block-scalars", "doc-start-marker"].includes(c.id)).map((c) => [c.id, c] as const))(
-    "re-spelled as %s, adds no drift of its own",
+  // The re-spellings that touch every file; the other format cases edit dev/values/ms2.yaml, which this tree has not.
+  it.each(CASES.filter((c) => c.family === "format" && !["anchors-and-aliases", "block-scalars"].includes(c.id)).map((c) => [c.id, c] as const))(
+    "pulled and pushed back as %s, deploys and previews exactly as it was",
     (_id, c) => {
-      expect(problems(runCase(seed, c, layout)).filter((p) => !KNOWN.test(p))).toEqual([]);
+      expect(problems(runCase(seed, c, layout))).toEqual([]);
     }
   );
 

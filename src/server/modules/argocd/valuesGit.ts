@@ -39,6 +39,28 @@ function inside(root: string, full: string): boolean {
   return resolve(full).startsWith(base + sep);
 }
 
+/** Every file under `dir`, as forward-slash paths relative to it. */
+async function listFiles(dir: string, prefix = ""): Promise<string[]> {
+  const out: string[] = [];
+  for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    if (entry.name === ".git") continue;
+    const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) out.push(...(await listFiles(join(dir, entry.name), rel)));
+    else out.push(rel);
+  }
+  return out;
+}
+
+/**
+ * A file the tree owns — the client's `isTreeFile` (`tree.ts`), repeated here
+ * because the server does not import client modules. Keep the two in step.
+ */
+const NOT_NAMESPACES = ["cluster-shared", "ERRORS_ANALYSIS", "report"];
+export function isTreeFile(path: string): boolean {
+  if (NOT_NAMESPACES.includes(path.split("/")[0])) return false;
+  return /^base\/.+\.yaml$/.test(path) || /^[^/].*\/defaults\.yaml$/.test(path) || /^[^/].*?\/values\/.+\.yaml$/.test(path);
+}
+
 /** Every `.yaml` under `dir`, as forward-slash paths relative to it. */
 async function listYaml(dir: string, prefix = ""): Promise<string[]> {
   const out: string[] = [];
@@ -123,12 +145,18 @@ export async function pushValuesTree(opts: {
     // ponytail: at the repo root this only writes, never deletes — a namespace
     // removed in the builder keeps its directory in the PR, because at the root
     // there is no way to tell this tree's directories from another tree's.
-    // Set `values.path` to a subdirectory and deletes become exact: that
-    // subdirectory belongs to this tree outright, so it is emptied first.
+    // Set `values.path` to a subdirectory and deletes become exact — but only of
+    // the tree's own files (base/**, <ns>/defaults.yaml, <ns>/values/**). Emptying
+    // the whole folder also deleted its root ApplicationSet, a README, the
+    // converter's input/ and report/: files the pull never read, so the preview
+    // could not even show them going.
     if (valuesPath) {
       const root = treeRoot(dir, valuesPath);
       if (!inside(dir, root)) throw new Error(`Refusing to write outside the repository: ${valuesPath}`);
-      await git(["rm", "-r", "--ignore-unmatch", "--quiet", "--", valuesPath], dir);
+      const keep = new Set(files.map((f) => f.path));
+      const stale = (await listFiles(root)).filter((p) => isTreeFile(p) && !keep.has(p));
+      for (let i = 0; i < stale.length; i += 100)
+        await git(["rm", "--ignore-unmatch", "--quiet", "--", ...stale.slice(i, i + 100).map((p) => `${valuesPath}/${p}`)], dir);
     }
 
     await writeFiles(dir, valuesPath, files);

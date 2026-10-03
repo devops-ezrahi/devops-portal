@@ -72,7 +72,7 @@ const endsInBlock = (t: string) => outsideBlocks(t.replace(/\n*$/, ""), () => ""
 const reindent = (t: string, n: number) =>
   t.replace(/^( +)/gm, (m) => " ".repeat((m.length / 2) * n));
 
-export const CASES: Case[] = [
+const FIRST_CASES: Case[] = [
   // ======================= formatting: same values, different bytes ==========
   { id: "identity", family: "format", title: "nothing changed: the tree exactly as committed", mutate: (f) => f },
   {
@@ -507,6 +507,252 @@ export const CASES: Case[] = [
     },
   },
 ];
+
+/** Two copies of base/ms2.yaml under the group paths given, so both chart layouts can read it. */
+const groupBase = (f: Files, groups: string[]) => groups.reduce((acc, g) => put(acc, `base/${g}/ms2.yaml`, get(f, "base/ms2.yaml")!), f);
+const bigFile = (n: number) => `\nbulk:\n${Array.from({ length: n }, (_, i) => `  key_${String(i).padStart(4, "0")}: value-${i}`).join("\n")}\n`;
+
+/** The second hundred's worth: 39 more, same families, aimed at what the first 61 did not reach. */
+const MORE_CASES: Case[] = [
+  // ---- types
+  {
+    id: "big-and-negative-ints",
+    family: "types",
+    title: "integers past 2^53, negatives and a 30-digit number (JavaScript cannot hold the big ones exactly)",
+    mutate: (f) => append(f, "dev/values/ms2.yaml", "\ntuning:\n  neg: -5\n  big: 9007199254740993\n  huge: 123456789012345678901234567890\n"),
+  },
+  {
+    id: "odd-floats",
+    family: "types",
+    title: "floats written 1e-3, -0.0, .5, 5. and 1.20",
+    mutate: (f) => append(f, "dev/values/ms2.yaml", "\ntuning:\n  tiny: 1e-3\n  negzero: -0.0\n  half: .5\n  five: 5.\n  trailing: 1.20\n"),
+  },
+  {
+    id: "trap-keys",
+    family: "types",
+    title: "map keys on, y, null, \"true\" and \"1\" (Helm reads a bare on:/y: key as true)",
+    mutate: (f) => append(f, "dev/values/ms2.yaml", '\nflags:\n  on: a\n  "y": b\n  "null": c\n  "true": d\n  "1": e\n'),
+  },
+  {
+    id: "dotted-and-slashed-keys",
+    family: "types",
+    title: "annotation keys with dots and slashes (example.com/team, a.b.c)",
+    mutate: (f) => append(f, "dev/values/ms2.yaml", "\npodAnnotations:\n  example.com/team: core\n  a.b.c: d\n  prometheus.io/scrape: 'true'\n"),
+  },
+  {
+    id: "trap-values-in-lists",
+    family: "types",
+    title: "a list mixing y, \"n\", 0x10, \"0x10\", on and \"08\"",
+    mutate: (f) => append(f, "dev/values/ms2.yaml", '\nargs:\n- y\n- "n"\n- 0x10\n- "0x10"\n- on\n- "08"\n'),
+  },
+  {
+    id: "radix-ints",
+    family: "types",
+    title: "0xFF, 0b1010 and 0o17 unquoted",
+    mutate: (f) => append(f, "dev/values/ms2.yaml", "\ntuning:\n  hex: 0xFF\n  bin: 0b1010\n  oct: 0o17\n"),
+  },
+  {
+    id: "numeric-keys",
+    family: "types",
+    title: "map keys 80 and \"443\" (numbers as keys)",
+    mutate: (f) => append(f, "dev/values/ms2.yaml", '\nbyPort:\n  80: http\n  "443": https\n'),
+  },
+  {
+    id: "timestamps",
+    family: "types",
+    title: "an RFC 3339 timestamp and a date, unquoted (strings to Helm)",
+    mutate: (f) => append(f, "dev/values/ms2.yaml", "\nschedule:\n  when: 2024-01-01T10:00:00Z\n  day: 2024-01-01\n"),
+  },
+  {
+    id: "zero-padded-strings",
+    family: "types",
+    title: "\"000123\" and \"1.20\" quoted, 007 unquoted (octal 7)",
+    mutate: (f) => append(f, "dev/values/ms2.yaml", '\ntuning:\n  zeros: "000123"\n  version: "1.20"\n  agent: 007\n'),
+  },
+  {
+    id: "awkward-keys",
+    family: "types",
+    title: "keys with a space, a colon, a leading # and a leading dash",
+    mutate: (f) => append(f, "dev/values/ms2.yaml", '\nodd:\n  "a key": 1\n  "k:v": 2\n  "#hash": 3\n  "-dash": 4\n'),
+  },
+
+  // ---- semantics
+  { id: "null-in-defaults", family: "semantics", title: "a namespace defaults.yaml setting replicaCount: null", mutate: (f) => append(f, "prd/defaults.yaml", "\nreplicaCount: null\n") },
+  {
+    id: "null-in-list-of-maps",
+    family: "semantics",
+    title: "a toleration whose value is null",
+    mutate: (f) => append(f, "dev/values/ms2.yaml", "\ntolerations:\n- key: dedicated\n  operator: Exists\n  value: null\n"),
+  },
+  {
+    id: "empty-strings",
+    family: "semantics",
+    title: "nameOverride: \"\" over base, and an empty annotation",
+    mutate: (f) => append(append(f, "base/ms2.yaml", "\nnameOverride: ms2-named\n"), "prd/values/ms2.yaml", '\nnameOverride: ""\npodAnnotations:\n  empty: ""\n'),
+  },
+  {
+    id: "multiline-trailing-spaces",
+    family: "semantics",
+    title: "a multi-line string whose lines end in spaces",
+    mutate: (f) => append(f, "dev/values/ms2.yaml", '\nscript: "line one  \\nline two \\n"\n'),
+  },
+  {
+    id: "tpl-in-keys",
+    family: "semantics",
+    title: "a templated annotation KEY in base ({{ .Values.color }}-team)",
+    mutate: (f) => append(f, "base/ms1.yaml", "\npodAnnotations:\n  '{{ .Values.color }}-team': checkout\n"),
+  },
+  {
+    id: "group-value-only-in-variant",
+    family: "semantics",
+    title: "a group value (tier) only one variant's defaults.yaml sets, read by its values file",
+    mutate: (f) => append(append(f, "prd/yellow/defaults.yaml", "\ntier: gold\n"), "prd/yellow/values/ms1.yaml", "\npodLabels:\n  tier: '{{ .Values.tier }}'\n"),
+  },
+  {
+    id: "values-restate-defaults",
+    family: "semantics",
+    title: "defaults.yaml and the values file both set replicaCount: 2",
+    mutate: (f) => append(edit(f, "prd/values/ms2.yaml", (t) => t.replace(/replicaCount: \d+/, "replicaCount: 2")), "prd/defaults.yaml", "\nreplicaCount: 2\n"),
+  },
+  {
+    id: "deep-empty-collections",
+    family: "semantics",
+    title: "empty maps and lists four levels down",
+    mutate: (f) => append(f, "dev/values/ms2.yaml", "\naffinity:\n  nodeAffinity: {}\nextra:\n  a:\n    b:\n      c: []\n      d: {}\n"),
+  },
+  {
+    id: "list-overridden-by-map",
+    family: "semantics",
+    title: "base sets args as a list, a folder replaces it with a map",
+    mutate: (f) => append(append(f, "base/ms2.yaml", "\nargs:\n- --a\n"), "dev/values/ms2.yaml", "\nargs:\n  x: 1\n"),
+  },
+  {
+    id: "map-overridden-by-scalar",
+    family: "semantics",
+    title: "base sets podAnnotations as a map, a folder replaces it with a string",
+    mutate: (f) => append(append(f, "base/ms2.yaml", "\npodAnnotations:\n  a: b\n"), "dev/values/ms2.yaml", "\npodAnnotations: none\n"),
+  },
+  {
+    id: "deeply-nested",
+    family: "semantics",
+    title: "a value eight maps deep, overridden in a folder",
+    mutate: (f) =>
+      append(
+        append(f, "base/ms2.yaml", "\ndeep:\n  l1:\n    l2:\n      l3:\n        l4:\n          l5:\n            l6:\n              l7: base\n"),
+        "prd/values/ms2.yaml",
+        "\ndeep:\n  l1:\n    l2:\n      l3:\n        l4:\n          l5:\n            l6:\n              l7: prd\n"
+      ),
+  },
+  { id: "large-values-file", family: "semantics", title: "a values file with 2 000 keys", mutate: (f) => append(f, "dev/values/ms2.yaml", bigFile(2000)) },
+
+  // ---- layout
+  {
+    id: "two-level-groups",
+    family: "layout",
+    title: "dev/values/team/sub/ms2.yaml, its base at both base/ms2.yaml and base/team/sub/ms2.yaml",
+    mutate: (f) => groupBase(move(f, "dev/values/ms2.yaml", "dev/values/team/sub/ms2.yaml"), ["team/sub"]),
+  },
+  {
+    id: "release-only-in-a-variant",
+    family: "layout",
+    title: "a release (ms4) that only prd/black runs",
+    mutate: (f) => put(put(f, "base/ms4.yaml", "workload:\n  type: deployment\nimage:\n  repository: registry.example.org/ms4\n"), "prd/black/values/ms4.yaml", "image:\n  tag: 4.0.0\n"),
+  },
+  {
+    id: "same-release-three-groups",
+    family: "layout",
+    title: "ms2 in three different groups across three folders, with a base for each",
+    mutate: (f) =>
+      groupBase(
+        put(move(move(f, "dev/values/ms2.yaml", "dev/values/a/ms2.yaml"), "prd/values/ms2.yaml", "prd/values/b/ms2.yaml"), "stg/values/c/ms2.yaml", "replicaCount: 1\n"),
+        ["a", "b", "c"]
+      ).concat([{ path: "stg/defaults.yaml", text: "environment: stg\n" }]),
+  },
+  {
+    id: "yml-beside-yaml",
+    family: "layout",
+    title: "dev/values/ms2.yml beside dev/values/ms2.yaml",
+    mutate: (f) => put(f, "dev/values/ms2.yml", "replicaCount: 5\n"),
+  },
+  { id: "base-yaml-not-a-release", family: "layout", title: "a base/README.yaml (an invalid release name nobody runs)", mutate: (f) => put(f, "base/README.yaml", "note: not a release\n") },
+  { id: "folder-with-only-defaults", family: "layout", title: "a qa/defaults.yaml with no values/ (an ApplicationSet with no Applications)", mutate: (f) => put(f, "qa/defaults.yaml", "environment: qa\n") },
+  {
+    id: "four-level-variant",
+    family: "layout",
+    title: "prd/yellow/eu/west with its own defaults.yaml",
+    mutate: (f) => cloneFolder(f, "prd/yellow", "prd/yellow/eu/west", (t) => (t.includes("color:") ? `${t}\nregion: eu-west\n` : t)),
+  },
+  {
+    id: "uppercase-folder",
+    family: "layout",
+    title: "a folder named Prd (not a valid namespace)",
+    mutate: (f) => cloneFolder(f, "prd", "Prd"),
+  },
+  {
+    id: "release-named-defaults",
+    family: "layout",
+    title: "a release called `defaults` (base/defaults.yaml + dev/values/defaults.yaml)",
+    mutate: (f) => put(put(f, "base/defaults.yaml", "workload:\n  type: deployment\n"), "dev/values/defaults.yaml", "replicaCount: 1\n"),
+  },
+  {
+    id: "group-named-values",
+    family: "layout",
+    title: "a grouping sub-folder called `values` (dev/values/values/ms2.yaml)",
+    mutate: (f) => groupBase(move(f, "dev/values/ms2.yaml", "dev/values/values/ms2.yaml"), ["values"]),
+  },
+
+  // ---- wiring
+  {
+    id: "root-list-generator",
+    family: "layout",
+    title: "the root ApplicationSet uses a list generator instead of the git one",
+    mutate: (f) => edit(f, "rootApplicationSet.yaml", (t) => t.replace(/  - git:\n[\s\S]*?(?=\n  goTemplate|\n  template)/, "  - list:\n      elements:\n      - path: dev\n")),
+  },
+  {
+    id: "root-origin-path",
+    family: "layout",
+    title: "the root ApplicationSet's originPath set to envs",
+    mutate: (f) => edit(f, "rootApplicationSet.yaml", (t) => t.replace(/name: originPath\n(\s+)value: .*/, "name: originPath\n$1value: envs").replace(/(\s+)- name: originBranch/, "$1- name: originPath$1  value: envs$1- name: originBranch")),
+  },
+  { id: "root-appset-unreadable", family: "layout", title: "rootApplicationSet.yaml that is not YAML", mutate: (f) => put(f, "rootApplicationSet.yaml", "{{ broken\n  - : :\n") },
+  {
+    id: "extra-root-yaml",
+    family: "layout",
+    title: "kustomization.yaml and app-project.yaml at the repo root",
+    mutate: (f) => put(put(f, "kustomization.yaml", "resources: [rootApplicationSet.yaml]\n"), "app-project.yaml", "kind: AppProject\n"),
+  },
+
+  // ---- combined
+  {
+    id: "kitchen-sink-2",
+    family: "combined",
+    title: "CRLF + trap keys + nulls + a .yml + an orphan values file",
+    mutate: (f) => {
+      let g = append(f, "dev/values/ms2.yaml", '\nflags:\n  on: a\n  "y": b\nservice: null\n');
+      g = put(put(g, "prd/values/ms2.yml", "x: 1\n"), "dev/values/ghost.yaml", "image:\n  tag: 1\n");
+      return editAll(g, isYaml, (t) => t.replace(/\n/g, "\r\n"));
+    },
+  },
+  {
+    id: "kitchen-sink-3",
+    family: "combined",
+    title: "comments + a dotted release + two-level groups + big ints",
+    mutate: (f) => {
+      let g = put(put(f, "base/ms2.v2.yaml", get(f, "base/ms2.yaml")!), "dev/values/ms2.v2.yaml", "tuning:\n  big: 9007199254740993\n");
+      g = groupBase(move(g, "prd/values/ms2.yaml", "prd/values/x/y/ms2.yaml"), ["x/y"]);
+      return editAll(g, isYaml, (t) => `# hand edited\n${t}`);
+    },
+  },
+  {
+    id: "every-values-file-unreadable",
+    family: "combined",
+    title: "every namespace values file broken (unterminated quote)",
+    mutate: (f) => editAll(f, (p) => /\/values\/.+\.yaml$/.test(p), (t) => `${t}\nbroken: "unterminated\n`),
+  },
+];
+
+/** All 100. */
+export const CASES: Case[] = [...FIRST_CASES, ...MORE_CASES];
 
 /**
  * Seeded random formatting chaos: the same values, re-spelled — comments, CRLF,

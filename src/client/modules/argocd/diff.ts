@@ -2,6 +2,7 @@ import { parseValues } from "./build";
 import { isPlainObject } from "./values";
 import { toYaml } from "./yaml";
 import type { RepoFile } from "./api";
+import { isTreeFile } from "./tree";
 import type { GeneratedFile } from "./tree";
 import type { Values } from "./values";
 
@@ -53,7 +54,7 @@ export function diffTree(files: GeneratedFile[], repo: RepoFile[], deletes: bool
   if (deletes) {
     const generated = new Set(files.map((f) => f.path));
     for (const file of repo) {
-      if (generated.has(file.path)) continue;
+      if (generated.has(file.path) || !isTreeFile(file.path)) continue;
       entries.push({
         path: file.path,
         text: "",
@@ -76,7 +77,7 @@ export function diffTree(files: GeneratedFile[], repo: RepoFile[], deletes: bool
  * `null` when the text will not parse — that is a real difference to report,
  * not one to normalise away.
  */
-function canonical(text: string): string | null {
+export function canonical(text: string): string | null {
   const doc = parseValues(text);
   if (!doc) return null;
   return toYaml(sortKeys(doc) as Values, true);
@@ -142,4 +143,37 @@ export function diffLines(before: string, after: string): DiffLine[] {
   while (i < n) out.push({ kind: "-", text: a[i++] });
   while (j < m) out.push({ kind: "+", text: b[j++] });
   return out;
+}
+
+/**
+ * A short, stable hash of what a file deploys: its canonical form, or its text
+ * when it does not parse. What `ArgocdTree.imported` keeps to tell "the rebuild
+ * still writes what the repo has" from "this file was edited".
+ */
+export function fingerprint(text: string): string {
+  const s = canonical(text) ?? `raw:${text}`;
+  // cyrb53 — 53 bits is plenty to tell one file's two states apart.
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
+
+/**
+ * The files a commit sends. One the diff calls unchanged — same text, or the
+ * same values written differently — goes as the repository has it, so the
+ * commit (and its pull request) holds only what was actually edited.
+ */
+export function commitFiles(files: GeneratedFile[], repo: RepoFile[] | undefined): RepoFile[] {
+  if (!repo) return files.map((f) => ({ path: f.path, text: f.text }));
+  return diffTree(files, repo, false).map((e) => ({
+    path: e.path,
+    text: e.status === "unchanged" && e.repoText !== undefined ? e.repoText : e.text,
+  }));
 }

@@ -93,6 +93,34 @@ describe("pushValuesTree", () => {
     // really disappears. At the repo root it would still be there.
     await expect(show("apps/base/gone.yaml")).rejects.toThrow();
   });
+
+  it("under a values subdirectory removes only the tree's own files", async () => {
+    const under = { values: { repoUrl: remote, revision: "main", path: "apps2" } };
+    await push(
+      [
+        { path: "base/api.yaml", text: "a: 1\n" },
+        { path: "prd/values/old.yaml", text: "o: 1\n" },
+        { path: "rootApplicationSet.yaml", text: "kind: ApplicationSet\n" },
+        { path: "input/prd/api.yaml", text: "kind: Deployment\n" },
+      ],
+      under
+    );
+    await push([{ path: "base/api.yaml", text: "a: 1\n" }], under);
+    // Not the tree's to delete: the root wiring and the converter's input.
+    expect(await show("apps2/rootApplicationSet.yaml")).toContain("ApplicationSet");
+    expect(await show("apps2/input/prd/api.yaml")).toContain("Deployment");
+    await expect(show("apps2/prd/values/old.yaml")).rejects.toThrow();
+  });
+});
+
+describe("isTreeFile", () => {
+  it("is base/**, a folder's defaults.yaml and anything under a folder's values/", async () => {
+    const { isTreeFile } = await import("./valuesGit");
+    for (const p of ["base/ms1.yaml", "base/g/ms1.yaml", "prd/defaults.yaml", "prd/yellow/defaults.yaml", "prd/values/ms1.yaml", "prd/values/g/ms1.yaml"])
+      expect(isTreeFile(p), p).toBe(true);
+    for (const p of ["rootApplicationSet.yaml", "README.md", "input/prd/x.yaml", "report/x.json", "defaults.yaml", "prd/notes.yaml", "prd/values/ms2.yml"])
+      expect(isTreeFile(p), p).toBe(false);
+  });
 });
 
 describe("pullValuesTree", () => {
