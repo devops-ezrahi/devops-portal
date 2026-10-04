@@ -56,7 +56,7 @@ export function CreateTicketView({
       {selected && (
         <form className="request-form" onSubmit={submit}>
           <label>
-            <span>Name</span>
+            <span>Ticket name</span>
             <input value={title} onChange={(e) => setTitle(e.target.value)} required />
           </label>
           <label>
