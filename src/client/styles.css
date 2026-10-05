@@ -410,7 +410,7 @@ textarea {
 }
 
 /* Back to top: slides up from below once App.tsx sees the page a screen down.
-   Quiet until hovered — it floats over content. */
+   Accent-tinted rather than solid, so it is visible without shouting. */
 .scroll-top {
   position: fixed;
   right: 24px;
@@ -420,18 +420,19 @@ textarea {
   place-items: center;
   width: 40px;
   height: 40px;
-  border: 1px solid rgb(var(--c-6f8088) / 25%);
+  border: 1px solid rgb(var(--c-9fe4dc) / 40%);
   border-radius: 999px;
-  background: rgb(var(--c-0b0f12) / 70%);
+  background: rgb(var(--c-172226) / 95%);
   backdrop-filter: blur(4px);
-  color: rgb(var(--c-6f8088));
+  box-shadow: 0 4px 14px rgb(0 0 0 / 40%);
+  color: rgb(var(--c-9fe4dc));
   opacity: 0;
   transform: translateY(80px);
   transition: transform 0.25s ease-out, opacity 0.25s ease-out, color 0.15s, border-color 0.15s;
 }
 
-.scroll-top.shown { opacity: 0.75; transform: none }
-.scroll-top.shown:hover { opacity: 1; color: rgb(var(--c-9fe4dc)); border-color: rgb(var(--c-9fe4dc) / 35%) }
+.scroll-top.shown { opacity: 1; transform: none }
+.scroll-top.shown:hover { background: rgb(var(--c-9fe4dc) / 18%); border-color: rgb(var(--c-9fe4dc) / 70%) }
 
 .app-header {
   position: sticky;
