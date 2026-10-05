@@ -1,4 +1,5 @@
 import { LinkedText } from "./LinkedText";
+import { OutgoingComments, useOutbox } from "./Outbox";
 import { Check, ChevronDown, ChevronUp, LoaderCircle, MessageSquarePlus, Pencil } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
@@ -36,6 +37,7 @@ export function AdminTicketDetail({
   const [teamGroups, setTeamGroups] = useState(ticket.teamGroups.join(", "));
   const [body, setBody] = useState("");
   const [saving, track] = useSaving();
+  const outbox = useOutbox();
   const [isEditing, setIsEditing] = useState(false);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const pointsRef = useRef<HTMLInputElement>(null);
@@ -153,21 +155,14 @@ export function AdminTicketDetail({
   async function submitResponse(event: FormEvent) {
     event.preventDefault();
     // The box empties at once, so the next message can be typed while this one
-    // is on its way; a refusal puts the text back.
+    // is on its way.
     const text = body;
     setBody("");
     log("ticketing/admin", "posting response", { ticket: ticket.id, chars: text.length });
-    await track("comment", async () => {
-      try {
-        await addAdminComment(ticket.id, text);
-      } catch (err) {
-        logError("ticketing/admin", "addAdminComment failed", ticket.id, err);
-        setBody((current) => current || text);
-        throw err;
-      }
-      log("ticketing/admin", "response posted", ticket.id);
-      await onReload();
-    }).catch(() => undefined);
+    await outbox
+      .post(text, (t) => addAdminComment(ticket.id, t), onReload, (t) => setBody((current) => current || t))
+      .then(() => log("ticketing/admin", "response posted", ticket.id))
+      .catch((err) => logError("ticketing/admin", "addAdminComment failed", ticket.id, err));
   }
 
   return (
@@ -197,6 +192,7 @@ export function AdminTicketDetail({
         ) : (
           <h2>{title}</h2>
         )}
+        <SaveState state={saving.edits} />
         <button
           className="icon-button edit-toggle"
           type="button"
@@ -207,7 +203,6 @@ export function AdminTicketDetail({
           {isEditing ? <Check size={16} aria-hidden="true" /> : <Pencil size={16} aria-hidden="true" />}
         </button>
       </div>
-      <SaveState state={saving.edits} />
 
       {isEditing ? (
         <textarea
@@ -309,7 +304,7 @@ export function AdminTicketDetail({
       </div>
 
       <section>
-        <h3 className="field-label">Messages <SaveState state={saving.comment} pending="Sending…" done="Sent" /></h3>
+        <h3 className="field-label">Messages {outbox.error && <SaveState state={outbox.error} />}</h3>
         <div className="comments">
           {ticket.comments.map((comment) =>
             isStatusMessage(comment.body) ? (
@@ -325,7 +320,8 @@ export function AdminTicketDetail({
               </div>
             )
           )}
-          {ticket.comments.length === 0 && <div className="empty-state">No messages.</div>}
+          <OutgoingComments items={outbox.items} author={currentUserName} />
+          {ticket.comments.length === 0 && outbox.items.length === 0 && <div className="empty-state">No messages.</div>}
         </div>
         <form className="comment-form" onSubmit={submitResponse}>
           <textarea
@@ -343,7 +339,7 @@ export function AdminTicketDetail({
   );
 }
 
-type Field = "stage" | "points" | "edits" | "comment";
+type Field = "stage" | "points" | "edits";
 /** `"saving"`, `"saved"` (for a moment), or the refusal's message. */
 type FieldState = string | undefined;
 
@@ -373,18 +369,18 @@ function useSaving() {
   return [states, track] as const;
 }
 
-function SaveState({ state, pending = "Saving…", done = "Saved" }: { state: FieldState; pending?: string; done?: string }) {
+function SaveState({ state }: { state: FieldState }) {
   if (!state) return null;
   if (state === "saving")
     return (
       <span className="save-state" role="status">
-        <LoaderCircle size={12} className="spin" aria-hidden="true" /> {pending}
+        <LoaderCircle size={12} className="spin" aria-hidden="true" /> Saving…
       </span>
     );
   if (state === "saved")
     return (
       <span className="save-state saved" role="status">
-        <Check size={12} aria-hidden="true" /> {done}
+        <Check size={12} aria-hidden="true" /> Saved
       </span>
     );
   return (

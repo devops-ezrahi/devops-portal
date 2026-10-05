@@ -6460,3 +6460,7 @@ label.ag-add { cursor: pointer }
 
 /* What a <details> reveals eases in rather than appearing in one frame. */
 details[open] > :not(summary) { animation: fade-up 180ms var(--ease-out) }
+
+/* A message still on its way: in the thread already, quieter until it lands. */
+.comment.pending { opacity: 0.65; border-left-color: rgb(var(--c-6f8088)) }
+.comment.pending small { display: inline-flex }
