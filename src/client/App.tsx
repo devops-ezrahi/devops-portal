@@ -1,4 +1,4 @@
-import { RefreshCcw } from "lucide-react";
+import { ArrowUp, RefreshCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   getMe,
@@ -271,6 +271,29 @@ export function App() {
             ))
         )}
       </main>
+      <ScrollTopButton />
     </div>
+  );
+}
+
+/** Appears once the page is scrolled past a screen's worth; takes it back to the top. */
+function ScrollTopButton() {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setShown(window.scrollY > window.innerHeight);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+  if (!shown) return null;
+  return (
+    <button
+      type="button"
+      className="scroll-top"
+      aria-label="Back to top"
+      title="Back to top"
+      onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+    >
+      <ArrowUp size={20} aria-hidden="true" />
+    </button>
   );
 }

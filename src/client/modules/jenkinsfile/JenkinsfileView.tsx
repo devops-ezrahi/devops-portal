@@ -103,7 +103,8 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
   const [naming, setNaming] = useState(false);
   // Per viewer, not per pipeline: it is about how much of the screen the
   // settings above the stages may take, which is the same whatever is open.
-  const [optionsOpen, setOptionsOpen] = useState(readOptionsOpen);
+  const [optionsOpen, setOptionsOpen] = useState(() => readOpen(OPTIONS_OPEN_KEY, false));
+  const [previewOpen, setPreviewOpen] = useState(() => readOpen(PREVIEW_OPEN_KEY, true));
   const [saveState, setSaveState] = useState<SaveState>("idle");
   /** Whether a git credential exists at all — the repo buttons say so when it does not. */
   const [gitEnabled, setGitEnabled] = useState(false);
@@ -582,6 +583,31 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
               )}
             </div>
 
+            {/* The generated file sits right under the repository it commits
+                to, as ArgoCD's file tree does — not under every stage. */}
+            <div className="jf-section">
+              <JenkinsfilePreview
+                folded={!previewOpen}
+                onFold={() => {
+                  setPreviewOpen(!previewOpen);
+                  writeOpen(PREVIEW_OPEN_KEY, !previewOpen);
+                }}
+                code={code}
+                problems={errors.pipeline}
+                problemCount={problemCount}
+                actions={
+                  <CommitButton
+                    blocked={gitBlocked(repo, gitEnabled)}
+                    saved={saveState !== "saving"}
+                    push={push}
+                    what="pipeline"
+                    onCommit={() => void handleCommit()}
+                  />
+                }
+                notice={<PushResult push={push} what="pipeline" />}
+              />
+            </div>
+
             {/* Library, parameters and Groovy fold behind one row,
                 so the stages can sit near the top once they are set. Folded, the
                 row says what is set, so nothing hidden is a surprise. Siblings
@@ -594,7 +620,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
                 aria-expanded={optionsOpen}
                 onClick={() => {
                   setOptionsOpen(!optionsOpen);
-                  writeOptionsOpen(!optionsOpen);
+                  writeOpen(OPTIONS_OPEN_KEY, !optionsOpen);
                 }}
               >
                 <ChevronRight className={`jf-group-chevron${optionsOpen ? " open" : ""}`} size={15} aria-hidden="true" />
@@ -645,24 +671,6 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
                 onAdd={handleAddStage}
                 onRemove={handleRemoveStage}
               />
-            </div>
-
-            <div className="jf-section">
-              <JenkinsfilePreview
-                code={code}
-                problems={errors.pipeline}
-                problemCount={problemCount}
-                actions={
-                  <CommitButton
-                    blocked={gitBlocked(repo, gitEnabled)}
-                    saved={saveState !== "saving"}
-                    push={push}
-                    what="pipeline"
-                    onCommit={() => void handleCommit()}
-                  />
-                }
-                notice={<PushResult push={push} what="pipeline" />}
-              />
               <p className="jf-credit">Idea and system design by Yuval Danilovich.</p>
             </div>
           </section>
@@ -684,18 +692,20 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
 
 const OPTIONS_OPEN_KEY = "jenkinsfile.optionsOpen";
 
-function readOptionsOpen(): boolean {
+const PREVIEW_OPEN_KEY = "jenkinsfile.previewOpen";
+
+function readOpen(key: string, fallback: boolean): boolean {
   try {
-    // Folded by default; opened only once someone has opened it here.
-    return localStorage.getItem(OPTIONS_OPEN_KEY) === "1";
+    const v = localStorage.getItem(key);
+    return v === null ? fallback : v === "1";
   } catch {
-    return false;
+    return fallback;
   }
 }
 
-function writeOptionsOpen(open: boolean) {
+function writeOpen(key: string, open: boolean) {
   try {
-    localStorage.setItem(OPTIONS_OPEN_KEY, open ? "1" : "0");
+    localStorage.setItem(key, open ? "1" : "0");
   } catch {
     // Private window or blocked storage — the fold just resets next time.
   }

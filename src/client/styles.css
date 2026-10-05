@@ -409,6 +409,26 @@ textarea {
   background: rgb(var(--c-0b0f12));
 }
 
+/* Back to top: shown by App.tsx once the page is a screen down. */
+.scroll-top {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgb(var(--c-9fe4dc) / 35%);
+  border-radius: 999px;
+  background: rgb(var(--c-0b0f12) / 90%);
+  color: rgb(var(--c-9fe4dc));
+  box-shadow: 0 6px 18px rgb(0 0 0 / 35%);
+  animation: row-in 0.15s ease-out;
+}
+
+.scroll-top:hover { background: rgb(var(--c-9fe4dc) / 14%) }
+
 .app-header {
   position: sticky;
   top: 0;
@@ -3869,6 +3889,9 @@ code {
 
 .jf-preview-head h2 {
   margin-bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .jf-preview-title {

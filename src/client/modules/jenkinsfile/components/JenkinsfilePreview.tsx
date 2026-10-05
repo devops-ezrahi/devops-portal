@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, Copy, Download, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Copy, Download, X } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { highlightGroovy } from "../highlight";
 import { log, error as logError } from "../../../log";
@@ -16,9 +16,12 @@ type Props = {
   actions?: ReactNode;
   /** What that action last did, under the head. */
   notice?: ReactNode;
+  /** Folded to its heading row — ArgoCD's file preview fold. */
+  folded?: boolean;
+  onFold?: () => void;
 };
 
-export function JenkinsfilePreview({ code, problems, problemCount, actions, notice }: Props) {
+export function JenkinsfilePreview({ code, problems, problemCount, actions, notice, folded = false, onFold }: Props) {
   const [copied, setCopied] = useState(false);
   /** Which action is waiting on the "it has problems" dialog, if any. */
   const [pending, setPending] = useState<null | "Copy" | "Download">(null);
@@ -69,7 +72,21 @@ export function JenkinsfilePreview({ code, problems, problemCount, actions, noti
     <div className="jf-preview">
       <div className="jf-preview-head">
         <div className="jf-preview-title">
-          <h2>Jenkinsfile</h2>
+          <h2>
+            {onFold && (
+              <button
+                type="button"
+                className="ag-fold"
+                aria-expanded={!folded}
+                aria-label={`${folded ? "Show" : "Hide"} the Jenkinsfile`}
+                title={folded ? "Show" : "Hide"}
+                onClick={onFold}
+              >
+                <ChevronDown size={14} aria-hidden="true" />
+              </button>
+            )}
+            Jenkinsfile
+          </h2>
           <span className="jf-group-count">{lines} line{lines === 1 ? "" : "s"}</span>
         </div>
         <div className="jf-preview-actions">
@@ -85,7 +102,7 @@ export function JenkinsfilePreview({ code, problems, problemCount, actions, noti
       </div>
       {notice}
 
-      {(problems.length > 0 || problemCount > 0) && (
+      {!folded && (problems.length > 0 || problemCount > 0) && (
         <ul className="jf-errors" aria-label="Pipeline problems">
           {problemCount > 0 && (
             <li>
@@ -101,9 +118,11 @@ export function JenkinsfilePreview({ code, problems, problemCount, actions, noti
         </ul>
       )}
 
-      <pre className="jf-code">
-        <code className="hljs" dangerouslySetInnerHTML={{ __html: html }} />
-      </pre>
+      {!folded && (
+        <pre className="jf-code">
+          <code className="hljs" dangerouslySetInnerHTML={{ __html: html }} />
+        </pre>
+      )}
 
       {pending && (
         <div className="modal-backdrop" role="presentation">

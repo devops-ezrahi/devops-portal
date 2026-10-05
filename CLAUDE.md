@@ -874,7 +874,7 @@ no external system — the only server-side state is saved pipeline documents.
   before anyone thinks to name it. The name then heads the editor
   panel — the editor column is **one** `.detail-panel`, like every other
   module's content column, with the name as its first `.jf-section` and the
-  library/parameters/stages/preview separated by a rule inside the box rather
+  repo/preview/options/stages separated by a rule inside the box rather
   than by four outlines. It names what that panel is showing, so it sits inside
   it rather than floating above the column or in the toolbar.
   It is **text with a pencil beside it**, the same shape a
