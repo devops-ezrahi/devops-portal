@@ -25,6 +25,20 @@ const CONDA_SUBDIRS = new Set([
 
 /** Checksums and Maven's own bookkeeping ride along with a validated artifact. */
 const MAVEN_SIDECARS = [".sha1", ".sha256", ".sha512", ".md5", ".asc"];
+/**
+ * The sidecars a folder upload leaves behind. Artifactory reads a PUT to
+ * `x.jar.sha1` as "set the checksum of `x.jar`", not as a file — so it 404s
+ * ("Target file to set checksum on doesn't exist") whenever the jar is not
+ * there *yet*, which in a parallel upload is a coin toss. It computes all four
+ * itself on every PUT, so there is nothing to upload. `.asc` is a signature,
+ * a real file, and still goes.
+ */
+const MAVEN_CHECKSUMS = [".sha1", ".sha256", ".sha512", ".md5"];
+
+export function isMavenChecksum(path: string): boolean {
+  const lower = path.toLowerCase();
+  return MAVEN_CHECKSUMS.some((e) => lower.endsWith(e));
+}
 const MAVEN_ARTIFACTS = [".jar", ".pom", ".war", ".ear", ".aar", ".zip", ".module"];
 
 /** `name-version-release.arch.rpm` — release and arch are the last two fields. */

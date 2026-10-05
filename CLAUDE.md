@@ -340,11 +340,21 @@ answer from the file rather than guessing at it:
   coordinates are read from there, which is also what lets a pasted pom resolve
   dependencies at all. A pom-packaging artifact (a BOM, a parent) genuinely has
   no jar, and that is the same quiet 404 as a jar published without a pom.
-- **Folder upload** learns the same correction once per drop
-  (`mavenTreePrefix`): the first pom whose coordinates line up with where it
-  sits says how many folders the tree is nested under, and that prefix comes off
-  every path. So `deps/.m2/repository/org/foo/...` uploads as `org/foo/...`,
-  and a drop with no pom in it behaves exactly as before.
+- **Folder upload** takes it from each version folder's own pom
+  (`mavenPoms`): every file in `…/<artifactId>/<version>/` beside a
+  `<artifactId>-<version>.pom` is placed by that pom's coordinates, whatever
+  the folders above it spell. One prefix learned per drop and stripped from
+  every path used to be the whole rule, and a real `.m2.zip` came out as
+  `vladsch/flexmark/…` for `com.vladsch.flexmark` — a 409 on every pom. The
+  prefix is still learned (the first pom that lines up with where it sits), but
+  only places files in a folder with no pom of its own. So
+  `deps/.m2/repository/org/foo/...` still uploads as `org/foo/...`, and a drop
+  with no pom in it behaves exactly as before.
+- **Checksum sidecars are never uploaded** (`isMavenChecksum`: `.sha1`,
+  `.sha256`, `.sha512`, `.md5`). Artifactory reads a PUT to `x.jar.sha1` as
+  "set the checksum of `x.jar`" and 404s — "Target file to set checksum on
+  doesn't exist" — whenever the jar has not landed yet, which in a parallel
+  upload is a coin toss. It computes all four itself. `.asc` still goes.
 
 **A flat folder of jars is the common case, not the exotic one** — it is what
 `mvn dependency:copy-dependencies` writes — and no filename can give a groupId.
@@ -480,6 +490,12 @@ work around it rather than pretend otherwise:
   account. `mapComment` strips the stamp before the client sees the body, so the
   client's `[status] ` prefix still leads and `isStatusMessage` is unaffected on
   both sides.
+- **The assignee list is everyone who has logged in, kept on disk.**
+  `listAdminCandidates` reads `auth.ts`'s directory of users the proxy has
+  sent, which is `<DATA_DIR>/users.json` (`loadKnownUsers`, called by both
+  entry points; rewritten only when a person is new or their name/groups
+  changed). It used to be memory only, so every release emptied the admin
+  dropdown until each admin happened to open the portal again.
 - **Reporter.** `createTicket` sets `reporter` to the portal user's Jira
   username (`usernameFor`), so Jira records who actually filed it. Two things
   can refuse that — the portal identity is not a Jira user (SSO and Jira need

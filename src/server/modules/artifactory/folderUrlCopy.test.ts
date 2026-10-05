@@ -108,8 +108,8 @@ describe("copying a folder URL", () => {
     // A pom and a jar are one package, not two, so a plain user gets them both.
     expect(job.name).toBe("org.apache.commons:commons-lang3@3.12.0");
     expect([...uploaded.keys()].sort()).toEqual([
+      // The .sha1 is not one: Artifactory computes its own.
       `maven-local/${base}/commons-lang3-3.12.0.jar`,
-      `maven-local/${base}/commons-lang3-3.12.0.jar.sha1`,
       `maven-local/${base}/commons-lang3-3.12.0.pom`,
     ]);
   });
