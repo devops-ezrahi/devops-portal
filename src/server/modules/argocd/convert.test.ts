@@ -141,6 +141,25 @@ describe.skipIf(!canConvert)("convertToUniversal", () => {
     expect(bases).toEqual(["base/stalker.yaml"]);
   }, 120_000);
 
+  it("keeps a microservice whose name holds an env-group token as itself, in every namespace", async () => {
+    // `project` is an env-group token, and project-api is the same microservice
+    // in both namespaces — not an `api` in a `project/` variant folder.
+    const api = (ns: string) => DEPLOYMENT.replace(/stalker/g, "project-api").replace("namespace: interconn", `namespace: ${ns}`);
+    const { files, warnings } = await convertToUniversal({
+      chartRepoUrl: chartRepo,
+      chartRevision: branch,
+      namespace: "shop-dev",
+      envGroups: ["site=project,other"],
+      yaml: [api("shop-dev"), api("shop-prd")].join("---\n"),
+    });
+    const paths = files.map((f) => f.path);
+    expect(paths).toContain("base/project-api.yaml");
+    expect(paths).toContain("shop-dev/values/project-api.yaml");
+    expect(paths).toContain("shop-prd/values/project-api.yaml");
+    expect(paths.some((p) => p.includes("/project/"))).toBe(false);
+    expect(warnings.join("\n")).toMatch(/project-api\.yaml: kept as 'project-api'/);
+  }, 120_000);
+
   it("splits a dirty kubectl dump into microservices, like the namespace importer", async () => {
     const dump = `apiVersion: v1
 kind: List
