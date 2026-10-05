@@ -1,6 +1,194 @@
+/* The palette. Every colour in this file is one of these, written as an
+   "r g b" triplet so a rule can add its own alpha (rgb(var(--c-…) / 12%)).
+   Each name is the dark theme's hex, and theme.ts derives every other theme
+   from it — so a new colour is just written as a hex here and below. */
 :root {
-  color: #f4f7f8;
-  background: #0b0f12;
+  --c-000000: 0 0 0;
+  --c-041113: 4 17 19;
+  --c-06110f: 6 17 15;
+  --c-0b0f12: 11 15 18;
+  --c-0b1114: 11 17 20;
+  --c-0c1114: 12 17 20;
+  --c-0c1215: 12 18 21;
+  --c-0c1216: 12 18 22;
+  --c-0d1316: 13 19 22;
+  --c-0d1417: 13 20 23;
+  --c-0d1418: 13 20 24;
+  --c-0d181a: 13 24 26;
+  --c-0e1417: 14 20 23;
+  --c-0f1518: 15 21 24;
+  --c-0f1519: 15 21 25;
+  --c-0f171a: 15 23 26;
+  --c-0f171b: 15 23 27;
+  --c-10171a: 16 23 26;
+  --c-101a1d: 16 26 29;
+  --c-101a1e: 16 26 30;
+  --c-101a1f: 16 26 31;
+  --c-101d20: 16 29 32;
+  --c-11171b: 17 23 27;
+  --c-11181b: 17 24 27;
+  --c-111920: 17 25 32;
+  --c-111a1e: 17 26 30;
+  --c-12191d: 18 25 29;
+  --c-131e22: 19 30 34;
+  --c-132a2c: 19 42 44;
+  --c-133a38: 19 58 56;
+  --c-141d21: 20 29 33;
+  --c-142026: 20 32 38;
+  --c-14211f: 20 33 31;
+  --c-151d21: 21 29 33;
+  --c-151f23: 21 31 35;
+  --c-162126: 22 33 38;
+  --c-16232a: 22 35 42;
+  --c-172226: 23 34 38;
+  --c-182229: 24 34 41;
+  --c-1a252a: 26 37 42;
+  --c-1a272c: 26 39 44;
+  --c-1b262c: 27 38 44;
+  --c-1c1710: 28 23 16;
+  --c-1c262b: 28 38 43;
+  --c-1d3342: 29 51 66;
+  --c-1e2a30: 30 42 48;
+  --c-1e2d34: 30 45 52;
+  --c-1e2e33: 30 46 51;
+  --c-202b31: 32 43 49;
+  --c-203238: 32 50 56;
+  --c-203922: 32 57 34;
+  --c-20c7bd: 32 199 189;
+  --c-223037: 34 48 55;
+  --c-223038: 34 48 56;
+  --c-24333c: 36 51 60;
+  --c-24343b: 36 52 59;
+  --c-253038: 37 48 56;
+  --c-263238: 38 50 56;
+  --c-26333a: 38 51 58;
+  --c-2a1418: 42 20 24;
+  --c-2a1517: 42 21 23;
+  --c-2a3940: 42 57 64;
+  --c-2b2544: 43 37 68;
+  --c-2b3035: 43 48 53;
+  --c-2c4148: 44 65 72;
+  --c-2dd4bf: 45 212 191;
+  --c-2f4a50: 47 74 80;
+  --c-30464b: 48 70 75;
+  --c-33272b: 51 39 43;
+  --c-35191e: 53 25 30;
+  --c-35454c: 53 69 76;
+  --c-39d7ce: 57 215 206;
+  --c-3a361c: 58 54 28;
+  --c-3a4a52: 58 74 82;
+  --c-3a4c55: 58 76 85;
+  --c-3a5060: 58 80 96;
+  --c-3a5a65: 58 90 101;
+  --c-3b1c22: 59 28 34;
+  --c-3d321c: 61 50 28;
+  --c-3f6c86: 63 108 134;
+  --c-402a1b: 64 42 27;
+  --c-431407: 67 20 7;
+  --c-45211f: 69 33 31;
+  --c-46595f: 70 89 95;
+  --c-465a64: 70 90 100;
+  --c-4a3a1c: 74 58 28;
+  --c-4a3a1e: 74 58 30;
+  --c-4a3f2a: 74 63 42;
+  --c-4a5a62: 74 90 98;
+  --c-4e5f67: 78 95 103;
+  --c-4e6068: 78 96 104;
+  --c-4f9c63: 79 156 99;
+  --c-55656d: 85 101 109;
+  --c-55686e: 85 104 110;
+  --c-55707a: 85 112 122;
+  --c-55d18d: 85 209 141;
+  --c-56666e: 86 102 110;
+  --c-5d272d: 93 39 45;
+  --c-67767d: 103 118 125;
+  --c-6f7d84: 111 125 132;
+  --c-6f8088: 111 128 136;
+  --c-6fded4: 111 222 212;
+  --c-7a8b90: 122 139 144;
+  --c-7c2d12: 124 45 18;
+  --c-7d8e96: 125 142 150;
+  --c-7d8f97: 125 143 151;
+  --c-7f9199: 127 145 153;
+  --c-7fcfc9: 127 207 201;
+  --c-829198: 130 145 152;
+  --c-84949b: 132 148 155;
+  --c-84969c: 132 150 156;
+  --c-8a97a0: 138 151 160;
+  --c-8b98a5: 139 152 165;
+  --c-8b9ba5: 139 155 165;
+  --c-8d9ba2: 141 155 162;
+  --c-8ea0a8: 142 160 168;
+  --c-8fa2aa: 143 162 170;
+  --c-8fa3ab: 143 163 171;
+  --c-8fa3ad: 143 163 173;
+  --c-96a5ac: 150 165 172;
+  --c-9fb0b8: 159 176 184;
+  --c-9fe4dc: 159 228 220;
+  --c-a0b0b6: 160 176 182;
+  --c-a8f0cb: 168 240 203;
+  --c-a9d8f2: 169 216 242;
+  --c-aeb9bf: 174 185 191;
+  --c-b0cbdb: 176 203 219;
+  --c-b7e0b8: 183 224 184;
+  --c-b9c6cc: 185 198 204;
+  --c-b9c8cd: 185 200 205;
+  --c-c08a3e: 192 138 62;
+  --c-c3ccd2: 195 204 210;
+  --c-c8d1d5: 200 209 213;
+  --c-c8d3d7: 200 211 215;
+  --c-c9bdf0: 201 189 240;
+  --c-c9d4de: 201 212 222;
+  --c-cfd8dc: 207 216 220;
+  --c-cfe0e5: 207 224 229;
+  --c-cfe3e8: 207 227 232;
+  --c-d19a66: 209 154 102;
+  --c-d6b5bd: 214 181 189;
+  --c-d7fbf8: 215 251 248;
+  --c-d9b877: 217 184 119;
+  --c-dbe4e7: 219 228 231;
+  --c-dce5e8: 220 229 232;
+  --c-dfe8eb: 223 232 235;
+  --c-e05560: 224 85 96;
+  --c-e0736d: 224 115 109;
+  --c-e0aa54: 224 170 84;
+  --c-e0b341: 224 179 65;
+  --c-e0b457: 224 180 87;
+  --c-e2883c: 226 136 60;
+  --c-e4dc9c: 228 220 156;
+  --c-e6b455: 230 180 85;
+  --c-e6f1f3: 230 241 243;
+  --c-e8eef0: 232 238 240;
+  --c-ead49f: 234 212 159;
+  --c-edf3f5: 237 243 245;
+  --c-ef4444: 239 68 68;
+  --c-f0a5a5: 240 165 165;
+  --c-f0b27a: 240 178 122;
+  --c-f0b35a: 240 179 90;
+  --c-f0c08a: 240 192 138;
+  --c-f0c49b: 240 196 155;
+  --c-f0c674: 240 198 116;
+  --c-f0d7a8: 240 215 168;
+  --c-f2f6f7: 242 246 247;
+  --c-f4f7f8: 244 247 248;
+  --c-f5b3ac: 245 179 172;
+  --c-f7fbfc: 247 251 252;
+  --c-f97316: 249 115 22;
+  --c-fb923c: 251 146 60;
+  --c-fed7aa: 254 215 170;
+  --c-ff6b6b: 255 107 107;
+  --c-ff8d95: 255 141 149;
+  --c-ff8f96: 255 143 150;
+  --c-ffb8b2: 255 184 178;
+  --c-ffc6ca: 255 198 202;
+  --c-ffc9cd: 255 201 205;
+  --c-ffd9d5: 255 217 213;
+  --c-ffffff: 255 255 255;
+}
+
+:root {
+  color: rgb(var(--c-f4f7f8));
+  background: rgb(var(--c-0b0f12));
   /* The Hebrew families are the tail of the stack, reached only per-glyph for
      characters the Latin families don't carry. Without them a weight whose
      face lacks Hebrew (Segoe UI Black) falls past the whole stack to the
@@ -28,7 +216,7 @@
   /* One dark scrollbar for every scroller, so a new one cannot ship with the
      browser's light default (the ArgoCD file tree did). */
   scrollbar-width: thin;
-  scrollbar-color: #2a3940 transparent;
+  scrollbar-color: rgb(var(--c-2a3940)) transparent;
 }
 
 /* Links inherit the app accent instead of the browser's default blue/purple.
@@ -38,7 +226,7 @@
    .package-native-link). */
 a,
 a:visited {
-  color: #20c7bd;
+  color: rgb(var(--c-20c7bd));
   text-decoration: none;
 }
 
@@ -48,7 +236,7 @@ a:hover {
 
 body {
   margin: 0;
-  background: #0b0f12;
+  background: rgb(var(--c-0b0f12));
 }
 
 button,
@@ -103,8 +291,8 @@ textarea {
 }
 
 @keyframes dot-pulse {
-  0%, 100% { box-shadow: 0 0 0 3px rgb(32 199 189 / 14%) }
-  50%       { box-shadow: 0 0 0 7px rgb(32 199 189 / 22%) }
+  0%, 100% { box-shadow: 0 0 0 3px rgb(var(--c-20c7bd) / 14%) }
+  50%       { box-shadow: 0 0 0 7px rgb(var(--c-20c7bd) / 22%) }
 }
 
 @keyframes fade-up {
@@ -141,7 +329,7 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #0b0f12;
+  background: rgb(var(--c-0b0f12));
 }
 
 .fullpage-screen-content {
@@ -166,30 +354,30 @@ textarea {
 }
 
 .fullpage-screen-icon.access-denied {
-  background: rgb(249 115 22 / 10%);
-  color: #f97316;
+  background: rgb(var(--c-f97316) / 10%);
+  color: rgb(var(--c-f97316));
 }
 
 .fullpage-screen-icon.error {
-  background: rgb(239 68 68 / 10%);
-  color: #ef4444;
+  background: rgb(var(--c-ef4444) / 10%);
+  color: rgb(var(--c-ef4444));
 }
 
 .fullpage-screen-title {
   font-size: 1.375rem;
   font-weight: 700;
-  color: #f4f7f8;
+  color: rgb(var(--c-f4f7f8));
   margin: 0;
 }
 
 .fullpage-screen-body {
-  color: #8b9ba5;
+  color: rgb(var(--c-8b9ba5));
   margin: 0;
   line-height: 1.6;
 }
 
 .fullpage-screen-hint {
-  color: #4e6068;
+  color: rgb(var(--c-4e6068));
   font-size: 0.875rem;
   margin: 0;
 }
@@ -199,18 +387,18 @@ textarea {
 }
 
 .dev-banner {
-  background: #431407;
-  color: #fed7aa;
+  background: rgb(var(--c-431407));
+  color: rgb(var(--c-fed7aa));
   text-align: center;
   padding: 7px 20px;
   font-size: 0.8125rem;
   font-weight: 500;
   letter-spacing: 0.01em;
-  border-bottom: 1px solid #7c2d12;
+  border-bottom: 1px solid rgb(var(--c-7c2d12));
 }
 
 .dev-banner-link {
-  color: #fb923c;
+  color: rgb(var(--c-fb923c));
   text-decoration: underline;
 }
 
@@ -218,7 +406,7 @@ textarea {
   min-height: 100vh;
   display: grid;
   grid-template-rows: auto auto 1fr;
-  background: #0b0f12;
+  background: rgb(var(--c-0b0f12));
 }
 
 .app-header {
@@ -230,14 +418,14 @@ textarea {
   gap: 18px;
   min-height: 64px;
   padding: 10px clamp(20px, 5vw, 72px);
-  background: rgb(17 23 27 / 88%);
-  border-bottom: 1px solid #202b31;
+  background: rgb(var(--c-11171b) / 88%);
+  border-bottom: 1px solid rgb(var(--c-202b31));
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
 }
 
 .brand {
-  color: #ffffff;
+  color: rgb(var(--c-ffffff));
   font-size: 17px;
   font-weight: 800;
   white-space: nowrap;
@@ -257,9 +445,9 @@ textarea {
   z-index: 20;
   padding: 4px 8px;
   border-radius: 6px;
-  background: rgb(11 15 18 / 96%);
-  border: 1px solid #202b31;
-  color: #8fa3ad;
+  background: rgb(var(--c-0b0f12) / 96%);
+  border: 1px solid rgb(var(--c-202b31));
+  color: rgb(var(--c-8fa3ad));
   font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
@@ -364,7 +552,7 @@ textarea {
   border-radius: 6px;
   padding: 9px 12px;
   background: transparent;
-  color: #aeb9bf;
+  color: rgb(var(--c-aeb9bf));
 }
 
 /* .nav-button is an <a> (so middle-click opens a new tab), which drags in two
@@ -372,7 +560,7 @@ textarea {
    turning every visited tab teal, and `a:hover` underlines it. Both are
    restated here rather than weakened globally. */
 .nav-button:visited {
-  color: #aeb9bf;
+  color: rgb(var(--c-aeb9bf));
 }
 
 .nav-button,
@@ -390,8 +578,8 @@ textarea {
 .nav-button.active,
 .nav-button:hover,
 .ghost-button:hover {
-  background: #172226;
-  color: #f7fbfc;
+  background: rgb(var(--c-172226));
+  color: rgb(var(--c-f7fbfc));
 }
 
 .nav-button:active,
@@ -400,8 +588,8 @@ textarea {
 }
 
 .nav-button.active {
-  box-shadow: inset 0 -2px 0 #20c7bd;
-  color: #ffffff;
+  box-shadow: inset 0 -2px 0 rgb(var(--c-20c7bd));
+  color: rgb(var(--c-ffffff));
 }
 
 .primary {
@@ -410,14 +598,14 @@ textarea {
      only shows its button once a job is selected grew by a pixel on select. */
   height: 40px;
   padding: 10px 14px;
-  background: #20c7bd;
-  color: #041113;
+  background: rgb(var(--c-20c7bd));
+  color: rgb(var(--c-041113));
 }
 
 .primary:hover {
-  background: #39d7ce;
+  background: rgb(var(--c-39d7ce));
   transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgb(32 199 189 / 28%);
+  box-shadow: 0 4px 14px rgb(var(--c-20c7bd) / 28%);
 }
 
 .primary:active {
@@ -426,33 +614,33 @@ textarea {
 }
 
 .primary:disabled {
-  background: #30464b;
-  color: #84969c;
+  background: rgb(var(--c-30464b));
+  color: rgb(var(--c-84969c));
   transform: none;
   box-shadow: none;
 }
 
 .ghost-button {
-  border: 1px solid #2a3940;
-  background: #151d21;
+  border: 1px solid rgb(var(--c-2a3940));
+  background: rgb(var(--c-151d21));
 }
 
 .icon-button {
   width: 38px;
   min-height: 38px;
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 6px;
-  background: #151d21;
-  color: #dbe4e7;
+  background: rgb(var(--c-151d21));
+  color: rgb(var(--c-dbe4e7));
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
 .icon-button:hover {
-  background: #1a252a;
-  color: #ffffff;
-  border-color: #3a5060;
+  background: rgb(var(--c-1a252a));
+  color: rgb(var(--c-ffffff));
+  border-color: rgb(var(--c-3a5060));
 }
 
 .icon-button:active {
@@ -464,9 +652,9 @@ textarea {
   grid-template-columns: 1fr 1fr;
   gap: 3px;
   padding: 3px;
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 7px;
-  background: #0e1417;
+  background: rgb(var(--c-0e1417));
 }
 
 .role-toggle button {
@@ -474,19 +662,19 @@ textarea {
   border-radius: 5px;
   padding: 6px 10px;
   background: transparent;
-  color: #96a5ac;
+  color: rgb(var(--c-96a5ac));
   font-size: 13px;
 }
 
 .role-toggle button.active {
-  background: #20c7bd;
-  color: #041113;
-  box-shadow: 0 2px 8px rgb(32 199 189 / 30%);
+  background: rgb(var(--c-20c7bd));
+  color: rgb(var(--c-041113));
+  box-shadow: 0 2px 8px rgb(var(--c-20c7bd) / 30%);
 }
 
 .user-box {
   min-width: 154px;
-  color: #e8eef0;
+  color: rgb(var(--c-e8eef0));
   text-align: right;
 }
 
@@ -508,7 +696,7 @@ textarea {
 }
 
 .user-box small {
-  color: #829198;
+  color: rgb(var(--c-829198));
   font-size: 12px;
   margin-top: 2px;
 }
@@ -541,21 +729,21 @@ p {
 }
 
 h1 {
-  color: #ffffff;
+  color: rgb(var(--c-ffffff));
   font-size: 24px;
   line-height: 1.2;
   margin-bottom: 0;
 }
 
 h2 {
-  color: #ffffff;
+  color: rgb(var(--c-ffffff));
   font-size: 19px;
   line-height: 1.3;
   margin-bottom: 14px;
 }
 
 h3 {
-  color: #dce5e8;
+  color: rgb(var(--c-dce5e8));
   font-size: 13px;
   margin-bottom: 10px;
 }
@@ -598,10 +786,10 @@ h3 {
   width: 40px;
   height: 40px;
   padding: 0;
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 6px;
   background: none;
-  color: #84949b;
+  color: rgb(var(--c-84949b));
 }
 
 .list-size-toggle svg {
@@ -615,8 +803,8 @@ h3 {
 }
 
 .list-size-toggle:hover {
-  border-color: #3a4c55;
-  color: #dce5e8;
+  border-color: rgb(var(--c-3a4c55));
+  color: rgb(var(--c-dce5e8));
 }
 
 .list-size-toggle .when-narrow,
@@ -643,8 +831,8 @@ h3 {
 .ticket-list-panel,
 .detail-panel,
 .request-form {
-  background: #12191d;
-  border: 1px solid #202b31;
+  background: rgb(var(--c-12191d));
+  border: 1px solid rgb(var(--c-202b31));
   border-radius: 6px;
   min-width: 0;
   animation: panel-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
@@ -655,11 +843,11 @@ h3 {
 }
 
 .done-panel {
-  background: #0f1518;
+  background: rgb(var(--c-0f1518));
 }
 
 .done-panel summary {
-  color: #8d9ba2;
+  color: rgb(var(--c-8d9ba2));
   cursor: pointer;
   font-size: 13px;
   font-weight: 800;
@@ -671,11 +859,11 @@ h3 {
 }
 
 .done-panel summary:hover {
-  color: #c8d3d7;
+  color: rgb(var(--c-c8d3d7));
 }
 
 .done-panel[open] summary {
-  border-bottom: 1px solid #202b31;
+  border-bottom: 1px solid rgb(var(--c-202b31));
 }
 
 .done-panel .ticket-row {
@@ -686,8 +874,8 @@ h3 {
   padding: 12px;
   display: grid;
   gap: 10px;
-  border-bottom: 1px solid #202b31;
-  background: #10171a;
+  border-bottom: 1px solid rgb(var(--c-202b31));
+  background: rgb(var(--c-10171a));
   border-radius: 6px 6px 0 0;
 }
 
@@ -695,11 +883,11 @@ h3 {
   display: flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 6px;
   padding: 0 10px;
-  background: #0d1316;
-  color: #829198;
+  background: rgb(var(--c-0d1316));
+  color: rgb(var(--c-829198));
 }
 
 .search input,
@@ -711,12 +899,12 @@ h3 {
 .admin-edit-form select,
 .comment-form textarea {
   width: 100%;
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 6px;
   min-height: 40px;
   padding: 9px 11px;
-  background: #0d1316;
-  color: #f4f7f8;
+  background: rgb(var(--c-0d1316));
+  color: rgb(var(--c-f4f7f8));
   /* These controls sit inside a `font-weight: 800` label and inherit it via
      the global `font: inherit`. The label is bold; what the user types isn't.
      It also keeps Hebrew off Segoe UI Black, which carries no Hebrew glyphs —
@@ -728,7 +916,7 @@ h3 {
      read as a bright smudge. color-scheme is the only lever that recolours
      them; scoped to these controls rather than :root so the rest of the
      hardcoded dark theme keeps deciding its own colours. */
-  color-scheme: dark;
+  color-scheme: var(--scheme, dark);
 }
 
 .search input {
@@ -740,7 +928,7 @@ h3 {
 
 input::placeholder,
 textarea::placeholder {
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
 }
 
 /* The ring hugs the control instead of floating 2px off it. An offset outline
@@ -752,10 +940,10 @@ input:focus,
 select:focus,
 textarea:focus,
 button:focus-visible {
-  outline: 1px solid #20c7bd;
+  outline: 1px solid rgb(var(--c-20c7bd));
   outline-offset: 0;
-  border-color: #20c7bd;
-  box-shadow: 0 0 0 3px rgb(32 199 189 / 16%);
+  border-color: rgb(var(--c-20c7bd));
+  box-shadow: 0 0 0 3px rgb(var(--c-20c7bd) / 16%);
 }
 
 /* A clicked checkbox keeps the ring until you click elsewhere, which reads as a
@@ -777,9 +965,9 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   position: relative;
   width: 100%;
   border: 0;
-  border-bottom: 1px solid #202b31;
+  border-bottom: 1px solid rgb(var(--c-202b31));
   background: transparent;
-  color: #f4f7f8;
+  color: rgb(var(--c-f4f7f8));
   padding: 12px;
   text-align: left;
   display: grid;
@@ -833,7 +1021,7 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   border-radius: 6px;
   font-size: 12px;
   font-weight: 700;
-  color: #8d9ba2;
+  color: rgb(var(--c-8d9ba2));
   opacity: 0;
   transition: opacity 120ms var(--ease-out), background 120ms var(--ease-out);
 }
@@ -846,8 +1034,8 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 
 .ticket-row span.row-delete:hover,
 .ticket-row span.row-delete.armed {
-  color: #ff8d95;
-  background: #2a1418;
+  color: rgb(var(--c-ff8d95));
+  background: rgb(var(--c-2a1418));
 }
 
 .ticket-list-header {
@@ -920,27 +1108,27 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.01em;
-  color: #84949b;
+  color: rgb(var(--c-84949b));
 }
 
 .ticket-row small.sla-remaining.urgent {
-  color: #ff6b6b;
+  color: rgb(var(--c-ff6b6b));
 }
 
 /* Owner, inline after the ticket id. Outranks the row's blanket grey-out
    rule so an unowned ticket still reads as one. */
 .ticket-row-origin .row-assignee.unassigned {
-  color: #e05560;
+  color: rgb(var(--c-e05560));
   font-weight: 700;
 }
 
 .ticket-row:hover {
-  background: #151f23;
+  background: rgb(var(--c-151f23));
 }
 
 .ticket-row.selected {
-  background: #132a2c;
-  box-shadow: inset 3px 0 0 #20c7bd;
+  background: rgb(var(--c-132a2c));
+  box-shadow: inset 3px 0 0 rgb(var(--c-20c7bd));
   transform: none;
 }
 
@@ -948,7 +1136,7 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, rgb(32 199 189 / 8%), transparent 70%);
+  background: linear-gradient(90deg, rgb(var(--c-20c7bd) / 8%), transparent 70%);
   pointer-events: none;
   border-radius: inherit;
 }
@@ -959,7 +1147,7 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 }
 
 .ticket-row.unread.selected {
-  background: #132a2c;
+  background: rgb(var(--c-132a2c));
 }
 
 /* Past its response window: the whole row goes red rather than carrying a
@@ -967,26 +1155,26 @@ input[type="checkbox"]:focus:not(:focus-visible) {
    specificity — hence the explicit combinations below, or an overdue row
    would lose its hover feedback and its selected bar. */
 .ticket-row.overdue {
-  background: #2a1418;
-  box-shadow: inset 3px 0 0 #e05560;
+  background: rgb(var(--c-2a1418));
+  box-shadow: inset 3px 0 0 rgb(var(--c-e05560));
 }
 
 .ticket-row.overdue strong {
-  color: #ffd9d5;
+  color: rgb(var(--c-ffd9d5));
 }
 
 .ticket-row.overdue:hover {
-  background: #35191e;
+  background: rgb(var(--c-35191e));
 }
 
 .ticket-row.overdue.selected {
-  background: #3b1c22;
-  box-shadow: inset 3px 0 0 #20c7bd;
+  background: rgb(var(--c-3b1c22));
+  box-shadow: inset 3px 0 0 rgb(var(--c-20c7bd));
 }
 
 @keyframes row-glow {
-  0%, 100% { box-shadow: 0 0 0 1px rgb(32 199 189 / 45%), 0 0 6px rgb(32 199 189 / 25%); }
-  50%       { box-shadow: 0 0 0 1px rgb(32 199 189 / 85%), 0 0 14px rgb(32 199 189 / 55%); }
+  0%, 100% { box-shadow: 0 0 0 1px rgb(var(--c-20c7bd) / 45%), 0 0 6px rgb(var(--c-20c7bd) / 25%); }
+  50%       { box-shadow: 0 0 0 1px rgb(var(--c-20c7bd) / 85%), 0 0 14px rgb(var(--c-20c7bd) / 55%); }
 }
 
 .update-dot {
@@ -996,18 +1184,18 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: #20c7bd;
+  background: rgb(var(--c-20c7bd));
   animation: dot-pulse 2.4s ease-in-out infinite;
 }
 
 .ticket-row strong {
-  color: #ffffff;
+  color: rgb(var(--c-ffffff));
 }
 
 .ticket-row span:not(.stage, .priority, .badge-row),
 .ticket-row small,
 .detail-heading p {
-  color: #8d9ba2;
+  color: rgb(var(--c-8d9ba2));
 }
 
 .stage {
@@ -1017,57 +1205,57 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   padding: 4px 9px;
   font-size: 12px;
   font-weight: 800;
-  color: #dfe8eb;
-  background: #253038;
+  color: rgb(var(--c-dfe8eb));
+  background: rgb(var(--c-253038));
   transition: background 140ms var(--ease-out), color 140ms var(--ease-out);
 }
 
 .stage-submitted {
-  background: #1d3342;
-  color: #a9d8f2;
+  background: rgb(var(--c-1d3342));
+  color: rgb(var(--c-a9d8f2));
 }
 
 .stage-cancelled {
-  background: #33272b;
-  color: #d6b5bd;
+  background: rgb(var(--c-33272b));
+  color: rgb(var(--c-d6b5bd));
 }
 
 .stage-in-progress {
-  background: #133a38;
-  color: #9fe4dc;
+  background: rgb(var(--c-133a38));
+  color: rgb(var(--c-9fe4dc));
 }
 
 /* Between In Progress (teal) and Waiting on Customer (amber): the work is
    done but not yet merged. Purple keeps it distinct from both. */
 .stage-in-review {
-  background: #2b2544;
-  color: #c9bdf0;
+  background: rgb(var(--c-2b2544));
+  color: rgb(var(--c-c9bdf0));
 }
 
 .stage-waiting-on-customer {
-  background: #3d321c;
-  color: #ead49f;
+  background: rgb(var(--c-3d321c));
+  color: rgb(var(--c-ead49f));
 }
 
 /* A job that copied the artifact but not the dependency tree it was asked for.
    Amber is taken by Failed in the job modules, so purple — same reasoning as
    in-review above: neither done nor broken. */
 .stage-incomplete {
-  background: #2b2544;
-  color: #c9bdf0;
+  background: rgb(var(--c-2b2544));
+  color: rgb(var(--c-c9bdf0));
 }
 
 /* No ticket stage maps here any more — kept because the artifactory and
    whitening job badges reuse it for completed/uploaded. */
 .stage-resolved {
-  background: #203922;
-  color: #b7e0b8;
+  background: rgb(var(--c-203922));
+  color: rgb(var(--c-b7e0b8));
 }
 
 .stage-closed,
 .stage-aborted {
-  background: #2b3035;
-  color: #c8d1d5;
+  background: rgb(var(--c-2b3035));
+  color: rgb(var(--c-c8d1d5));
 }
 
 .badge-row {
@@ -1085,37 +1273,37 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   padding: 4px 9px;
   font-size: 12px;
   font-weight: 800;
-  color: #dfe8eb;
-  background: #253038;
+  color: rgb(var(--c-dfe8eb));
+  background: rgb(var(--c-253038));
 }
 
 .priority-highest {
-  background: #45211f;
-  color: #f5b3ac;
+  background: rgb(var(--c-45211f));
+  color: rgb(var(--c-f5b3ac));
 }
 
 .priority-high {
-  background: #402a1b;
-  color: #f0c49b;
+  background: rgb(var(--c-402a1b));
+  color: rgb(var(--c-f0c49b));
 }
 
 .priority-medium {
-  background: #3a361c;
-  color: #e4dc9c;
+  background: rgb(var(--c-3a361c));
+  color: rgb(var(--c-e4dc9c));
 }
 
 .priority-low {
-  background: #24333c;
-  color: #b0cbdb;
+  background: rgb(var(--c-24333c));
+  color: rgb(var(--c-b0cbdb));
 }
 
 .priority-lowest {
-  background: #2b3035;
-  color: #c8d1d5;
+  background: rgb(var(--c-2b3035));
+  color: rgb(var(--c-c8d1d5));
 }
 
 .field-hint {
-  color: #8d9ba2;
+  color: rgb(var(--c-8d9ba2));
   font-size: 12px;
 }
 
@@ -1133,7 +1321,7 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
-  border-bottom: 1px solid #202b31;
+  border-bottom: 1px solid rgb(var(--c-202b31));
   padding-bottom: 12px;
   margin-bottom: 12px;
   flex-wrap: wrap;
@@ -1157,7 +1345,7 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 
 .detail-id {
   margin-left: auto;
-  color: #8d9ba2;
+  color: rgb(var(--c-8d9ba2));
 }
 
 .owner-select {
@@ -1167,7 +1355,7 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 }
 
 .owner-select span {
-  color: #84949b;
+  color: rgb(var(--c-84949b));
   font-size: 12px;
   font-weight: 800;
 }
@@ -1179,12 +1367,12 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 
 .owner-select select {
   width: 100%;
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 6px;
   min-height: 36px;
   padding: 7px 9px;
-  background: #0d1316;
-  color: #f4f7f8;
+  background: rgb(var(--c-0d1316));
+  color: rgb(var(--c-f4f7f8));
 }
 
 .me-button {
@@ -1210,12 +1398,12 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 
 .edit-toggle {
   flex: 0 0 auto;
-  color: #84949b;
+  color: rgb(var(--c-84949b));
   padding: 4px;
 }
 
 .edit-toggle:hover {
-  color: #c8d3d7;
+  color: rgb(var(--c-c8d3d7));
 }
 
 /* Full box rather than an underline so the field lines up with the read-only
@@ -1225,11 +1413,11 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   font-size: 17px;
   font-weight: 700;
   background: transparent;
-  border: 1px solid #3a5060;
+  border: 1px solid rgb(var(--c-3a5060));
   border-radius: 6px;
   padding-block: 6px;
   padding-inline: 10px;
-  color: #f4f7f8;
+  color: rgb(var(--c-f4f7f8));
   min-width: 0;
 }
 
@@ -1239,7 +1427,7 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 
 .title-edit-input:focus {
   outline: none;
-  border-color: #20c7bd;
+  border-color: rgb(var(--c-20c7bd));
 }
 
 .description-edit-textarea {
@@ -1249,10 +1437,10 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   resize: none;
   overflow: hidden;
   background: transparent;
-  border: 1px solid #3a5060;
+  border: 1px solid rgb(var(--c-3a5060));
   border-radius: 6px;
   padding: 8px 10px;
-  color: #c8d3d7;
+  color: rgb(var(--c-c8d3d7));
   line-height: 1.5;
   margin-bottom: 14px;
   font-size: inherit;
@@ -1266,18 +1454,18 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 
 .description-edit-textarea:focus {
   outline: none;
-  border-color: #20c7bd;
+  border-color: rgb(var(--c-20c7bd));
 }
 
 /* Same box as .description-edit-textarea so toggling edit mode doesn't shift
    the text. Logical padding: ticket content can be Hebrew (see the bidi block
    at the end of this file). */
 .description-text {
-  color: #c8d3d7;
+  color: rgb(var(--c-c8d3d7));
   line-height: 1.5;
   margin-bottom: 14px;
   white-space: pre-wrap;
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 6px;
   padding-block: 8px;
   padding-inline: 10px;
@@ -1285,14 +1473,14 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 
 .metadata-list dt {
   display: block;
-  color: #84949b;
+  color: rgb(var(--c-84949b));
   font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
 }
 
 .metadata-list dd {
-  color: #edf3f5;
+  color: rgb(var(--c-edf3f5));
 }
 
 .metadata-list {
@@ -1362,13 +1550,13 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   padding: 0;
   border: 0;
   border-radius: 4px;
-  background: #151d21;
-  color: #8d9ba2;
+  background: rgb(var(--c-151d21));
+  color: rgb(var(--c-8d9ba2));
 }
 
 .points-step button:hover:not(:disabled) {
-  background: #1a252a;
-  color: #20c7bd;
+  background: rgb(var(--c-1a252a));
+  color: rgb(var(--c-20c7bd));
 }
 
 .points-step button:disabled {
@@ -1376,9 +1564,9 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 }
 
 .comment {
-  border: 1px solid #202b31;
-  border-left: 3px solid #20c7bd;
-  background: #0f171a;
+  border: 1px solid rgb(var(--c-202b31));
+  border-left: 3px solid rgb(var(--c-20c7bd));
+  background: rgb(var(--c-0f171a));
   padding: 10px 12px;
   border-radius: 6px;
   animation: fade-up 180ms var(--ease-out) forwards;
@@ -1387,22 +1575,22 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 
 .comment:hover {
   transform: translateX(3px);
-  border-left-color: #39d7ce;
-  box-shadow: -3px 0 12px rgb(32 199 189 / 12%);
+  border-left-color: rgb(var(--c-39d7ce));
+  box-shadow: -3px 0 12px rgb(var(--c-20c7bd) / 12%);
 }
 
 .comment strong {
-  color: #ffffff;
+  color: rgb(var(--c-ffffff));
 }
 
 .comment small {
   display: block;
-  color: #84949b;
+  color: rgb(var(--c-84949b));
   margin-top: 2px;
 }
 
 .comment p {
-  color: #dbe4e7;
+  color: rgb(var(--c-dbe4e7));
   margin: 8px 0 0;
 }
 
@@ -1411,10 +1599,10 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  border: 1px solid #203238;
+  border: 1px solid rgb(var(--c-203238));
   border-radius: 6px;
-  background: #0d181a;
-  color: #9fe4dc;
+  background: rgb(var(--c-0d181a));
+  color: rgb(var(--c-9fe4dc));
   padding: 8px 10px;
   animation: fade-up 180ms var(--ease-out) both;
 }
@@ -1428,7 +1616,7 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 }
 
 .status-row small {
-  color: #84949b;
+  color: rgb(var(--c-84949b));
   flex: 0 0 auto;
 }
 
@@ -1441,30 +1629,30 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 }
 
 .log-uploaded {
-  border-left-color: #4f9c63;
-  color: #b7e0b8;
+  border-left-color: rgb(var(--c-4f9c63));
+  color: rgb(var(--c-b7e0b8));
 }
 
 .log-uploaded small {
-  color: #b7e0b8;
+  color: rgb(var(--c-b7e0b8));
 }
 
 .log-failed {
-  border-left-color: #c08a3e;
-  color: #ead49f;
+  border-left-color: rgb(var(--c-c08a3e));
+  color: rgb(var(--c-ead49f));
 }
 
 .log-failed small {
-  color: #ead49f;
+  color: rgb(var(--c-ead49f));
 }
 
 .log-skipped {
-  border-left-color: #3f6c86;
-  color: #a9d8f2;
+  border-left-color: rgb(var(--c-3f6c86));
+  color: rgb(var(--c-a9d8f2));
 }
 
 .log-skipped small {
-  color: #a9d8f2;
+  color: rgb(var(--c-a9d8f2));
 }
 
 .log-pkg {
@@ -1475,8 +1663,8 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 /* The closing tally is a summary, not another step — give it some air. */
 .log-summary {
   margin-top: 8px;
-  border-color: #2c4148;
-  background: #101d20;
+  border-color: rgb(var(--c-2c4148));
+  background: rgb(var(--c-101d20));
   font-weight: 600;
 }
 
@@ -1493,18 +1681,18 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 }
 
 .job-log-body .log-uploaded {
-  border-left-color: #4f9c63;
-  color: #b7e0b8;
+  border-left-color: rgb(var(--c-4f9c63));
+  color: rgb(var(--c-b7e0b8));
 }
 
 .job-log-body .log-failed {
-  border-left-color: #c08a3e;
-  color: #ead49f;
+  border-left-color: rgb(var(--c-c08a3e));
+  color: rgb(var(--c-ead49f));
 }
 
 .job-log-body .log-skipped {
-  border-left-color: #3f6c86;
-  color: #a9d8f2;
+  border-left-color: rgb(var(--c-3f6c86));
+  color: rgb(var(--c-a9d8f2));
 }
 
 .comment-form {
@@ -1521,7 +1709,7 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 .admin-edit-form label {
   display: grid;
   gap: 6px;
-  color: #f2f6f7;
+  color: rgb(var(--c-f2f6f7));
   font-weight: 800;
 }
 
@@ -1553,7 +1741,7 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 
 .admin-edit-form {
   grid-template-columns: minmax(0, 280px);
-  border-bottom: 1px solid #202b31;
+  border-bottom: 1px solid rgb(var(--c-202b31));
   margin-bottom: 18px;
   padding-bottom: 18px;
 }
@@ -1570,7 +1758,7 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   display: grid;
   place-items: center;
   padding: 22px;
-  background: rgb(0 0 0 / 68%);
+  background: rgb(var(--c-000000) / 68%);
   animation: fade-in 180ms var(--ease-out) forwards;
 }
 
@@ -1586,8 +1774,8 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   width: min(760px, 100%);
   max-height: min(760px, calc(100vh - 44px));
   overflow: auto;
-  background: #10171a;
-  border: 1px solid #2a3940;
+  background: rgb(var(--c-10171a));
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 8px;
   animation: modal-in 240ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
@@ -1609,8 +1797,8 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   justify-content: space-between;
   gap: 12px;
   padding: 14px 16px;
-  background: #10171a;
-  border-bottom: 1px solid #202b31;
+  background: rgb(var(--c-10171a));
+  border-bottom: 1px solid rgb(var(--c-202b31));
 }
 
 .modal-heading h2 {
@@ -1624,7 +1812,7 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 .empty-state,
 .error-banner {
   padding: 18px;
-  color: #8d9ba2;
+  color: rgb(var(--c-8d9ba2));
 }
 
 .empty-state {
@@ -1642,33 +1830,33 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   content: '';
   width: 28px;
   height: 28px;
-  border: 2.5px solid #1e2d34;
-  border-top-color: #20c7bd;
+  border: 2.5px solid rgb(var(--c-1e2d34));
+  border-top-color: rgb(var(--c-20c7bd));
   border-radius: 50%;
   animation: spin 650ms linear infinite;
 }
 
 .error-banner {
-  background: #2a1517;
-  border: 1px solid #5d272d;
+  background: rgb(var(--c-2a1517));
+  border: 1px solid rgb(var(--c-5d272d));
   border-radius: 6px;
-  color: #ffc6ca;
+  color: rgb(var(--c-ffc6ca));
   margin-bottom: 14px;
   animation: fade-up 180ms var(--ease-out) forwards;
 }
 
 .drop-zone-warn {
-  color: #e0b457;
+  color: rgb(var(--c-e0b457));
 }
 
 /* Amber, not red: the job did what was asked minus one part of it — the same
    palette the Jenkinsfile import warnings use. */
 .warn-banner {
   padding: 18px;
-  background: #1c1710;
-  border: 1px solid #4a3a1c;
+  background: rgb(var(--c-1c1710));
+  border: 1px solid rgb(var(--c-4a3a1c));
   border-radius: 6px;
-  color: #e0b457;
+  color: rgb(var(--c-e0b457));
   margin-bottom: 14px;
   animation: fade-up 180ms var(--ease-out) forwards;
 }
@@ -1786,7 +1974,7 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 .tab-bar {
   display: flex;
   gap: 0;
-  border-bottom: 1px solid #202b31;
+  border-bottom: 1px solid rgb(var(--c-202b31));
   padding: 0 14px;
 }
 
@@ -1795,7 +1983,7 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   border-bottom: 2px solid transparent;
   border-radius: 0;
   background: transparent;
-  color: #8d9ba2;
+  color: rgb(var(--c-8d9ba2));
   padding: 10px 14px;
   font-weight: 800;
   font-size: 13px;
@@ -1826,29 +2014,29 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 }
 
 .test-scenario-select {
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 6px;
-  background: #151d21;
-  color: #aeb9bf;
+  background: rgb(var(--c-151d21));
+  color: rgb(var(--c-aeb9bf));
   font-weight: 700;
   font-size: 13px;
   padding: 8px 10px;
   min-height: 38px;
 }
 
-.tab:hover { color: #f7fbfc; }
+.tab:hover { color: rgb(var(--c-f7fbfc)); }
 
 .tab.active {
-  color: #ffffff;
-  border-bottom-color: #20c7bd;
+  color: rgb(var(--c-ffffff));
+  border-bottom-color: rgb(var(--c-20c7bd));
 }
 
 .drop-zone {
-  border: 2px dashed #2a3940;
+  border: 2px dashed rgb(var(--c-2a3940));
   border-radius: 8px;
   padding: 40px 20px;
   text-align: center;
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1860,7 +2048,7 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 
 .drop-zone small {
   font-size: 12px;
-  color: #4e5f67;
+  color: rgb(var(--c-4e5f67));
 }
 
 /* The click-through half of the drop zone: a real <input type="file"> behind a
@@ -1875,21 +2063,21 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 }
 
 .drop-zone--over {
-  border-color: #20c7bd;
-  background: rgb(32 199 189 / 6%);
-  color: #c8d3d7;
+  border-color: rgb(var(--c-20c7bd));
+  background: rgb(var(--c-20c7bd) / 6%);
+  color: rgb(var(--c-c8d3d7));
 }
 
 .folder-preview {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: #0f1518;
-  border: 1px solid #202b31;
+  background: rgb(var(--c-0f1518));
+  border: 1px solid rgb(var(--c-202b31));
   border-radius: 6px;
   padding: 12px 14px;
   margin: 16px 0;
-  color: #c8d3d7;
+  color: rgb(var(--c-c8d3d7));
 }
 
 .folder-preview-info {
@@ -1902,7 +2090,7 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 
 .folder-preview-info strong {
   font-size: 14px;
-  color: #f2f6f7;
+  color: rgb(var(--c-f2f6f7));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1910,12 +2098,12 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 
 .folder-preview-info small {
   font-size: 12px;
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
 }
 
 .upload-status {
   font-size: 12px;
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
   text-align: center;
 }
 
@@ -1936,25 +2124,25 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 .art-form select,
 .art-form textarea {
   width: 100%;
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 6px;
   min-height: 40px;
   padding: 9px 11px;
-  background: #0d1316;
-  color: #f4f7f8;
+  background: rgb(var(--c-0d1316));
+  color: rgb(var(--c-f4f7f8));
 }
 
 .art-form label {
   display: grid;
   gap: 6px;
-  color: #f2f6f7;
+  color: rgb(var(--c-f2f6f7));
   font-weight: 800;
   font-size: 13px;
 }
 
 .art-form .field-hint {
   font-size: 12px;
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
   font-weight: 400;
   margin-top: -4px;
 }
@@ -1994,7 +2182,7 @@ input[type="checkbox"]:focus:not(:focus-visible) {
    box is ticked. Its own margin-less rule because `.art-form .field-hint`
    carries a -4px top margin that misaligns it against the checkbox. */
 .checkbox-field label .field-note {
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
   font-weight: 400;
   margin-left: -4px;
 }
@@ -2008,14 +2196,14 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   flex: none;
   border: none;
   background: none;
-  accent-color: #20c7bd;
+  accent-color: rgb(var(--c-20c7bd));
   cursor: pointer;
 }
 
 .job-progress {
   width: 100%;
   height: 8px;
-  accent-color: #20c7bd;
+  accent-color: rgb(var(--c-20c7bd));
 }
 
 .package-table {
@@ -2024,13 +2212,13 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   max-height: 320px;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: #2a3940 transparent;
+  scrollbar-color: rgb(var(--c-2a3940)) transparent;
 }
 
 .package-table::-webkit-scrollbar { width: 6px }
 .package-table::-webkit-scrollbar-track { background: transparent }
-.package-table::-webkit-scrollbar-thumb { background: #203238; border-radius: 999px }
-.package-table::-webkit-scrollbar-thumb:hover { background: #2a3940 }
+.package-table::-webkit-scrollbar-thumb { background: rgb(var(--c-203238)); border-radius: 999px }
+.package-table::-webkit-scrollbar-thumb:hover { background: rgb(var(--c-2a3940)) }
 
 .package-row {
   display: flex;
@@ -2042,9 +2230,9 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   flex-wrap: wrap;
   gap: 4px 10px;
   padding: 6px 10px;
-  border: 1px solid #203238;
+  border: 1px solid rgb(var(--c-203238));
   border-radius: 6px;
-  background: #0d181a;
+  background: rgb(var(--c-0d181a));
   font-size: 13px;
 }
 
@@ -2056,7 +2244,7 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 
 .package-error {
   flex-basis: 100%;
-  color: #f0a5a5;
+  color: rgb(var(--c-f0a5a5));
   font-size: 12px;
   word-break: break-word;
 }
@@ -2068,7 +2256,7 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 .package-native-link:visited {
   margin-left: 8px;
   font-size: 11px;
-  color: #84949b;
+  color: rgb(var(--c-84949b));
 }
 
 /* ---- Job log: collapsible steps ---- */
@@ -2079,9 +2267,9 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 }
 
 .job-log-step {
-  border: 1px solid #203238;
+  border: 1px solid rgb(var(--c-203238));
   border-radius: 6px;
-  background: #0d181a;
+  background: rgb(var(--c-0d181a));
 }
 
 .job-log-step > summary {
@@ -2090,14 +2278,14 @@ input[type="checkbox"]:focus:not(:focus-visible) {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #f2f6f7;
+  color: rgb(var(--c-f2f6f7));
   font-weight: 700;
   font-size: 13px;
 }
 
 .job-log-count {
   margin-left: auto;
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
   font-weight: 400;
   font-size: 12px;
 }
@@ -2105,36 +2293,36 @@ input[type="checkbox"]:focus:not(:focus-visible) {
 .job-log-body {
   margin: 0;
   padding: 10px;
-  border-top: 1px solid #203238;
+  border-top: 1px solid rgb(var(--c-203238));
   /* Without a cap, a git clone log grows the page without bound. */
   max-height: 320px;
   overflow: auto;
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 12px;
   line-height: 1.5;
-  color: #9fe4dc;
+  color: rgb(var(--c-9fe4dc));
   white-space: pre-wrap;
   word-break: break-word;
   /* Same thin dark bar the chat panes use, instead of the browser default
      light one cutting across a dark log. */
   scrollbar-width: thin;
-  scrollbar-color: #2a3940 transparent;
+  scrollbar-color: rgb(var(--c-2a3940)) transparent;
 }
 
 .job-log-body::-webkit-scrollbar { width: 6px; height: 6px }
 .job-log-body::-webkit-scrollbar-track { background: transparent }
-.job-log-body::-webkit-scrollbar-thumb { background: #203238; border-radius: 999px }
-.job-log-body::-webkit-scrollbar-thumb:hover { background: #2a3940 }
+.job-log-body::-webkit-scrollbar-thumb { background: rgb(var(--c-203238)); border-radius: 999px }
+.job-log-body::-webkit-scrollbar-thumb:hover { background: rgb(var(--c-2a3940)) }
 
 /* ---- AI module ---- */
 
 code {
-  background: #1a272c;
+  background: rgb(var(--c-1a272c));
   border-radius: 4px;
   padding: 1px 5px;
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 12px;
-  color: #9fe4dc;
+  color: rgb(var(--c-9fe4dc));
 }
 
 /* The one layout rule the AI page needs on top of the shared .detail-panel:
@@ -2167,7 +2355,7 @@ code {
 }
 
 .chat-panel .empty-state strong {
-  color: #c8d3d7;
+  color: rgb(var(--c-c8d3d7));
 }
 
 .chat-panel .empty-state p {
@@ -2192,17 +2380,17 @@ code {
   gap: 3px;
   padding: 12px 14px;
   border-radius: 8px;
-  border: 1px solid #1e2d34;
-  background: #101a1f;
-  color: #c8d3d7;
+  border: 1px solid rgb(var(--c-1e2d34));
+  background: rgb(var(--c-101a1f));
+  color: rgb(var(--c-c8d3d7));
   text-align: left;
   cursor: pointer;
   transition: background 120ms var(--ease-out), border-color 120ms var(--ease-out);
 }
 
 .chat-category-item:hover {
-  background: #182229;
-  border-color: #2a3940;
+  background: rgb(var(--c-182229));
+  border-color: rgb(var(--c-2a3940));
 }
 
 .chat-category-name {
@@ -2211,12 +2399,12 @@ code {
   gap: 6px;
   font-weight: 700;
   font-size: 13.5px;
-  color: #f4f7f8;
+  color: rgb(var(--c-f4f7f8));
 }
 
 .chat-category-description {
   font-size: 12px;
-  color: #8d9ba2;
+  color: rgb(var(--c-8d9ba2));
 }
 
 .chat-category-unsure {
@@ -2227,7 +2415,7 @@ code {
   margin: 8px 0 0;
   font-size: 12.5px;
   line-height: 1.5;
-  color: #8d9ba2;
+  color: rgb(var(--c-8d9ba2));
   font-style: italic;
 }
 
@@ -2241,16 +2429,16 @@ code {
   flex-direction: column;
   gap: 10px;
   scrollbar-width: thin;
-  scrollbar-color: #1e2d34 transparent;
+  scrollbar-color: rgb(var(--c-1e2d34)) transparent;
 }
 
 .chat-messages::-webkit-scrollbar { width: 6px }
 .chat-messages::-webkit-scrollbar-track { background: transparent }
 .chat-messages::-webkit-scrollbar-thumb {
-  background: #1e2d34;
+  background: rgb(var(--c-1e2d34));
   border-radius: 999px;
 }
-.chat-messages::-webkit-scrollbar-thumb:hover { background: #2a3940 }
+.chat-messages::-webkit-scrollbar-thumb:hover { background: rgb(var(--c-2a3940)) }
 
 .chat-msg {
   max-width: 78%;
@@ -2265,17 +2453,17 @@ code {
 
 .chat-msg-user {
   align-self: flex-end;
-  background: #20c7bd;
-  color: #041113;
+  background: rgb(var(--c-20c7bd));
+  color: rgb(var(--c-041113));
   border-bottom-right-radius: 4px;
   font-weight: 500;
 }
 
 .chat-msg-assistant {
   align-self: flex-start;
-  background: #1a272c;
-  color: #dbe4e7;
-  border: 1px solid #202b31;
+  background: rgb(var(--c-1a272c));
+  color: rgb(var(--c-dbe4e7));
+  border: 1px solid rgb(var(--c-202b31));
   border-bottom-left-radius: 4px;
   white-space: normal;
 }
@@ -2290,7 +2478,7 @@ code {
 .chat-typing span {
   width: 7px;
   height: 7px;
-  background: #3a5a65;
+  background: rgb(var(--c-3a5a65));
   border-radius: 50%;
   animation: typing-bounce 1.3s ease-in-out infinite;
 }
@@ -2308,40 +2496,40 @@ code {
   gap: 8px;
   align-items: flex-end;
   padding: 12px 14px;
-  border-top: 1px solid #202b31;
-  background: #0f171a;
+  border-top: 1px solid rgb(var(--c-202b31));
+  background: rgb(var(--c-0f171a));
   flex-shrink: 0;
 }
 
 .chat-input-row textarea {
   flex: 1 1 auto;
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 10px;
   min-height: 44px;
   max-height: 2000px;
   padding: 11px 13px;
-  background: #0d1316;
-  color: #f4f7f8;
+  background: rgb(var(--c-0d1316));
+  color: rgb(var(--c-f4f7f8));
   resize: none;
   line-height: 1.45;
   font-size: 14px;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: #2a3940 transparent;
+  scrollbar-color: rgb(var(--c-2a3940)) transparent;
 }
 
 .chat-input-row textarea::-webkit-scrollbar { width: 6px }
 .chat-input-row textarea::-webkit-scrollbar-track { background: transparent }
 .chat-input-row textarea::-webkit-scrollbar-thumb {
-  background: #2a3940;
+  background: rgb(var(--c-2a3940));
   border-radius: 999px;
 }
-.chat-input-row textarea::-webkit-scrollbar-thumb:hover { background: #3a5060 }
+.chat-input-row textarea::-webkit-scrollbar-thumb:hover { background: rgb(var(--c-3a5060)) }
 
 .chat-input-row textarea:focus {
-  border-color: #20c7bd;
+  border-color: rgb(var(--c-20c7bd));
   outline: none;
-  box-shadow: 0 0 0 3px rgb(32 199 189 / 12%);
+  box-shadow: 0 0 0 3px rgb(var(--c-20c7bd) / 12%);
 }
 
 .chat-input-row textarea:disabled {
@@ -2353,8 +2541,8 @@ code {
   width: 44px;
   height: 44px;
   border-radius: 10px;
-  background: #20c7bd;
-  color: #041113;
+  background: rgb(var(--c-20c7bd));
+  color: rgb(var(--c-041113));
   border: 0;
   display: flex;
   align-items: center;
@@ -2363,9 +2551,9 @@ code {
 }
 
 .chat-send-btn:hover:not(:disabled) {
-  background: #39d7ce;
+  background: rgb(var(--c-39d7ce));
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgb(32 199 189 / 25%);
+  box-shadow: 0 4px 12px rgb(var(--c-20c7bd) / 25%);
 }
 
 .chat-send-btn:active:not(:disabled) {
@@ -2374,8 +2562,8 @@ code {
 }
 
 .chat-send-btn:disabled {
-  background: #1e2e33;
-  color: #3a5060;
+  background: rgb(var(--c-1e2e33));
+  color: rgb(var(--c-3a5060));
 }
 
 /* ── Markdown renderer ─────────────────────────────────────────────── */
@@ -2392,7 +2580,7 @@ code {
   margin: 14px 0 6px;
   line-height: 1.3;
   font-weight: 700;
-  color: #e8eef0;
+  color: rgb(var(--c-e8eef0));
 }
 .chat-md h1 { font-size: 17px }
 .chat-md h2 { font-size: 15px; margin-bottom: 8px }
@@ -2406,50 +2594,50 @@ code {
 .chat-md li > p { margin: 0 }
 
 .chat-md blockquote {
-  border-left: 3px solid #20c7bd;
+  border-left: 3px solid rgb(var(--c-20c7bd));
   padding: 4px 12px;
   margin: 8px 0;
-  color: #8d9ba2;
+  color: rgb(var(--c-8d9ba2));
   font-style: italic;
 }
 .chat-md blockquote p { margin: 0 }
 
 .chat-md a {
-  color: #20c7bd;
+  color: rgb(var(--c-20c7bd));
   text-decoration: none;
 }
 .chat-md a:hover { text-decoration: underline }
 
 .chat-md hr {
   border: none;
-  border-top: 1px solid #202b31;
+  border-top: 1px solid rgb(var(--c-202b31));
   margin: 12px 0;
 }
 
 .chat-md code:not(pre code) {
-  background: #0d1316;
-  border: 1px solid #2a3940;
+  background: rgb(var(--c-0d1316));
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 4px;
   padding: 1px 5px;
   font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
   font-size: 12px;
-  color: #20c7bd;
+  color: rgb(var(--c-20c7bd));
   white-space: nowrap;
 }
 
 .chat-md pre {
-  background: #0d1316;
-  border: 1px solid #2a3940;
+  background: rgb(var(--c-0d1316));
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 8px;
   padding: 13px 16px;
   margin: 8px 0;
   overflow-x: auto;
   scrollbar-width: thin;
-  scrollbar-color: #2a3940 transparent;
+  scrollbar-color: rgb(var(--c-2a3940)) transparent;
 }
 .chat-md pre::-webkit-scrollbar { height: 5px }
 .chat-md pre::-webkit-scrollbar-track { background: transparent }
-.chat-md pre::-webkit-scrollbar-thumb { background: #2a3940; border-radius: 999px }
+.chat-md pre::-webkit-scrollbar-thumb { background: rgb(var(--c-2a3940)); border-radius: 999px }
 
 .chat-md pre code {
   background: transparent;
@@ -2474,17 +2662,17 @@ code {
   font-size: 13px;
 }
 .chat-md th, .chat-md td {
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   padding: 6px 10px;
   text-align: left;
 }
 .chat-md th {
-  background: #0d1316;
-  color: #a0b0b6;
+  background: rgb(var(--c-0d1316));
+  color: rgb(var(--c-a0b0b6));
   font-weight: 700;
 }
 .chat-md tr:nth-child(even) td {
-  background: #111920;
+  background: rgb(var(--c-111920));
 }
 
 .ticket-detail section > h3 {
@@ -2663,7 +2851,7 @@ code {
 }
 
 .jf-editor > .jf-section + .jf-section {
-  border-top: 1px solid #202b31;
+  border-top: 1px solid rgb(var(--c-202b31));
   padding-top: 16px;
 }
 
@@ -2678,14 +2866,14 @@ code {
 .jf-arg textarea {
   resize: none;
   width: 100%;
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 6px;
   min-height: 36px;
   padding: 8px 10px;
-  background: #0d1316;
-  color: #f4f7f8;
+  background: rgb(var(--c-0d1316));
+  color: rgb(var(--c-f4f7f8));
   font-weight: 400;
-  color-scheme: dark;
+  color-scheme: var(--scheme, dark);
 }
 
 .jf-settings input:focus,
@@ -2693,14 +2881,14 @@ code {
 .jf-arg select:focus,
 .jf-arg textarea:focus {
   outline: none;
-  border-color: #20c7bd;
-  box-shadow: 0 0 0 2px rgba(32, 199, 189, 0.15);
+  border-color: rgb(var(--c-20c7bd));
+  box-shadow: 0 0 0 2px rgb(var(--c-20c7bd) / 15%);
 }
 
 .jf-settings label,
 .jf-arg > .jf-arg-head label,
 .jf-arg-label {
-  color: #f2f6f7;
+  color: rgb(var(--c-f2f6f7));
   font-weight: 800;
   font-size: 13px;
 }
@@ -2730,11 +2918,11 @@ code {
    error. The Jenkinsfile it generates is valid — the parameter just has no
    effect — so nothing here is red. */
 .jf-arg.jf-param-unused {
-  border-left-color: #e0b341;
+  border-left-color: rgb(var(--c-e0b341));
 }
 
 .jf-param-unused .field-hint {
-  color: #e0b341;
+  color: rgb(var(--c-e0b341));
 }
 
 .jf-param-grid {
@@ -2745,7 +2933,7 @@ code {
 
 .jf-param .form-field label,
 .jf-param-grid label {
-  color: #8d9ba2;
+  color: rgb(var(--c-8d9ba2));
   font-size: 11.5px;
   font-weight: 700;
 }
@@ -2753,7 +2941,7 @@ code {
 .jf-params .jf-checkbox {
   white-space: nowrap;
   font-size: 12px;
-  color: #8d9ba2;
+  color: rgb(var(--c-8d9ba2));
 }
 
 /* ---- The optional @Library import ---- */
@@ -2766,25 +2954,25 @@ code {
   gap: 10px;
   width: 100%;
   padding: 12px 14px;
-  border: 1px dashed #2a3940;
+  border: 1px dashed rgb(var(--c-2a3940));
   border-radius: 8px;
   background: transparent;
-  color: #8d9ba2;
+  color: rgb(var(--c-8d9ba2));
   text-align: left;
   cursor: pointer;
   transition: border-color 140ms var(--ease-out), background 140ms var(--ease-out), color 140ms var(--ease-out);
 }
 
 .jf-dotted:hover {
-  border-color: #20c7bd;
-  background: #101a1e;
-  color: #cfd8dc;
+  border-color: rgb(var(--c-20c7bd));
+  background: rgb(var(--c-101a1e));
+  color: rgb(var(--c-cfd8dc));
 }
 
 .jf-dotted svg {
   flex-shrink: 0;
   margin-top: 2px;
-  color: #20c7bd;
+  color: rgb(var(--c-20c7bd));
 }
 
 .jf-dotted span {
@@ -2794,7 +2982,7 @@ code {
 }
 
 .jf-dotted strong {
-  color: #f2f6f7;
+  color: rgb(var(--c-f2f6f7));
   font-size: 13px;
 }
 
@@ -2804,7 +2992,7 @@ code {
 }
 
 .jf-library-icon {
-  color: #20c7bd;
+  color: rgb(var(--c-20c7bd));
   flex-shrink: 0;
 }
 
@@ -2827,9 +3015,9 @@ code {
   display: grid;
   gap: 10px;
   padding: 10px 12px;
-  border: 1px solid #223038;
+  border: 1px solid rgb(var(--c-223038));
   border-radius: 8px;
-  background: #0d1417;
+  background: rgb(var(--c-0d1417));
 }
 
 .jf-entry-head {
@@ -2837,14 +3025,14 @@ code {
   align-items: center;
   gap: 8px;
   padding-bottom: 8px;
-  border-bottom: 1px solid #1c262b;
+  border-bottom: 1px solid rgb(var(--c-1c262b));
 }
 
 .jf-entry-title {
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 11.5px;
   font-weight: 800;
-  color: #8d9ba2;
+  color: rgb(var(--c-8d9ba2));
 }
 
 .jf-entry-head .icon-button {
@@ -2863,7 +3051,7 @@ code {
 }
 
 .jf-entry-label label {
-  color: #f2f6f7;
+  color: rgb(var(--c-f2f6f7));
   font-size: 12.5px;
   font-weight: 700;
 }
@@ -2884,7 +3072,7 @@ code {
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: #56666e;
+  color: rgb(var(--c-56666e));
   cursor: help;
   transition: color 140ms var(--ease-out);
 }
@@ -2892,7 +3080,7 @@ code {
 .help-toggle:hover,
 .help-toggle:focus-visible,
 .help-toggle[aria-expanded="true"] {
-  color: #20c7bd;
+  color: rgb(var(--c-20c7bd));
 }
 
 .help-body {
@@ -2903,11 +3091,11 @@ code {
   width: max-content;
   max-width: min(360px, 70vw);
   padding: 8px 10px;
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 7px;
-  background: #0c1215;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
-  color: #cfd8dc;
+  background: rgb(var(--c-0c1215));
+  box-shadow: 0 12px 28px rgb(var(--c-000000) / 50%);
+  color: rgb(var(--c-cfd8dc));
   font-size: 11.5px;
   font-weight: 400;
   font-style: normal;
@@ -2941,7 +3129,7 @@ code {
 
 .help-body p { margin: 0 }
 .help-body p + p { margin-top: 6px }
-.help-body code { font-size: 11px; color: #9fe4dc }
+.help-body code { font-size: 11px; color: rgb(var(--c-9fe4dc)) }
 
 /* ---- Autosave state ---- */
 
@@ -2952,11 +3140,11 @@ code {
   min-width: 74px;
   font-size: 12px;
   font-weight: 700;
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
   transition: color 140ms var(--ease-out);
 }
 
-.jf-save-state.error { color: #ff8d95 }
+.jf-save-state.error { color: rgb(var(--c-ff8d95)) }
 
 /* The Shell/Closure switch sits above the box it controls. */
 .jf-commands-kind {
@@ -2992,7 +3180,7 @@ code {
 }
 
 .jf-rail-empty {
-  border: 1px dashed #263238;
+  border: 1px dashed rgb(var(--c-263238));
   border-radius: 8px;
   padding: 12px;
   line-height: 1.5;
@@ -3010,9 +3198,9 @@ code {
    the whole argument editor in underneath. */
 .jf-card {
   position: relative;
-  border: 1px solid #202b31;
+  border: 1px solid rgb(var(--c-202b31));
   border-radius: 10px;
-  background: #0f1518;
+  background: rgb(var(--c-0f1518));
   transition: border-color 140ms var(--ease-out), background 140ms var(--ease-out);
   animation: row-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
@@ -3022,14 +3210,14 @@ code {
 /* A parallel block: the cards inside it run at once, one branch each. */
 .jf-parallel-box {
   list-style: none;
-  border: 1px dashed #20c7bd;
+  border: 1px dashed rgb(var(--c-20c7bd));
   border-radius: 8px;
   padding: 8px 10px 10px;
-  background: rgba(32, 199, 189, 0.04);
+  background: rgb(var(--c-20c7bd) / 4%);
 }
 
 .jf-parallel-box.drop-into {
-  background: rgba(32, 199, 189, 0.12);
+  background: rgb(var(--c-20c7bd) / 12%);
 }
 
 .jf-parallel-head {
@@ -3039,7 +3227,7 @@ code {
   margin-bottom: 8px;
   font-size: 12px;
   font-weight: 700;
-  color: #20c7bd;
+  color: rgb(var(--c-20c7bd));
 }
 
 .jf-parallel-head .ghost-button {
@@ -3049,7 +3237,7 @@ code {
 .jf-parallel-empty {
   margin: 0 0 8px;
   font-size: 12px;
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
 }
 
 .jf-parallel-box .jf-adder {
@@ -3063,12 +3251,12 @@ code {
 }
 
 .jf-card.open {
-  border-color: #24343b;
-  background: #0d1417;
+  border-color: rgb(var(--c-24343b));
+  background: rgb(var(--c-0d1417));
 }
 
 .jf-card.has-error {
-  border-color: #5d272d;
+  border-color: rgb(var(--c-5d272d));
 }
 
 .jf-card-head {
@@ -3081,7 +3269,7 @@ code {
 }
 
 .jf-card:not(.open) .jf-card-head:hover {
-  background: #141d21;
+  background: rgb(var(--c-141d21));
   border-radius: 9px;
 }
 
@@ -3102,7 +3290,7 @@ code {
   display: grid;
   gap: 12px;
   padding: 0 12px 12px;
-  border-top: 1px solid #1c262b;
+  border-top: 1px solid rgb(var(--c-1c262b));
   padding-top: 12px;
   margin-top: 2px;
 }
@@ -3112,7 +3300,7 @@ code {
 }
 
 .jf-stage-warn {
-  color: #ff8d95;
+  color: rgb(var(--c-ff8d95));
 }
 
 /* The dragged card stays in place and dims; the gap it will land in is drawn
@@ -3129,20 +3317,20 @@ code {
   right: 0;
   height: 2px;
   border-radius: 2px;
-  background: #20c7bd;
+  background: rgb(var(--c-20c7bd));
 }
 
 .jf-card.drop-before::before { top: -5px }
 .jf-card.drop-after::after   { bottom: -5px }
 
 .jf-grip {
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
   cursor: grab;
 }
 
 /* Only a collapsed card is draggable — an expanded one has inputs to select. */
 .jf-card.open .jf-grip {
-  color: #35454c;
+  color: rgb(var(--c-35454c));
   cursor: default;
 }
 
@@ -3154,8 +3342,8 @@ code {
   min-width: 20px;
   text-align: center;
   border-radius: 999px;
-  background: #1a252a;
-  color: #8d9ba2;
+  background: rgb(var(--c-1a252a));
+  color: rgb(var(--c-8d9ba2));
   font-size: 11px;
   font-weight: 800;
   padding: 2px 0;
@@ -3180,7 +3368,7 @@ code {
 }
 
 .jf-stage-text small {
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
   font-size: 11.5px;
   white-space: normal;
   line-height: 1.45;
@@ -3232,10 +3420,10 @@ code {
   max-height: 60vh;
   overflow-y: auto;
   padding: 10px;
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 10px;
-  background: #0c1215;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+  background: rgb(var(--c-0c1215));
+  box-shadow: 0 18px 40px rgb(var(--c-000000) / 55%);
   animation: pop-in 140ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
@@ -3251,22 +3439,22 @@ code {
   width: 100%;
   text-align: left;
   padding: 8px 10px;
-  border: 1px solid #202b31;
+  border: 1px solid rgb(var(--c-202b31));
   border-radius: 8px;
-  background: #0f1518;
-  color: #cfd8dc;
+  background: rgb(var(--c-0f1518));
+  color: rgb(var(--c-cfd8dc));
   cursor: pointer;
   transition: background 140ms var(--ease-out), border-color 140ms var(--ease-out), color 140ms var(--ease-out);
 }
 
 .jf-add-stage:hover {
-  background: #14211f;
-  border-color: #20c7bd;
-  color: #f4f7f8;
+  background: rgb(var(--c-14211f));
+  border-color: rgb(var(--c-20c7bd));
+  color: rgb(var(--c-f4f7f8));
 }
 
 .jf-add-stage svg {
-  color: #20c7bd;
+  color: rgb(var(--c-20c7bd));
   flex-shrink: 0;
 }
 
@@ -3282,7 +3470,7 @@ code {
 }
 
 .jf-add-stage-text small {
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
   font-size: 11px;
   font-family: ui-monospace, SFMono-Regular, monospace;
 }
@@ -3290,20 +3478,20 @@ code {
 /* ---- Stage editor ---- */
 
 .jf-empty {
-  color: #8d9ba2;
+  color: rgb(var(--c-8d9ba2));
   font-size: 13px;
   margin: 0;
 }
 
 .jf-credit {
-  color: #6f7d84;
+  color: rgb(var(--c-6f7d84));
   font-size: 11px;
   text-align: center;
   margin: 24px 0 0;
 }
 
 .jf-note {
-  color: #8d9ba2;
+  color: rgb(var(--c-8d9ba2));
   font-size: 12px;
   line-height: 1.5;
   margin: 0;
@@ -3313,7 +3501,7 @@ code {
 .jf-note code,
 .field-hint code {
   font-family: ui-monospace, SFMono-Regular, monospace;
-  color: #9fe4dc;
+  color: rgb(var(--c-9fe4dc));
 }
 
 .jf-errors {
@@ -3322,10 +3510,10 @@ code {
   padding: 10px 12px;
   display: grid;
   gap: 6px;
-  background: #2a1517;
-  border: 1px solid #5d272d;
+  background: rgb(var(--c-2a1517));
+  border: 1px solid rgb(var(--c-5d272d));
   border-radius: 8px;
-  color: #ffc6ca;
+  color: rgb(var(--c-ffc6ca));
   font-size: 12px;
 }
 
@@ -3338,9 +3526,9 @@ code {
 /* ---- Argument groups ---- */
 
 .jf-group {
-  border: 1px solid #1c262b;
+  border: 1px solid rgb(var(--c-1c262b));
   border-radius: 10px;
-  background: #0e1417;
+  background: rgb(var(--c-0e1417));
   /* No `overflow: hidden` — it would clip the `?` popover in the head row. The
      head rounds its own corners instead. */
 }
@@ -3351,8 +3539,8 @@ code {
   align-items: center;
   gap: 8px;
   padding-right: 12px;
-  border-bottom: 1px solid #1c262b;
-  background: #111a1e;
+  border-bottom: 1px solid rgb(var(--c-1c262b));
+  background: rgb(var(--c-111a1e));
 }
 
 .jf-group-head {
@@ -3363,14 +3551,14 @@ code {
   padding: 9px 12px;
   border: 0;
   background: transparent;
-  color: #cfd8dc;
+  color: rgb(var(--c-cfd8dc));
   cursor: pointer;
   text-align: left;
 }
 
 .jf-group-head:hover {
-  background: #162126;
-  color: #f4f7f8;
+  background: rgb(var(--c-162126));
+  color: rgb(var(--c-f4f7f8));
 }
 
 .jf-group-title {
@@ -3382,14 +3570,14 @@ code {
 
 .jf-group-count {
   margin-left: auto;
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
   font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
 }
 
 .jf-group-chevron {
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
   flex-shrink: 0;
   transition: transform 140ms var(--ease-out);
 }
@@ -3414,10 +3602,10 @@ code {
   display: grid;
   gap: 6px;
   padding: 10px 12px;
-  border: 1px solid #223038;
-  border-left: 2px solid #20c7bd;
+  border: 1px solid rgb(var(--c-223038));
+  border-left: 2px solid rgb(var(--c-20c7bd));
   border-radius: 8px;
-  background: #101a1e;
+  background: rgb(var(--c-101a1e));
   animation: row-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
@@ -3447,8 +3635,8 @@ code {
 .jf-kind {
   border-radius: 999px;
   padding: 1px 7px;
-  background: #1a252a;
-  color: #8d9ba2;
+  background: rgb(var(--c-1a252a));
+  color: rgb(var(--c-8d9ba2));
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.04em;
@@ -3458,8 +3646,8 @@ code {
 .jf-required {
   border-radius: 999px;
   padding: 1px 7px;
-  background: rgba(32, 199, 189, 0.12);
-  color: #6fded4;
+  background: rgb(var(--c-20c7bd) / 12%);
+  color: rgb(var(--c-6fded4));
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.04em;
@@ -3477,32 +3665,32 @@ code {
   border: 1px solid transparent;
   border-radius: 7px;
   background: transparent;
-  color: #8d9ba2;
+  color: rgb(var(--c-8d9ba2));
   cursor: pointer;
   text-align: left;
   transition: background 130ms var(--ease-out), border-color 130ms var(--ease-out), color 130ms var(--ease-out);
 }
 
 .jf-arg-add:hover {
-  background: #131e22;
-  border-color: #223038;
-  color: #cfd8dc;
+  background: rgb(var(--c-131e22));
+  border-color: rgb(var(--c-223038));
+  color: rgb(var(--c-cfd8dc));
 }
 
 .jf-arg-add svg {
-  color: #46595f;
+  color: rgb(var(--c-46595f));
   flex-shrink: 0;
 }
 
 .jf-arg-add:hover svg {
-  color: #20c7bd;
+  color: rgb(var(--c-20c7bd));
 }
 
 .jf-arg-add-name {
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 12px;
   font-weight: 700;
-  color: #cfd8dc;
+  color: rgb(var(--c-cfd8dc));
   white-space: nowrap;
 }
 
@@ -3512,7 +3700,7 @@ code {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11.5px;
-  color: #67767d;
+  color: rgb(var(--c-67767d));
 }
 
 /* A map the library fixes the keys of — labelled boxes, not named rows. */
@@ -3528,7 +3716,7 @@ code {
 }
 
 .jf-fixed-key span {
-  color: #8d9ba2;
+  color: rgb(var(--c-8d9ba2));
   font-size: 11.5px;
   font-weight: 700;
 }
@@ -3556,9 +3744,9 @@ code {
 .jf-segmented {
   display: inline-flex;
   padding: 2px;
-  border: 1px solid #223038;
+  border: 1px solid rgb(var(--c-223038));
   border-radius: 999px;
-  background: #0d1316;
+  background: rgb(var(--c-0d1316));
 }
 
 .jf-segmented button {
@@ -3566,7 +3754,7 @@ code {
   border-radius: 999px;
   padding: 5px 12px;
   background: transparent;
-  color: #8d9ba2;
+  color: rgb(var(--c-8d9ba2));
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
@@ -3574,12 +3762,12 @@ code {
 }
 
 .jf-segmented button:hover {
-  color: #f4f7f8;
+  color: rgb(var(--c-f4f7f8));
 }
 
 .jf-segmented button.active {
-  background: #20c7bd;
-  color: #06110f;
+  background: rgb(var(--c-20c7bd));
+  color: rgb(var(--c-06110f));
 }
 
 /* ---- Composite values ---- */
@@ -3589,7 +3777,7 @@ code {
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  color: #aeb9bf;
+  color: rgb(var(--c-aeb9bf));
   font-size: 13px;
 }
 
@@ -3597,7 +3785,7 @@ code {
   width: 15px;
   height: 15px;
   min-height: 0;
-  accent-color: #20c7bd;
+  accent-color: rgb(var(--c-20c7bd));
 }
 
 .jf-lines {
@@ -3630,7 +3818,7 @@ code {
 .jf-object {
   display: grid;
   gap: 6px;
-  border: 1px solid #202b31;
+  border: 1px solid rgb(var(--c-202b31));
   border-radius: 8px;
   padding: 8px 10px 10px;
   margin: 0;
@@ -3640,7 +3828,7 @@ code {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #8d9ba2;
+  color: rgb(var(--c-8d9ba2));
   font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
@@ -3689,9 +3877,9 @@ code {
 .jf-code {
   margin: 0;
   padding: 12px;
-  border: 1px solid #203238;
+  border: 1px solid rgb(var(--c-203238));
   border-radius: 8px;
-  background: #0d1316;
+  background: rgb(var(--c-0d1316));
   /* A twenty-stage pipeline must not push the page height without bound; long
      command lines scroll sideways inside the block rather than widening .main. */
   max-height: 520px;
@@ -3700,7 +3888,7 @@ code {
   font-size: 12px;
   line-height: 1.6;
   scrollbar-width: thin;
-  scrollbar-color: #2a3940 transparent;
+  scrollbar-color: rgb(var(--c-2a3940)) transparent;
 }
 
 .jf-code code.hljs {
@@ -3713,13 +3901,13 @@ code {
    one file. Both read as the argument's name here. */
 .jf-code .hljs-symbol,
 .jf-import-editor .hljs-symbol {
-  color: #d19a66;
+  color: rgb(var(--c-d19a66));
 }
 
 .jf-code::-webkit-scrollbar { width: 6px; height: 6px }
 .jf-code::-webkit-scrollbar-track { background: transparent }
-.jf-code::-webkit-scrollbar-thumb { background: #203238; border-radius: 999px }
-.jf-code::-webkit-scrollbar-thumb:hover { background: #2a3940 }
+.jf-code::-webkit-scrollbar-thumb { background: rgb(var(--c-203238)); border-radius: 999px }
+.jf-code::-webkit-scrollbar-thumb:hover { background: rgb(var(--c-2a3940)) }
 
 @media (max-width: 720px) {
   .jf-param-row {
@@ -3754,12 +3942,12 @@ code {
   padding: 0;
   border: 0;
   background: none;
-  color: #7a8b90;
+  color: rgb(var(--c-7a8b90));
   cursor: pointer;
 }
 
 .jf-imagepicker-toggle:hover {
-  color: #cfe3e8;
+  color: rgb(var(--c-cfe3e8));
 }
 
 .jf-imagepicker-flip {
@@ -3777,10 +3965,10 @@ code {
   list-style: none;
   max-height: 260px;
   overflow-y: auto;
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 8px;
-  background: #0c1215;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+  background: rgb(var(--c-0c1215));
+  box-shadow: 0 18px 40px rgb(var(--c-000000) / 55%);
   animation: pop-in 120ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
@@ -3801,18 +3989,18 @@ code {
 }
 
 .jf-imagepicker-active {
-  background: #16232a;
+  background: rgb(var(--c-16232a));
 }
 
 .jf-imagepicker-name {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
-  color: #e6f1f3;
+  color: rgb(var(--c-e6f1f3));
 }
 
 .jf-imagepicker-info {
   font-size: 12px;
-  color: #7a8b90;
+  color: rgb(var(--c-7a8b90));
   text-align: right;
   /* The labels give way first — the name is what is being picked. */
   overflow: hidden;
@@ -3834,31 +4022,31 @@ code {
   gap: 4px 12px;
   padding: 14px 16px;
   text-align: left;
-  border: 1px solid #223038;
+  border: 1px solid rgb(var(--c-223038));
   border-radius: 8px;
-  background: #101a1e;
+  background: rgb(var(--c-101a1e));
   color: inherit;
   cursor: pointer;
 }
 
 .jf-new-choice:hover {
-  border-color: #20c7bd;
-  background: #16232a;
+  border-color: rgb(var(--c-20c7bd));
+  background: rgb(var(--c-16232a));
 }
 
 .jf-new-choice svg {
   grid-row: span 2;
-  color: #20c7bd;
+  color: rgb(var(--c-20c7bd));
 }
 
 .jf-new-choice-name {
   font-weight: 600;
-  color: #e6f1f3;
+  color: rgb(var(--c-e6f1f3));
 }
 
 .jf-new-choice-hint {
   font-size: 12px;
-  color: #7a8b90;
+  color: rgb(var(--c-7a8b90));
 }
 
 .jf-new-import {
@@ -3877,10 +4065,10 @@ code {
   width: 100%;
   min-height: 260px;
   padding: 10px 12px;
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 6px;
-  background: #0c1215;
-  color: #e6f1f3;
+  background: rgb(var(--c-0c1215));
+  color: rgb(var(--c-e6f1f3));
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
   line-height: 1.6;
@@ -3924,27 +4112,27 @@ code {
   position: relative;
   background: transparent;
   color: transparent;
-  caret-color: #e6f1f3;
+  caret-color: rgb(var(--c-e6f1f3));
 }
 
 /* The transparent text would take the placeholder with it. */
 .jf-import-editor textarea::placeholder {
-  color: #55707a;
+  color: rgb(var(--c-55707a));
 }
 
 .jf-import-text:focus {
   outline: none;
-  border-color: #20c7bd;
-  box-shadow: 0 0 0 2px rgb(32 199 189 / 15%);
+  border-color: rgb(var(--c-20c7bd));
+  box-shadow: 0 0 0 2px rgb(var(--c-20c7bd) / 15%);
 }
 
 /* The whitening job held on a keep-or-import decision. Amber like the other
    "valid, but read this" panels, not the red of a failure. */
 .preserve-prompt {
   padding: 12px 14px;
-  border: 1px solid #4a3a1c;
+  border: 1px solid rgb(var(--c-4a3a1c));
   border-radius: 6px;
-  background: #1c1710;
+  background: rgb(var(--c-1c1710));
   font-size: 13px;
   margin-bottom: 14px;
 }
@@ -3954,7 +4142,7 @@ code {
   align-items: center;
   gap: 8px;
   margin: 0 0 10px;
-  color: #e0b457;
+  color: rgb(var(--c-e0b457));
 }
 
 .preserve-prompt ul {
@@ -3970,7 +4158,7 @@ code {
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  color: #b9c8cd;
+  color: rgb(var(--c-b9c8cd));
 }
 
 .preserve-prompt input[type="checkbox"] {
@@ -3983,14 +4171,14 @@ code {
    box reads as a question. */
 .preserve-choice {
   margin-left: auto;
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
 }
 
 .jf-import-warnings {
   padding: 10px 12px;
-  border: 1px solid #4a3a1c;
+  border: 1px solid rgb(var(--c-4a3a1c));
   border-radius: 6px;
-  background: #1c1710;
+  background: rgb(var(--c-1c1710));
   font-size: 13px;
 }
 
@@ -3999,19 +4187,19 @@ code {
   align-items: center;
   gap: 8px;
   margin: 0 0 6px;
-  color: #e0b457;
+  color: rgb(var(--c-e0b457));
 }
 
 .jf-import-warnings ul {
   margin: 0;
   padding-left: 22px;
-  color: #b9c8cd;
+  color: rgb(var(--c-b9c8cd));
   max-height: 40vh;
   overflow: auto;
 }
 
 .jf-broken-icon {
-  color: #ff8f96;
+  color: rgb(var(--c-ff8f96));
   vertical-align: -3px;
   margin-right: 6px;
 }
@@ -4075,18 +4263,18 @@ input.jf-title {
   padding: 5px;
   border-color: transparent;
   background: none;
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
 }
 
 .jf-title-row .edit-toggle:hover {
-  border-color: #2a3940;
-  background: #151d21;
-  color: #dbe4e7;
+  border-color: rgb(var(--c-2a3940));
+  background: rgb(var(--c-151d21));
+  color: rgb(var(--c-dbe4e7));
 }
 
 /* An unnamed draft shows a placeholder, not a name. */
 .jf-title-empty {
-  color: #55686e;
+  color: rgb(var(--c-55686e));
   font-weight: 500;
 }
 
@@ -4137,7 +4325,7 @@ input.jf-title {
 }
 
 .module-empty strong {
-  color: #c8d3d7;
+  color: rgb(var(--c-c8d3d7));
 }
 
 .module-empty p {
@@ -4215,10 +4403,10 @@ input.jf-title {
   min-width: 74px;
   font-size: 12px;
   font-weight: 700;
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
 }
 
-.ag-save-state.error { color: #ff8d95 }
+.ag-save-state.error { color: rgb(var(--c-ff8d95)) }
 
 .ag-editor {
   display: grid;
@@ -4226,7 +4414,7 @@ input.jf-title {
 }
 
 .ag-editor > .ag-section + .ag-section {
-  border-top: 1px solid #202b31;
+  border-top: 1px solid rgb(var(--c-202b31));
   padding-top: 16px;
 }
 
@@ -4240,14 +4428,14 @@ input.jf-title {
 .ag-editor textarea,
 .git-repo input {
   width: 100%;
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 6px;
   min-height: 36px;
   padding: 8px 10px;
-  background: #0d1316;
-  color: #f4f7f8;
+  background: rgb(var(--c-0d1316));
+  color: rgb(var(--c-f4f7f8));
   font-weight: 400;
-  color-scheme: dark;
+  color-scheme: var(--scheme, dark);
 }
 
 /* The popup a select opens is drawn by the platform, and `color-scheme: dark`
@@ -4255,8 +4443,8 @@ input.jf-title {
    option rows themselves, so they are painted here too — otherwise the open
    list is black text on the page's near-black. */
 .ag-editor select option {
-  background: #0d1316;
-  color: #f4f7f8;
+  background: rgb(var(--c-0d1316));
+  color: rgb(var(--c-f4f7f8));
 }
 
 .ag-editor input[type="checkbox"] {
@@ -4269,8 +4457,8 @@ input.jf-title {
 .ag-editor textarea:focus,
 .git-repo input:focus {
   outline: none;
-  border-color: #20c7bd;
-  box-shadow: 0 0 0 2px rgba(32, 199, 189, 0.15);
+  border-color: rgb(var(--c-20c7bd));
+  box-shadow: 0 0 0 2px rgb(var(--c-20c7bd) / 15%);
 }
 
 .ag-textarea {
@@ -4293,7 +4481,7 @@ input.jf-title {
   padding: 8px 10px;
   border: 1px solid transparent;
   border-radius: 6px;
-  background: #0d1316;
+  background: rgb(var(--c-0d1316));
   line-height: normal;
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -4311,14 +4499,14 @@ input.jf-title {
   position: relative;
   background: transparent;
   color: transparent;
-  caret-color: #f4f7f8;
+  caret-color: rgb(var(--c-f4f7f8));
   line-height: normal;
   white-space: pre-wrap;
   overflow-wrap: break-word;
 }
 
 .ag-editor .ag-code textarea::placeholder {
-  color: #55707a;
+  color: rgb(var(--c-55707a));
 }
 
 /* ---- repositories ---- */
@@ -4338,9 +4526,9 @@ input.jf-title {
   display: grid;
   gap: 8px;
   padding: 10px 12px;
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 9px;
-  background: #0b1114;
+  background: rgb(var(--c-0b1114));
 }
 
 /* No repo yet: just the offer, no box around it. */
@@ -4383,7 +4571,7 @@ input.jf-title {
 .git-repo-sub {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11.5px;
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
 }
 
 .git-push-result {
@@ -4393,24 +4581,24 @@ input.jf-title {
   gap: 6px;
   flex-wrap: wrap;
   font-size: 12.5px;
-  color: #9fe4dc;
+  color: rgb(var(--c-9fe4dc));
 }
 
 .git-push-result code {
   font-size: 11.5px;
-  color: #d7fbf8;
+  color: rgb(var(--c-d7fbf8));
 }
 
 .git-push-result a {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: #20c7bd;
+  color: rgb(var(--c-20c7bd));
 }
 
-.git-push-result.quiet { color: #8ea0a8 }
-.git-push-result.warn  { color: #f0c674 }
-.git-push-result.error { color: #ff8d95 }
+.git-push-result.quiet { color: rgb(var(--c-8ea0a8)) }
+.git-push-result.warn  { color: rgb(var(--c-f0c674)) }
+.git-push-result.error { color: rgb(var(--c-ff8d95)) }
 
 .ag-chart-line {
   display: grid;
@@ -4424,7 +4612,7 @@ input.jf-title {
   flex-wrap: wrap;
   padding-left: 12px;
   font-size: 12px;
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
 }
 
 .ag-chart-label {
@@ -4436,7 +4624,7 @@ input.jf-title {
 
 .ag-chart-ref {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #b9c6cc;
+  color: rgb(var(--c-b9c6cc));
 }
 
 .ag-chart-paths {
@@ -4453,12 +4641,12 @@ input.jf-title {
   padding: 2px;
   border-color: transparent;
   background: none;
-  color: #4a5a62;
+  color: rgb(var(--c-4a5a62));
 }
 
 /* Each lights on its own hover, so the link and the pencil read as two buttons. */
 .ag-chart-summary .edit-toggle:hover,
-.ag-chart-summary .edit-toggle[aria-expanded="true"] { color: #b9c6cc }
+.ag-chart-summary .edit-toggle[aria-expanded="true"] { color: rgb(var(--c-b9c6cc)) }
 
 /* ---- the New tree dialog ---- */
 
@@ -4474,17 +4662,17 @@ input.jf-title {
   justify-items: start;
   text-align: left;
   padding: 14px 16px;
-  border: 1px dashed #2a3940;
+  border: 1px dashed rgb(var(--c-2a3940));
   border-radius: 9px;
-  background: #0d1316;
-  color: #b9c6cc;
+  background: rgb(var(--c-0d1316));
+  color: rgb(var(--c-b9c6cc));
   cursor: pointer;
 }
 
-.ag-new-choice:hover { border-color: #20c7bd; background: rgba(32, 199, 189, 0.07) }
-.ag-new-choice svg { color: #20c7bd }
-.ag-new-choice strong { font-size: 14px; color: #f2f6f7 }
-.ag-new-choice small { font-size: 12px; color: #8ea0a8; line-height: 1.5 }
+.ag-new-choice:hover { border-color: rgb(var(--c-20c7bd)); background: rgb(var(--c-20c7bd) / 7%) }
+.ag-new-choice svg { color: rgb(var(--c-20c7bd)) }
+.ag-new-choice strong { font-size: 14px; color: rgb(var(--c-f2f6f7)) }
+.ag-new-choice small { font-size: 12px; color: rgb(var(--c-8ea0a8)); line-height: 1.5 }
 
 .ag-new-error {
   margin: 0;
@@ -4492,12 +4680,12 @@ input.jf-title {
   align-items: center;
   gap: 6px;
   font-size: 12.5px;
-  color: #ff8d95;
+  color: rgb(var(--c-ff8d95));
 }
 
 .ag-new-modal code {
   font-size: 11.5px;
-  color: #9fe4dc;
+  color: rgb(var(--c-9fe4dc));
   overflow-wrap: anywhere;
 }
 
@@ -4506,15 +4694,15 @@ input.jf-title {
   display: flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid #223037;
+  border: 1px solid rgb(var(--c-223037));
   border-radius: 8px;
   padding: 8px 12px;
-  background: #0f1519;
-  color: #7f9199;
+  background: rgb(var(--c-0f1519));
+  color: rgb(var(--c-7f9199));
   text-align: left;
 }
 
-.git-repo-toggle:hover { border-color: #2a3940; color: #b9c6cc }
+.git-repo-toggle:hover { border-color: rgb(var(--c-2a3940)); color: rgb(var(--c-b9c6cc)) }
 
 .git-repo-summary {
   display: flex;
@@ -4536,20 +4724,20 @@ input.jf-title {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #7f9199;
+  color: rgb(var(--c-7f9199));
 }
 
 .git-repo-ref {
   font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 12.5px;
   font-weight: 700;
-  color: #f2f6f7;
+  color: rgb(var(--c-f2f6f7));
   overflow-wrap: anywhere;
 }
 
-.git-repo-rev { color: #9fe4dc }
+.git-repo-rev { color: rgb(var(--c-9fe4dc)) }
 
-.git-repo-arrow { display: inline-flex; color: #4a5a62 }
+.git-repo-arrow { display: inline-flex; color: rgb(var(--c-4a5a62)) }
 
 .git-repo {
   display: grid;
@@ -4563,10 +4751,10 @@ input.jf-title {
   grid-column: 1 / -1;
   margin: 4px 0 0;
   font-size: 12.5px;
-  color: #8ea0a8;
+  color: rgb(var(--c-8ea0a8));
 }
 
-.git-repo-note strong { color: #f2f6f7 }
+.git-repo-note strong { color: rgb(var(--c-f2f6f7)) }
 
 /* A field whose caption carries a `?`. It is not a <label>, because a label
    wrapping a button names the button too — the input carries its own
@@ -4578,7 +4766,7 @@ input.jf-title {
   align-self: start;
   font-size: 13px;
   font-weight: 700;
-  color: #f2f6f7;
+  color: rgb(var(--c-f2f6f7));
 }
 
 .field-block > span {
@@ -4600,7 +4788,7 @@ input.jf-title {
   align-self: start;
   font-size: 13px;
   font-weight: 700;
-  color: #f2f6f7;
+  color: rgb(var(--c-f2f6f7));
 }
 
 /* A hint is prose, not part of the caption it sits under. */
@@ -4609,7 +4797,7 @@ input.jf-title {
   font-weight: 400;
   font-size: 11.5px;
   line-height: 1.5;
-  color: #8ea0a8;
+  color: rgb(var(--c-8ea0a8));
 }
 
 /* ---- release / layer tabs ---- */
@@ -4636,7 +4824,7 @@ input.jf-title {
 .ag-ms-folder {
   margin-top: 12px;
   padding: 18px 10px 10px;
-  border: 1px dashed #3a4a52;
+  border: 1px dashed rgb(var(--c-3a4a52));
   border-radius: 10px;
   position: relative;
 }
@@ -4646,10 +4834,10 @@ input.jf-title {
   top: -9px;
   left: 12px;
   padding: 0 6px;
-  background: var(--panel, #11181b);
+  background: var(--panel, rgb(var(--c-11181b)));
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
-  color: #8fa3ab;
+  color: rgb(var(--c-8fa3ab));
 }
 
 /* A namespace's defaults: one wide bar above the microservice squares — what
@@ -4670,7 +4858,7 @@ input.jf-title {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
 }
 
 .ag-grid-sort select {
@@ -4682,7 +4870,7 @@ input.jf-title {
 
 .ag-card-shell[draggable="true"] > .ag-card { cursor: grab }
 .ag-card-shell[data-drag="source"] { opacity: 0.45 }
-.ag-card-shell[data-drag="target"] > .ag-card { outline: 2px dashed #20c7bd; outline-offset: 2px }
+.ag-card-shell[data-drag="target"] > .ag-card { outline: 2px dashed rgb(var(--c-20c7bd)); outline-offset: 2px }
 
 .ag-ns-defaults-shell {
   display: flex;
@@ -4697,18 +4885,18 @@ input.jf-title {
   align-items: baseline;
   gap: 10px;
   text-align: left;
-  border: 1px solid #2f4a50;
+  border: 1px solid rgb(var(--c-2f4a50));
   border-radius: 10px;
   padding: 18px 18px;
-  background: #0f171b;
+  background: rgb(var(--c-0f171b));
   color: inherit;
   cursor: pointer;
 }
 
 .ag-ns-defaults .ag-card-name { font-size: 15px }
 
-.ag-ns-defaults:hover { border-color: #20c7bd88 }
-.ag-ns-defaults.selected { border-color: #20c7bd; background: rgba(32, 199, 189, 0.08) }
+.ag-ns-defaults:hover { border-color: rgb(var(--c-20c7bd) / 53.3%) }
+.ag-ns-defaults.selected { border-color: rgb(var(--c-20c7bd)); background: rgb(var(--c-20c7bd) / 8%) }
 
 .ag-layer-grid {
   grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
@@ -4722,20 +4910,20 @@ input.jf-title {
   align-content: start;
   gap: 6px;
   padding: 11px 12px;
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 9px;
-  background: #0d1316;
-  color: #b9c6cc;
+  background: rgb(var(--c-0d1316));
+  color: rgb(var(--c-b9c6cc));
   text-align: left;
   cursor: pointer;
   transition: border-color 0.12s, background 0.12s;
 }
 
-.ag-card:hover { border-color: #3a4c55 }
+.ag-card:hover { border-color: rgb(var(--c-3a4c55)) }
 
 .ag-card.selected {
-  border-color: #20c7bd;
-  background: rgba(32, 199, 189, 0.12);
+  border-color: rgb(var(--c-20c7bd));
+  background: rgb(var(--c-20c7bd) / 12%);
 }
 
 .ag-card-name {
@@ -4744,19 +4932,19 @@ input.jf-title {
   gap: 6px;
   font-size: 13.5px;
   font-weight: 700;
-  color: #f2f6f7;
+  color: rgb(var(--c-f2f6f7));
   overflow-wrap: anywhere;
 }
 
 .ag-card-image {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11.5px;
-  color: #8ea0a8;
+  color: rgb(var(--c-8ea0a8));
   overflow-wrap: anywhere;
 }
 
-.ag-card-image b { color: #9fe4dc; font-weight: 700 }
-.ag-card-image i { font-style: normal; color: #e2883c }
+.ag-card-image b { color: rgb(var(--c-9fe4dc)); font-weight: 700 }
+.ag-card-image i { font-style: normal; color: rgb(var(--c-e2883c)) }
 
 /* One row per scope, so the card is read top to bottom: the workload, what is
    inside its pod template, the objects beside it, the cluster-scoped ones. */
@@ -4789,14 +4977,14 @@ input.jf-title {
   top: -2px;
   bottom: 7px;
   width: 7px;
-  border-left: 1px solid #2a3940;
-  border-bottom: 1px solid #2a3940;
+  border-left: 1px solid rgb(var(--c-2a3940));
+  border-bottom: 1px solid rgb(var(--c-2a3940));
   border-bottom-left-radius: 4px;
 }
 
 .ag-card-foot {
   font-size: 11px;
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
 }
 
 .help-toggle.interactive {
@@ -4811,27 +4999,27 @@ input.jf-title {
 }
 
 .ag-chip {
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 5px;
   padding: 2px 6px;
-  background: #111a1e;
+  background: rgb(var(--c-111a1e));
   font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.01em;
-  color: #9fb0b8;
+  color: rgb(var(--c-9fb0b8));
   white-space: nowrap;
 }
 
-.ag-chip b { color: #d7fbf8; font-weight: 700 }
+.ag-chip b { color: rgb(var(--c-d7fbf8)); font-weight: 700 }
 
 /* A chip that knows which feature made it takes you there when pressed. */
 .ag-chip.linked { cursor: pointer }
-.ag-chip.linked:hover { border-color: #20c7bd; color: #d7fbf8 }
+.ag-chip.linked:hover { border-color: rgb(var(--c-20c7bd)); color: rgb(var(--c-d7fbf8)) }
 
 /* Where a chip lands: the feature card says so for a moment, because a smooth
    scroll that ends on an unremarkable row leaves you wondering what moved. */
 @keyframes ag-flash {
-  from { border-color: #20c7bd; background: rgba(32, 199, 189, 0.16) }
+  from { border-color: rgb(var(--c-20c7bd)); background: rgb(var(--c-20c7bd) / 16%) }
 }
 
 .ag-feature.flash {
@@ -4847,17 +5035,17 @@ input.jf-title {
   flex-wrap: wrap;
   margin-top: 10px;
   padding: 8px 10px;
-  border: 1px solid #20c7bd44;
+  border: 1px solid rgb(var(--c-20c7bd) / 26.7%);
   border-radius: 8px;
-  background: rgba(32, 199, 189, 0.06);
+  background: rgb(var(--c-20c7bd) / 6%);
   font-size: 12.5px;
-  color: #b9c6cc;
+  color: rgb(var(--c-b9c6cc));
 }
 
-.ag-promote > svg { color: #20c7bd; flex: 0 0 auto }
+.ag-promote > svg { color: rgb(var(--c-20c7bd)); flex: 0 0 auto }
 .ag-promote > span { flex: 1; min-width: 220px }
-.ag-promote code { font-size: 11.5px; color: #9fe4dc }
-.ag-promote strong { color: #f2f6f7 }
+.ag-promote code { font-size: 11.5px; color: rgb(var(--c-9fe4dc)) }
+.ag-promote strong { color: rgb(var(--c-f2f6f7)) }
 .ag-promote .ghost-button { margin-left: auto }
 
 /* The offers fold into one line, so a tree full of them does not push the
@@ -4870,7 +5058,7 @@ input.jf-title {
   cursor: pointer;
   list-style: none;
   font-size: 12.5px;
-  color: #9fe4dc;
+  color: rgb(var(--c-9fe4dc));
 }
 .ag-suggestions > summary::-webkit-details-marker { display: none }
 .ag-suggestions > summary svg { transition: transform 0.15s }
@@ -4889,17 +5077,17 @@ input.jf-title {
   gap: 5px;
   font-size: 11px;
   line-height: 1.45;
-  color: #e2883c;
+  color: rgb(var(--c-e2883c));
 }
 
 .ag-card-warn > svg { flex: 0 0 auto; align-self: center }
-.ag-card-warn code { font-size: 10.5px; color: #f0c08a }
+.ag-card-warn code { font-size: 10.5px; color: rgb(var(--c-f0c08a)) }
 
 /* The workload is what the release *is*; the rest is what it brings with it. */
 .ag-chip.workload {
-  border-color: #20c7bd66;
-  background: rgba(32, 199, 189, 0.1);
-  color: #9fe4dc;
+  border-color: rgb(var(--c-20c7bd) / 40%);
+  background: rgb(var(--c-20c7bd) / 10%);
+  color: rgb(var(--c-9fe4dc));
 }
 
 /* Part of the workload's pod template, not an object of its own — a
@@ -4908,32 +5096,32 @@ input.jf-title {
    removes. Set back and joined to the workload chip by a leading tick. */
 .ag-chip.pod {
   border-color: transparent;
-  background: rgba(159, 228, 220, 0.05);
-  color: #7d8e96;
+  background: rgb(var(--c-9fe4dc) / 5%);
+  color: rgb(var(--c-7d8e96));
   font-weight: 400;
 }
 
 .ag-chip.pod::before {
   content: "↳";
   margin-right: 4px;
-  color: #4a5a62;
+  color: rgb(var(--c-4a5a62));
 }
 
 /* Cluster-scoped: exactly one release in the cluster may own it, which is a
    fact about the object and not about this tree. */
 .ag-chip.cluster {
-  border-color: #4a3f2a;
-  background: rgba(224, 179, 65, 0.08);
-  color: #e0b341;
+  border-color: rgb(var(--c-4a3f2a));
+  background: rgb(var(--c-e0b341) / 8%);
+  color: rgb(var(--c-e0b341));
 }
 
 /* Only a namespace override creates this one — see the note under the grid.
    The border is lighter than a plain chip's, not darker: a 1px dash at #2a3940
    reads as a solid line, which is the whole distinction. */
 .ag-chip.added {
-  border: 1px dashed #465a64;
+  border: 1px dashed rgb(var(--c-465a64));
   background: none;
-  color: #7d8e96;
+  color: rgb(var(--c-7d8e96));
 }
 
 .ag-add-card {
@@ -4942,13 +5130,13 @@ input.jf-title {
   grid-auto-flow: column;
   gap: 6px;
   border-style: dashed;
-  color: #8ea0a8;
+  color: rgb(var(--c-8ea0a8));
   font-size: 12.5px;
   font-weight: 700;
   min-height: 54px;
 }
 
-.ag-add-card:hover { color: #d7fbf8 }
+.ag-add-card:hover { color: rgb(var(--c-d7fbf8)) }
 
 /* The tree's defaults sit in the microservices grid as its first tile — the
    same idea as the Layers grid's Base tile, in the other direction. Smaller
@@ -5002,7 +5190,7 @@ input.jf-title {
   width: 22px;
   min-height: 22px;
   padding: 0;
-  color: #8ea0a8;
+  color: rgb(var(--c-8ea0a8));
 }
 
 /* So a long name does not run underneath them — except while it is being
@@ -5035,19 +5223,19 @@ input.jf-title {
   margin: 0 0 16px;
   font-size: 13px;
   line-height: 1.55;
-  color: #b9c6cc;
+  color: rgb(var(--c-b9c6cc));
 }
 
 .ag-confirm-detail > svg {
   flex: 0 0 auto;
   margin-top: 2px;
-  color: #e2883c;
+  color: rgb(var(--c-e2883c));
 }
 
 .ag-scope-note {
   margin: 10px 0 0;
   font-size: 12.5px;
-  color: #8ea0a8;
+  color: rgb(var(--c-8ea0a8));
 }
 
 /* ---- feature catalog ---- */
@@ -5066,13 +5254,13 @@ input.jf-title {
   margin-bottom: 8px;
   padding: 4px 2px;
   border: 0;
-  border-bottom: 1px solid #1b262c;
+  border-bottom: 1px solid rgb(var(--c-1b262c));
   background: none;
   cursor: pointer;
-  color: #7f9199;
+  color: rgb(var(--c-7f9199));
 }
 
-.ag-category-head:hover { color: #b9c6cc }
+.ag-category-head:hover { color: rgb(var(--c-b9c6cc)) }
 
 .ag-category-name:has(.help) { display: inline-flex; align-items: center; gap: 6px }
 
@@ -5087,8 +5275,8 @@ input.jf-title {
   margin-left: auto;
   border-radius: 999px;
   padding: 1px 8px;
-  background: rgba(32, 199, 189, 0.12);
-  color: #9fe4dc;
+  background: rgb(var(--c-20c7bd) / 12%);
+  color: rgb(var(--c-9fe4dc));
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0;
@@ -5096,44 +5284,44 @@ input.jf-title {
 }
 
 .ag-feature {
-  border: 1px solid #1e2a30;
+  border: 1px solid rgb(var(--c-1e2a30));
   border-radius: 8px;
   padding: 10px 12px;
   margin-bottom: 8px;
-  background: #0f1519;
+  background: rgb(var(--c-0f1519));
 }
 
-.ag-feature.on { border-color: #20c7bd66 }
+.ag-feature.on { border-color: rgb(var(--c-20c7bd) / 40%) }
 
 /* What a card is warning about is the card itself, outlined — worst first. */
-.ag-feature.overridden { border-color: #e2883c }
+.ag-feature.overridden { border-color: rgb(var(--c-e2883c)) }
 /* Switched off on purpose: dashed and dimmed, still a decision someone made. */
-.ag-feature.off-here { border: 1px dashed #8a97a0; background: #0c1114 }
-.ag-feature.off-here .ag-feature-name { color: #8a97a0; text-decoration: line-through }
-.ag-off-note { margin: 6px 0 0; font-size: 12px; color: #8a97a0 }
+.ag-feature.off-here { border: 1px dashed rgb(var(--c-8a97a0)); background: rgb(var(--c-0c1114)) }
+.ag-feature.off-here .ag-feature-name { color: rgb(var(--c-8a97a0)); text-decoration: line-through }
+.ag-off-note { margin: 6px 0 0; font-size: 12px; color: rgb(var(--c-8a97a0)) }
 .ag-status-tag {
-  border: 1px solid #20c7bd66;
+  border: 1px solid rgb(var(--c-20c7bd) / 40%);
   border-radius: 999px;
   padding: 0 7px;
   font-size: 10.5px;
   font-weight: 700;
-  color: #20c7bd;
+  color: rgb(var(--c-20c7bd));
 }
-.ag-status-tag.inherited { border-style: dashed; color: #7fcfc9 }
-.ag-status-tag.off, .ag-status-tag.off-here { border-color: #8a97a0; color: #c3ccd2 }
-.ag-feature.has-warn { border-color: #e0aa54 }
-.ag-feature.has-bad { border-color: #ff8d95 }
-.ag-category-head.overridden { box-shadow: inset 3px 0 0 #e2883c }
-.ag-layer-card.overridden { border-color: #e2883c }
+.ag-status-tag.inherited { border-style: dashed; color: rgb(var(--c-7fcfc9)) }
+.ag-status-tag.off, .ag-status-tag.off-here { border-color: rgb(var(--c-8a97a0)); color: rgb(var(--c-c3ccd2)) }
+.ag-feature.has-warn { border-color: rgb(var(--c-e0aa54)) }
+.ag-feature.has-bad { border-color: rgb(var(--c-ff8d95)) }
+.ag-category-head.overridden { box-shadow: inset 3px 0 0 rgb(var(--c-e2883c)) }
+.ag-layer-card.overridden { border-color: rgb(var(--c-e2883c)) }
 
 /* The handle on an override's popover, now the border carries the signal. */
 .ag-override-tag {
-  border: 1px solid #e2883c88;
+  border: 1px solid rgb(var(--c-e2883c) / 53.3%);
   border-radius: 999px;
   padding: 0 7px;
   font-size: 10.5px;
   font-weight: 700;
-  color: #f0b27a;
+  color: rgb(var(--c-f0b27a));
 }
 
 .ag-mount.done { opacity: 0.7; cursor: default }
@@ -5147,13 +5335,13 @@ input.jf-title {
   display: block;
   margin: 0 0 8px;
   padding: 4px 2px;
-  border-bottom: 1px solid #1b262c;
-  color: #9fe4dc;
+  border-bottom: 1px solid rgb(var(--c-1b262c));
+  color: rgb(var(--c-9fe4dc));
 }
 
 .ag-feature-required {
-  border-color: #20c7bd66;
-  background: #101a1d;
+  border-color: rgb(var(--c-20c7bd) / 40%);
+  background: rgb(var(--c-101a1d));
 }
 
 /* Nothing to tick, so the name starts at the edge instead of in the checkbox's
@@ -5171,7 +5359,7 @@ input.jf-title {
 
 .ag-more-label {
   font-size: 12px;
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
   margin-right: 2px;
 }
 
@@ -5179,19 +5367,19 @@ input.jf-title {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  border: 1px dashed #2a3940;
+  border: 1px dashed rgb(var(--c-2a3940));
   border-radius: 999px;
   padding: 3px 10px;
   background: none;
-  color: #8ea0a8;
+  color: rgb(var(--c-8ea0a8));
   font-size: 12px;
   font-weight: 700;
 }
 
 .ag-more-chip:hover {
   border-style: solid;
-  border-color: #20c7bd66;
-  color: #d7fbf8;
+  border-color: rgb(var(--c-20c7bd) / 40%);
+  color: rgb(var(--c-d7fbf8));
 }
 
 /* A checkbox, a name and its `?`. The blurb that used to fill a second column
@@ -5213,13 +5401,13 @@ input.jf-title {
 .ag-feature-name {
   font-weight: 800;
   font-size: 13.5px;
-  color: #f2f6f7;
+  color: rgb(var(--c-f2f6f7));
 }
 
 .ag-feature-blurb {
   margin: 0;
   font-size: 12.5px;
-  color: #8ea0a8;
+  color: rgb(var(--c-8ea0a8));
 }
 
 .ag-feature-body {
@@ -5250,14 +5438,14 @@ input.jf-title {
 .ag-field-label {
   font-size: 13px;
   font-weight: 700;
-  color: #f2f6f7;
+  color: rgb(var(--c-f2f6f7));
 }
 
 .ag-hint,
 .ag-note {
   margin: 0;
   font-size: 12px;
-  color: #8ea0a8;
+  color: rgb(var(--c-8ea0a8));
 }
 
 .ag-note { grid-column: 1 / -1 }
@@ -5265,7 +5453,7 @@ input.jf-title {
 .ag-error {
   margin: 6px 0 0;
   font-size: 12px;
-  color: #ff8d95;
+  color: rgb(var(--c-ff8d95));
 }
 
 .ag-rows { display: grid; gap: 6px }
@@ -5277,10 +5465,10 @@ input.jf-title {
 }
 
 .ag-entry {
-  border: 1px solid #223037;
+  border: 1px solid rgb(var(--c-223037));
   border-radius: 8px;
   padding: 10px 12px 12px;
-  background: #0c1216;
+  background: rgb(var(--c-0c1216));
   display: grid;
   /* The fields sit side by side across the box; only the header spans it. */
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
@@ -5294,7 +5482,7 @@ input.jf-title {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  border-bottom: 1px solid #1b262c;
+  border-bottom: 1px solid rgb(var(--c-1b262c));
   padding-bottom: 6px;
 }
 
@@ -5317,10 +5505,10 @@ input.jf-title {
   gap: 12px;
   margin: 0 -11px;
   min-width: 0;
-  border: 1px dashed #26333a;
+  border: 1px dashed rgb(var(--c-26333a));
   border-radius: 6px;
   padding: 6px 10px 10px;
-  background: #0d1418;
+  background: rgb(var(--c-0d1418));
 }
 
 .ag-inherited legend {
@@ -5351,10 +5539,10 @@ input.jf-title {
   cursor: pointer;
   font-size: 11px;
   font-weight: 700;
-  color: #7d8f97;
+  color: rgb(var(--c-7d8f97));
 }
 
-.ag-inherited-link:hover { color: #9fe4dc }
+.ag-inherited-link:hover { color: rgb(var(--c-9fe4dc)) }
 
 /* The same problem the list under the form shows, repeated on the card it is
    about: pressing it there lands here, and a card with no sign of why is the
@@ -5381,15 +5569,15 @@ input.jf-title {
 .ag-feature-problems li svg { flex: 0 0 auto; margin-top: 1px }
 
 .ag-feature-problems li.bad {
-  border-color: #ff8d95;
-  background: rgba(255, 141, 149, 0.08);
-  color: #ffc9cd;
+  border-color: rgb(var(--c-ff8d95));
+  background: rgb(var(--c-ff8d95) / 8%);
+  color: rgb(var(--c-ffc9cd));
 }
 
 .ag-feature-problems li.warn {
-  border-color: #e0aa54;
-  background: rgba(224, 170, 84, 0.08);
-  color: #f0d7a8;
+  border-color: rgb(var(--c-e0aa54));
+  background: rgb(var(--c-e0aa54) / 8%);
+  color: rgb(var(--c-f0d7a8));
 }
 
 /* The way back out of an add-list chip, shown on hover so a form of a dozen
@@ -5401,20 +5589,20 @@ input.jf-title {
   background: none;
   padding: 0;
   cursor: pointer;
-  color: #55656d;
+  color: rgb(var(--c-55656d));
   opacity: 0;
   transition: opacity 0.12s ease;
 }
 
 .ag-field:hover .ag-field-remove,
 .ag-field-remove:focus-visible { opacity: 1 }
-.ag-field-remove:hover { color: #ff8d95 }
+.ag-field-remove:hover { color: rgb(var(--c-ff8d95)) }
 
 .ag-entry-title {
   font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 12px;
   font-weight: 700;
-  color: #9fe4dc;
+  color: rgb(var(--c-9fe4dc));
   overflow-wrap: anywhere;
   /* Takes the slack, so the entry's own controls stay together on the right. */
   margin-right: auto;
@@ -5426,8 +5614,8 @@ input.jf-title {
   margin: 0 1px;
   padding: 0 5px;
   border-radius: 999px;
-  border: 1px dashed rgba(159, 228, 220, 0.55);
-  background: rgba(159, 228, 220, 0.1);
+  border: 1px dashed rgb(var(--c-9fe4dc) / 55%);
+  background: rgb(var(--c-9fe4dc) / 10%);
   font-weight: 600;
   font-size: 11px;
   line-height: 16px;
@@ -5439,14 +5627,14 @@ input.jf-title {
   flex-wrap: wrap;
   gap: 2px 8px;
   font-size: 11px;
-  color: var(--muted, #8b98a5);
+  color: var(--muted, rgb(var(--c-8b98a5)));
   overflow-wrap: anywhere;
 }
 .ag-tpl-resolves code {
   font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  color: #c9d4de;
+  color: rgb(var(--c-c9d4de));
 }
-.ag-tpl-missing { color: #f0b35a }
+.ag-tpl-missing { color: rgb(var(--c-f0b35a)) }
 
 /* The offer to wire a claim, ConfigMap or Secret into the container. Quiet: it
    sits on every named row of those three features until it has been taken. */
@@ -5460,7 +5648,7 @@ input.jf-title {
   display: grid;
   gap: 4px;
   font-size: 12.5px;
-  color: #b9c6cc;
+  color: rgb(var(--c-b9c6cc));
   min-width: 0;
 }
 
@@ -5489,7 +5677,7 @@ input.jf-title {
 .ag-add { justify-self: start }
 
 /* A file dragged over a ConfigMap/Secret entry, or over the list for a new one. */
-.ag-entry.ag-drop, .ag-rows.ag-drop { outline: 2px dashed #2dd4bf; outline-offset: 2px }
+.ag-entry.ag-drop, .ag-rows.ag-drop { outline: 2px dashed rgb(var(--c-2dd4bf)); outline-offset: 2px }
 label.ag-add { cursor: pointer }
 
 /* ---- generated files ---- */
@@ -5530,10 +5718,10 @@ label.ag-add { cursor: pointer }
 .ag-file-list {
   max-height: max(240px, calc(100vh - 220px));
   overflow: auto;
-  border: 1px solid #1b262c;
+  border: 1px solid rgb(var(--c-1b262c));
   border-radius: 8px;
   padding: 6px 4px;
-  background: #0c1216;
+  background: rgb(var(--c-0c1216));
 }
 
 .ag-file,
@@ -5547,29 +5735,29 @@ label.ag-add { cursor: pointer }
   border-radius: 6px;
   padding: 5px 8px;
   background: none;
-  color: #b9c6cc;
+  color: rgb(var(--c-b9c6cc));
   cursor: pointer;
   font-size: 12.5px;
 }
 
 .ag-file:hover,
-.ag-folder:hover { background: rgba(159, 228, 220, 0.06) }
+.ag-folder:hover { background: rgb(var(--c-9fe4dc) / 6%) }
 
 .ag-folder-name {
   font-weight: 700;
-  color: #cfe0e5;
+  color: rgb(var(--c-cfe0e5));
 }
 
 .ag-file svg,
-.ag-folder svg { flex: 0 0 auto; color: #6f8088 }
+.ag-folder svg { flex: 0 0 auto; color: rgb(var(--c-6f8088)) }
 
 .ag-file.selected {
-  border-color: #20c7bd66;
-  background: rgba(32, 199, 189, 0.1);
-  color: #d7fbf8;
+  border-color: rgb(var(--c-20c7bd) / 40%);
+  background: rgb(var(--c-20c7bd) / 10%);
+  color: rgb(var(--c-d7fbf8));
 }
 
-.ag-file.selected svg { color: #20c7bd }
+.ag-file.selected svg { color: rgb(var(--c-20c7bd)) }
 
 .ag-file-name {
   font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
@@ -5580,7 +5768,7 @@ label.ag-add { cursor: pointer }
 .ag-file-note {
   font-family: var(--sans, inherit);
   font-size: 11.5px;
-  color: #7f9199;
+  color: rgb(var(--c-7f9199));
 }
 
 /* A file has no chevron, so it needs the space one would have taken to line up
@@ -5595,9 +5783,9 @@ label.ag-add { cursor: pointer }
   font-weight: 800;
 }
 
-.ag-file-gutter.st-added { color: #55d18d }
-.ag-file-gutter.st-modified { color: #e6b455 }
-.ag-file-gutter.st-removed { color: #e0736d }
+.ag-file-gutter.st-added { color: rgb(var(--c-55d18d)) }
+.ag-file-gutter.st-modified { color: rgb(var(--c-e6b455)) }
+.ag-file-gutter.st-removed { color: rgb(var(--c-e0736d)) }
 
 /* Why there is no diff, when there was meant to be one. Quiet: the tree itself
    is fine, it is the comparison that is missing. */
@@ -5607,10 +5795,10 @@ label.ag-add { cursor: pointer }
   gap: 6px;
   margin: 0;
   padding: 7px 10px;
-  border: 1px solid #4a3a1e;
+  border: 1px solid rgb(var(--c-4a3a1e));
   border-radius: 8px;
-  background: rgba(230, 180, 85, 0.07);
-  color: #d9b877;
+  background: rgb(var(--c-e6b455) / 7%);
+  color: rgb(var(--c-d9b877));
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -5618,9 +5806,9 @@ label.ag-add { cursor: pointer }
 .ag-compare-note svg { flex: 0 0 auto; margin-top: 2px }
 
 /* A unified diff: the sign column is part of the line, so it copies with it. */
-.ag-diff .add { display: block; color: #a8f0cb; background: rgba(85, 209, 141, 0.1) }
-.ag-diff .del { display: block; color: #ffb8b2; background: rgba(224, 115, 109, 0.1) }
-.ag-diff .same { display: block; color: #8fa2aa }
+.ag-diff .add { display: block; color: rgb(var(--c-a8f0cb)); background: rgb(var(--c-55d18d) / 10%) }
+.ag-diff .del { display: block; color: rgb(var(--c-ffb8b2)); background: rgb(var(--c-e0736d) / 10%) }
+.ag-diff .same { display: block; color: rgb(var(--c-8fa2aa)) }
 
 /* The global `code` rule paints a chip background, which turns a whole file
    into a striped block. The preview is one plain document. */
@@ -5642,16 +5830,16 @@ label.ag-add { cursor: pointer }
   margin: 0;
   font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 12px;
-  color: #9fe4dc;
+  color: rgb(var(--c-9fe4dc));
   overflow-wrap: anywhere;
 }
 
 .ag-file-body {
   margin: 0;
   padding: 12px;
-  border: 1px solid #203238;
+  border: 1px solid rgb(var(--c-203238));
   border-radius: 8px;
-  background: #0d1316;
+  background: rgb(var(--c-0d1316));
   overflow: auto;
   /* A fixed height, not a cap: sized to the file, pressing a short one after a
      long one shortened the page under the pointer and the browser scrolled it. */
@@ -5676,7 +5864,7 @@ label.ag-add { cursor: pointer }
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #6f8088;
+  color: rgb(var(--c-6f8088));
 }
 
 .ag-scope-actions .ag-grid-head { margin: 0; margin-right: auto }
@@ -5692,7 +5880,7 @@ label.ag-add { cursor: pointer }
   border-radius: 4px;
 }
 
-.ag-fold:hover { background: rgba(159, 228, 220, 0.08) }
+.ag-fold:hover { background: rgb(var(--c-9fe4dc) / 8%) }
 .ag-fold svg { transition: transform 0.15s }
 .ag-fold[aria-expanded="false"] svg { transform: rotate(-90deg) }
 
@@ -5749,15 +5937,15 @@ label.ag-add { cursor: pointer }
 .ag-problems li.linked:hover { filter: brightness(1.25) }
 
 .ag-problems li.bad {
-  border-color: #ff8d95;
-  background: rgba(255, 141, 149, 0.08);
-  color: #ffc9cd;
+  border-color: rgb(var(--c-ff8d95));
+  background: rgb(var(--c-ff8d95) / 8%);
+  color: rgb(var(--c-ffc9cd));
 }
 
 .ag-problems li.warn {
-  border-color: #e0aa54;
-  background: rgba(224, 170, 84, 0.08);
-  color: #f0d7a8;
+  border-color: rgb(var(--c-e0aa54));
+  background: rgb(var(--c-e0aa54) / 8%);
+  color: rgb(var(--c-f0d7a8));
 }
 
 .ag-import-modal {
@@ -5769,12 +5957,12 @@ label.ag-add { cursor: pointer }
 /* The Convert dialog's workload picker: a short scrolling list of checkboxes,
    the name first and its kind quiet beside it. */
 .ag-workloads > span { display: flex; align-items: center; gap: 6px }
-.ag-workloads-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 10px; color: var(--muted, #8b98a5); font-weight: 500 }
+.ag-workloads-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 10px; color: var(--muted, rgb(var(--c-8b98a5))); font-weight: 500 }
 .ag-workloads-actions button {
   border: 0;
   background: none;
   padding: 0;
-  color: #2dd4bf;
+  color: rgb(var(--c-2dd4bf));
   font: inherit;
   cursor: pointer;
 }
@@ -5785,9 +5973,9 @@ label.ag-add { cursor: pointer }
   padding: 4px 0;
   max-height: 180px;
   overflow: auto;
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 6px;
-  background: #0d1316;
+  background: rgb(var(--c-0d1316));
 }
 /* Scoped past the form's own label/input rules, which make every label a
    column and every input full width — a 40px checkbox beside a wrapped name. */
@@ -5799,7 +5987,7 @@ label.ag-add { cursor: pointer }
   padding: 4px 10px;
   cursor: pointer;
 }
-.ag-workloads-list label:hover { background: #142026 }
+.ag-workloads-list label:hover { background: rgb(var(--c-142026)) }
 .request-form .ag-workloads-list input[type="checkbox"] {
   flex: none;
   width: 16px;
@@ -5819,23 +6007,23 @@ label.ag-add { cursor: pointer }
   font-size: 13px;
   font-weight: 500;
 }
-.ag-workloads-kind { flex: none; color: var(--muted, #8b98a5); font-size: 12px; font-weight: 500 }
+.ag-workloads-kind { flex: none; color: var(--muted, rgb(var(--c-8b98a5))); font-size: 12px; font-weight: 500 }
 
 .ag-import-text {
   width: 100%;
-  border: 1px solid #2a3940;
+  border: 1px solid rgb(var(--c-2a3940));
   border-radius: 6px;
   padding: 10px;
-  background: #0d1316;
-  color: #f4f7f8;
-  color-scheme: dark;
+  background: rgb(var(--c-0d1316));
+  color: rgb(var(--c-f4f7f8));
+  color-scheme: var(--scheme, dark);
 }
 
 .ag-import-warnings {
-  border: 1px solid #e0aa5466;
+  border: 1px solid rgb(var(--c-e0aa54) / 40%);
   border-radius: 8px;
   padding: 10px 12px;
-  background: rgba(224, 170, 84, 0.08);
+  background: rgb(var(--c-e0aa54) / 8%);
   font-size: 12.5px;
 }
 
@@ -5886,7 +6074,7 @@ label.ag-add { cursor: pointer }
   align-items: flex-start;
   gap: 6px;
   font-size: 12.5px;
-  color: #ff8d95;
+  color: rgb(var(--c-ff8d95));
 }
 
 /* No git credential: the choice stays visible and says why, rather than
@@ -5897,8 +6085,8 @@ label.ag-add { cursor: pointer }
 }
 
 .jf-new-choice:disabled:hover {
-  border-color: #223038;
-  background: #101a1e;
+  border-color: rgb(var(--c-223038));
+  background: rgb(var(--c-101a1e));
 }
 
 /* The two list-level Add buttons share one row; their palettes open against
@@ -5913,4 +6101,161 @@ label.ag-add { cursor: pointer }
 
 .jf-groovy-editor .jf-import-text {
   min-height: 140px;
+}
+
+/* Links inside a ticket's description and messages (LinkedText). A long URL
+   has no break points, so it is allowed to wrap anywhere rather than widen
+   the panel. */
+.description-text a,
+.comment p a {
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+
+/* The header's theme menu (ThemePicker.tsx). The swatches carry inline colours
+   — they preview a theme that is not the one painting the menu — so only the
+   frame is styled here. */
+.theme-picker {
+  position: relative;
+}
+
+.ghost-button.icon-only {
+  position: relative;
+  padding: 9px 10px;
+}
+
+/* The current accent, as a dot on the button's corner. */
+.theme-current {
+  position: absolute;
+  right: 6px;
+  bottom: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgb(var(--c-0b0f12));
+}
+
+.theme-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  width: 252px;
+  padding: 8px;
+  border: 1px solid rgb(var(--c-2a3940));
+  border-radius: 10px;
+  background: rgb(var(--c-0c1215));
+  box-shadow: 0 18px 40px rgb(var(--c-000000) / 55%);
+  animation: row-in 160ms var(--ease-out);
+}
+
+.theme-menu-heading {
+  padding: 6px 6px 6px;
+  color: rgb(var(--c-6f8088));
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.theme-menu-heading:not(:first-child) {
+  margin-top: 6px;
+  border-top: 1px solid rgb(var(--c-202b31));
+  padding-top: 12px;
+}
+
+.theme-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 0;
+  padding: 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: rgb(var(--c-cfd8dc));
+  font-weight: 700;
+  text-align: left;
+}
+
+.theme-row:hover,
+.theme-accent:hover {
+  background: rgb(var(--c-172226));
+}
+
+.theme-row.selected {
+  color: rgb(var(--c-f7fbfc));
+}
+
+.theme-row svg {
+  color: rgb(var(--c-20c7bd));
+}
+
+.theme-row-label {
+  flex: 1;
+}
+
+.theme-preview {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  width: 58px;
+  height: 36px;
+  padding: 5px;
+  border: 1px solid;
+  border-radius: 6px;
+}
+
+.theme-preview-panel {
+  flex: 1;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.theme-preview-accent {
+  width: 10px;
+  height: 100%;
+  border-radius: 3px;
+}
+
+.theme-accents {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
+}
+
+.theme-accent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  min-height: 0;
+  padding: 7px 2px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: rgb(var(--c-8d9ba2));
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.theme-accent.selected {
+  color: rgb(var(--c-f7fbfc));
+}
+
+.theme-accent-dot {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+}
+
+.theme-accent.selected .theme-accent-dot {
+  box-shadow: 0 0 0 2px rgb(var(--c-0c1215)), 0 0 0 4px rgb(var(--c-cfd8dc));
 }

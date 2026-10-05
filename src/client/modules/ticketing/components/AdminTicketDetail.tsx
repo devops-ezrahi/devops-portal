@@ -1,3 +1,4 @@
+import { LinkedText } from "./LinkedText";
 import { Check, ChevronDown, ChevronUp, MessageSquarePlus, Pencil } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
@@ -212,7 +213,7 @@ export function AdminTicketDetail({
           disabled={submitting}
         />
       ) : (
-        <p className="description-text">{description}</p>
+        <p className="description-text"><LinkedText text={description} /></p>
       )}
 
       <div className="detail-heading">
@@ -322,7 +323,7 @@ export function AdminTicketDetail({
               <div className="comment" key={comment.id}>
                 <strong dir="auto">{comment.authorName}</strong>
                 <small>{formatDate(comment.createdAt)}</small>
-                <p>{comment.body}</p>
+                <p><LinkedText text={comment.body} /></p>
               </div>
             )
           )}
