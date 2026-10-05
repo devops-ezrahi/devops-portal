@@ -1,4 +1,5 @@
 import { Upload } from "lucide-react";
+import { Spinner } from "../../../Spinner";
 import { Help } from "../../../Help";
 import { useState } from "react";
 import { log, error as logError } from "../../../log";
@@ -86,8 +87,8 @@ export function UrlCopyForm({ isAdmin, onSubmitted, onError }: Props) {
       </div>
 
       <button type="submit" className="primary" disabled={submitting}>
-        <Upload size={18} aria-hidden="true" />
-        {submitting ? "Submitting..." : "Copy to Artifactory"}
+        {submitting ? <Spinner size={18} /> : <Upload size={18} aria-hidden="true" />}
+        {submitting ? "Submitting…" : "Copy to Artifactory"}
       </button>
     </form>
   );

@@ -1,6 +1,7 @@
 import { LinkedText } from "./LinkedText";
+import { Spinner } from "../../../Spinner";
 import { OutgoingComments, useOutbox } from "./Outbox";
-import { Check, ChevronDown, ChevronUp, LoaderCircle, MessageSquarePlus, Pencil } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, MessageSquarePlus, Pencil } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { log, error as logError } from "../../../log";
@@ -220,7 +221,7 @@ export function AdminTicketDetail({
 
       <div className="detail-heading">
         <label className="owner-select">
-          <span>Owner</span>
+          <span className="field-label">Owner <SaveState state={saving.owner} /></span>
           <div className="owner-select-row">
             <select
               value={assignee}
@@ -230,7 +231,7 @@ export function AdminTicketDetail({
                 // stale option below: picking it must not blank out the only
                 // name we have for someone missing from the roster.
                 const name = assignees.find((a) => a.id === id)?.displayName ?? (id === assignee ? ticket.assigneeName : "");
-                onAssigneeChange(id, name).catch(() => undefined);
+                track("owner", () => onAssigneeChange(id, name)).catch(() => undefined);
               }}
             >
               <option value="">Unassigned</option>
@@ -253,7 +254,7 @@ export function AdminTicketDetail({
               <button
                 type="button"
                 className="ghost-button me-button"
-                onClick={() => onAssigneeChange(currentUserId, currentUserName).catch(() => undefined)}
+                onClick={() => track("owner", () => onAssigneeChange(currentUserId, currentUserName)).catch(() => undefined)}
               >
                 Me
               </button>
@@ -339,7 +340,7 @@ export function AdminTicketDetail({
   );
 }
 
-type Field = "stage" | "points" | "edits";
+type Field = "stage" | "points" | "edits" | "owner";
 /** `"saving"`, `"saved"` (for a moment), or the refusal's message. */
 type FieldState = string | undefined;
 
@@ -374,7 +375,7 @@ function SaveState({ state }: { state: FieldState }) {
   if (state === "saving")
     return (
       <span className="save-state" role="status">
-        <LoaderCircle size={12} className="spin" aria-hidden="true" /> Saving…
+        <Spinner size={12} /> Saving…
       </span>
     );
   if (state === "saved")

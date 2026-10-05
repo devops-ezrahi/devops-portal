@@ -1,3 +1,4 @@
+import { Spinner } from "./Spinner";
 import {
   ChevronDown,
   ChevronRight,
@@ -51,7 +52,8 @@ export function CommitButton({
       title={blocked || (!saved ? `Saving — the commit writes the saved ${what}` : "Commit and open a pull request")}
       onClick={onCommit}
     >
-      <GitPullRequestArrow size={16} aria-hidden="true" /> {push.kind === "busy" ? "Committing…" : "Commit"}
+      {push.kind === "busy" ? <Spinner size={16} /> : <GitPullRequestArrow size={16} aria-hidden="true" />}{" "}
+      {push.kind === "busy" ? "Committing…" : "Commit"}
     </button>
   );
 }
@@ -166,7 +168,7 @@ export function RepoPanel({ role, repoUrl, revision, sub, link, blocked, error, 
               }
             }}
           >
-            <CloudDownload size={16} aria-hidden="true" /> {pulling ? "Pulling…" : confirming ? "Pull anyway" : "Pull"}
+            {pulling ? <Spinner size={16} /> : <CloudDownload size={16} aria-hidden="true" />} {pulling ? "Pulling…" : confirming ? "Pull anyway" : "Pull"}
           </button>
         </div>
       </div>

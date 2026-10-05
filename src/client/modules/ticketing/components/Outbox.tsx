@@ -1,4 +1,4 @@
-import { LoaderCircle } from "lucide-react";
+import { Spinner } from "../../../Spinner";
 import { useRef, useState } from "react";
 import { LinkedText } from "./LinkedText";
 
@@ -46,7 +46,7 @@ export function OutgoingComments({ items, author }: { items: Outgoing[]; author:
         <div className="comment pending" key={`out-${item.key}`}>
           <strong dir="auto">{author}</strong>
           <small className="save-state" role="status">
-            <LoaderCircle size={12} className="spin" aria-hidden="true" /> Sending…
+            <Spinner size={12} /> Sending…
           </small>
           <p><LinkedText text={item.body} /></p>
         </div>
