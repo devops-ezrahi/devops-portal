@@ -4293,6 +4293,19 @@ input.jf-title {
   width: 100%;
 }
 
+/* ArgoCD: the tree list is a strip above the editor, not a column beside it. */
+.ag-workspace {
+  display: grid;
+  gap: 14px;
+  width: 100%;
+}
+.ag-workspace .ticket-list {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  max-height: 150px;
+  overflow-y: auto;
+}
+.ag-workspace .ticket-row { border-right: 1px solid rgb(var(--c-202b31)) }
+
 /* A size: the number takes the room, the unit menu sits beside it. */
 .ag-quantity {
   display: flex;
@@ -5875,7 +5888,10 @@ label.ag-add { cursor: pointer }
   color: rgb(var(--c-6f8088));
 }
 
-.ag-scope-actions .ag-grid-head { margin: 0; margin-right: auto }
+.ag-scope-actions .ag-grid-head { margin: 0; margin-right: auto; min-width: 0 }
+/* A long title wraps; the pill and the buttons beside it never do. */
+.ag-scope-actions > :not(.ag-grid-head) { flex-shrink: 0 }
+.ag-scope-actions > .jf-segmented, .ag-scope-actions > button { white-space: nowrap }
 
 /* A section folded to its heading row: everything else in it is put away. */
 .ag-fold {
@@ -5900,6 +5916,7 @@ label.ag-add { cursor: pointer }
 
 .ag-scope-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
   margin-top: 10px;
 }

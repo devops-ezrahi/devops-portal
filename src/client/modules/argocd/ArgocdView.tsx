@@ -12,7 +12,6 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ListSizeToggle } from "../../ListSizeToggle";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ArgocdTree } from "../../../server/types";
 import { log, error as logError } from "../../log";
@@ -1091,7 +1090,10 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       </header>
 
       <div
-        className="workspace-grid"
+        // The tree list sits above the editor, not beside it: the editor is the
+        // wide thing here, and a side column beside a 5 000px-tall panel made
+        // every press in the list jump the page.
+        className="ag-workspace"
         ref={rootRef}
         // A × deep in a feature card marks itself `data-undo`; capture runs
         // before its own onClick, so this is the tree as it was.
@@ -1099,7 +1101,6 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       >
         <div className="ticket-column">
           <div className="ticket-list-header">
-            <ListSizeToggle />
             <h2>{isAdmin && showAll ? "All Trees" : "My Trees"}</h2>
             {isAdmin && (
               <button className="ghost-button" onClick={() => setShowAll((v) => !v)}>
@@ -1365,6 +1366,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                     </Help>
                   </h3>
                   {!editingDefaults && layer !== BASE && (
+                    <>
                     <div className="jf-segmented ag-values-view" role="radiogroup" aria-label="Values shown">
                       <button
                         type="button"
@@ -1384,7 +1386,8 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                       >
                         Full config
                       </button>
-                      <Help label="the values view">
+                    </div>
+                    <Help label="the values view">
                         <p>
                           <strong>Namespace only</strong> — just what <code>{nsName}/values/{release?.name.trim() || "<ms>"}.yaml</code>{" "}
                           sets. Nothing else is shown.
@@ -1395,7 +1398,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                           turn a base one off in {nsName}.
                         </p>
                       </Help>
-                    </div>
+                    </>
                   )}
                   <button type="button" className="ghost-button" onClick={() => setImportOpen(true)}>
                     <FileUp size={16} aria-hidden="true" /> Import values
