@@ -1852,15 +1852,7 @@ input[type="radio"]:focus:not(:focus-visible) {
   padding: 56px 18px;
 }
 
-.loading-state::after {
-  content: '';
-  width: 28px;
-  height: 28px;
-  border: 2.5px solid rgb(var(--c-1e2d34));
-  border-top-color: rgb(var(--c-20c7bd));
-  border-radius: 50%;
-  animation: spin 650ms linear infinite;
-}
+.loading-state .spin { color: rgb(var(--c-20c7bd)) }
 
 .error-banner {
   background: rgb(var(--c-2a1517));
@@ -6467,3 +6459,12 @@ details[open] > :not(summary) { animation: fade-up 180ms var(--ease-out) }
 
 /* A running job's badge spins, so a list of jobs says which are still working. */
 .stage > .spin { vertical-align: -1px; margin-right: 4px }
+
+/* "Loading jobs…" where an empty list would otherwise claim there are none. */
+.loading-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgb(var(--c-6f8088));
+}
+.loading-row .spin { color: rgb(var(--c-20c7bd)) }

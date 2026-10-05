@@ -1,10 +1,13 @@
 import { RowDelete } from "../../../RowDelete";
+import { Loading } from "../../../Spinner";
 import { Spinner } from "../../../Spinner";
 import { jobStatusClass, jobStatusLabel } from "../jobStatus";
 import type { ArtifactoryJob } from "../../../../server/types";
 
 type Props = {
   jobs: ArtifactoryJob[];
+  /** False until the first list request settles — Loading, not "No … yet". */
+  loaded?: boolean;
   selectedJobId: string | null;
   isAdmin: boolean;
   onSelect: (id: string) => void;
@@ -20,9 +23,9 @@ function jobSubtitle(job: ArtifactoryJob): string {
   return job.folderName ?? "";
 }
 
-export function JobList({ jobs, selectedJobId, isAdmin, onSelect, onDelete }: Props) {
+export function JobList({ jobs, selectedJobId, isAdmin, onSelect, onDelete, loaded = true }: Props) {
   if (jobs.length === 0) {
-    return <div className="empty-state">No jobs yet. Submit a copy or upload above.</div>;
+    return loaded ? <div className="empty-state">No jobs yet. Submit a copy or upload above.</div> : <Loading what="jobs" />;
   }
 
   return (

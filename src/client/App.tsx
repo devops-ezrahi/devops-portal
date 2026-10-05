@@ -1,4 +1,5 @@
 import { ArrowUp, RefreshCcw } from "lucide-react";
+import { Spinner } from "./Spinner";
 import { useEffect, useRef, useState } from "react";
 import {
   getMe,
@@ -251,7 +252,9 @@ export function App() {
 
       <main className="main">
         {loading ? (
-          <div className="loading-state" aria-label="Loading" />
+          <div className="loading-state" role="status" aria-label="Loading">
+            <Spinner size={28} />
+          </div>
         ) : (
           modules
             .filter((mod) => visited.includes(mod.id))

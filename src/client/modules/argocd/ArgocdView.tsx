@@ -114,6 +114,7 @@ const repoLabel = (url: string): string => {
 
 export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) {
   const [trees, setTrees] = useState<ArgocdTree[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [defaults, setDefaults] = useState<TreeDefaults | undefined>();
   const [draft, setDraft] = useState<DraftTree>(() => newTree());
   const [releaseId, setReleaseId] = useState("");
@@ -259,7 +260,8 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       .catch((err: Error) => {
         logError("argocd", "listTrees failed", err);
         onError(err.message);
-      });
+      })
+      .finally(() => setLoaded(true));
   }, [refreshKey]);
 
   /**
@@ -1111,6 +1113,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
           <section className="ticket-list-panel" aria-label="Saved trees">
             <FlipList className="ticket-list">
               <TreeList
+                loaded={loaded}
                 trees={visibleTrees}
                 onDelete={(id) => void handleDelete(id)}
                 selectedId={draft.id}

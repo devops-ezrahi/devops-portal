@@ -1,9 +1,12 @@
 import { RowDelete } from "../../../RowDelete";
+import { Loading } from "../../../Spinner";
 import { Spinner } from "../../../Spinner";
 import type { WhiteningJob, WhiteningJobStatus } from "../../../../server/types";
 
 type Props = {
   jobs: WhiteningJob[];
+  /** False until the first list request settles — Loading, not "No … yet". */
+  loaded?: boolean;
   selectedJobId: string | null;
   isAdmin: boolean;
   onSelect: (id: string) => void;
@@ -30,9 +33,9 @@ function statusLabel(status: WhiteningJobStatus): string {
   }
 }
 
-export function JobList({ jobs, selectedJobId, isAdmin, onSelect, onDelete }: Props) {
+export function JobList({ jobs, selectedJobId, isAdmin, onSelect, onDelete, loaded = true }: Props) {
   if (jobs.length === 0) {
-    return <div className="empty-state">No jobs yet. Drop a pack above.</div>;
+    return loaded ? <div className="empty-state">No jobs yet. Drop a pack above.</div> : <Loading what="jobs" />;
   }
 
   return (

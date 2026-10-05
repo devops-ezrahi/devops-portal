@@ -1,4 +1,5 @@
 import { Plus } from "lucide-react";
+import { Loading } from "../../Spinner";
 import { FlipList } from "../../flip";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ListSizeToggle } from "../../ListSizeToggle";
@@ -83,6 +84,10 @@ export function AdminTicketingView({
   onError: (message: string) => void;
 }) {
   const [adminTickets, setAdminTickets] = useState<TicketSummary[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  // The ticket being fetched, so the panel says so instead of sitting on the
+  // last one (or on "Select a ticket.") for the length of the request.
+  const [opening, setOpening] = useState<string | null>(null);
   const [selectedAdminTicket, setSelectedAdminTicket] = useState<TicketDetail | null>(null);
   const [assignees, setAssignees] = useState<AssigneeCandidate[]>([]);
   const [unreadIds, setUnreadIds] = useState<Set<string>>(() => new Set());
@@ -97,10 +102,12 @@ export function AdminTicketingView({
 
   useEffect(() => {
     log("ticketing/admin", "queue mounted", { user: user.id, groups: user.groups });
-    refreshAdminTickets().catch((err: Error) => {
-      logError("ticketing/admin", "initial queue load failed", err);
-      onError(err.message);
-    });
+    refreshAdminTickets()
+      .catch((err: Error) => {
+        logError("ticketing/admin", "initial queue load failed", err);
+        onError(err.message);
+      })
+      .finally(() => setLoaded(true));
     getAssignees()
       .then((result) => {
         log("ticketing/admin", `assignees: ${result.assignees.length}`, result.assignees.map((a) => a.id));
@@ -196,9 +203,14 @@ export function AdminTicketingView({
       next.delete(id);
       return next;
     });
-    const result = await getAdminTicket(id);
-    setSelectedAdminTicket(result.ticket);
-    setTicketIdInUrl(id);
+    setOpening(id);
+    try {
+      const result = await getAdminTicket(id);
+      setSelectedAdminTicket(result.ticket);
+      setTicketIdInUrl(id);
+    } finally {
+      setOpening((current) => (current === id ? null : current));
+    }
   }
 
   async function reloadAdminTicket(id: string) {
@@ -273,7 +285,7 @@ export function AdminTicketingView({
           <section className="ticket-list-panel" aria-label="Admin tickets">
             <FlipList className="ticket-list">
               {activeTickets.map((ticket) => <TicketRow key={ticket.id} ticket={ticket} isSelected={selectedAdminTicket?.id === ticket.id} isUnread={unreadIds.has(ticket.id)} onOpen={handleOpenTicket} />)}
-              {activeTickets.length === 0 && <div className="empty-state">No tickets.</div>}
+              {activeTickets.length === 0 && (loaded ? <div className="empty-state">No tickets.</div> : <Loading what="tickets" />)}
             </FlipList>
           </section>
   
@@ -288,7 +300,9 @@ export function AdminTicketingView({
         </div>
   
         <section className="detail-panel" aria-label="Ticket detail">
-          {selectedAdminTicket ? (
+          {opening && opening !== selectedAdminTicket?.id ? (
+            <Loading what={opening} />
+          ) : selectedAdminTicket ? (
             <AdminTicketDetail
               key={selectedAdminTicket.id}
               assignee={selectedAdminTicket.assigneeId}

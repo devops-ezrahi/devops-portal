@@ -1,8 +1,11 @@
 import type { ArgocdTree } from "../../../../server/types";
+import { Loading } from "../../../Spinner";
 import { RowDelete } from "../../../RowDelete";
 
 type Props = {
   trees: ArgocdTree[];
+  /** False until the first list request settles — Loading, not "No … yet". */
+  loaded?: boolean;
   selectedId: string;
   isAdmin: boolean;
   onSelect: (id: string) => void;
@@ -10,9 +13,9 @@ type Props = {
 };
 
 /** Same row shape and size as every other module's list panel. */
-export function TreeList({ trees, selectedId, isAdmin, onSelect, onDelete }: Props) {
+export function TreeList({ trees, selectedId, isAdmin, onSelect, onDelete, loaded = true }: Props) {
   if (trees.length === 0) {
-    return <div className="empty-state">No trees yet. Add a microservice and this fills in — saving is automatic.</div>;
+    return loaded ? <div className="empty-state">No trees yet. Add a microservice and this fills in — saving is automatic.</div> : <Loading what="trees" />;
   }
 
   return (

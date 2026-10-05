@@ -1,4 +1,5 @@
 import { Plus } from "lucide-react";
+import { Loading } from "../../Spinner";
 import { FlipList } from "../../flip";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ListSizeToggle } from "../../ListSizeToggle";
@@ -13,6 +14,10 @@ const POLL_INTERVAL_MS = 8000;
 
 export function UserTicketingView({ onError }: { onError: (message: string) => void }) {
   const [tickets, setTickets] = useState<TicketSummary[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  // The ticket being fetched, so the panel says so instead of sitting on the
+  // last one (or on "Select a ticket.") for the length of the request.
+  const [opening, setOpening] = useState<string | null>(null);
   const [selectedTicket, setSelectedTicket] = useState<TicketDetail | null>(null);
   const [requestTypes, setRequestTypes] = useState<RequestTypeDefinition[]>([]);
   const [unreadIds, setUnreadIds] = useState<Set<string>>(() => new Set());
@@ -35,7 +40,8 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
       .catch((err: Error) => {
         logError("ticketing", "initial load failed", err);
         onError(err.message);
-      });
+      })
+      .finally(() => setLoaded(true));
     const deepLinkedId = getTicketIdFromUrl();
     if (deepLinkedId) {
       log("ticketing", "deep link → opening ticket", deepLinkedId);
@@ -105,14 +111,19 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
       next.delete(id);
       return next;
     });
-    const result = await getTicket(id);
-    log("ticketing", "ticket loaded", {
-      id: result.ticket.id,
-      stage: result.ticket.stage,
-      comments: result.ticket.comments.length,
-    });
-    setSelectedTicket(result.ticket);
-    setTicketIdInUrl(id);
+    setOpening(id);
+    try {
+      const result = await getTicket(id);
+      log("ticketing", "ticket loaded", {
+        id: result.ticket.id,
+        stage: result.ticket.stage,
+        comments: result.ticket.comments.length,
+      });
+      setSelectedTicket(result.ticket);
+      setTicketIdInUrl(id);
+    } finally {
+      setOpening((current) => (current === id ? null : current));
+    }
   }
 
   async function handleCreated(ticket: TicketDetail) {
@@ -169,7 +180,7 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
                   <small>{ticket.id}</small>
                 </button>
               ))}
-              {activeTickets.length === 0 && <div className="empty-state">No tickets yet.</div>}
+              {activeTickets.length === 0 && (loaded ? <div className="empty-state">No tickets yet.</div> : <Loading what="tickets" />)}
             </FlipList>
           </section>
 
@@ -196,7 +207,9 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
 
         <div className="content-column">
           <section className="detail-panel" aria-label="Ticket detail">
-            {selectedTicket ? (
+            {opening && opening !== selectedTicket?.id ? (
+              <Loading what={opening} />
+            ) : selectedTicket ? (
               <TicketDetailView
                 key={selectedTicket.id}
                 onCommentAdded={() => openTicket(selectedTicket.id)}
