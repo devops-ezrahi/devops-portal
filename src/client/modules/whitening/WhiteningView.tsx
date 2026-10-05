@@ -1,4 +1,5 @@
 import { FlaskConical, Plus } from "lucide-react";
+import { FlipList } from "../../flip";
 import { ListSizeToggle } from "../../ListSizeToggle";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { idFromPath, useDeepLink } from "../../deepLink";
@@ -161,7 +162,7 @@ export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleView
             )}
           </div>
           <section className="ticket-list-panel" aria-label="Unpack jobs">
-            <div className="ticket-list">
+            <FlipList className="ticket-list">
               <JobList
                 jobs={visibleJobs}
                 onDelete={handleDelete}
@@ -172,7 +173,7 @@ export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleView
                   setSelectedJobId((prev) => (prev === id ? null : id));
                 }}
               />
-            </div>
+            </FlipList>
           </section>
         </div>
 

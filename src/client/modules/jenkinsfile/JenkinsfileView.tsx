@@ -1,4 +1,5 @@
 import { Check, ChevronRight, Pencil, Plus, Trash2, TriangleAlert, X } from "lucide-react";
+import { FlipList } from "../../flip";
 import { ListSizeToggle } from "../../ListSizeToggle";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
@@ -497,7 +498,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
             )}
           </div>
           <section className="ticket-list-panel" aria-label="Saved pipelines">
-            <div className="ticket-list">
+            <FlipList className="ticket-list">
               <PipelineList
                 pipelines={visiblePipelines}
                 onDelete={(id) => void handleDelete(id)}
@@ -508,7 +509,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
                   if (pipeline) handleOpen(pipeline);
                 }}
               />
-            </div>
+            </FlipList>
           </section>
         </div>
 

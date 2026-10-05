@@ -1,4 +1,5 @@
 import { Plus } from "lucide-react";
+import { FlipList } from "../../flip";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ListSizeToggle } from "../../ListSizeToggle";
 import {
@@ -16,6 +17,7 @@ import { SlaRemaining } from "./components/SlaRemaining";
 import { getTicketIdFromUrl, isDone, isOverdue, priorityClass, setTicketIdInUrl, stageClass, statusMessage } from "./utils";
 import type {
   AssigneeCandidate,
+  CustomerStage,
   PortalUser,
   RequestTypeDefinition,
   TicketDetail,
@@ -206,6 +208,12 @@ export function AdminTicketingView({
     await refreshAdminTickets();
   }
 
+  // A change shown before the server confirms it — the detail's own fields are
+  // already optimistic, and a queue row still on the old value contradicts them.
+  function previewRow(id: string, patch: Partial<TicketSummary>) {
+    setAdminTickets((rows) => rows.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  }
+
   const filteredTickets = useMemo(() => {
     if (showAll) return adminTickets;
     return adminTickets.filter((t) => !t.assigneeId || t.assigneeId === user.id);
@@ -263,18 +271,18 @@ export function AdminTicketingView({
             </button>
           </div>
           <section className="ticket-list-panel" aria-label="Admin tickets">
-            <div className="ticket-list">
+            <FlipList className="ticket-list">
               {activeTickets.map((ticket) => <TicketRow key={ticket.id} ticket={ticket} isSelected={selectedAdminTicket?.id === ticket.id} isUnread={unreadIds.has(ticket.id)} onOpen={handleOpenTicket} />)}
               {activeTickets.length === 0 && <div className="empty-state">No tickets.</div>}
-            </div>
+            </FlipList>
           </section>
   
           {doneTickets.length > 0 && (
             <details className="ticket-list-panel done-panel" aria-label="Done admin tickets">
               <summary>Done</summary>
-              <div className="ticket-list">
+              <FlipList className="ticket-list">
                 {doneTickets.map((ticket) => <TicketRow key={ticket.id} ticket={ticket} isSelected={selectedAdminTicket?.id === ticket.id} isUnread={unreadIds.has(ticket.id)} onOpen={handleOpenTicket} />)}
-              </div>
+              </FlipList>
             </details>
           )}
         </div>
@@ -294,11 +302,24 @@ export function AdminTicketingView({
                   to: assigneeId || "-",
                   ownerName,
                 });
-                await updateAdminTicket(selectedAdminTicket.id, { assigneeId, assigneeName });
+                const before = { assigneeId: selectedAdminTicket.assigneeId, assigneeName: selectedAdminTicket.assigneeName };
+                const show = (patch: typeof before) => {
+                  setSelectedAdminTicket((t) => (t && t.id === selectedAdminTicket.id ? { ...t, ...patch } : t));
+                  previewRow(selectedAdminTicket.id, patch);
+                };
+                show({ assigneeId, assigneeName });
+                try {
+                  await updateAdminTicket(selectedAdminTicket.id, { assigneeId, assigneeName });
+                } catch (err) {
+                  show(before);
+                  onError((err as Error).message);
+                  throw err;
+                }
                 await addAdminComment(selectedAdminTicket.id, statusMessage(`Owner changed to ${ownerName}.`));
                 await reloadAdminTicket(selectedAdminTicket.id);
               }}
               onReload={() => reloadAdminTicket(selectedAdminTicket.id)}
+              onStagePreview={(stage: CustomerStage) => previewRow(selectedAdminTicket.id, { stage })}
               ticket={selectedAdminTicket}
             />
           ) : (

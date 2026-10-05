@@ -1,4 +1,5 @@
 import { Plus } from "lucide-react";
+import { FlipList } from "../../flip";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ListSizeToggle } from "../../ListSizeToggle";
 import { log, error as logError } from "../../log";
@@ -147,7 +148,7 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
             <h2>My Tickets</h2>
           </div>
           <section className="ticket-list-panel" aria-label="Tickets">
-            <div className="ticket-list">
+            <FlipList className="ticket-list">
               {activeTickets.map((ticket) => (
                 <button
                   // ponytail: no overdue styling here — the red row is an
@@ -169,13 +170,13 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
                 </button>
               ))}
               {activeTickets.length === 0 && <div className="empty-state">No tickets yet.</div>}
-            </div>
+            </FlipList>
           </section>
 
           {doneTickets.length > 0 && (
             <details className="ticket-list-panel done-panel" aria-label="Done tickets">
               <summary>Done</summary>
-              <div className="ticket-list">
+              <FlipList className="ticket-list">
                 {doneTickets.map((ticket) => (
                   <button
                     className={selectedTicket?.id === ticket.id ? "ticket-row selected" : "ticket-row"}
@@ -188,7 +189,7 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
                     <small>{ticket.id}</small>
                   </button>
                 ))}
-              </div>
+              </FlipList>
             </details>
           )}
         </div>

@@ -1,4 +1,5 @@
 import type { AiConversation } from "../../../../server/types";
+import { FlipList } from "../../../flip";
 import { RowDelete } from "../../../RowDelete";
 
 /**
@@ -42,16 +43,16 @@ export function ConversationList({
   return (
     <>
       <section className="ticket-list-panel" aria-label="Chats">
-        <div className="ticket-list">
+        <FlipList className="ticket-list">
           {active.length === 0 && <div className="empty-state">No chats yet.</div>}
           {active.map(row)}
-        </div>
+        </FlipList>
       </section>
 
       {archived.length > 0 && (
         <details className="ticket-list-panel done-panel" aria-label="Archived chats">
           <summary>Archived</summary>
-          <div className="ticket-list">{archived.map(row)}</div>
+          <FlipList className="ticket-list">{archived.map(row)}</FlipList>
         </details>
       )}
     </>

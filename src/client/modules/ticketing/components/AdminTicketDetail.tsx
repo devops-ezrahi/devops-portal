@@ -1,5 +1,5 @@
 import { LinkedText } from "./LinkedText";
-import { Check, ChevronDown, ChevronUp, MessageSquarePlus, Pencil } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, LoaderCircle, MessageSquarePlus, Pencil } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { log, error as logError } from "../../../log";
@@ -15,6 +15,7 @@ export function AdminTicketDetail({
   currentUserName,
   onAssigneeChange,
   onReload,
+  onStagePreview,
   ticket
 }: {
   assignee: string;
@@ -23,6 +24,8 @@ export function AdminTicketDetail({
   currentUserName: string;
   onAssigneeChange: (assigneeId: string, assigneeName: string) => Promise<void>;
   onReload: () => Promise<void>;
+  /** Shows a stage in the queue row before the server has confirmed it. */
+  onStagePreview: (stage: CustomerStage) => void;
   ticket: TicketDetail;
 }) {
   const [title, setTitle] = useState(ticket.title);
@@ -32,10 +35,14 @@ export function AdminTicketDetail({
   const [rawStatus, setRawStatus] = useState(ticket.rawStatus);
   const [teamGroups, setTeamGroups] = useState(ticket.teamGroups.join(", "));
   const [body, setBody] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const [saving, track] = useSaving();
   const [isEditing, setIsEditing] = useState(false);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const pointsRef = useRef<HTMLInputElement>(null);
+  // What the server last accepted, so a refused stage change has somewhere to
+  // go back to; `stageQueue` keeps two quick changes in the order they were made.
+  const confirmedStage = useRef<CustomerStage>(ticket.stage);
+  const stageQueue = useRef<Promise<unknown>>(Promise.resolve());
 
   function autoResizeDescription(el: HTMLTextAreaElement) {
     el.style.height = "auto";
@@ -52,6 +59,7 @@ export function AdminTicketDetail({
     setTitle(ticket.title);
     setDescription(ticket.description);
     setStage(ticket.stage);
+    confirmedStage.current = ticket.stage;
     setStoryPoints(ticket.storyPoints?.toString() ?? "");
     setRawStatus(ticket.rawStatus);
     setTeamGroups(ticket.teamGroups.join(", "));
@@ -61,6 +69,7 @@ export function AdminTicketDetail({
 
   const parsedPoints = storyPoints.trim() === "" ? undefined : Number(storyPoints);
   const hasPoints = parsedPoints !== undefined && Number.isFinite(parsedPoints) && parsedPoints >= 0;
+  const groups = () => teamGroups.split(",").map((g) => g.trim()).filter(Boolean);
 
   function step(by: number) {
     setStoryPoints(String(Math.max(0, (Number(storyPoints) || 0) + by)));
@@ -72,41 +81,53 @@ export function AdminTicketDetail({
   async function savePoints() {
     if (parsedPoints === ticket.storyPoints) return;
     if (!hasPoints) return log("ticketing/admin", "story points not a non-negative number — not saving", storyPoints);
-    setSubmitting(true);
     log("ticketing/admin", "saving story points", ticket.id, parsedPoints);
-    try {
-      await updateAdminTicket(ticket.id, { storyPoints: parsedPoints });
+    await track("points", async () => {
+      try {
+        await updateAdminTicket(ticket.id, { storyPoints: parsedPoints });
+      } catch (err) {
+        logError("ticketing/admin", "saving story points failed", ticket.id, err);
+        setStoryPoints(ticket.storyPoints?.toString() ?? "");
+        throw err;
+      }
       await onReload();
-    } catch (err) {
-      logError("ticketing/admin", "saving story points failed", ticket.id, err);
-      throw err;
-    } finally {
-      setSubmitting(false);
-    }
+    });
   }
 
-  async function saveStage(newStage: CustomerStage) {
-    if (newStage === ticket.stage) return log("ticketing/admin", "stage unchanged — skipping save", newStage);
-    setSubmitting(true);
-    log("ticketing/admin", "changing stage", ticket.id, `${ticket.stage} → ${newStage}`);
-    try {
-      await updateAdminTicket(ticket.id, {
-        title,
-        stage: newStage,
-        storyPoints: parsedPoints,
-        rawStatus,
-        description,
-        teamGroups: teamGroups.split(",").map((g) => g.trim()).filter(Boolean)
+  /**
+   * Optimistic: the select and both badges show the new stage the moment it is
+   * picked, and nothing is locked while it saves — a Jira round trip is a
+   * second or two, and freezing the whole form for it read as the page hanging.
+   * A refusal puts the last accepted stage back and says why beside the field.
+   */
+  function changeStage(newStage: CustomerStage) {
+    setStage(newStage);
+    onStagePreview(newStage);
+    const run = () =>
+      track("stage", async () => {
+        if (newStage === confirmedStage.current) return log("ticketing/admin", "stage unchanged — skipping save", newStage);
+        log("ticketing/admin", "changing stage", ticket.id, `${confirmedStage.current} → ${newStage}`);
+        try {
+          await updateAdminTicket(ticket.id, {
+            title,
+            stage: newStage,
+            storyPoints: parsedPoints,
+            rawStatus,
+            description,
+            teamGroups: groups()
+          });
+        } catch (err) {
+          logError("ticketing/admin", "stage change failed", ticket.id, err);
+          setStage(confirmedStage.current);
+          onStagePreview(confirmedStage.current);
+          throw err;
+        }
+        confirmedStage.current = newStage;
+        await addAdminComment(ticket.id, statusMessage(`Stage changed to ${newStage}.`));
+        log("ticketing/admin", "stage saved", ticket.id, newStage);
+        await onReload();
       });
-      await addAdminComment(ticket.id, statusMessage(`Stage changed to ${newStage}.`));
-      log("ticketing/admin", "stage saved", ticket.id, newStage);
-      await onReload();
-    } catch (err) {
-      logError("ticketing/admin", "stage change failed", ticket.id, err);
-      throw err;
-    } finally {
-      setSubmitting(false);
-    }
+    stageQueue.current = stageQueue.current.then(run).catch(() => undefined);
   }
 
   async function saveEdits() {
@@ -114,53 +135,45 @@ export function AdminTicketDetail({
     const titleChanged = title !== ticket.title;
     const descriptionChanged = description !== ticket.description;
     if (!titleChanged && !descriptionChanged) return log("ticketing/admin", "no edits to save", ticket.id);
-    setSubmitting(true);
     log("ticketing/admin", "saving edits", ticket.id, { titleChanged, descriptionChanged });
-    try {
-      await updateAdminTicket(ticket.id, {
-        title,
-        stage,
-        rawStatus,
-        description,
-        teamGroups: teamGroups.split(",").map((g) => g.trim()).filter(Boolean)
-      });
-      if (titleChanged) {
-        await addAdminComment(ticket.id, statusMessage(`Title changed to "${title}".`));
+    await track("edits", async () => {
+      try {
+        await updateAdminTicket(ticket.id, { title, stage, rawStatus, description, teamGroups: groups() });
+      } catch (err) {
+        logError("ticketing/admin", "saving edits failed", ticket.id, err);
+        throw err;
       }
-      if (descriptionChanged) {
-        await addAdminComment(ticket.id, statusMessage("Description updated."));
-      }
+      if (titleChanged) await addAdminComment(ticket.id, statusMessage(`Title changed to "${title}".`));
+      if (descriptionChanged) await addAdminComment(ticket.id, statusMessage("Description updated."));
       log("ticketing/admin", "edits saved", ticket.id);
       await onReload();
-    } catch (err) {
-      logError("ticketing/admin", "saving edits failed", ticket.id, err);
-      throw err;
-    } finally {
-      setSubmitting(false);
-    }
+    });
   }
 
   async function submitResponse(event: FormEvent) {
     event.preventDefault();
-    setSubmitting(true);
-    log("ticketing/admin", "posting response", { ticket: ticket.id, chars: body.length });
-    try {
-      await addAdminComment(ticket.id, body);
+    // The box empties at once, so the next message can be typed while this one
+    // is on its way; a refusal puts the text back.
+    const text = body;
+    setBody("");
+    log("ticketing/admin", "posting response", { ticket: ticket.id, chars: text.length });
+    await track("comment", async () => {
+      try {
+        await addAdminComment(ticket.id, text);
+      } catch (err) {
+        logError("ticketing/admin", "addAdminComment failed", ticket.id, err);
+        setBody((current) => current || text);
+        throw err;
+      }
       log("ticketing/admin", "response posted", ticket.id);
-      setBody("");
       await onReload();
-    } catch (err) {
-      logError("ticketing/admin", "addAdminComment failed", ticket.id, err);
-      throw err;
-    } finally {
-      setSubmitting(false);
-    }
+    }).catch(() => undefined);
   }
 
   return (
     <article className="ticket-detail">
       <div className="badge-row">
-        <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
+        <span key={stage} className={`${stageClass(stage)} badge-swap`}>{stage}</span>
         <span className={priorityClass(ticket.priority)} title={`Response within ${priorityResponseHours[ticket.priority]} hours`}>
           {ticket.priority}
         </span>
@@ -180,13 +193,7 @@ export function AdminTicketDetail({
 
       <div className="detail-title-row">
         {isEditing ? (
-          <input
-            className="title-edit-input"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            disabled={submitting}
-            autoFocus
-          />
+          <input className="title-edit-input" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
         ) : (
           <h2>{title}</h2>
         )}
@@ -195,11 +202,12 @@ export function AdminTicketDetail({
           type="button"
           aria-label={isEditing ? "Done editing" : "Edit title and description"}
           onClick={() => (isEditing ? saveEdits().catch(() => undefined) : setIsEditing(true))}
-          disabled={submitting}
+          disabled={saving.edits === "saving"}
         >
           {isEditing ? <Check size={16} aria-hidden="true" /> : <Pencil size={16} aria-hidden="true" />}
         </button>
       </div>
+      <SaveState state={saving.edits} />
 
       {isEditing ? (
         <textarea
@@ -210,7 +218,6 @@ export function AdminTicketDetail({
             setDescription(e.target.value);
             autoResizeDescription(e.currentTarget);
           }}
-          disabled={submitting}
         />
       ) : (
         <p className="description-text"><LinkedText text={description} /></p>
@@ -262,7 +269,7 @@ export function AdminTicketDetail({
 
       <div className="admin-edit-form">
         <label>
-          <span>Story points</span>
+          <span className="field-label">Story points <SaveState state={saving.points} /></span>
           <div className="points-field">
             <input
               ref={pointsRef}
@@ -273,31 +280,22 @@ export function AdminTicketDetail({
               placeholder="—"
               onChange={(e) => setStoryPoints(e.target.value)}
               onBlur={() => savePoints().catch(() => undefined)}
-              disabled={submitting}
             />
             {/* The press must not blur the input: the blur would save the value
                 from before the step, and nothing would save the one after it. */}
             <div className="points-step" onMouseDown={(e) => e.preventDefault()}>
-              <button type="button" aria-label="Increase story points" disabled={submitting} onClick={() => step(1)}>
+              <button type="button" aria-label="Increase story points" onClick={() => step(1)}>
                 <ChevronUp size={13} aria-hidden="true" />
               </button>
-              <button type="button" aria-label="Decrease story points" disabled={submitting} onClick={() => step(-1)}>
+              <button type="button" aria-label="Decrease story points" onClick={() => step(-1)}>
                 <ChevronDown size={13} aria-hidden="true" />
               </button>
             </div>
           </div>
         </label>
         <label>
-          <span>Stage</span>
-          <select
-            value={stage}
-            onChange={(e) => {
-              const newStage = e.target.value as CustomerStage;
-              setStage(newStage);
-              saveStage(newStage).catch(() => setStage(ticket.stage));
-            }}
-            disabled={submitting}
-          >
+          <span className="field-label">Stage <SaveState state={saving.stage} /></span>
+          <select value={stage} onChange={(e) => changeStage(e.target.value as CustomerStage)}>
             {stages.filter(Boolean).map((option) => (
               // Closing signs off the work, so it stays unselectable until an
               // estimate exists. The server rejects it too — see router.ts.
@@ -311,7 +309,7 @@ export function AdminTicketDetail({
       </div>
 
       <section>
-        <h3>Messages</h3>
+        <h3 className="field-label">Messages <SaveState state={saving.comment} pending="Sending…" done="Sent" /></h3>
         <div className="comments">
           {ticket.comments.map((comment) =>
             isStatusMessage(comment.body) ? (
@@ -336,11 +334,62 @@ export function AdminTicketDetail({
             placeholder="Message"
             required
           />
-          <button className="primary" disabled={submitting || !body.trim()}>
+          <button className="primary" disabled={!body.trim()}>
             <MessageSquarePlus size={18} aria-hidden="true" /> Send
           </button>
         </form>
       </section>
     </article>
+  );
+}
+
+type Field = "stage" | "points" | "edits" | "comment";
+/** `"saving"`, `"saved"` (for a moment), or the refusal's message. */
+type FieldState = string | undefined;
+
+/**
+ * One save state per field, so a save in flight locks nothing else on the
+ * form. Counts calls per field: with two queued, the first finishing must not
+ * say the field is saved while the second is still on its way.
+ */
+function useSaving() {
+  const [states, setStates] = useState<Partial<Record<Field, FieldState>>>({});
+  const inflight = useRef<Partial<Record<Field, number>>>({});
+  const set = (field: Field, state: FieldState) => setStates((s) => ({ ...s, [field]: state }));
+  async function track(field: Field, work: () => Promise<void>) {
+    inflight.current[field] = (inflight.current[field] ?? 0) + 1;
+    set(field, "saving");
+    try {
+      await work();
+    } catch (err) {
+      inflight.current[field]! -= 1;
+      set(field, `Not saved — ${err instanceof Error ? err.message : String(err)}`);
+      throw err;
+    }
+    if ((inflight.current[field]! -= 1) > 0) return;
+    set(field, "saved");
+    window.setTimeout(() => setStates((s) => (s[field] === "saved" ? { ...s, [field]: undefined } : s)), 1600);
+  }
+  return [states, track] as const;
+}
+
+function SaveState({ state, pending = "Saving…", done = "Saved" }: { state: FieldState; pending?: string; done?: string }) {
+  if (!state) return null;
+  if (state === "saving")
+    return (
+      <span className="save-state" role="status">
+        <LoaderCircle size={12} className="spin" aria-hidden="true" /> {pending}
+      </span>
+    );
+  if (state === "saved")
+    return (
+      <span className="save-state saved" role="status">
+        <Check size={12} aria-hidden="true" /> {done}
+      </span>
+    );
+  return (
+    <span className="save-state failed" role="alert">
+      {state}
+    </span>
   );
 }

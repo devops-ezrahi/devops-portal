@@ -33,7 +33,12 @@ export class InMemoryTicketingApi implements TicketingApi {
   /** idempotency key -> ticket id, so a resubmitted create returns the first ticket. */
   private ticketIdForKey = new Map<string, string>();
 
-  constructor(seed: TicketDetail[] = []) {
+  /**
+   * `updateLatencyMs` makes every admin update take that long. `app.ts` sets it
+   * only in dev (no SSO proxy) so the UI's pending states can be seen without
+   * a Jira behind it — Jira takes about that long. Tests leave it at 0.
+   */
+  constructor(seed: TicketDetail[] = [], private readonly updateLatencyMs = 0) {
     for (const ticket of seed) {
       this.tickets.set(ticket.id, ticket);
     }
@@ -147,6 +152,7 @@ export class InMemoryTicketingApi implements TicketingApi {
   }
 
   async updateAdminTicket(ticketId: string, _admin: PortalUser, update: AdminTicketUpdate): Promise<TicketDetail> {
+    if (this.updateLatencyMs) await new Promise((resolve) => setTimeout(resolve, this.updateLatencyMs));
     const ticket = this.tickets.get(ticketId);
     if (!ticket) {
       throw new Error("Ticket not found");

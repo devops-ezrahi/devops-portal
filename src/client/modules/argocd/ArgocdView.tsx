@@ -1,4 +1,5 @@
 import { zipSync, strToU8 } from "fflate";
+import { FlipList } from "../../flip";
 import {
   ArrowDownToLine,
   Check,
@@ -1108,7 +1109,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
             )}
           </div>
           <section className="ticket-list-panel" aria-label="Saved trees">
-            <div className="ticket-list">
+            <FlipList className="ticket-list">
               <TreeList
                 trees={visibleTrees}
                 onDelete={(id) => void handleDelete(id)}
@@ -1119,7 +1120,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   if (tree) handleOpen(tree);
                 }}
               />
-            </div>
+            </FlipList>
           </section>
         </div>
 
