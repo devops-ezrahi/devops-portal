@@ -18,6 +18,13 @@ const say = (doc: Values) => checkValues(doc).map((p) => `${p.level}: ${p.text}`
 const withImage = (doc: Values): Values => ({ image: { repository: "nginx" }, ...doc });
 
 describe("checkValues", () => {
+  it("warns about a read-only root without /tmp only for a runtime image", () => {
+    const ro = { securityContext: { readOnlyRootFilesystem: true } };
+    expect(checkValues({ ...ro, image: { repository: "docker.io/library/nginx" } }).map((p) => p.text).join()).toMatch(/readOnlyRootFilesystem/);
+    expect(checkValues({ ...ro, image: { repository: "quay.io/jetstack/cert-manager-controller" } }).map((p) => p.text).join()).not.toMatch(/readOnlyRootFilesystem/);
+    expect(checkValues({ ...ro, image: { repository: "bitnami/nginx" }, volumeMounts: { "empty-dir:tmp-dir": { mountPath: "/tmp" } } }).map((p) => p.text).join()).not.toMatch(/readOnlyRootFilesystem/);
+  });
+
   it("passes a plain deployment", () => {
     expect(checkValues(withImage({ workload: { type: "deployment" } }))).toEqual([]);
   });

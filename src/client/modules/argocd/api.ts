@@ -70,7 +70,19 @@ export type ConvertRequest = {
   envGroups?: string[];
   yaml?: string;
   helm?: { archive: string; values?: string };
+  /** Workload names to convert — the picker's ticked rows. Absent = all of them. */
+  include?: string[];
 };
+
+export type Workload = { kind: string; name: string; namespace: string };
+
+/** The workloads a paste or chart holds — what the Convert dialog's picker lists. */
+export function listWorkloads(body: Pick<ConvertRequest, "namespace" | "yaml" | "helm">) {
+  return request<{ workloads: Workload[] }>("/api/argocd/convert/workloads", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
 
 /**
  * Plain Kubernetes YAML or a packaged Helm chart, converted by the chart

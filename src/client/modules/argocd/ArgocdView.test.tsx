@@ -299,7 +299,44 @@ describe("ArgocdView", () => {
     vi.useRealTimers();
   });
 
+  it("shows a namespace's own values by default, and the combined document on request", async () => {
+    const tree = saved({
+      releases: [{ id: "r1", name: "storefront", features: { service: { on: true, v: { type: "ClusterIP" } } } }],
+      namespaces: [{ name: "prod", releases: [{ release: "r1", features: {} }] }],
+    });
+    listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
+    view();
+    fireEvent.click(await screen.findByText("Dev User #1"));
+    fireEvent.click(card("Layers", /prod/));
+
+    const own = screen.getByRole("radio", { name: "Namespace only" });
+    expect(own).toHaveAttribute("aria-checked", "true");
+    const box = () =>
+      screen.getByText("Service", { selector: ".ag-feature-name" }).closest(".ag-feature")!.querySelector<HTMLInputElement>("input[type=checkbox]")!;
+    // Base turns the Service on; this namespace's file says nothing about it,
+    // so its category stays shut and nothing greyed is shown.
+    expect(screen.queryByText("Service", { selector: ".ag-feature-name" })).toBeNull();
+    expect(document.querySelector(".ag-inherited")).toBeNull();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Combined" }));
+    expect(box().checked).toBe(true);
+    expect(localStorage.getItem("argocd.valuesView")).toBe("combined");
+  });
+
+  it("offers the view switch only on a namespace's microservice, not on base", async () => {
+    const tree = saved({
+      releases: [{ id: "r1", name: "storefront", features: {} }],
+      namespaces: [{ name: "prod", releases: [{ release: "r1", features: {} }] }],
+    });
+    listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
+    view();
+    fireEvent.click(await screen.findByText("Dev User #1"));
+    expect(screen.queryByRole("radio", { name: "Namespace only" })).toBeNull();
+  });
+
   it("switches an inherited feature off in one namespace with its own tick", async () => {
+    // The whole deployed document, base and defaults greyed underneath.
+    localStorage.setItem("argocd.valuesView", "combined");
     const tree = saved({
       releases: [{ id: "r1", name: "storefront", features: { service: { on: true, v: { type: "ClusterIP" } } } }],
       namespaces: [{ name: "prod", releases: [{ release: "r1", features: {} }] }],
@@ -461,6 +498,8 @@ describe("ArgocdView", () => {
   });
 
   it("continues an inherited list here: greyed entries, then an Add that adds this namespace's own", async () => {
+    // The whole deployed document, base and defaults greyed underneath.
+    localStorage.setItem("argocd.valuesView", "combined");
     const env = (name: string, value: string) => ({ name, kind: "value", value });
     const tree = saved({
       releases: [{ id: "r1", name: "storefront", features: { env: { on: true, v: { items: [env("DB_URL", "db")] } } } }],
@@ -703,6 +742,8 @@ describe("ArgocdView", () => {
   });
 
   it("sets a namespace's defaults once, for every microservice in it", async () => {
+    // The whole deployed document, base and defaults greyed underneath.
+    localStorage.setItem("argocd.valuesView", "combined");
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
@@ -784,6 +825,8 @@ describe("ArgocdView", () => {
   });
 
   it("lights a namespace override only when it puts something in the file", async () => {
+    // The whole deployed document, base and defaults greyed underneath.
+    localStorage.setItem("argocd.valuesView", "combined");
     const tree = saved({
       releases: [
         {

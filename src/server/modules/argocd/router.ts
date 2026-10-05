@@ -5,7 +5,7 @@ import { config } from "../../config";
 import { normalizeRepoUrl } from "../../gitUrl";
 import { log } from "../../log";
 import { TreeStore } from "./TreeStore";
-import { convertToUniversal } from "./convert";
+import { convertToUniversal, listWorkloads } from "./convert";
 import { pullValuesTree, pushValuesTree } from "./valuesGit";
 import { safeDirPath, safeRef, safeRepoUrl, safeTreePath } from "./valuesRepo";
 import type { ArgocdTree } from "../../types";
@@ -150,8 +150,26 @@ const convertBody = z
     helm: z
       .object({ archive: z.string().min(1).max(4 * 1024 * 1024), values: z.string().max(512_000).optional() })
       .optional(),
+    // The picker's ticked workloads: Kubernetes object names, so no comma
+    // (the converter's pattern separator) and no leading `=` can get in.
+    include: z
+      .array(z.string().trim().max(253).regex(/^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$/, "Not a Kubernetes object name"))
+      .min(1, "Pick at least one workload to convert")
+      .max(1000)
+      .optional(),
   })
   .refine((b) => !!b.yaml || !!b.helm, "Nothing to convert — paste YAML, add a file or a chart");
+
+/** The picker's question: which workloads are in this paste or chart. No chart repo needed. */
+const workloadsBody = z
+  .object({
+    namespace: dnsLabel,
+    yaml: z.string().trim().max(45 * 1024 * 1024).optional(),
+    helm: z
+      .object({ archive: z.string().min(1).max(4 * 1024 * 1024), values: z.string().max(512_000).optional() })
+      .optional(),
+  })
+  .refine((b) => !!b.yaml || !!b.helm, "Nothing to list — paste YAML, add a file or a chart");
 
 export function createArgocdRouter(store: TreeStore = new TreeStore()): express.Router {
   const router = express.Router();
@@ -307,6 +325,14 @@ export function createArgocdRouter(store: TreeStore = new TreeStore()): express.
    * same file layout a pull returns, so the browser reads it with `importTree`
    * and the result is committed like any other tree.
    */
+  router.post("/api/argocd/convert/workloads", async (req, res, next) => {
+    try {
+      res.json({ workloads: await listWorkloads(workloadsBody.parse(req.body)) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.post("/api/argocd/convert", async (req, res, next) => {
     try {
       res.json(await convertToUniversal(convertBody.parse(req.body)));

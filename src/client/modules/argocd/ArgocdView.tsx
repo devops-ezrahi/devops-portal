@@ -77,6 +77,13 @@ const LAST_OPENED_KEY = "argocd.lastOpened";
 /** Whether the "move to base" suggestions were folded away — per viewer, like the list size. */
 const SUGGESTIONS_KEY = "argocd.suggestions";
 const FOLDED_KEY = "argocd.folded";
+const VALUES_VIEW_KEY = "argocd.valuesView";
+/**
+ * What a microservice's namespace editor shows: only what that namespace's file
+ * sets (the default — it is the file being edited), or the whole deployed
+ * document, with base and the namespace's defaults greyed underneath.
+ */
+type ValuesView = "namespace" | "combined";
 
 /** How long to sit on a change before writing it. One keystroke is not an edit. */
 const AUTOSAVE_MS = 800;
@@ -155,6 +162,21 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       return true;
     }
   });
+  const [valuesView, setValuesViewState] = useState<ValuesView>(() => {
+    try {
+      return localStorage.getItem(VALUES_VIEW_KEY) === "combined" ? "combined" : "namespace";
+    } catch {
+      return "namespace";
+    }
+  });
+  function setValuesView(view: ValuesView) {
+    setValuesViewState(view);
+    try {
+      localStorage.setItem(VALUES_VIEW_KEY, view);
+    } catch {
+      /* not remembered, still switched */
+    }
+  }
   /** Sections folded to their heading, per viewer — a long tree is organised by putting parts away. */
   const [folded, setFolded] = useState<Set<string>>(() => {
     try {
@@ -1334,12 +1356,36 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                         <p>The microservice's own values, the same in every namespace — like a chart's values.yaml.</p>
                       ) : (
                         <p>
-                          Only what differs for this microservice in {nsName}. Its base and {nsName}'s defaults show
-                          greyed; the chart's own defaults are left out of the file.
+                          Only what differs for this microservice in {nsName}; the chart's own defaults are left out of
+                          the file. <strong>Namespace only</strong> shows just what this file sets.{" "}
+                          <strong>Combined</strong> shows the whole deployed document: its base and {nsName}'s defaults
+                          greyed under each card, and the switch to turn a base feature off in {nsName} alone.
                         </p>
                       )}
                     </Help>
                   </h3>
+                  {!editingDefaults && layer !== BASE && (
+                    <div className="jf-segmented ag-values-view" role="radiogroup" aria-label="Values shown">
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={valuesView === "namespace"}
+                        className={valuesView === "namespace" ? "active" : ""}
+                        onClick={() => setValuesView("namespace")}
+                      >
+                        Namespace only
+                      </button>
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={valuesView === "combined"}
+                        className={valuesView === "combined" ? "active" : ""}
+                        onClick={() => setValuesView("combined")}
+                      >
+                        Combined
+                      </button>
+                    </div>
+                  )}
                   <button type="button" className="ghost-button" onClick={() => setImportOpen(true)}>
                     <FileUp size={16} aria-hidden="true" /> Import values
                   </button>
@@ -1350,7 +1396,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 <FeatureEditor
                   // Remounted per scope, so which categories are open is
                   // decided by what that layer actually holds.
-                  key={`${editingDefaults ? DEFAULTS : release!.id}:${layer}`}
+                  key={`${editingDefaults ? DEFAULTS : release!.id}:${layer}:${valuesView}`}
                   features={features}
                   scopeLabel={layer === BASE ? "the base file" : `${scopeLabel}'s override file`}
                   extraValues={extraValues}
@@ -1363,7 +1409,10 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   onMoveOutOfDefaults={moveOutOfDefaults}
                   defaultsLabel={`${nsName} defaults`}
                   onRemoveOverride={removeOverride}
-                  inherited={inherited}
+                  // Namespace only: the editor is that one file, as if nothing were
+                  // under it. What is written is the same either way — the layers
+                  // below only change what is shown and what unticking can mean.
+                  inherited={valuesView === "combined" ? inherited : undefined}
                   onOpenInherited={(from) => (from === "nsDefaults" ? openDefaults() : setLayer(BASE))}
                   problems={problems}
                   onChange={setFeatures}

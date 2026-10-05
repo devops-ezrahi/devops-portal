@@ -1194,6 +1194,13 @@ defaults of its own.
     every namespace agrees. Moving orders-db's `postgres:16.3` out of base as
     the per-namespace warning asked made all six namespaces identical, which
     offered it straight back — the two findings undid each other forever.
+- **A namespace's microservice opens on its own file.** The editor's
+  *Namespace only* / *Combined* switch (per viewer, `argocd.valuesView`,
+  default *Namespace only*) decides whether the layers below are shown: Namespace
+  only passes no `inherited` to `FeatureEditor`, so the cards are exactly what
+  `<ns>/values/<ms>.yaml` sets and a tick means "this file sets it". Combined is
+  the whole deployed document described below, and the only place a base
+  feature can be switched off in one namespace. What is written is the same.
 - **What a microservice inherits in a namespace is on its own card, greyed,
   with the way back**: its base, then that namespace's defaults over it — one
   block per layer, in chain order, labelled *from the base values* / *from
@@ -1380,9 +1387,34 @@ and a new one connects from the repository panel as usual.
 - **The converter is `convert_to_universal_chart.py` itself, not a port.**
   `POST /api/argocd/convert` shallow-clones the tree's own chart repo at the
   tree's own revision and runs `gitops-factory/convert_to_universal_chart.py`
-  from there (`--skip-verify`), so the converter is always the one shipped
-  beside that chart version and nothing is vendored. Its output is the layout
-  `importTree` already reads, so the browser takes it exactly like a pull.
+  from there, so the converter is always the one shipped beside that chart
+  version and nothing is vendored. Its output is the layout `importTree`
+  already reads, so the browser takes it exactly like a pull.
+- **The conversion is verified, not `--skip-verify`.** The converter renders
+  every release with helm and checks no two claim one object; a tree that fails
+  is still returned (it is what gets fixed) with `Does not render cleanly — …`
+  leading the warnings. Skipping it turned Harbor's unrenderable Ingress and
+  Kafka's doubly-owned ServiceAccount into quiet successes that failed in Argo CD.
+- **A paste is all app.** The importer's full-namespace pull is selective (what
+  workloads reference, no Roles) because a live namespace holds other teams'
+  objects; `SPLIT_DUMP` then calls the importer's `file_unclaimed`, which files
+  the rest of the paste into the converter's input — config into `shared.yaml`,
+  an undiscovered workload into its own file, Helm test Pods skipped.
+- **The dialog lists the workloads and converts only the ticked ones.**
+  `POST /api/argocd/convert/workloads` renders a chart (or reads the paste) and
+  returns every Deployment/StatefulSet/DaemonSet/CronJob/Job/DeploymentConfig
+  (`workloadsIn`) — no chart repo clone, so it answers before one is set. The
+  dialog re-asks 600ms after the input stops changing, all rows ticked.
+  Unticking sends `include: [names]`, passed as the converter's exact
+  `--include =<name>`; all ticked sends nothing, so an untouched picker is the
+  old whole-dump convert. A microservice is kept when any of its workloads is
+  ticked (the importer may group several). Under a selection the converter
+  keeps in `shared` only what two or more converted microservices use — one
+  user takes it home, only unticked users drop it. A list that cannot be read
+  is said under the field, and Convert takes all.
+- **An untouched convert commits the converter's bytes.** `mergeConverted`
+  carries the import's `imported` texts, so the first Commit after a Convert
+  does not rewrite every file's quoting and comments.
 - **A Helm chart is rendered first**, with `helm template <name> <chart> -n
   <ns> [-f values]` where `<name>` is the chart's own `Chart.yaml` name, and the
   render then goes through the **same splitter as pasted YAML** — a chart that

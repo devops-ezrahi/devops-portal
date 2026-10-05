@@ -190,9 +190,15 @@ export const mapOf = (rows: unknown, fn: (r: Values) => Values | null, key = "na
   return Object.keys(m).length ? m : null;
 };
 
-/** The inverse of `mapOf`: a `name`-keyed map back into the rows the form edits. */
+/**
+ * The inverse of `mapOf`: a `name`-keyed map back into the rows the form edits.
+ * The row's `name` is always the map KEY — a body may hold a `name` of its own
+ * (a mount's volume: `empty-dir:tmp-dir: {name: empty-dir}`), and letting it
+ * win collapsed four Bitnami mounts into four rows called `empty-dir`, which
+ * `mapOf` then wrote back as one.
+ */
 export const mapRows = (map: unknown, fn: (body: Values) => Values = (b) => b): Values[] =>
-  isRecord(map) ? Object.entries(map).map(([name, body]) => ({ name, ...fn(isRecord(body) ? body : {}) })) : [];
+  isRecord(map) ? Object.entries(map).map(([name, body]) => ({ ...fn(isRecord(body) ? body : {}), name })) : [];
 
 /** A parsed node written back as the YAML text a `body`/`rules`/`provider` column holds. */
 export const yamlText = (node: unknown): string => (nz(node) ? emitNode(node, 0, []).join("\n") : "");
@@ -244,6 +250,10 @@ export const portsText = (map: unknown): string =>
         })
         .join("\n")
     : "";
+
+/** `kvText` of only the single-line values — see the Secrets feature. */
+export const singleLineKv = (map: unknown): string =>
+  kvText(isRecord(map) ? Object.fromEntries(Object.entries(map).filter(([, v]) => !String(v ?? "").includes("\n"))) : map);
 
 /** `key=value` per line. */
 export const parseKV = (text: unknown): Values | null => {
@@ -788,6 +798,9 @@ F({
         { key: "mountPath", label: "mountPath", placeholder: "/etc/nginx/conf.d" },
         { key: "subPath", label: "subPath", placeholder: "nginx.conf" },
         { key: "readOnly", label: "readOnly", kind: "boolean" },
+        // Only when the row's name cannot be the volume's: one volume mounted
+        // twice (`empty-dir:tmp-dir`, `empty-dir:app-conf-dir`) needs two rows.
+        { key: "volume", label: "volume", placeholder: "same as name", suggest: () => "volumes" },
       ],
       { addLabel: "Add mount" }
     ),
@@ -799,10 +812,13 @@ F({
         put(o, "mountPath", r.mountPath);
         put(o, "subPath", r.subPath);
         if (r.readOnly) o.readOnly = true;
+        if (nz(r.volume) && r.volume !== r.name) o.name = r.volume;
         return Object.keys(o).length ? o : null;
       }),
     }),
-  load: (doc) => ({ items: mapRows(doc.volumeMounts) }),
+  load: (doc) => ({
+    items: mapRows(doc.volumeMounts, ({ name, ...rest }) => (nz(name) ? { ...rest, volume: name } : rest)),
+  }),
   notes: ["Mounting a whole ConfigMap over /etc/nginx hides everything already in that directory. Use subPath to drop in one file."],
 });
 
@@ -1444,7 +1460,12 @@ F({
       }),
     }),
   load: (doc) => ({
-    items: mapRows(doc.secrets, (b) => ({ type: b.type, stringData: kvText(b.stringData), data: kvText(b.data) })),
+    // A value with a line break is a file, and a `key=value` line cannot hold
+    // it: each of its lines with an `=` became a Secret key of its own
+    // (Cassandra's exporter config grew `# > java -D…`). Left out here, the
+    // import keeps it whole under this card's Other settings — the ConfigMap
+    // rule, without its file rows.
+    items: mapRows(doc.secrets, (b) => ({ type: b.type, stringData: singleLineKv(b.stringData), data: singleLineKv(b.data) })),
   }),
   notes: [
     "These values live in the values file, which is in git. For anything that belongs in a secrets manager use ExternalSecrets instead — the chart renders the CRs and ESO produces the Secret.",
@@ -1590,6 +1611,10 @@ F({
 const envText = (map: unknown): string =>
   isRecord(map)
     ? Object.entries(map)
+        // A fieldRef / configMapKeyRef / resourceFieldRef has no line form, and
+        // written as `NAME=` it came back as `value: ""` beside its valueFrom.
+        // Left out, the import keeps it whole under the card's Other settings.
+        .filter(([, body]) => !(isRecord(body) && isRecord(body.valueFrom) && !isRecord(body.valueFrom.secretKeyRef)))
         .map(([name, body]) => {
           const b = isRecord(body) ? body : {};
           const from = isRecord(b.valueFrom) && isRecord(b.valueFrom.secretKeyRef) ? b.valueFrom.secretKeyRef : null;
@@ -2033,12 +2058,15 @@ F({
   id: "serviceaccount",
   cat: "ops",
   name: "ServiceAccount",
-  keys: ["serviceAccount"],
+  keys: ["serviceAccount", "automountServiceAccountToken"],
   blurb: "The pod's identity in the cluster — and, through annotations, in the cloud account behind it.",
   fields: [
     B("create", "create", { def: true, path: "serviceAccount.create" }),
     S("name", "name", { req: true, path: "serviceAccount.name", placeholder: "myapp-sa" }),
     B("automountServiceAccountToken", "automountServiceAccountToken", { def: true }),
+    SE("podAutomount", "pod's own automountServiceAccountToken", ["", "true", "false"], {
+      hint: "Only when the pods differ from the account — hardened charts turn the account's off and the pod's on. Empty: the pods follow the account.",
+    }),
     KV("annotations", "annotations"),
     KV("labels", "labels"),
     TX("imagePullSecrets", "imagePullSecrets", { placeholder: "ghcr-pull" }),
@@ -2055,7 +2083,10 @@ F({
     if (lb) o.labels = lb;
     const ps = listOf(v.imagePullSecrets).map((name) => ({ name }));
     if (ps.length) o.imagePullSecrets = ps;
-    return { serviceAccount: o };
+    return {
+      serviceAccount: o,
+      ...(v.podAutomount === "true" || v.podAutomount === "false" ? { automountServiceAccountToken: v.podAutomount === "true" } : {}),
+    };
   },
   load: (doc) => {
     const sa = isRecord(doc.serviceAccount) ? doc.serviceAccount : {};
@@ -2066,6 +2097,7 @@ F({
       annotations: pairsOf(sa.annotations),
       labels: pairsOf(sa.labels),
       imagePullSecrets: rowsOf(sa.imagePullSecrets).map((r) => String(r.name ?? "")).join("\n"),
+      podAutomount: typeof doc.automountServiceAccountToken === "boolean" ? String(doc.automountServiceAccountToken) : "",
     };
   },
   notes: [
@@ -2343,19 +2375,27 @@ F({
   emit: (v) => {
     const initContainers = mapOf(v.initContainers, (r) => (nz(r.body) ? (raw(r.body) as unknown as Values) : null));
     // The chart ranges a map in sorted key order, but init containers run one
-    // after another — so the row order is written out whenever it could matter.
+    // after another — so the row order is written out whenever it differs from
+    // that, or the file already said one. NOT whenever there are two: a
+    // namespace override that only re-tags each init container's image lists
+    // them sorted, and writing that order out overrode base's real one
+    // (mlflow's migration ran before its wait-for-database).
     const order = Object.keys(initContainers ?? {});
+    const sorted = [...order].sort();
+    const differs = order.some((n, i) => n !== sorted[i]);
     return some({
       sidecars: mapOf(v.sidecars, (r) => (nz(r.body) ? (raw(r.body) as unknown as Values) : null)),
       initContainers,
-      initContainerOrder: order.length > 1 ? flow(order) : undefined,
+      initContainerOrder: order.length > 1 && (differs || v.ordered === true) ? flow(order) : undefined,
     });
   },
   load: (doc) => {
     const order = rowsOf(doc.initContainerOrder).map(String);
     const rank = (name: unknown) => (order.includes(String(name)) ? order.indexOf(String(name)) : order.length);
     const initContainers = bodyRows(doc.initContainers).sort((a, b) => rank(a.name) - rank(b.name));
-    return { sidecars: bodyRows(doc.sidecars), initContainers };
+    // `ordered`: the file stated an order, so a rebuild keeps stating it even
+    // when it happens to be the sorted one. Not a field — nothing shows it.
+    return { sidecars: bodyRows(doc.sidecars), initContainers, ...(order.length ? { ordered: true } : {}) };
   },
   notes: [
     "Init containers run top to bottom in the order listed here — initContainerOrder is written for you, since the chart would otherwise sort them by name.",

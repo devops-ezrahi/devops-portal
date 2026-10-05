@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { afterAll, describe, expect, it } from "vitest";
-import { convertToUniversal } from "./convert";
+import { convertToUniversal, workloadsIn } from "./convert";
 
 // The real converter, from a universal-chart checkout beside this repo. Its
 // own repo is the chart repo a tree points at, so cloning it here is exactly
@@ -42,6 +42,36 @@ spec:
               value: production
 `;
 
+describe("workloadsIn", () => {
+  it("lists every workload kind, unwraps a List, and gives a namespace-less one the default", () => {
+    const text = `apiVersion: v1
+kind: List
+items:
+  - kind: Deployment
+    metadata: { name: web, namespace: shop }
+  - kind: ConfigMap
+    metadata: { name: cfg }
+---
+kind: StatefulSet
+metadata: { name: db }
+---
+kind: CronJob
+metadata: { name: report }
+---
+- not: a mapping
+`;
+    expect(workloadsIn(text, "dflt")).toEqual([
+      { kind: "Deployment", name: "web", namespace: "shop" },
+      { kind: "StatefulSet", name: "db", namespace: "dflt" },
+      { kind: "CronJob", name: "report", namespace: "dflt" },
+    ]);
+  });
+
+  it("reads past a TAB after a scalar, as Helm can render one", () => {
+    expect(workloadsIn("kind: Deployment\t\nmetadata:\n  name: web\n", "d")).toEqual([{ kind: "Deployment", name: "web", namespace: "d" }]);
+  });
+});
+
 describe.skipIf(!canConvert)("convertToUniversal", () => {
   const work = mkdtempSync(join(tmpdir(), "convert-test-"));
   afterAll(() => rmSync(work, { recursive: true, force: true }));
@@ -62,7 +92,7 @@ describe.skipIf(!canConvert)("convertToUniversal", () => {
     expect(all).toContain("MODE");
   }, 120_000);
 
-  it("converts the rest when one namespace in the paste has no workloads, and names what it dropped", async () => {
+  it("converts a namespace with no workloads and a kind no app label finds, and says so", async () => {
     const stray = `apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: lost-and-found\n  namespace: some-other-namespace\ndata:\n  a: b\n`;
     const dc = `apiVersion: apps.openshift.io/v1\nkind: DeploymentConfig\nmetadata:\n  name: legacy\n  namespace: interconn\nspec:\n  replicas: 1\n`;
     const { files, warnings } = await convertToUniversal({
@@ -71,9 +101,63 @@ describe.skipIf(!canConvert)("convertToUniversal", () => {
       namespace: "interconn",
       yaml: [DEPLOYMENT, stray, dc].join("---\n"),
     });
+    const paths = files.map((f) => f.path);
+    expect(paths).toContain("base/stalker.yaml");
+    // A paste is all app: the stray ConfigMap's namespace gets its shared
+    // release, and the DeploymentConfig its own file — named, not dropped.
+    expect(paths).toContain("some-other-namespace/values/shared.yaml");
+    expect(files.find((f) => f.path === "base/shared.yaml")?.text).toContain("lost-and-found");
+    expect(paths).toContain("interconn/values/legacy.yaml");
+    expect(warnings.join("\n")).toMatch(/DeploymentConfig\/legacy: not discovered as an app/);
+  }, 120_000);
+
+  it("returns a tree that does not render, with the render failure leading the warnings", async () => {
+    // A mount of a volume nobody declares: the chart refuses to render it,
+    // and Argo CD would fail to sync. Used to come back as a quiet success.
+    const broken = DEPLOYMENT.replace(
+      "          env:",
+      "          volumeMounts:\n            - name: nowhere\n              mountPath: /data\n          env:"
+    );
+    const { files, warnings } = await convertToUniversal({
+      chartRepoUrl: chartRepo,
+      chartRevision: branch,
+      namespace: "interconn",
+      yaml: broken,
+    });
     expect(files.map((f) => f.path)).toContain("base/stalker.yaml");
-    expect(warnings.join("\n")).toMatch(/some-other-namespace/);
-    expect(warnings.join("\n")).toMatch(/DeploymentConfig\/legacy \(namespace interconn\): in the pasted YAML, but not carried/);
+    expect(warnings[0]).toMatch(/^Does not render cleanly/);
+  }, 120_000);
+
+  it("converts only the workloads picked, by exact name", async () => {
+    const worker = DEPLOYMENT.replace(/stalker/g, "stalker-worker");
+    const { files } = await convertToUniversal({
+      chartRepoUrl: chartRepo,
+      chartRevision: branch,
+      namespace: "interconn",
+      yaml: [DEPLOYMENT, worker].join("---\n"),
+      include: ["stalker"],
+    });
+    const bases = files.map((f) => f.path).filter((p) => p.startsWith("base/"));
+    expect(bases).toEqual(["base/stalker.yaml"]);
+  }, 120_000);
+
+  it("keeps a microservice whose name holds an env-group token as itself, in every namespace", async () => {
+    // `project` is an env-group token, and project-api is the same microservice
+    // in both namespaces — not an `api` in a `project/` variant folder.
+    const api = (ns: string) => DEPLOYMENT.replace(/stalker/g, "project-api").replace("namespace: interconn", `namespace: ${ns}`);
+    const { files, warnings } = await convertToUniversal({
+      chartRepoUrl: chartRepo,
+      chartRevision: branch,
+      namespace: "shop-dev",
+      envGroups: ["site=project,other"],
+      yaml: [api("shop-dev"), api("shop-prd")].join("---\n"),
+    });
+    const paths = files.map((f) => f.path);
+    expect(paths).toContain("base/project-api.yaml");
+    expect(paths).toContain("shop-dev/values/project-api.yaml");
+    expect(paths).toContain("shop-prd/values/project-api.yaml");
+    expect(paths.some((p) => p.includes("/project/"))).toBe(false);
+    expect(warnings.join("\n")).toMatch(/project-api\.yaml: kept as 'project-api'/);
   }, 120_000);
 
   it("splits a dirty kubectl dump into microservices, like the namespace importer", async () => {
