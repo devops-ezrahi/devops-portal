@@ -1,4 +1,5 @@
 import { CircleStop } from "lucide-react";
+import { Spinner } from "../../../Spinner";
 import { classifyLogLine } from "../../../logLines";
 import { jobStatusClass, jobStatusLabel } from "../jobStatus";
 import type {
@@ -89,7 +90,7 @@ export function JobDetail({ job, onStop }: Props) {
     <article className="ticket-detail">
       <div className="detail-heading">
         <div className="badge-row">
-          <span className={jobStatusClass(job)}>{jobStatusLabel(job)}</span>
+          <span className={jobStatusClass(job)}>{(job.status === "pending" || job.status === "in-progress") && <Spinner size={11} />}{jobStatusLabel(job)}</span>
           <span className="detail-id">{job.id}</span>
         </div>
         <div className="detail-title-row">

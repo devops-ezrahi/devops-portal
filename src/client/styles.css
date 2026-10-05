@@ -6464,3 +6464,6 @@ details[open] > :not(summary) { animation: fade-up 180ms var(--ease-out) }
 /* A message still on its way: in the thread already, quieter until it lands. */
 .comment.pending { opacity: 0.65; border-left-color: rgb(var(--c-6f8088)) }
 .comment.pending small { display: inline-flex }
+
+/* A running job's badge spins, so a list of jobs says which are still working. */
+.stage > .spin { vertical-align: -1px; margin-right: 4px }

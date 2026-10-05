@@ -1,4 +1,5 @@
 import { RowDelete } from "../../../RowDelete";
+import { Spinner } from "../../../Spinner";
 import type { WhiteningJob, WhiteningJobStatus } from "../../../../server/types";
 
 type Props = {
@@ -46,7 +47,7 @@ export function JobList({ jobs, selectedJobId, isAdmin, onSelect, onDelete }: Pr
           {job.status !== "pending" && job.status !== "in-progress" && (
             <RowDelete label={job.id} onDelete={() => onDelete(job.id)} />
           )}
-          <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
+          <span className={statusClass(job.status)}>{(job.status === "pending" || job.status === "in-progress") && !job.pendingPreserve?.length && <Spinner size={11} />}{statusLabel(job.status)}</span>
           <strong>{job.team}/{job.project}</strong>
           <div className="ticket-row-meta">
             <small>{job.archiveName}</small>
