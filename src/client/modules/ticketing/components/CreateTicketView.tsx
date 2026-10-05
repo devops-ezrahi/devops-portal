@@ -1,5 +1,4 @@
 import { Send } from "lucide-react";
-import { Spinner } from "../../../Spinner";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { log, warn, error as logError } from "../../../log";
@@ -80,7 +79,7 @@ export function CreateTicketView({
             <small className="field-hint">Response within {priorityResponseHours[priority]} hours</small>
           </label>
           <button className="primary" disabled={submitting}>
-            {submitting ? <Spinner size={18} /> : <Send size={18} aria-hidden="true" />} {submitting ? "Submitting…" : "Submit"}
+            <Send size={18} aria-hidden="true" /> Submit
           </button>
         </form>
       )}

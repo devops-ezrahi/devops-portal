@@ -1852,7 +1852,15 @@ input[type="radio"]:focus:not(:focus-visible) {
   padding: 56px 18px;
 }
 
-.loading-state .spin { color: rgb(var(--c-20c7bd)) }
+.loading-state::after {
+  content: '';
+  width: 28px;
+  height: 28px;
+  border: 2.5px solid rgb(var(--c-1e2d34));
+  border-top-color: rgb(var(--c-20c7bd));
+  border-radius: 50%;
+  animation: spin 650ms linear infinite;
+}
 
 .error-banner {
   background: rgb(var(--c-2a1517));
@@ -6407,64 +6415,3 @@ label.ag-add { cursor: pointer }
 .color-hex:focus-within {
   border-color: rgb(var(--c-20c7bd));
 }
-
-/* =========================================================================
-   Motion for things that change in place. Lists that reorder glide (flip.tsx
-   — WAAPI, so the reduced-motion rule above cannot reach it and the hook
-   checks the media query itself); everything here is plain CSS and is.
-   ========================================================================= */
-
-.spin { animation: spin 0.8s linear infinite }
-
-/* A label with a save state beside it ("Stage · Saving…"). */
-.field-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-/* Per-field save state, so a save in flight locks nothing else on the form. */
-.save-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: rgb(var(--c-6f8088));
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: none;
-  animation: fade-in 160ms var(--ease-out);
-}
-
-.save-state.saved { color: rgb(var(--c-20c7bd)) }
-.save-state.failed { color: rgb(var(--c-e0736d)) }
-
-/* A badge that just took a new value pops once, so the change is noticed
-   without reading it. Keyed on the value, so it replays per change. */
-.badge-swap { animation: badge-pop 280ms var(--ease-out) }
-
-@keyframes badge-pop {
-  0%   { transform: scale(0.85); opacity: 0.4 }
-  60%  { transform: scale(1.06); opacity: 1 }
-  100% { transform: scale(1) }
-}
-
-/* What a <details> reveals eases in rather than appearing in one frame. */
-details[open] > :not(summary) { animation: fade-up 180ms var(--ease-out) }
-
-/* A message still on its way: in the thread already, quieter until it lands. */
-.comment.pending { opacity: 0.65; border-left-color: rgb(var(--c-6f8088)) }
-.comment.pending small { display: inline-flex }
-
-/* A running job's badge spins, so a list of jobs says which are still working. */
-.stage > .spin { vertical-align: -1px; margin-right: 4px }
-
-/* "Loading jobs…" where an empty list would otherwise claim there are none. */
-.loading-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: rgb(var(--c-6f8088));
-}
-.loading-row .spin { color: rgb(var(--c-20c7bd)) }

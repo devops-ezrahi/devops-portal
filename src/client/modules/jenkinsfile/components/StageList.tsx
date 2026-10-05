@@ -1,6 +1,5 @@
 import { ChevronsDownUp, ChevronsUpDown, Columns2, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useFlip } from "../../../flip";
 import { Help } from "../../../Help";
 import { SINGLETON_STEPS, STEPS, UNBOXED_STEPS } from "../catalog";
 import { mapVariables, moveStage, pairsOf, stageId } from "../pipeline";
@@ -56,8 +55,6 @@ function withGroup(stage: JenkinsfileStage, group: string | undefined): Jenkinsf
  * button out from under the cursor the moment it opened.
  */
 export function StageList({ stages, errors, onToggle, onCollapseAll, onReorder, onChange, onLeave, onAdd, onRemove }: Props) {
-  const flipScope = useRef<HTMLDivElement>(null);
-  useFlip(flipScope, ".jf-cards > li");
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [drop, setDrop] = useState<Drop | null>(null);
   /**
@@ -224,7 +221,7 @@ export function StageList({ stages, errors, onToggle, onCollapseAll, onReorder, 
   }
 
   return (
-    <div className="jf-stage-list" ref={flipScope}>
+    <div className="jf-stage-list">
       <div className="jf-list-head">
         <h2>Stages</h2>
         <span className="jf-group-count">

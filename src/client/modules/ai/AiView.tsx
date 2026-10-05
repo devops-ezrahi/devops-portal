@@ -44,7 +44,6 @@ export function AiView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) 
   const [aiEnabled, setAiEnabled] = useState<boolean | null>(null);
   const [categories, setCategories] = useState<AiCategory[]>([]);
   const [conversations, setConversations] = useState<AiConversation[]>([]);
-  const [loaded, setLoaded] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [jobs, setJobs] = useState<AiJob[]>([]);
   const [showPicker, setShowPicker] = useState(false);
@@ -84,8 +83,7 @@ export function AiView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) 
         const first = list.find((c) => !c.archivedAt);
         if (first) selectConversation(first.id);
       })
-      .catch((err) => logError("ai", "failed to load conversations", err))
-      .finally(() => setLoaded(true));
+      .catch((err) => logError("ai", "failed to load conversations", err));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -305,7 +303,6 @@ export function AiView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) 
             )}
           </div>
           <ConversationList
-            loaded={loaded}
             conversations={visibleConversations}
             activeId={activeConversationId}
             onSwitchTo={selectConversation}

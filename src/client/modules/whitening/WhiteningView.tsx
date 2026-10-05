@@ -1,5 +1,4 @@
 import { FlaskConical, Plus } from "lucide-react";
-import { FlipList } from "../../flip";
 import { ListSizeToggle } from "../../ListSizeToggle";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { idFromPath, useDeepLink } from "../../deepLink";
@@ -22,7 +21,6 @@ const TEST_SCENARIOS: { value: WhiteningScenario; label: string }[] = [
 
 export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) {
   const [jobs, setJobs] = useState<WhiteningJob[]>([]);
-  const [loaded, setLoaded] = useState(false);
   // From the URL on first paint, so /whitening/ART-0007 opens that job.
   const [selectedJobId, setSelectedJobId] = useState<string | null>(() => idFromPath("whitening"));
   // The list is log-free (server strips it — a finished job's log lives on the
@@ -51,8 +49,7 @@ export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleView
       .catch((err: Error) => {
         logError("whitening", "listJobs failed", err);
         onError(err.message);
-      })
-      .finally(() => setLoaded(true));
+      });
   }
 
   useEffect(() => {
@@ -164,9 +161,8 @@ export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleView
             )}
           </div>
           <section className="ticket-list-panel" aria-label="Unpack jobs">
-            <FlipList className="ticket-list">
+            <div className="ticket-list">
               <JobList
-                loaded={loaded}
                 jobs={visibleJobs}
                 onDelete={handleDelete}
                 selectedJobId={selectedJobId}
@@ -176,7 +172,7 @@ export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleView
                   setSelectedJobId((prev) => (prev === id ? null : id));
                 }}
               />
-            </FlipList>
+            </div>
           </section>
         </div>
 

@@ -1,5 +1,4 @@
 import { FilePlus2, FileUp, GitBranch, TriangleAlert, Upload, X } from "lucide-react";
-import { Spinner } from "../../../Spinner";
 import { useRef, useState } from "react";
 import { exampleRepoUrl, isSshUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
 import type { JenkinsfilePipeline } from "../../../../server/types";
@@ -200,7 +199,7 @@ export function NewPipelineDialog({
                 disabled={!repoUrl.trim() || busy}
                 onClick={() => void handleConnect()}
               >
-                {busy ? <><Spinner /> Reading…</> : pending ? "Import anyway" : "Connect"}
+                {busy ? "Reading…" : pending ? "Import anyway" : "Connect"}
               </button>
             </div>
           </div>

@@ -1,6 +1,5 @@
 import { Pencil, Plus, X } from "lucide-react";
-import { useRef, useState, type ReactNode } from "react";
-import { useFlip } from "../../../flip";
+import { useState, type ReactNode } from "react";
 import { useGridDrag, useGridSort, type Sorts } from "./GridSort";
 
 /**
@@ -52,8 +51,6 @@ export function LayerGrid({ layer, namespaces, releaseCount, onSelect, onRename,
   // Sorted for display; every callback still gets the namespace's own index.
   const { order, control, manual } = useGridSort(SORTS, "argocd.namespaceSort");
   const sorted = order(namespaces.map((ns, index) => ({ ...ns, index })));
-  const flipScope = useRef<HTMLDivElement>(null);
-  useFlip(flipScope, ".ag-card-shell");
   const drag = useGridDrag(
     sorted.map((ns) => ns.index),
     (next) => {
@@ -68,7 +65,7 @@ export function LayerGrid({ layer, namespaces, releaseCount, onSelect, onRename,
       {heading}
       {control(namespaces.length < 2)}
     </div>
-    <div ref={flipScope} className="ag-card-grid ag-layer-grid" aria-label="Layers">
+    <div className="ag-card-grid ag-layer-grid" aria-label="Layers">
       <button
         type="button"
         aria-pressed={layer === BASE}

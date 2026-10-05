@@ -1,5 +1,4 @@
 import { Help } from "../../../Help";
-import { Spinner } from "../../../Spinner";
 import type { Workload } from "../api";
 
 /**
@@ -53,7 +52,7 @@ export function WorkloadPicker({
           </span>
         )}
       </span>
-      {loading && !workloads && <p className="field-hint"><Spinner size={12} /> Looking for workloads…</p>}
+      {loading && !workloads && <p className="field-hint">Looking for workloads…</p>}
       {error && <p className="field-hint">Could not list the workloads ({error}) — Convert takes all of them.</p>}
       {workloads && workloads.length === 0 && !loading && <p className="field-hint">No Deployment, StatefulSet, DaemonSet or Job found.</p>}
       {workloads && workloads.length > 0 && (

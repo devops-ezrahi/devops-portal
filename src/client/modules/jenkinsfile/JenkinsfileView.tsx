@@ -1,5 +1,4 @@
 import { Check, ChevronRight, Pencil, Plus, Trash2, TriangleAlert, X } from "lucide-react";
-import { FlipList } from "../../flip";
 import { ListSizeToggle } from "../../ListSizeToggle";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
@@ -88,7 +87,6 @@ function useLeaveScopes(onLeave: (scope: string) => void, scopes: string[]) {
 
 export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) {
   const [pipelines, setPipelines] = useState<JenkinsfilePipeline[]>([]);
-  const [loaded, setLoaded] = useState(false);
   const [draft, setDraft] = useState<DraftPipeline>(newPipeline);
   /**
    * Which parts have been left once. Problems are computed from the first
@@ -146,8 +144,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
       .catch((err: Error) => {
         logError("jenkinsfile", "listPipelines failed", err);
         onError(err.message);
-      })
-      .finally(() => setLoaded(true));
+      });
   }
 
   useEffect(() => {
@@ -500,9 +497,8 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
             )}
           </div>
           <section className="ticket-list-panel" aria-label="Saved pipelines">
-            <FlipList className="ticket-list">
+            <div className="ticket-list">
               <PipelineList
-                loaded={loaded}
                 pipelines={visiblePipelines}
                 onDelete={(id) => void handleDelete(id)}
                 selectedId={draft.id}
@@ -512,7 +508,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
                   if (pipeline) handleOpen(pipeline);
                 }}
               />
-            </FlipList>
+            </div>
           </section>
         </div>
 

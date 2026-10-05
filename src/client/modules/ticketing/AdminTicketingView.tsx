@@ -1,6 +1,4 @@
 import { Plus } from "lucide-react";
-import { Loading } from "../../Spinner";
-import { FlipList } from "../../flip";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ListSizeToggle } from "../../ListSizeToggle";
 import {
@@ -18,7 +16,6 @@ import { SlaRemaining } from "./components/SlaRemaining";
 import { getTicketIdFromUrl, isDone, isOverdue, priorityClass, setTicketIdInUrl, stageClass, statusMessage } from "./utils";
 import type {
   AssigneeCandidate,
-  CustomerStage,
   PortalUser,
   RequestTypeDefinition,
   TicketDetail,
@@ -84,10 +81,6 @@ export function AdminTicketingView({
   onError: (message: string) => void;
 }) {
   const [adminTickets, setAdminTickets] = useState<TicketSummary[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  // The ticket being fetched, so the panel says so instead of sitting on the
-  // last one (or on "Select a ticket.") for the length of the request.
-  const [opening, setOpening] = useState<string | null>(null);
   const [selectedAdminTicket, setSelectedAdminTicket] = useState<TicketDetail | null>(null);
   const [assignees, setAssignees] = useState<AssigneeCandidate[]>([]);
   const [unreadIds, setUnreadIds] = useState<Set<string>>(() => new Set());
@@ -102,12 +95,10 @@ export function AdminTicketingView({
 
   useEffect(() => {
     log("ticketing/admin", "queue mounted", { user: user.id, groups: user.groups });
-    refreshAdminTickets()
-      .catch((err: Error) => {
-        logError("ticketing/admin", "initial queue load failed", err);
-        onError(err.message);
-      })
-      .finally(() => setLoaded(true));
+    refreshAdminTickets().catch((err: Error) => {
+      logError("ticketing/admin", "initial queue load failed", err);
+      onError(err.message);
+    });
     getAssignees()
       .then((result) => {
         log("ticketing/admin", `assignees: ${result.assignees.length}`, result.assignees.map((a) => a.id));
@@ -203,14 +194,9 @@ export function AdminTicketingView({
       next.delete(id);
       return next;
     });
-    setOpening(id);
-    try {
-      const result = await getAdminTicket(id);
-      setSelectedAdminTicket(result.ticket);
-      setTicketIdInUrl(id);
-    } finally {
-      setOpening((current) => (current === id ? null : current));
-    }
+    const result = await getAdminTicket(id);
+    setSelectedAdminTicket(result.ticket);
+    setTicketIdInUrl(id);
   }
 
   async function reloadAdminTicket(id: string) {
@@ -218,12 +204,6 @@ export function AdminTicketingView({
     const result = await getAdminTicket(id);
     setSelectedAdminTicket(result.ticket);
     await refreshAdminTickets();
-  }
-
-  // A change shown before the server confirms it — the detail's own fields are
-  // already optimistic, and a queue row still on the old value contradicts them.
-  function previewRow(id: string, patch: Partial<TicketSummary>) {
-    setAdminTickets((rows) => rows.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   }
 
   const filteredTickets = useMemo(() => {
@@ -283,26 +263,24 @@ export function AdminTicketingView({
             </button>
           </div>
           <section className="ticket-list-panel" aria-label="Admin tickets">
-            <FlipList className="ticket-list">
+            <div className="ticket-list">
               {activeTickets.map((ticket) => <TicketRow key={ticket.id} ticket={ticket} isSelected={selectedAdminTicket?.id === ticket.id} isUnread={unreadIds.has(ticket.id)} onOpen={handleOpenTicket} />)}
-              {activeTickets.length === 0 && (loaded ? <div className="empty-state">No tickets.</div> : <Loading what="tickets" />)}
-            </FlipList>
+              {activeTickets.length === 0 && <div className="empty-state">No tickets.</div>}
+            </div>
           </section>
   
           {doneTickets.length > 0 && (
             <details className="ticket-list-panel done-panel" aria-label="Done admin tickets">
               <summary>Done</summary>
-              <FlipList className="ticket-list">
+              <div className="ticket-list">
                 {doneTickets.map((ticket) => <TicketRow key={ticket.id} ticket={ticket} isSelected={selectedAdminTicket?.id === ticket.id} isUnread={unreadIds.has(ticket.id)} onOpen={handleOpenTicket} />)}
-              </FlipList>
+              </div>
             </details>
           )}
         </div>
   
         <section className="detail-panel" aria-label="Ticket detail">
-          {opening && opening !== selectedAdminTicket?.id ? (
-            <Loading what={opening} />
-          ) : selectedAdminTicket ? (
+          {selectedAdminTicket ? (
             <AdminTicketDetail
               key={selectedAdminTicket.id}
               assignee={selectedAdminTicket.assigneeId}
@@ -316,24 +294,11 @@ export function AdminTicketingView({
                   to: assigneeId || "-",
                   ownerName,
                 });
-                const before = { assigneeId: selectedAdminTicket.assigneeId, assigneeName: selectedAdminTicket.assigneeName };
-                const show = (patch: typeof before) => {
-                  setSelectedAdminTicket((t) => (t && t.id === selectedAdminTicket.id ? { ...t, ...patch } : t));
-                  previewRow(selectedAdminTicket.id, patch);
-                };
-                show({ assigneeId, assigneeName });
-                try {
-                  await updateAdminTicket(selectedAdminTicket.id, { assigneeId, assigneeName });
-                } catch (err) {
-                  show(before);
-                  onError((err as Error).message);
-                  throw err;
-                }
+                await updateAdminTicket(selectedAdminTicket.id, { assigneeId, assigneeName });
                 await addAdminComment(selectedAdminTicket.id, statusMessage(`Owner changed to ${ownerName}.`));
                 await reloadAdminTicket(selectedAdminTicket.id);
               }}
               onReload={() => reloadAdminTicket(selectedAdminTicket.id)}
-              onStagePreview={(stage: CustomerStage) => previewRow(selectedAdminTicket.id, { stage })}
               ticket={selectedAdminTicket}
             />
           ) : (

@@ -1,5 +1,4 @@
 import { LinkedText } from "./LinkedText";
-import { OutgoingComments, useOutbox } from "./Outbox";
 import { MessageSquarePlus } from "lucide-react";
 import { useState } from "react";
 import type { FormEvent } from "react";
@@ -17,17 +16,23 @@ export function TicketDetailView({
   ticket: TicketDetail;
 }) {
   const [body, setBody] = useState("");
-  const outbox = useOutbox();
+  const [submitting, setSubmitting] = useState(false);
 
   async function submitComment(event: FormEvent) {
     event.preventDefault();
-    const text = body;
-    setBody("");
-    log("ticketing", "posting comment", { ticket: ticket.id, chars: text.length });
-    await outbox
-      .post(text, (t) => addComment(ticket.id, t), onCommentAdded, (t) => setBody((current) => current || t))
-      .then(() => log("ticketing", "comment posted", ticket.id))
-      .catch((err) => logError("ticketing", "addComment failed", ticket.id, err));
+    setSubmitting(true);
+    log("ticketing", "posting comment", { ticket: ticket.id, chars: body.length });
+    try {
+      await addComment(ticket.id, body);
+      log("ticketing", "comment posted", ticket.id);
+      setBody("");
+      await onCommentAdded();
+    } catch (err) {
+      logError("ticketing", "addComment failed", ticket.id, err);
+      throw err;
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -57,9 +62,7 @@ export function TicketDetailView({
       <p className="description-text"><LinkedText text={ticket.description} /></p>
 
       <section>
-        <h3 className="field-label">
-          Messages {outbox.error && <span className="save-state failed" role="alert">{outbox.error}</span>}
-        </h3>
+        <h3>Messages</h3>
         <div className="comments">
           {ticket.comments.map((comment) =>
             isStatusMessage(comment.body) ? (
@@ -75,12 +78,11 @@ export function TicketDetailView({
               </div>
             )
           )}
-          <OutgoingComments items={outbox.items} author="You" />
-          {ticket.comments.length === 0 && outbox.items.length === 0 && <div className="empty-state">No messages.</div>}
+          {ticket.comments.length === 0 && <div className="empty-state">No messages.</div>}
         </div>
         <form className="comment-form" onSubmit={submitComment}>
           <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="Message" required />
-          <button className="primary" disabled={!body.trim()}>
+          <button className="primary" disabled={submitting || !body.trim()}>
             <MessageSquarePlus size={18} aria-hidden="true" /> Send
           </button>
         </form>

@@ -1,6 +1,5 @@
 import { AlertTriangle, Pencil, Plus, Share2, X } from "lucide-react";
-import { useRef, useState, type ReactNode } from "react";
-import { useFlip } from "../../../flip";
+import { useState, type ReactNode } from "react";
 import { Help } from "../../../Help";
 import { featureForPath } from "../catalog";
 import { SCOPE_NOTE, type Resource, type Scope } from "../resources";
@@ -140,8 +139,6 @@ export function ReleaseGrid({
   const [editing, setEditing] = useState<string | null>(null);
   const { order, control, manual } = useGridSort(SORTS, "argocd.releaseSort");
   const sorted = order(cards);
-  const flipScope = useRef<HTMLDivElement>(null);
-  useFlip(flipScope, ".ag-card-shell");
   // Loose cards first, then one box per values sub-folder, each in sort order.
   const byGroup = new Map<string, ReleaseCard[]>();
   sorted.forEach((c) => byGroup.set(c.group ?? "", [...(byGroup.get(c.group ?? "") ?? []), c]));
@@ -359,8 +356,6 @@ export function ReleaseGrid({
           </Help>
         </div>
       )}
-      {/* No box of its own (`display: contents`) — it only scopes the glide. */}
-      <div ref={flipScope} style={{ display: "contents" }}>
       <div className="ag-card-grid" aria-label="Microservices">
 
       {loose.map(renderCard)}
@@ -414,7 +409,6 @@ export function ReleaseGrid({
           <div className="ag-card-grid">{inGroup.map(renderCard)}</div>
         </div>
       ))}
-      </div>
     </>
   );
 }

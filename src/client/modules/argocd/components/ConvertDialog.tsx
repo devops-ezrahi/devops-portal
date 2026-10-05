@@ -1,5 +1,4 @@
 import { FileCode2, Package, TriangleAlert, Upload, X } from "lucide-react";
-import { Spinner } from "../../../Spinner";
 import { useEffect, useRef, useState } from "react";
 import { Help } from "../../../Help";
 import { convertManifests, listWorkloads, type Workload } from "../api";
@@ -314,7 +313,7 @@ export function ConvertDialog({
               Cancel
             </button>
             <button type="button" className="primary" disabled={!ready || busy} onClick={() => void handleConvert()}>
-              {busy ? <><Spinner /> Converting…</> : "Convert"}
+              {busy ? "Converting…" : "Convert"}
             </button>
           </div>
         </div>

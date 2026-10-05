@@ -1,5 +1,4 @@
 import { FlaskConical, FolderOpen, Link, Plus } from "lucide-react";
-import { FlipList } from "../../flip";
 import { ListSizeToggle } from "../../ListSizeToggle";
 import { useEffect, useMemo, useState } from "react";
 import { idFromPath, useDeepLink } from "../../deepLink";
@@ -29,7 +28,6 @@ const TEST_SCENARIOS: { value: ArtifactoryScenario; label: string }[] = [
 export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleViewProps) {
   const [activeTab, setActiveTab] = useState<Tab>("url-copy");
   const [jobs, setJobs] = useState<ArtifactoryJob[]>([]);
-  const [loaded, setLoaded] = useState(false);
   // From the URL on first paint, so /artifactory/ART-0007 opens that job.
   const [selectedJobId, setSelectedJobId] = useState<string | null>(() => idFromPath("artifactory"));
   // The list is log-free (server strips it — a finished job's log lives on the
@@ -57,8 +55,7 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
       .catch((err: Error) => {
         logError("artifactory", "listJobs failed", err);
         onError(err.message);
-      })
-      .finally(() => setLoaded(true));
+      });
   }
 
   useEffect(() => {
@@ -163,9 +160,8 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
             )}
           </div>
           <section className="ticket-list-panel" aria-label="Upload jobs">
-            <FlipList className="ticket-list">
+            <div className="ticket-list">
               <JobList
-                loaded={loaded}
                 jobs={visibleJobs}
                 onDelete={handleDelete}
                 selectedJobId={selectedJobId}
@@ -175,7 +171,7 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
                   setSelectedJobId((prev) => (prev === id ? null : id));
                 }}
               />
-            </FlipList>
+            </div>
           </section>
         </div>
 

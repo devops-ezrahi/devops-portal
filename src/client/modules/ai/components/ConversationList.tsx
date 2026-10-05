@@ -1,6 +1,4 @@
 import type { AiConversation } from "../../../../server/types";
-import { Loading } from "../../../Spinner";
-import { FlipList } from "../../../flip";
 import { RowDelete } from "../../../RowDelete";
 
 /**
@@ -15,13 +13,11 @@ export function ConversationList({
   activeId,
   onSwitchTo,
   onDelete,
-  loaded = true,
 }: {
   conversations: AiConversation[];
   activeId: string | null;
   onSwitchTo: (id: string) => void;
   onDelete: (id: string) => void;
-  loaded?: boolean;
 }) {
   const active = conversations.filter((c) => !c.archivedAt);
   const archived = conversations.filter((c) => c.archivedAt);
@@ -46,16 +42,16 @@ export function ConversationList({
   return (
     <>
       <section className="ticket-list-panel" aria-label="Chats">
-        <FlipList className="ticket-list">
-          {active.length === 0 && (loaded ? <div className="empty-state">No chats yet.</div> : <Loading what="chats" />)}
+        <div className="ticket-list">
+          {active.length === 0 && <div className="empty-state">No chats yet.</div>}
           {active.map(row)}
-        </FlipList>
+        </div>
       </section>
 
       {archived.length > 0 && (
         <details className="ticket-list-panel done-panel" aria-label="Archived chats">
           <summary>Archived</summary>
-          <FlipList className="ticket-list">{archived.map(row)}</FlipList>
+          <div className="ticket-list">{archived.map(row)}</div>
         </details>
       )}
     </>

@@ -1,5 +1,4 @@
 import { FileArchive, Upload, X } from "lucide-react";
-import { Spinner } from "../../../Spinner";
 import { useState } from "react";
 import { Help } from "../../../Help";
 import { log, warn, error as logError } from "../../../log";
@@ -91,8 +90,8 @@ export function ArchiveDropZone({ onSubmitted, onError }: Props) {
       )}
 
       <button type="submit" className="primary" disabled={!file || submitting}>
-        {submitting ? <Spinner size={18} /> : <Upload size={18} aria-hidden="true" />}
-        {submitting ? "Unpacking…" : "Unpack & Open PR"}
+        <Upload size={18} aria-hidden="true" />
+        {submitting ? "Unpacking..." : "Unpack & Open PR"}
       </button>
     </form>
   );

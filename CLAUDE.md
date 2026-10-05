@@ -77,12 +77,6 @@ the same signal (`SSO_REQUIRED` is not `true` — no proxy in front):
   offline. `pickableImages` reaches for it only when `SSO_REQUIRED` is not
   `true` **and** no real `JENKINS_IMAGES_PATH`/Artifactory is configured — a
   real lookup always wins, and a deployment never serves it.
-- `InMemoryTicketingApi`'s `updateLatencyMs` — `app.ts` passes 1500 when
-  `SSO_REQUIRED` is not `true`, so every admin ticket update takes about as
-  long as Jira does and the detail's per-field "Saving…" states can be seen.
-  Tests construct it without, at 0. The detail is optimistic: a stage, points,
-  owner or message shows at once, nothing else on the form is locked while it
-  saves, and a refusal reverts the field and names the reason beside it.
 - `modules/artifactory/devSimulation.ts` + `modules/whitening/devSimulation.ts` — scripted runs behind the **Test** button each module shows in dev. Nothing is seeded: the job lists start empty, and a run only exists once you press it. Both routers mount `POST /api/<module>/jobs/simulate` only when `SSO_REQUIRED` is not `true`, and the client only renders the button for the `dev` user. The scripts drive the real job map, log, progress and abort controller, so Stop works on them too. `src/server/devSimulate.test.ts` pins that the routes 404 once SSO is required.
 
 ## Config & environment

@@ -1,11 +1,8 @@
 import type { JenkinsfilePipeline } from "../../../../server/types";
-import { Loading } from "../../../Spinner";
 import { RowDelete } from "../../../RowDelete";
 
 type Props = {
   pipelines: JenkinsfilePipeline[];
-  /** False until the first list request settles — Loading, not "No … yet". */
-  loaded?: boolean;
   selectedId: string;
   isAdmin: boolean;
   onSelect: (id: string) => void;
@@ -13,9 +10,9 @@ type Props = {
 };
 
 /** Same row shape and size as every other module's list panel. */
-export function PipelineList({ pipelines, selectedId, isAdmin, onSelect, onDelete, loaded = true }: Props) {
+export function PipelineList({ pipelines, selectedId, isAdmin, onSelect, onDelete }: Props) {
   if (pipelines.length === 0) {
-    return loaded ? <div className="empty-state">No pipelines yet. Add a stage and this fills in — saving is automatic.</div> : <Loading what="pipelines" />;
+    return <div className="empty-state">No pipelines yet. Add a stage and this fills in — saving is automatic.</div>;
   }
 
   return (

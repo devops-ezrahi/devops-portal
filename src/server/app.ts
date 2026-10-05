@@ -19,7 +19,7 @@ import { sweepOldTmpDirs } from "./tmp";
 import type { ArtifactoryApi, AiApi, TicketingApi, WhiteningApi } from "./types";
 
 export function createApp(
-  ticketingApi: TicketingApi = config.jira.enabled ? new JiraTicketingApi(config.jira) : new InMemoryTicketingApi([], config.ssoRequired ? 0 : 1500),
+  ticketingApi: TicketingApi = config.jira.enabled ? new JiraTicketingApi(config.jira) : new InMemoryTicketingApi(),
   artifactoryApi: ArtifactoryApi = new RealArtifactoryApi(),
   whiteningApi: WhiteningApi = new RealWhiteningApi(),
   aiApi: AiApi = new RealAiApi()

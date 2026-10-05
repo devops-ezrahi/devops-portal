@@ -1,12 +1,8 @@
 import { RowDelete } from "../../../RowDelete";
-import { Loading } from "../../../Spinner";
-import { Spinner } from "../../../Spinner";
 import type { WhiteningJob, WhiteningJobStatus } from "../../../../server/types";
 
 type Props = {
   jobs: WhiteningJob[];
-  /** False until the first list request settles — Loading, not "No … yet". */
-  loaded?: boolean;
   selectedJobId: string | null;
   isAdmin: boolean;
   onSelect: (id: string) => void;
@@ -33,9 +29,9 @@ function statusLabel(status: WhiteningJobStatus): string {
   }
 }
 
-export function JobList({ jobs, selectedJobId, isAdmin, onSelect, onDelete, loaded = true }: Props) {
+export function JobList({ jobs, selectedJobId, isAdmin, onSelect, onDelete }: Props) {
   if (jobs.length === 0) {
-    return loaded ? <div className="empty-state">No jobs yet. Drop a pack above.</div> : <Loading what="jobs" />;
+    return <div className="empty-state">No jobs yet. Drop a pack above.</div>;
   }
 
   return (
@@ -50,7 +46,7 @@ export function JobList({ jobs, selectedJobId, isAdmin, onSelect, onDelete, load
           {job.status !== "pending" && job.status !== "in-progress" && (
             <RowDelete label={job.id} onDelete={() => onDelete(job.id)} />
           )}
-          <span className={statusClass(job.status)}>{(job.status === "pending" || job.status === "in-progress") && !job.pendingPreserve?.length && <Spinner size={11} />}{statusLabel(job.status)}</span>
+          <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
           <strong>{job.team}/{job.project}</strong>
           <div className="ticket-row-meta">
             <small>{job.archiveName}</small>
