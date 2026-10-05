@@ -31,12 +31,20 @@ type Props = {
 export const ImagesContext = createContext<PickableImage[]>([]);
 
 /**
+ * The map variables earlier Groovy cards declare (`def envs = [...]`), which a
+ * map argument can take in place of its own entries. Per stage, provided by
+ * `StageList` around each card, so it skips the five components in between.
+ */
+export const MapVarsContext = createContext<string[]>([]);
+
+/**
  * One argument of one stage, rendered by its kind. The value shapes here are
  * exactly what `groovy.ts` renders and what the server stores, so nothing is
  * translated on the way out.
  */
 export function ArgField({ spec, value, stepDefault, idPrefix, required, stashNames = [], onChange, onRemove }: Props) {
   const images = useContext(ImagesContext);
+  const mapVars = useContext(MapVarsContext);
   const id = `${idPrefix}-${spec.name}`;
   // The step's own default beats the catalog's generic example: sonarStage
   // really does fall back to `sonar`, and showing `python311` there would be a lie.
@@ -143,22 +151,10 @@ export function ArgField({ spec, value, stepDefault, idPrefix, required, stashNa
         ))}
 
       {spec.kind === "stringMap" &&
-        (typeof value === "string" ? (
-          // A variable standing in for the map (`envs`), as imported. Clearing it
-          // is how you get the rows back.
-          <input
-            type="text"
-            className="jf-expression"
-            aria-label={`${spec.name} (Groovy expression)`}
-            title="A Groovy expression — clear it to edit as a map"
-            spellCheck={false}
-            value={value}
-            onChange={(e) => onChange(e.target.value.trim() ? e.target.value : [])}
-          />
-        ) : spec.allowedKeys ? (
+        (spec.allowedKeys ? (
           <FixedKeys spec={spec} pairs={pairsOf(value)} onChange={onChange} />
         ) : (
-          <MapRows spec={spec} pairs={pairsOf(value)} onChange={onChange} onDropArg={onRemove} />
+          <MapSource spec={spec} id={id} value={value} mapVars={mapVars} onChange={onChange} onDropArg={onRemove} />
         ))}
 
       {spec.kind === "objectList" && (
@@ -320,6 +316,83 @@ function StashPicker({
         </label>
       ))}
     </div>
+  );
+}
+
+/**
+ * A map argument is either typed out as entries or handed a map variable a
+ * Groovy card declares (`populateEnvVars(envs)`) — the same one-argument,
+ * two-shapes switch `commands` has. A string value *is* the variable form,
+ * which is what `groovy.ts` writes verbatim and `parse.ts` reads back.
+ */
+function MapSource({
+  spec,
+  id,
+  value,
+  mapVars,
+  onChange,
+  onDropArg,
+}: {
+  spec: ArgSpec;
+  id: string;
+  value: unknown;
+  mapVars: string[];
+  onChange: (value: unknown) => void;
+  onDropArg?: () => void;
+}) {
+  const isVar = typeof value === "string";
+  const held = isVar && (value as string).trim() && !mapVars.includes(value as string) ? [value as string] : [];
+  const options = [...mapVars, ...held];
+
+  function choose(variable: boolean) {
+    if (variable === isVar) return;
+    // Entries do not carry across: a variable is a name, not the pairs in it.
+    // Nothing is pre-picked — an empty string is "variable, none chosen yet".
+    onChange(variable ? "" : []);
+  }
+
+  return (
+    <>
+      <div className="jf-segmented jf-commands-kind" role="group" aria-label={`${spec.name} source`}>
+        <button type="button" className={isVar ? "" : "active"} aria-pressed={!isVar} onClick={() => choose(false)}>
+          Entries
+        </button>
+        <button type="button" className={isVar ? "active" : ""} aria-pressed={isVar} onClick={() => choose(true)}>
+          Map variable
+        </button>
+      </div>
+      {isVar ? (
+        // Picked like `unstash` is: one press, from what earlier cards declare.
+        // A name none of them declares any more (or an imported expression)
+        // stays listed and marked, so it can be swapped rather than vanish.
+        options.length ? (
+          <div className="jf-picker jf-picker-column" role="radiogroup" aria-label={`${spec.name} map variable`}>
+            {options.map((name) => (
+              <label className="jf-checkbox" key={name}>
+                <input
+                  type="radio"
+                  name={id}
+                  aria-label={`${spec.name} ${name}`}
+                  checked={value === name}
+                  // onClick, not onChange: a radio fires no change when it is
+                  // already on, and pressing the chosen one again un-picks it.
+                  onClick={() => onChange(value === name ? "" : name)}
+                  readOnly
+                />
+                {name}
+                {!mapVars.includes(name) && <span className="jf-kind">not declared above</span>}
+              </label>
+            ))}
+          </div>
+        ) : (
+          <p className="jf-note">
+            No map declared above this card. Add a Groovy card before it, e.g. <code>def envs = [SERVICE: 'x']</code>.
+          </p>
+        )
+      ) : (
+        <MapRows spec={spec} pairs={pairsOf(value)} onChange={onChange} onDropArg={onDropArg} />
+      )}
+    </>
   );
 }
 

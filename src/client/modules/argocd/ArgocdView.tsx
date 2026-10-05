@@ -11,8 +11,7 @@ import {
   TriangleAlert,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ListSizeToggle } from "../../ListSizeToggle";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ArgocdTree } from "../../../server/types";
 import { log, error as logError } from "../../log";
@@ -46,6 +45,7 @@ import {
   type DraftTree,
 } from "./document";
 import { Help } from "../../Help";
+import { ListSizeToggle } from "../../ListSizeToggle";
 import { addedKinds, resourcesOf } from "./resources";
 import {
   applyDefaultsDemotion,
@@ -198,16 +198,17 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     });
   }
   const sectionClass = (section: string) => `ag-section${folded.has(section) ? " folded" : ""}`;
-  const foldButton = (section: string, label: string) => (
+  /** The heading's own text is inside the button, so the whole title folds — not just the chevron. */
+  const foldButton = (section: string, text: ReactNode) => (
     <button
       type="button"
       className="ag-fold"
       aria-expanded={!folded.has(section)}
-      aria-label={`${folded.has(section) ? "Show" : "Hide"} ${label}`}
       title={folded.has(section) ? "Show" : "Hide"}
       onClick={() => toggleFold(section)}
     >
       <ChevronDown size={14} aria-hidden="true" />
+      {text}
     </button>
   );
 
@@ -1198,6 +1199,31 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 </details>
               )}
             </div>
+            {/* The diff sits right under the repositories it compares against.
+                At the bottom, under a 5 000px editor, pressing a file opened
+                its scope and threw the page back up to it. */}
+            <div className={sectionClass("files")}>
+              <FilePreview
+                fold={(title) => foldButton("files", title)}
+                files={files}
+                onDownload={handleDownload}
+                repo={repoFiles}
+                comparing={comparing}
+                error={baselineError}
+                deletes={!!subPath.trim()}
+                onOpenFile={openFile}
+                actions={
+                  <CommitButton
+                    blocked={gitBlocked(draft, gitEnabled)}
+                    saved={!!draft.id}
+                    push={push}
+                    what="tree"
+                    onCommit={() => void handleCommit()}
+                  />
+                }
+                notice={<PushResult push={push} what="tree" />}
+              />
+            </div>
             {/* Namespaces first, microservices second. The namespace is the
                 wider choice — it says which environment everything below is
                 about — and a microservice card read differently depending on a
@@ -1226,8 +1252,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 onReorder={reorderNamespaces}
                 heading={
                   <h3 className="ag-grid-head">
-                    {foldButton("namespaces", "namespaces")}
-                    Namespaces
+                    {foldButton("namespaces", "Namespaces")}
                     <Help label="a namespace">
                       <p>Which layer the form below edits: the shared base, or one namespace's overrides.</p>
                       <p>A namespace runs every microservice in the tree; its entry carries only what it changes.</p>
@@ -1243,8 +1268,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
               <ReleaseGrid
                 heading={
                   <h3 className="ag-grid-head">
-                    {foldButton("microservices", "microservices")}
-                    Microservices
+                    {foldButton("microservices", "Microservices")}
                     <Help label="a microservice card">
                       <p>One card per microservice, listing the Kubernetes objects it puts in the cluster.</p>
                       <p>
@@ -1332,12 +1356,14 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
               <div className={sectionClass("editor")}>
                 <div className="ag-scope-actions">
                   <h3 className="ag-grid-head">
-                    {foldButton("editor", "the values editor")}
-                    {editingDefaults
-                      ? `${nsName} defaults`
-                      : layer === BASE
-                        ? `Base — ${release?.name.trim() || "this microservice"}`
-                        : `${release?.name.trim() || "this microservice"} in ${nsName}`}
+                    {foldButton(
+                      "editor",
+                      editingDefaults
+                        ? `${nsName} defaults`
+                        : layer === BASE
+                          ? `Base — ${release?.name.trim() || "this microservice"}`
+                          : `${release?.name.trim() || "this microservice"} in ${nsName}`,
+                    )}
                     <Help
                       label={
                         editingDefaults ? "namespace defaults" : layer === BASE ? "the base values" : "this microservice here"
@@ -1358,13 +1384,14 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                         <p>
                           Only what differs for this microservice in {nsName}; the chart's own defaults are left out of
                           the file. <strong>Namespace only</strong> shows just what this file sets.{" "}
-                          <strong>Combined</strong> shows the whole deployed document: its base and {nsName}'s defaults
+                          <strong>Full config</strong> shows the whole deployed document: its base and {nsName}'s defaults
                           greyed under each card, and the switch to turn a base feature off in {nsName} alone.
                         </p>
                       )}
                     </Help>
                   </h3>
                   {!editingDefaults && layer !== BASE && (
+                    <>
                     <div className="jf-segmented ag-values-view" role="radiogroup" aria-label="Values shown">
                       <button
                         type="button"
@@ -1382,9 +1409,21 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                         className={valuesView === "combined" ? "active" : ""}
                         onClick={() => setValuesView("combined")}
                       >
-                        Combined
+                        Full config
                       </button>
                     </div>
+                    <Help label="the values view">
+                        <p>
+                          <strong>Namespace only</strong> — just what <code>{nsName}/values/{release?.name.trim() || "<ms>"}.yaml</code>{" "}
+                          sets. Nothing else is shown.
+                        </p>
+                        <p>
+                          <strong>Full config</strong> — everything this microservice deploys with in {nsName}: every
+                          feature, with its base and {nsName}'s defaults greyed underneath. Switch here to add a feature or
+                          turn a base one off in {nsName}.
+                        </p>
+                      </Help>
+                    </>
                   )}
                   <button type="button" className="ghost-button" onClick={() => setImportOpen(true)}>
                     <FileUp size={16} aria-hidden="true" /> Import values
@@ -1413,6 +1452,8 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   // under it. What is written is the same either way — the layers
                   // below only change what is shown and what unticking can mean.
                   inherited={valuesView === "combined" ? inherited : undefined}
+                  // ...and only the features that file sets, not the forty-odd it could.
+                  compact={!editingDefaults && layer !== BASE && valuesView === "namespace"}
                   onOpenInherited={(from) => (from === "nsDefaults" ? openDefaults() : setLayer(BASE))}
                   problems={problems}
                   onChange={setFeatures}
@@ -1422,8 +1463,8 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
               </div>
             )}
 
-            <div className={sectionClass("files")}>
-              {problems.length > 0 && (
+            {problems.length > 0 && (
+              <div className="ag-section">
                 <ul className="ag-problems">
                   {problems.map((p) => (
                     // A problem is about a field, and reading it used to leave
@@ -1444,28 +1485,8 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                     </li>
                   ))}
                 </ul>
-              )}
-              <FilePreview
-                fold={foldButton("files", "the files")}
-                files={files}
-                onDownload={handleDownload}
-                repo={repoFiles}
-                comparing={comparing}
-                error={baselineError}
-                deletes={!!subPath.trim()}
-                onOpenFile={openFile}
-                actions={
-                  <CommitButton
-                    blocked={gitBlocked(draft, gitEnabled)}
-                    saved={!!draft.id}
-                    push={push}
-                    what="tree"
-                    onCommit={() => void handleCommit()}
-                  />
-                }
-                notice={<PushResult push={push} what="tree" />}
-              />
-            </div>
+              </div>
+            )}
           </section>
         </div>
       </div>

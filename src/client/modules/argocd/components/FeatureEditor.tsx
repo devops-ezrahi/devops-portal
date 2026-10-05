@@ -66,6 +66,7 @@ export function FeatureEditor({
   defaultsLabel = "this namespace's defaults",
   onRemoveOverride,
   inherited,
+  compact,
   onOpenInherited,
   problems,
   onChange,
@@ -101,6 +102,8 @@ export function FeatureEditor({
    * reading the whole document means reading it in one place.
    */
   inherited?: Record<string, Inherited[]>;
+  /** Show only the features this layer sets — the Namespace only view. Adding one is Full config's job. */
+  compact?: boolean;
   /** Where a fragment is editable. Pressing the note above it goes there. */
   onOpenInherited?: (from: InheritedFrom) => void;
   /** The checks for this scope, so the one about a field is also beside it. */
@@ -282,11 +285,19 @@ export function FeatureEditor({
     onChange({ ...features, [id]: { ...state, on: true, v: { ...state.v, [key]: value } } });
   }
 
+  // ponytail: compact filters on `on` alone — a feature only switched off here is
+  // `on` with `enabled: false`, so it still shows.
+  const visible = (spec: FeatureSpec) => !compact || !!features[spec.id]?.on;
+  const required = REQUIRED.filter(visible);
+  const empty = compact && !required.length && !OPTIONAL.some(visible) && !extraValues.trim();
+
   return (
     <div className="ag-features">
+      {empty && <p className="ag-off-note">This file sets nothing. Switch to Full config to add a value.</p>}
+      {required.length > 0 && (
       <section className="ag-category" aria-label="Required">
         <h4 className="ag-category-name ag-required-head">Required</h4>
-        {REQUIRED.map((spec) => (
+        {required.map((spec) => (
           <div className={`ag-feature on ag-feature-required${tone(spec.id)}`} key={spec.id} data-feature-card={spec.id}>
             <div className="ag-feature-head">
               <span className="ag-feature-name">{spec.name}</span>
@@ -310,9 +321,10 @@ export function FeatureEditor({
           </div>
         ))}
       </section>
+      )}
 
       {CATEGORIES.map((cat) => {
-        const specs = OPTIONAL.filter((f) => f.cat === cat.id);
+        const specs = OPTIONAL.filter((f) => f.cat === cat.id && visible(f));
         if (!specs.length) return null;
         const count = specs.filter((spec) => {
           const s = status(spec.id);
@@ -393,6 +405,7 @@ export function FeatureEditor({
         );
       })}
 
+      {(!compact || extraValues.trim()) && (
       <section className="ag-category" aria-label="Extra values">
         <h4 className="ag-category-name">
           Extra values
@@ -415,6 +428,7 @@ export function FeatureEditor({
         />
         {extraError && <p className="ag-error">{extraError}</p>}
       </section>
+      )}
     </div>
   );
 }

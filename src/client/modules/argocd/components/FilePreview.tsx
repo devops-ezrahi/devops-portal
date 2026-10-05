@@ -58,8 +58,8 @@ type Props = {
   notice?: ReactNode;
   /** A file was pressed — the builder opens the scope that writes it. */
   onOpenFile?: (path: string) => void;
-  /** The section's fold toggle, first in the heading. */
-  fold?: ReactNode;
+  /** Wraps the heading's title in the section's fold toggle, so the whole title folds. */
+  fold?: (title: ReactNode) => ReactNode;
 };
 
 export function FilePreview({ files, onDownload, repo, comparing, deletes = false, error, actions, notice, onOpenFile, fold }: Props) {
@@ -156,13 +156,14 @@ export function FilePreview({ files, onDownload, repo, comparing, deletes = fals
     <div className="ag-preview">
       <div className="ag-preview-head">
         <h3>
-          {fold}
-          {diffing
-            ? `Changes vs the repository (${changed.length})`
-            : // "All files" rather than "Generated files" once the repository is
-              // known: the list then also holds what the repo has and this tree
-              // does not, which nothing here generated.
-              `${repo ? "All" : "Generated"} files (${entries.length})`}
+          {(fold ?? ((t: ReactNode) => t))(
+            diffing
+              ? `Changes vs the repository (${changed.length})`
+              : // "All files" rather than "Generated files" once the repository is
+                // known: the list then also holds what the repo has and this tree
+                // does not, which nothing here generated.
+                `${repo ? "All" : "Generated"} files (${entries.length})`,
+          )}
           {comparing && <span className="ag-file-note"> · reading the repository…</span>}
         </h3>
         <div className="ag-preview-actions">
@@ -200,31 +201,30 @@ export function FilePreview({ files, onDownload, repo, comparing, deletes = fals
           read, so there is nothing to compare against. {error}
         </p>
       )}
+      {/* Nothing changed: just the sentence, not an empty file list beside it. */}
+      {!file ? (
+        <p className="empty-state">This tree already matches the repository — nothing to commit.</p>
+      ) : (
       <div className="ag-preview-body">
         <ul className="ag-file-list" aria-label={diffing ? "Changed files" : "Generated files"}>
           {render(tree, 0)}
         </ul>
         <div className="ag-file-pane">
-          {file ? (
-            <>
-              {/* The path and what the file is for, once, above the file — rather
-                  than repeated down a column that has no room for it. */}
-              <p className="ag-file-path">
-                {file.path} <span className="ag-file-note">{file.note}</span>
-              </p>
-              {file.status === "modified" ? (
-                <Diff before={file.repoText ?? ""} after={file.text} />
-              ) : (
-                <pre className="ag-file-body">
-                  <code>{body}</code>
-                </pre>
-              )}
-            </>
+          {/* The path and what the file is for, once, above the file — rather
+              than repeated down a column that has no room for it. */}
+          <p className="ag-file-path">
+            {file.path} <span className="ag-file-note">{file.note}</span>
+          </p>
+          {file.status === "modified" ? (
+            <Diff before={file.repoText ?? ""} after={file.text} />
           ) : (
-            <p className="empty-state">This tree already matches the repository — nothing to commit.</p>
+            <pre className="ag-file-body">
+              <code>{body}</code>
+            </pre>
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

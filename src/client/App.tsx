@@ -1,4 +1,4 @@
-import { RefreshCcw } from "lucide-react";
+import { ArrowUp, RefreshCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   getMe,
@@ -271,6 +271,30 @@ export function App() {
             ))
         )}
       </main>
+      <ScrollTopButton />
     </div>
+  );
+}
+
+/** Appears once the page is scrolled past a screen's worth; takes it back to the top. */
+function ScrollTopButton() {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setShown(window.scrollY > window.innerHeight);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+  // Always mounted so it can slide out as well as in; `inert` keeps the hidden one out of tab order.
+  return (
+    <button
+      type="button"
+      className={`scroll-top${shown ? " shown" : ""}`}
+      inert={!shown}
+      aria-label="Back to top"
+      title="Back to top"
+      onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+    >
+      <ArrowUp size={20} aria-hidden="true" />
+    </button>
   );
 }

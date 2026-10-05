@@ -2,7 +2,8 @@ import { ChevronsDownUp, ChevronsUpDown, Columns2, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Help } from "../../../Help";
 import { SINGLETON_STEPS, STEPS, UNBOXED_STEPS } from "../catalog";
-import { moveStage, pairsOf, stageId } from "../pipeline";
+import { mapVariables, moveStage, pairsOf, stageId } from "../pipeline";
+import { MapVarsContext } from "./ArgField";
 import { StageCard } from "./StageCard";
 import type { JenkinsfileStage } from "../../../../server/types";
 
@@ -74,8 +75,15 @@ export function StageList({ stages, errors, onToggle, onCollapseAll, onReorder, 
    */
   const stashesBefore: string[][] = [];
   const seen: string[] = [];
+  // Likewise the map variables earlier Groovy cards declare — what a map
+  // argument (populateEnvVars) can take instead of typing its entries.
+  const mapsBefore: string[][] = [];
+  const maps: string[] = [];
   for (const stage of stages) {
     stashesBefore.push([...seen]);
+    mapsBefore.push([...maps]);
+    if (stage.step === "groovy")
+      for (const name of mapVariables(String(stage.args.code ?? ""))) if (!maps.includes(name)) maps.push(name);
     for (const [name] of pairsOf(stage.args.stash)) {
       if (name.trim() && !seen.includes(name.trim())) seen.push(name.trim());
     }
@@ -174,8 +182,8 @@ export function StageList({ stages, errors, onToggle, onCollapseAll, onReorder, 
     const open = !stage.collapsed;
     const here = (index: number) => drop?.index === index && drop.group === segment.group;
     return (
+      <MapVarsContext.Provider key={stage.id} value={mapsBefore[i]}>
       <StageCard
-        key={stage.id}
         stage={stage}
         index={i}
         errors={errors[stage.id] ?? []}
@@ -208,6 +216,7 @@ export function StageList({ stages, errors, onToggle, onCollapseAll, onReorder, 
         onLeave={() => onLeave(stage.id)}
         onRemove={() => onRemove(stage.id)}
       />
+      </MapVarsContext.Provider>
     );
   }
 

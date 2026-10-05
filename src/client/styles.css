@@ -409,6 +409,31 @@ textarea {
   background: rgb(var(--c-0b0f12));
 }
 
+/* Back to top: slides up from below once App.tsx sees the page a screen down.
+   Accent-tinted rather than solid, so it is visible without shouting. */
+.scroll-top {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgb(var(--c-9fe4dc) / 40%);
+  border-radius: 999px;
+  background: rgb(var(--c-172226) / 95%);
+  backdrop-filter: blur(4px);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 40%);
+  color: rgb(var(--c-9fe4dc));
+  opacity: 0;
+  transform: translateY(80px);
+  transition: transform 0.25s ease-out, opacity 0.25s ease-out, color 0.15s, border-color 0.15s;
+}
+
+.scroll-top.shown { opacity: 1; transform: none }
+.scroll-top.shown:hover { background: rgb(var(--c-9fe4dc) / 18%); border-color: rgb(var(--c-9fe4dc) / 70%) }
+
 .app-header {
   position: sticky;
   top: 0;
@@ -946,9 +971,10 @@ button:focus-visible {
   box-shadow: 0 0 0 3px rgb(var(--c-20c7bd) / 16%);
 }
 
-/* A clicked checkbox keeps the ring until you click elsewhere, which reads as a
+/* A clicked checkbox or radio keeps the ring until you click elsewhere, which reads as a
    box drawn around it. Keyboard focus still gets one. */
-input[type="checkbox"]:focus:not(:focus-visible) {
+input[type="checkbox"]:focus:not(:focus-visible),
+input[type="radio"]:focus:not(:focus-visible) {
   outline: none;
   box-shadow: none;
 }
@@ -3004,6 +3030,12 @@ code {
   gap: 6px 14px;
 }
 
+/* The map-variable picker: one choice, read top to bottom. */
+.jf-picker-column {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
 .jf-picker .jf-checkbox {
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 12px;
@@ -3781,7 +3813,8 @@ code {
   font-size: 13px;
 }
 
-.jf-arg .jf-checkbox input[type="checkbox"] {
+.jf-arg .jf-checkbox input[type="checkbox"],
+.jf-arg .jf-checkbox input[type="radio"] {
   width: 15px;
   height: 15px;
   min-height: 0;
@@ -3861,6 +3894,9 @@ code {
 
 .jf-preview-head h2 {
   margin-bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .jf-preview-title {
@@ -4861,11 +4897,29 @@ input.jf-title {
   color: rgb(var(--c-6f8088));
 }
 
-.ag-grid-sort select {
-  width: auto;
+.ag-grid-sort { position: relative }
+
+.ag-sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-height: 0;
   padding: 3px 8px;
+  border: 1px solid rgb(var(--c-2a3940));
+  border-radius: 6px;
+  background: rgb(var(--c-0d1316));
+  color: rgb(var(--c-f4f7f8));
   font-size: 12px;
+  font-weight: 400;
+}
+
+.ag-sort-button:hover { border-color: rgb(var(--c-20c7bd) / 60%) }
+
+.ag-sort-menu {
+  width: auto;
+  min-width: 170px;
+  padding: 6px;
+  font-size: 13px;
 }
 
 .ag-card-shell[draggable="true"] > .ag-card { cursor: grab }
@@ -5867,20 +5921,31 @@ label.ag-add { cursor: pointer }
   color: rgb(var(--c-6f8088));
 }
 
-.ag-scope-actions .ag-grid-head { margin: 0; margin-right: auto }
+.ag-scope-actions .ag-grid-head { margin: 0; margin-right: auto; min-width: 0 }
+/* A long title wraps; the pill and the buttons beside it never do. */
+.ag-scope-actions > :not(.ag-grid-head) { flex-shrink: 0 }
+.ag-scope-actions > .jf-segmented, .ag-scope-actions > button { white-space: nowrap }
 
 /* A section folded to its heading row: everything else in it is put away. */
+/* The whole title is the toggle, not just the chevron beside it — and it
+   reads as the plain heading it was: no hover fill, no press-in, the
+   heading's own letter-spacing and case (a button resets both). */
 .ag-fold {
   display: inline-flex;
-  padding: 2px;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
   border: 0;
   background: none;
   color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
   cursor: pointer;
-  border-radius: 4px;
 }
 
-.ag-fold:hover { background: rgb(var(--c-9fe4dc) / 8%) }
+.ag-fold:active { transform: none }
 .ag-fold svg { transition: transform 0.15s }
 .ag-fold[aria-expanded="false"] svg { transform: rotate(-90deg) }
 
@@ -5892,6 +5957,7 @@ label.ag-add { cursor: pointer }
 
 .ag-scope-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
   margin-top: 10px;
 }
@@ -6258,4 +6324,102 @@ label.ag-add { cursor: pointer }
 
 .theme-accent.selected .theme-accent-dot {
   box-shadow: 0 0 0 2px rgb(var(--c-0c1215)), 0 0 0 4px rgb(var(--c-cfd8dc));
+}
+
+/* The custom colour: a rainbow until chosen (ThemePicker.tsx). */
+.theme-accent-custom {
+  background: conic-gradient(#e05560, #e0b040, #4cc76a, #20c7bd, #3f7fe0, #9a5ae0, #e05560);
+}
+
+/* The custom-accent editor (ColorPicker.tsx), drawn in the menu's own
+   panel colours rather than the OS's colour dialog. */
+.color-picker {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid rgb(var(--c-2a3940));
+  border-radius: 9px;
+  background: rgb(var(--c-0c1215));
+}
+
+.color-area {
+  position: relative;
+  height: 120px;
+  border-radius: 7px;
+  background-image: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.color-hue {
+  position: relative;
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.color-thumb {
+  position: absolute;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.35), 0 1px 4px rgb(0 0 0 / 0.4);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.color-area:focus-visible,
+.color-hue:focus-visible {
+  outline: 2px solid rgb(var(--c-20c7bd));
+  outline-offset: 2px;
+}
+
+.color-hex-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.color-swatch {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgb(var(--c-2a3940));
+  border-radius: 7px;
+}
+
+.color-hex {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 9px;
+  border: 1px solid rgb(var(--c-2a3940));
+  border-radius: 7px;
+  background: rgb(var(--c-101a1e));
+  color: rgb(var(--c-8d9ba2));
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+}
+
+.color-hex input {
+  width: 100%;
+  min-height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgb(var(--c-f4f7f8));
+  font: inherit;
+  text-transform: lowercase;
+  outline: none;
+}
+
+.color-hex:focus-within {
+  border-color: rgb(var(--c-20c7bd));
 }

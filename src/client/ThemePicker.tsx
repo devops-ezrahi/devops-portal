@@ -1,6 +1,7 @@
 import { Check, Palette } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { ACCENTS, ROLE, THEMES, applyTheme, cssColor, loadChoice, saveChoice, type ThemeChoice } from "./theme";
+import { ColorPicker } from "./ColorPicker";
+import { ACCENTS, DEFAULT_CHOICE, ROLE, THEMES, applyTheme, cssColor, loadChoice, saveChoice, type ThemeChoice } from "./theme";
 
 // The header's theme menu. Every swatch is drawn with the colours that choice
 // would actually paint — a theme row previews its page, panel, text and accent
@@ -99,7 +100,35 @@ export function ThemePicker() {
                 </button>
               );
             })}
+            {/* The last circle is the custom colour: a rainbow until chosen,
+                then exactly the colour picked, with the editor opened below. */}
+            <button
+              role="menuitemradio"
+              aria-checked={choice.accent === "custom"}
+              aria-label="Custom colour"
+              title="Custom colour"
+              className={`theme-accent${choice.accent === "custom" ? " selected" : ""}`}
+              onClick={() => pick({ ...choice, accent: "custom" })}
+            >
+              <span
+                className="theme-accent-dot theme-accent-custom"
+                style={
+                  choice.accent === "custom"
+                    ? { background: cssColor(ROLE.accent, choice), color: cssColor(ROLE.onAccent, choice) }
+                    : undefined
+                }
+              >
+                {choice.accent === "custom" && <Check size={13} aria-hidden="true" />}
+              </span>
+              <span className="theme-accent-label">Custom</span>
+            </button>
           </div>
+          {choice.accent === "custom" && (
+            <ColorPicker
+              value={choice.custom ?? DEFAULT_CHOICE.custom!}
+              onChange={(hex) => pick({ ...choice, accent: "custom", custom: hex })}
+            />
+          )}
         </div>
       )}
     </div>

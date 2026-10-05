@@ -135,6 +135,7 @@ describe("ArgocdView", () => {
   });
 
   it("writes a namespace edit into that namespace, not into the base", async () => {
+    localStorage.setItem("argocd.valuesView", "combined"); // adding a feature is Full config's job
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
@@ -156,6 +157,7 @@ describe("ArgocdView", () => {
   });
 
   it("shows the checks against the document that scope actually deploys", async () => {
+    localStorage.setItem("argocd.valuesView", "combined"); // adding a feature is Full config's job
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
@@ -318,7 +320,7 @@ describe("ArgocdView", () => {
     expect(screen.queryByText("Service", { selector: ".ag-feature-name" })).toBeNull();
     expect(document.querySelector(".ag-inherited")).toBeNull();
 
-    fireEvent.click(screen.getByRole("radio", { name: "Combined" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Full config" }));
     expect(box().checked).toBe(true);
     expect(localStorage.getItem("argocd.valuesView")).toBe("combined");
   });
@@ -860,6 +862,7 @@ describe("ArgocdView", () => {
   });
 
   it("offers nameOverride per namespace, not in base — but still shows one base already has", async () => {
+    localStorage.setItem("argocd.valuesView", "combined"); // adding a feature is Full config's job
     const tree = saved({
       releases: [{ id: "r1", name: "storefront", features: { identity: { on: true, v: {} } } }],
       namespaces: [{ name: "prod", releases: [] }],
