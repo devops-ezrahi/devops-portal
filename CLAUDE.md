@@ -1211,10 +1211,11 @@ defaults of its own.
     the per-namespace warning asked made all six namespaces identical, which
     offered it straight back — the two findings undid each other forever.
 - **A namespace's microservice opens on its own file.** The editor's
-  *Namespace only* / *Combined* switch (per viewer, `argocd.valuesView`,
+  *Namespace only* / *Full config* switch (per viewer, `argocd.valuesView`,
   default *Namespace only*) decides whether the layers below are shown: Namespace
   only passes no `inherited` to `FeatureEditor`, so the cards are exactly what
-  `<ns>/values/<ms>.yaml` sets and a tick means "this file sets it". Combined is
+  `<ns>/values/<ms>.yaml` sets — features it does not set, empty categories and
+  an empty Extra values are not shown at all (`compact`). Full config is
   the whole deployed document described below, and the only place a base
   feature can be switched off in one namespace. What is written is the same.
 - **What a microservice inherits in a namespace is on its own card, greyed,

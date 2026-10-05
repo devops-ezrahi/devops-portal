@@ -1358,7 +1358,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                         <p>
                           Only what differs for this microservice in {nsName}; the chart's own defaults are left out of
                           the file. <strong>Namespace only</strong> shows just what this file sets.{" "}
-                          <strong>Combined</strong> shows the whole deployed document: its base and {nsName}'s defaults
+                          <strong>Full config</strong> shows the whole deployed document: its base and {nsName}'s defaults
                           greyed under each card, and the switch to turn a base feature off in {nsName} alone.
                         </p>
                       )}
@@ -1382,8 +1382,19 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                         className={valuesView === "combined" ? "active" : ""}
                         onClick={() => setValuesView("combined")}
                       >
-                        Combined
+                        Full config
                       </button>
+                      <Help label="the values view">
+                        <p>
+                          <strong>Namespace only</strong> — just what <code>{nsName}/values/{release?.name.trim() || "<ms>"}.yaml</code>{" "}
+                          sets. Nothing else is shown.
+                        </p>
+                        <p>
+                          <strong>Full config</strong> — everything this microservice deploys with in {nsName}: every
+                          feature, with its base and {nsName}'s defaults greyed underneath. Switch here to add a feature or
+                          turn a base one off in {nsName}.
+                        </p>
+                      </Help>
                     </div>
                   )}
                   <button type="button" className="ghost-button" onClick={() => setImportOpen(true)}>
@@ -1413,6 +1424,8 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   // under it. What is written is the same either way — the layers
                   // below only change what is shown and what unticking can mean.
                   inherited={valuesView === "combined" ? inherited : undefined}
+                  // ...and only the features that file sets, not the forty-odd it could.
+                  compact={!editingDefaults && layer !== BASE && valuesView === "namespace"}
                   onOpenInherited={(from) => (from === "nsDefaults" ? openDefaults() : setLayer(BASE))}
                   problems={problems}
                   onChange={setFeatures}
