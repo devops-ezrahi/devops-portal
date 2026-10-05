@@ -5927,22 +5927,25 @@ label.ag-add { cursor: pointer }
 .ag-scope-actions > .jf-segmented, .ag-scope-actions > button { white-space: nowrap }
 
 /* A section folded to its heading row: everything else in it is put away. */
-/* The whole title is the toggle, not just the chevron beside it. */
+/* The whole title is the toggle, not just the chevron beside it — and it
+   reads as the plain heading it was: no hover fill, no press-in, the
+   heading's own letter-spacing and case (a button resets both). */
 .ag-fold {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 6px 2px 2px;
+  padding: 0;
   border: 0;
   background: none;
   color: inherit;
   font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
   text-align: left;
   cursor: pointer;
-  border-radius: 4px;
 }
 
-.ag-fold:hover { background: rgb(var(--c-9fe4dc) / 8%) }
+.ag-fold:active { transform: none }
 .ag-fold svg { transition: transform 0.15s }
 .ag-fold[aria-expanded="false"] svg { transform: rotate(-90deg) }
 
