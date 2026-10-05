@@ -37,6 +37,7 @@ import {
   classify,
   downloadUrl,
   helmTargetPath,
+  isMavenChecksum,
   mavenCoordsFromPom,
   mavenLayoutPath,
   mavenSiblingUrl,
@@ -137,34 +138,58 @@ async function listFilesRecursive(root: string): Promise<string[]> {
 }
 
 /**
- * The prefix a dropped Maven tree sits under, `""` when it is already at the
- * root of the drop. Stripping it is what keeps a groupId from picking up the
- * folders above the tree: `m2/org/apache/commons/...` otherwise deploys as
- * groupId `m2.org.apache.commons`, a path nothing resolves from and one
- * Artifactory answers with a 409 when the pom disagrees with it.
+ * What the poms in a drop say about where everything beside them belongs.
  *
- * Learned from the first pom whose own coordinates line up with where it sits —
- * the pom says the group, the path says where it is, and the difference is the
- * prefix. One prefix for the whole drop: an `~/.m2/repository` has one root.
- * With no pom in the drop there is nothing to learn from and the path is taken
- * as-is, exactly as before.
+ * `byDir` maps each version folder (`…/<artifactId>/<version>`) holding a pom
+ * for those coordinates to the pom's own coordinates, and every file in that
+ * folder is placed by them — the pom is the authority, never the folders above
+ * it. A groupId cannot be read off a path: a prefix learned once per drop and
+ * stripped from every path is one wrong segment away from
+ * `vladsch/flexmark/…` for `com.vladsch.flexmark`, which Artifactory answers
+ * with a 409 for the pom and leaves the jar where nothing resolves it.
+ *
+ * `prefix` is the folders the tree is nested under, learned from the first pom
+ * whose coordinates also line up with where it sits — `m2/org/apache/commons/…`
+ * otherwise deploys as groupId `m2.org.apache.commons`. It only places the
+ * files in a folder with no pom of its own; `""` when the tree is already at
+ * the root of the drop, or there is no pom to learn from.
  */
-async function mavenTreePrefix(sourceDir: string, relPaths: string[]): Promise<string> {
-  for (const path of relPaths) {
-    if (!path.toLowerCase().endsWith(".pom")) continue;
-    let coords;
+async function mavenPoms(
+  sourceDir: string,
+  relPaths: string[]
+): Promise<{ byDir: Map<string, MavenCoords>; prefix: string }> {
+  const byDir = new Map<string, MavenCoords>();
+  let prefix: string | null = null;
+  const poms = relPaths.filter((p) => p.toLowerCase().endsWith(".pom")).sort();
+  const read = new Map<string, MavenCoords | null>();
+  await pool(poms, SNIFF_CONCURRENCY, async (path) => {
     try {
-      coords = mavenCoordsFromPom(await readFile(join(sourceDir, path), "utf8"));
+      read.set(path, mavenCoordsFromPom(await readFile(join(sourceDir, path), "utf8")));
     } catch {
+      read.set(path, null);
+    }
+  });
+  // In path order, so which pom teaches the prefix does not depend on which
+  // read finished first.
+  for (const path of poms) {
+    const coords = read.get(path);
+    if (!coords) continue;
+    const segments = path.split("/");
+    // The folder must be this pom's own `<artifactId>/<version>`, and the file
+    // its `<artifactId>-<version>.pom` — a stray pom dropped somewhere else
+    // vouches for nothing around it.
+    if (segments.length < 3) continue;
+    if (segments[segments.length - 3] !== coords.artifactId || segments[segments.length - 2] !== coords.version) {
       continue;
     }
-    if (!coords) continue;
-    const depth = mavenRootDepth(path, coords);
-    // A pom that disagrees with its own path teaches nothing — keep looking.
-    if (depth === null) continue;
-    return path.split("/").slice(0, depth).join("/");
+    if (segments[segments.length - 1] !== `${coords.artifactId}-${coords.version}.pom`) continue;
+    byDir.set(segments.slice(0, -1).join("/"), coords);
+    if (prefix === null) {
+      const depth = mavenRootDepth(path, coords);
+      if (depth !== null) prefix = segments.slice(0, depth).join("/");
+    }
   }
-  return "";
+  return { byDir, prefix: prefix ?? "" };
 }
 
 export class RealArtifactoryApi implements ArtifactoryApi {
@@ -1000,12 +1025,21 @@ export class RealArtifactoryApi implements ArtifactoryApi {
     // Everything below is classified by filename except Maven, which is
     // classified by where the file sits — so the folders above the tree have
     // to come off first.
-    const mavenPrefix = await mavenTreePrefix(sourceDir, loose);
+    const { byDir: pomDirs, prefix: mavenPrefix } = await mavenPoms(sourceDir, loose);
     if (mavenPrefix) {
       this.appendLog(jobId, `Maven repository root: ${mavenPrefix}/ — stripped from the target paths.`);
     }
-    const target = (path: string) =>
-      mavenPrefix && path.startsWith(`${mavenPrefix}/`) ? path.slice(mavenPrefix.length + 1) : path;
+    const target = (path: string) => {
+      const coords = pomDirs.get(dirname(path));
+      if (coords) return mavenLayoutPath(coords, basename(path));
+      return mavenPrefix && path.startsWith(`${mavenPrefix}/`) ? path.slice(mavenPrefix.length + 1) : path;
+    };
+
+    // Said once, as a count: a `.m2` carries two per artifact.
+    const checksums = loose.filter(isMavenChecksum).length;
+    if (checksums > 0) {
+      this.appendLog(jobId, `Skipping ${checksums} checksum file(s) — Artifactory computes its own on upload.`);
+    }
 
     let unrelated = 0;
     let looseCount = loose.length;
@@ -1020,6 +1054,7 @@ export class RealArtifactoryApi implements ArtifactoryApi {
     // Order inside `loose` carries no meaning: uploadFiles dedupes by target
     // path, and no two loose files share one.
     await pool(loose, SNIFF_CONCURRENCY, async (path) => {
+      if (isMavenChecksum(path)) return;
       const found = classify(target(path), log);
       if (found) {
         // Already a finished artifact — nothing to pack, upload it as it is.

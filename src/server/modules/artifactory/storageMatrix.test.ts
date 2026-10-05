@@ -413,11 +413,38 @@ describe("the pom decides the Maven target, not the path", () => {
 
     expect(job.status).toBe("completed");
     expect([...uploaded.keys()].sort()).toEqual([
+      // The .sha1 is not uploaded: a PUT to it is Artifactory's "set the
+      // checksum of bar-1.0.jar", which 404s when the jar has not landed yet.
       "maven-local/org/foo/bar/1.0/bar-1.0.jar",
-      "maven-local/org/foo/bar/1.0/bar-1.0.jar.sha1",
       "maven-local/org/foo/bar/1.0/bar-1.0.pom",
     ]);
     expect(job.log).toContain("Maven repository root: deps/.m2/repository/ — stripped from the target paths.");
+    expect(job.log).toContain("Skipping 1 checksum file(s) — Artifactory computes its own on upload.");
+  });
+
+  // Each version folder's own pom places everything in it, so a tree whose
+  // folders do not spell the groupId — or a prefix learned from some other
+  // pom in the drop — cannot move `com.vladsch.flexmark` to `vladsch/flexmark`.
+  it("folder upload: a folder's own pom places its files, whatever the folders above say", async () => {
+    const job = await folderUpload(
+      {
+        ".m2/repository/org/foo/bar/1.0/bar-1.0.pom": pom("org.foo", "bar", "1.0"),
+        ".m2/repository/vladsch/flexmark/flexmark-util/0.42.14/flexmark-util-0.42.14.jar": Buffer.from("JAR"),
+        ".m2/repository/vladsch/flexmark/flexmark-util/0.42.14/flexmark-util-0.42.14.pom": pom(
+          "com.vladsch.flexmark",
+          "flexmark-util",
+          "0.42.14"
+        ),
+      },
+      "m2"
+    );
+
+    expect(job.status).toBe("completed");
+    expect([...uploaded.keys()].sort()).toEqual([
+      "maven-local/com/vladsch/flexmark/flexmark-util/0.42.14/flexmark-util-0.42.14.jar",
+      "maven-local/com/vladsch/flexmark/flexmark-util/0.42.14/flexmark-util-0.42.14.pom",
+      "maven-local/org/foo/bar/1.0/bar-1.0.pom",
+    ]);
   });
 
   it("folder upload: a tree already at the root is left alone", async () => {

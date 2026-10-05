@@ -2,6 +2,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import express from "express";
 import { createApp } from "./app.js";
+import { loadKnownUsers } from "./auth.js";
 import { installProcessLogging, log } from "./log.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -12,6 +13,7 @@ const port = Number(process.env.PORT ?? 8080);
 const clientDist = path.join(__dirname, "../client");
 
 installProcessLogging();
+loadKnownUsers();
 
 const app = createApp();
 

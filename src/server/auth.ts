@@ -1,5 +1,8 @@
 import type { NextFunction, Request, Response } from "express";
+import { mkdirSync, readFileSync } from "fs";
+import { join } from "path";
 import { config } from "./config";
+import { writeJsonAtomic } from "./jobStore";
 import { log } from "./log";
 import type { AssigneeCandidate, PortalUser } from "./types";
 
@@ -176,7 +179,7 @@ export async function requireSession(req: Request, res: Response, next: NextFunc
   }
 
   if (!knownUsers.has(req.user!.id)) {
-    log.info("auth", "first request from user this process has seen", {
+    log.info("auth", "first request from a user the portal has not seen", {
       id: req.id,
       user: req.user!.id,
       name: req.user!.displayName,
@@ -200,12 +203,16 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-// ponytail: self-populating directory (who's logged in since this process
-// started) rather than querying Keycloak's group-membership admin API. Good
-// enough for "pick a ticket owner from the team" on a small roster; the
-// ceiling is that someone who hasn't logged in yet won't show up until they
-// do. Upgrade path: query GET /admin/realms/{realm}/groups/{id}/members via
-// a Keycloak service-account client if that gap ever actually matters.
+// ponytail: self-populating directory (everyone who has ever logged in)
+// rather than querying Keycloak's group-membership admin API. Good enough for
+// "pick a ticket owner from the team" on a small roster; the ceiling is that
+// someone who hasn't logged in yet won't show up until they do. Upgrade path:
+// query GET /admin/realms/{realm}/groups/{id}/members via a Keycloak
+// service-account client if that gap ever actually matters.
+//
+// It is kept in `<DATA_DIR>/users.json` (`loadKnownUsers`), not memory alone:
+// held only in memory, every release emptied the assignee dropdown until each
+// admin happened to open the portal again.
 const knownUsers = new Map<string, PortalUser>();
 // The same people indexed by SSO username, because ids coming back from Jira
 // are usernames while ids coming from the proxy are subject UUIDs, and both
@@ -218,11 +225,52 @@ function lookup(id: string) {
   return knownUsers.get(id) ?? usersByUsername.get(id);
 }
 
-export function rememberUser(user: PortalUser) {
+/** Set by `loadKnownUsers`; unset (tests, a bare `createApp()`) keeps the directory in memory only. */
+let usersFile: string | null = null;
+/** One write at a time, so two first logins in one tick cannot interleave temp files and renames. */
+let saving: Promise<void> = Promise.resolve();
+
+function index(user: PortalUser) {
   knownUsers.set(user.id, user);
   if (user.username) {
     usersByUsername.set(user.username, user);
   }
+}
+
+/**
+ * Read the directory a previous process left in `dataDir`, and keep it there
+ * from now on. A missing file is a first boot; an unreadable one is logged and
+ * the directory starts empty, as it always used to, rather than refusing to boot.
+ */
+export function loadKnownUsers(dataDir: string = config.dataDir) {
+  usersFile = join(dataDir, "users.json");
+  mkdirSync(dataDir, { recursive: true });
+  try {
+    const saved = JSON.parse(readFileSync(usersFile, "utf8")) as PortalUser[];
+    for (const user of saved) if (user?.id) index(user);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      log.error("auth", "could not read the user directory — starting empty", err);
+    }
+  }
+  log.info("auth", "user directory loaded", {
+    file: usersFile,
+    users: knownUsers.size,
+    admins: [...knownUsers.values()].filter(isAdmin).length,
+  });
+}
+
+export function rememberUser(user: PortalUser) {
+  const before = knownUsers.get(user.id);
+  index(user);
+  // Called on every request; only a new person or a changed name/group list
+  // is worth a write.
+  if (!usersFile || (before && JSON.stringify(before) === JSON.stringify(user))) return;
+  const file = usersFile;
+  const snapshot = [...knownUsers.values()];
+  saving = saving
+    .then(() => writeJsonAtomic(file, snapshot))
+    .catch((err) => log.error("auth", "could not save the user directory", err));
 }
 
 /**
