@@ -43,4 +43,9 @@ describe("themed", () => {
     expect(lum(themed("041113", { theme: "dark", accent: "custom", custom: "ffb000" }))).toBeLessThan(30);
     expect(lum(themed("041113", { theme: "dark", accent: "custom", custom: "1a2a6c" }))).toBeGreaterThan(240);
   });
+
+  it("uses each preset's own light-theme colour as the light accent", () => {
+    expect(themed("20c7bd", { theme: "light", accent: "orange" })).toEqual([234, 88, 12]);
+    expect(lum(themed("041113", { theme: "light", accent: "orange" }))).toBeGreaterThan(240);
+  });
 });

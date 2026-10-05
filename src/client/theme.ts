@@ -13,15 +13,17 @@ export const THEMES: { id: ThemeId; label: string }[] = [
 ];
 
 // The hue each accent turns the teal family to. Teal is the palette as written.
-// "custom" is not listed: its hue comes from the colour the user picked.
-export const ACCENTS: { id: Exclude<AccentId, "custom">; label: string; hue: number }[] = [
-  { id: "teal", label: "Teal", hue: 175 },
-  { id: "green", label: "Green", hue: 140 },
-  { id: "blue", label: "Blue", hue: 212 },
-  { id: "violet", label: "Violet", hue: 266 },
-  { id: "pink", label: "Pink", hue: 326 },
-  { id: "orange", label: "Orange", hue: 24 },
-  { id: "red", label: "Red", hue: 0 },
+// "custom" is not listed: it is the colour the user picked.
+// `light` is the accent itself on the light theme, chosen by hand: the
+// dark-theme accent darkened and hue-turned came out muddy (orange went brown).
+export const ACCENTS: { id: Exclude<AccentId, "custom">; label: string; hue: number; light: string }[] = [
+  { id: "teal", label: "Teal", hue: 175, light: "0d9488" },
+  { id: "green", label: "Green", hue: 140, light: "16a34a" },
+  { id: "blue", label: "Blue", hue: 212, light: "2563eb" },
+  { id: "violet", label: "Violet", hue: 266, light: "7c3aed" },
+  { id: "pink", label: "Pink", hue: 326, light: "db2777" },
+  { id: "orange", label: "Orange", hue: 24, light: "ea580c" },
+  { id: "red", label: "Red", hue: 0, light: "dc2626" },
 ];
 
 // `custom` is the picked colour as a 6-digit hex, kept even while a preset is
@@ -118,16 +120,18 @@ export function themed(hex: string, choice: ThemeChoice): [number, number, numbe
   }
 
   let [h, s, l] = shade(hex, theme);
-  if (accent === "custom" && isHex(custom)) {
-    // The picked colour *is* the accent; every tint and hover shade keeps its
+  const preset = ACCENTS.find((a) => a.id === accent);
+  const exact = accent === "custom" ? (isHex(custom) ? custom : null) : theme === "light" ? preset?.light : null;
+  if (exact) {
+    // This colour *is* the accent; every tint and hover shade keeps its
     // distance from it. Shades near the accent move with its lightness, the
     // far tints (selected-row backgrounds) hardly at all.
-    const [ph, ps, pl] = rgbToHsl(hexToRgb(custom));
+    const [ph, ps, pl] = rgbToHsl(hexToRgb(exact));
     const [, bs, bl] = shade(ROLE.accent, theme);
     const near = Math.max(0, 1 - Math.abs(l - bl) / 0.35);
     return hslToRgb([ph, clamp(s * (ps / bs)), clamp(l + (pl - bl) * near)]);
   }
-  const target = ACCENTS.find((a) => a.id === accent)?.hue ?? TEAL;
+  const target = preset?.hue ?? TEAL;
   return hslToRgb([(h + target - TEAL + 360) % 360, s, l]);
 }
 
