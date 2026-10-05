@@ -366,7 +366,7 @@ function MapSource({
         // A name none of them declares any more (or an imported expression)
         // stays listed and marked, so it can be swapped rather than vanish.
         options.length ? (
-          <div className="jf-picker" role="radiogroup" aria-label={`${spec.name} map variable`}>
+          <div className="jf-picker jf-picker-column" role="radiogroup" aria-label={`${spec.name} map variable`}>
             {options.map((name) => (
               <label className="jf-checkbox" key={name}>
                 <input
