@@ -44,7 +44,7 @@ export const IMPORTER_DIR = "gitops-factory";
  * Each namespace is pulled on its own, so its microservices only see its docs.
  */
 const SPLIT_DUMP = `
-import json, re, subprocess, sys, types, yaml
+import json, os, re, subprocess, sys, types, yaml
 sys.path.insert(0, sys.argv[1])
 import namespace_importer as ni
 dump, default_ns, out, failures = sys.argv[2:6]
@@ -55,6 +55,7 @@ for ns in by_ns:
     if not re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", ns):
         sys.exit(f"metadata.namespace '{ns}' is not a Kubernetes namespace name")
 docs = []
+notes = []
 def run_oc(args):
     kind = ni.RESOURCE_PLURAL_TO_KIND.get(args[1].split(".")[0])
     name = args[2] if len(args) > 2 and not args[2].startswith("-") else None
@@ -65,7 +66,6 @@ def run_oc(args):
         raise subprocess.CalledProcessError(1, args, stderr="referenced, but not in the pasted YAML")
     return types.SimpleNamespace(stdout=yaml.safe_dump(hits[0]))
 ni.run_oc = run_oc
-import os
 def written(ns):
     seen = set()
     for root, _, names in os.walk(os.path.join(out, ns)):
@@ -83,19 +83,29 @@ for ns, ns_docs in by_ns.items():
     # One namespace the importer cannot use (a stray ConfigMap whose
     # metadata.namespace names another one: "No workloads found") used to end
     # the whole run, and the paste's every other namespace with it.
+    stopped = None
     try:
         ni.handle_full_namespace(ns, types.SimpleNamespace(output=out))
     except SystemExit as e:
-        ni.FETCH_FAILURES.append(f"Namespace '{ns}': not converted — {e.code if isinstance(e.code, str) else 'the importer stopped'}")
+        stopped = e.code if isinstance(e.code, str) else "the importer stopped"
+    # A paste is all app: what the selective pull skipped (config no pod
+    # mounts, Roles, cluster-scoped kinds, a workload no app label found) is
+    # filed into the converter's input rather than reported lost. Older chart
+    # revisions have no file_unclaimed, and keep the report below.
+    if hasattr(ni, "file_unclaimed"):
+        notes.extend(f"{n} (namespace {ns})" for n in ni.file_unclaimed(os.path.join(out, ns), ns_docs))
+    elif stopped:
+        ni.FETCH_FAILURES.append(f"Namespace '{ns}': not converted — {stopped}")
         continue
     # What the paste held that never reached the converter's input — a
     # DeploymentConfig, an ImageStream, hand-made Endpoints — is named, not lost.
     kept = written(ns)
     for d in ns_docs:
         key = (d.get("kind"), (d.get("metadata") or {}).get("name"))
-        if key[0] and key not in kept:
+        if key[0] and key not in kept and key[0] not in getattr(ni, "UNCLAIMED_SKIP_KINDS", ()) \
+                and not any(n.startswith(f"{key[0]}/{key[1]}:") for n in notes):
             ni.FETCH_FAILURES.append(f"{key[0]}/{key[1]} (namespace {ns}): in the pasted YAML, but not carried into the conversion")
-open(failures, "w", encoding="utf-8").write(json.dumps(ni.FETCH_FAILURES))
+open(failures, "w", encoding="utf-8").write(json.dumps(ni.FETCH_FAILURES + notes))
 `;
 
 export type ConvertInput = {
@@ -132,6 +142,28 @@ async function run(cmd: string, args: string[], cwd: string, what: string): Prom
     // The last lines are where Python and helm say what went wrong.
     const detail = String(e.stderr || e.message).trim().split("\n").slice(-6).join("\n");
     throw new Error(`${what} failed: ${redactSecrets(detail)}`);
+  }
+}
+
+/**
+ * `run`, but a non-zero exit is a result rather than an error — the converter
+ * exits 1 when its verification finds a problem, after writing the tree.
+ */
+async function runChecked(
+  cmd: string,
+  args: string[],
+  cwd: string,
+  what: string
+): Promise<{ failed: boolean; output: string; tail: string }> {
+  try {
+    const { stdout, stderr } = await execFileAsync(cmd, args, { cwd, timeout: 300_000, maxBuffer: 50 * 1024 * 1024 });
+    return { failed: false, output: `${stdout}\n${stderr}`, tail: "" };
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException & { stdout?: string; stderr?: string; killed?: boolean };
+    if (e.code === "ENOENT") throw new Error(`${cmd} is not installed in this image, so ${what} cannot run`);
+    if (e.killed) throw new Error(`${what} timed out`);
+    const output = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
+    return { failed: true, output, tail: output.trim().split("\n").slice(-6).join("\n") || e.message };
   }
 }
 
@@ -205,12 +237,32 @@ export async function convertToUniversal(input: ConvertInput): Promise<ConvertRe
     await run(python, ["-c", SPLIT_DUMP, importer, join(dir, "dump.yaml"), input.namespace, join(dir, "in"), failures], dir, "Splitting the YAML");
     const warnings = JSON.parse(await readFile(failures, "utf8")) as string[];
 
-    // --skip-verify: verification renders every release through the chart with
-    // helm, which is a check for the converter's own CI, not for this request.
+    // Verified, not --skip-verify: the converter renders every release with
+    // helm and checks no two claim one object. Skipping it turned a tree that
+    // cannot render (Harbor's shared Ingress) or that two releases fight over
+    // (Kafka's ServiceAccount) into a quiet success that failed in Argo CD.
+    // A failed check still returns the tree — it is what the user edits to fix
+    // it — with the failure leading the warnings.
     const groups = (input.envGroups ?? []).flatMap((g) => ["--env-group", g]);
-    await run(python, [converter, "--input", join(dir, "in"), "--output", join(dir, "out"), "--skip-verify", ...groups], dir, "The converter");
+    const verify = await runChecked(
+      python,
+      [converter, "--input", join(dir, "in"), "--output", join(dir, "out"), "--chart", join(dir, "chart"), ...groups],
+      dir,
+      "The converter"
+    );
+    if (verify.failed && !(await access(join(dir, "out", "base")).then(() => true, () => false)))
+      throw new Error(`The converter failed: ${redactSecrets(verify.tail)}`);
 
     const files = await readTree(join(dir, "out"));
+    const conflicts = await readFile(join(dir, "out", "report", "render_conflicts.txt"), "utf8").catch(() => "");
+    const problems = [
+      ...conflicts.split("\n").map((l) => l.trim()).filter((l) => /CONFLICT/.test(l)),
+      ...verify.output.split("\n").map((l) => l.trim()).filter((l) => /^helm template failed|^RENDER FAILURE/.test(l)),
+    ];
+    if (verify.failed)
+      warnings.unshift(
+        ...(problems.length ? problems : [verify.tail]).map((l) => `Does not render cleanly — Argo CD would fail to sync this: ${redactSecrets(l)}`)
+      );
     const report = await readFile(join(dir, "out", "report", "conflicts_and_warnings.txt"), "utf8").catch(() => "");
     for (const l of report.split("\n").map((l) => l.trim())) if (l && !/^[=#-]+$/.test(l)) warnings.push(l);
     log.info("argocd", "converted", {

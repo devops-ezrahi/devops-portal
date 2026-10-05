@@ -90,7 +90,12 @@ export function checkValues(doc: Values, inBase = false): Problem[] {
   if (sharedRwo && replicas > 1 && workload === "deployment")
     bad(`A ReadWriteOnce PVC shared by ${replicas} replicas — the second pod stays Pending. Use ReadWriteMany, or a StatefulSet with volumeClaimTemplates.`, "pvc");
 
-  if (obj(doc.securityContext).readOnlyRootFilesystem) {
+  // Only for an image that is a language runtime or web server: those write a
+  // temp file early. A static binary (cert-manager, CoreDNS, KEDA, every Go
+  // controller) runs read-only with nothing at /tmp, and warning on it buried
+  // the warning in sixteen upstream charts that work.
+  const runtime = /(^|[/_-])(nginx|httpd|apache|tomcat|node|python|ruby|php|java|openjdk|jdk|jre|dotnet|aspnet|wordpress|drupal|ghost|moodle|jenkins|keycloak)([/:_.-]|$)/i;
+  if (obj(doc.securityContext).readOnlyRootFilesystem && runtime.test(String(obj(doc.image).repository ?? ""))) {
     const tmp = Object.values(obj(doc.volumeMounts)).some((m) => String(obj(m).mountPath ?? "").startsWith("/tmp"));
     if (!tmp) warn("readOnlyRootFilesystem: true with nothing mounted at /tmp. Most runtimes fail on their first temp file — add an emptyDir.", "mounts");
   }

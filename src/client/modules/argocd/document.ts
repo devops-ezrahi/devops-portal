@@ -180,5 +180,13 @@ export function mergeConverted(tree: DraftTree, imported: TreeImport): { tree: D
       releases: [...target.releases.filter((e) => !folded.some((f) => f.release === e.release)), ...folded],
     };
   }
-  return { tree: { ...tree, releases, namespaces }, replaced };
+  // The converter's own text for each file it wrote, so an untouched convert
+  // commits the converter's bytes (comments, quoting) instead of rewriting
+  // every file on the first Commit. buildTree uses a text only while the file
+  // still holds exactly those values, so a namespace folded into an existing
+  // one, or anything edited since, is written fresh. `keep` entries are files
+  // outside the model, and a convert has none worth committing.
+  const fresh = Object.fromEntries(Object.entries(imported.imported ?? {}).filter(([, f]) => !f.keep));
+  const importedFiles = Object.keys(fresh).length ? { ...(tree.imported ?? {}), ...fresh } : tree.imported;
+  return { tree: { ...tree, releases, namespaces, ...(importedFiles ? { imported: importedFiles } : {}) }, replaced };
 }
