@@ -11,7 +11,7 @@ import {
   TriangleAlert,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
 import type { ArgocdTree } from "../../../server/types";
 import { log, error as logError } from "../../log";
@@ -198,16 +198,17 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     });
   }
   const sectionClass = (section: string) => `ag-section${folded.has(section) ? " folded" : ""}`;
-  const foldButton = (section: string, label: string) => (
+  /** The heading's own text is inside the button, so the whole title folds — not just the chevron. */
+  const foldButton = (section: string, text: ReactNode) => (
     <button
       type="button"
       className="ag-fold"
       aria-expanded={!folded.has(section)}
-      aria-label={`${folded.has(section) ? "Show" : "Hide"} ${label}`}
       title={folded.has(section) ? "Show" : "Hide"}
       onClick={() => toggleFold(section)}
     >
       <ChevronDown size={14} aria-hidden="true" />
+      {text}
     </button>
   );
 
@@ -1203,7 +1204,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 its scope and threw the page back up to it. */}
             <div className={sectionClass("files")}>
               <FilePreview
-                fold={foldButton("files", "the files")}
+                fold={(title) => foldButton("files", title)}
                 files={files}
                 onDownload={handleDownload}
                 repo={repoFiles}
@@ -1251,8 +1252,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 onReorder={reorderNamespaces}
                 heading={
                   <h3 className="ag-grid-head">
-                    {foldButton("namespaces", "namespaces")}
-                    Namespaces
+                    {foldButton("namespaces", "Namespaces")}
                     <Help label="a namespace">
                       <p>Which layer the form below edits: the shared base, or one namespace's overrides.</p>
                       <p>A namespace runs every microservice in the tree; its entry carries only what it changes.</p>
@@ -1268,8 +1268,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
               <ReleaseGrid
                 heading={
                   <h3 className="ag-grid-head">
-                    {foldButton("microservices", "microservices")}
-                    Microservices
+                    {foldButton("microservices", "Microservices")}
                     <Help label="a microservice card">
                       <p>One card per microservice, listing the Kubernetes objects it puts in the cluster.</p>
                       <p>
@@ -1357,12 +1356,14 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
               <div className={sectionClass("editor")}>
                 <div className="ag-scope-actions">
                   <h3 className="ag-grid-head">
-                    {foldButton("editor", "the values editor")}
-                    {editingDefaults
-                      ? `${nsName} defaults`
-                      : layer === BASE
-                        ? `Base — ${release?.name.trim() || "this microservice"}`
-                        : `${release?.name.trim() || "this microservice"} in ${nsName}`}
+                    {foldButton(
+                      "editor",
+                      editingDefaults
+                        ? `${nsName} defaults`
+                        : layer === BASE
+                          ? `Base — ${release?.name.trim() || "this microservice"}`
+                          : `${release?.name.trim() || "this microservice"} in ${nsName}`,
+                    )}
                     <Help
                       label={
                         editingDefaults ? "namespace defaults" : layer === BASE ? "the base values" : "this microservice here"

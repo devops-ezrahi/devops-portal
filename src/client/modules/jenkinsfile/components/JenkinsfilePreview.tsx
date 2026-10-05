@@ -73,19 +73,20 @@ export function JenkinsfilePreview({ code, problems, problemCount, actions, noti
       <div className="jf-preview-head">
         <div className="jf-preview-title">
           <h2>
-            {onFold && (
+            {onFold ? (
               <button
                 type="button"
                 className="ag-fold"
                 aria-expanded={!folded}
-                aria-label={`${folded ? "Show" : "Hide"} the Jenkinsfile`}
                 title={folded ? "Show" : "Hide"}
                 onClick={onFold}
               >
                 <ChevronDown size={14} aria-hidden="true" />
+                Jenkinsfile
               </button>
+            ) : (
+              "Jenkinsfile"
             )}
-            Jenkinsfile
           </h2>
           <span className="jf-group-count">{lines} line{lines === 1 ? "" : "s"}</span>
         </div>
