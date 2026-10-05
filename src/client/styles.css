@@ -6260,22 +6260,100 @@ label.ag-add { cursor: pointer }
   box-shadow: 0 0 0 2px rgb(var(--c-0c1215)), 0 0 0 4px rgb(var(--c-cfd8dc));
 }
 
-/* The custom colour: a rainbow until picked. The native input covers the dot
-   invisibly, so a press anywhere on it opens the browser's own picker. */
-label.theme-accent {
-  cursor: pointer;
-}
-
+/* The custom colour: a rainbow until chosen (ThemePicker.tsx). */
 .theme-accent-custom {
-  position: relative;
-  background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red);
+  background: conic-gradient(#e05560, #e0b040, #4cc76a, #20c7bd, #3f7fe0, #9a5ae0, #e05560);
 }
 
-.theme-accent-custom input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
+/* The custom-accent editor (ColorPicker.tsx), drawn in the menu's own
+   panel colours rather than the OS's colour dialog. */
+.color-picker {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid rgb(var(--c-2a3940));
+  border-radius: 9px;
+  background: rgb(var(--c-0c1215));
+}
+
+.color-area {
+  position: relative;
+  height: 120px;
+  border-radius: 7px;
+  background-image: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.color-hue {
+  position: relative;
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
   cursor: pointer;
+  touch-action: none;
+}
+
+.color-thumb {
+  position: absolute;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.35), 0 1px 4px rgb(0 0 0 / 0.4);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.color-area:focus-visible,
+.color-hue:focus-visible {
+  outline: 2px solid rgb(var(--c-20c7bd));
+  outline-offset: 2px;
+}
+
+.color-hex-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.color-swatch {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgb(var(--c-2a3940));
+  border-radius: 7px;
+}
+
+.color-hex {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 9px;
+  border: 1px solid rgb(var(--c-2a3940));
+  border-radius: 7px;
+  background: rgb(var(--c-101a1e));
+  color: rgb(var(--c-8d9ba2));
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+}
+
+.color-hex input {
+  width: 100%;
+  min-height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgb(var(--c-f4f7f8));
+  font: inherit;
+  text-transform: lowercase;
+  outline: none;
+}
+
+.color-hex:focus-within {
+  border-color: rgb(var(--c-20c7bd));
 }

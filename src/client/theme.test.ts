@@ -33,4 +33,14 @@ describe("themed", () => {
     expect(r).toBeGreaterThan(g);
     expect(r).toBeGreaterThan(b);
   });
+
+  it("paints a custom accent as exactly the picked colour, in either theme", () => {
+    for (const theme of ["dark", "light"] as const) {
+      const c = { theme, accent: "custom", custom: "ffb000" } as const;
+      expect(themed("20c7bd", c)).toEqual([255, 176, 0]);
+    }
+    // text on it follows the button: dark on bright amber, white on deep navy
+    expect(lum(themed("041113", { theme: "dark", accent: "custom", custom: "ffb000" }))).toBeLessThan(30);
+    expect(lum(themed("041113", { theme: "dark", accent: "custom", custom: "1a2a6c" }))).toBeGreaterThan(240);
+  });
 });

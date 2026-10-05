@@ -71,41 +71,64 @@ const clamp = (v: number) => Math.min(1, Math.max(0, v));
 const isAccent = ([h, s]: Hsl) => h >= 160 && h <= 188 && s >= 0.38;
 const isNeutral = ([h, s]: Hsl) => s < 0.25 || (h >= 183 && h <= 215 && s < 0.45);
 
-/** One palette colour (its dark-theme hex) as the chosen theme paints it. */
-export function themed(hex: string, { theme, accent, custom }: ThemeChoice): [number, number, number] {
+/** A colour as the theme alone paints it — the accent still teal. */
+function shade(hex: string, theme: ThemeId): Hsl {
   let [h, s, l] = rgbToHsl(hexToRgb(hex));
-  const accentLike = isAccent([h, s, l]);
-  const neutral = !accentLike && isNeutral([h, s, l]);
-
   if (theme === "light" && hex !== "000000") {
-    if (accentLike && l < 0.1) {
-      // Text on an accent button. The button is darkened below, so near-black
-      // text on it reads as mud; white is what a deep accent carries.
-      l = 0.99;
-    } else if (s >= 0.4 && l >= 0.35 && l <= 0.68) {
+    if (s >= 0.4 && l >= 0.35 && l <= 0.68) {
       // A mid-tone colour (the accent, a status hue) is already a colour, not a
       // shade — inverting it would wash it out. Darken it enough to read on
       // white, and saturate the accent back up, since darkening greys it.
       l *= 0.75;
-      if (accentLike) s = clamp(s * 1.15);
+      if (isAccent([h, s, l])) s = clamp(s * 1.15);
     } else {
+      const neutral = isNeutral([h, s, l]) && !isAccent([h, s, l]);
       l = 1 - l;
       if (neutral) l = Math.pow(l, 1.25);
     }
   }
-  if (accentLike && accent !== "teal") {
-    const target = accent === "custom" ? customHue(custom) : ACCENTS.find((a) => a.id === accent)?.hue ?? TEAL;
-    h = (h + target - TEAL + 360) % 360;
-  }
-  if (theme === "dark" && accent === "teal") return hexToRgb(hex);
-  return hslToRgb([h, s, l]);
+  return [h, s, l];
 }
 
-// ponytail: only the hue of a picked colour is used — the accent family's
-// tints and hover shades keep their own lightness, so a picked grey or
-// near-black still comes out as a saturated accent of that hue.
-function customHue(custom?: string): number {
-  return /^[0-9a-f]{6}$/.test(custom ?? "") ? rgbToHsl(hexToRgb(custom!))[0] : TEAL;
+/** WCAG relative luminance, 0 (black) to 1 (white). */
+function luminance(rgb: [number, number, number]): number {
+  const [r, g, b] = rgb.map((v) => {
+    v /= 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+export const isHex = (v?: string): v is string => /^[0-9a-f]{6}$/.test(v ?? "");
+
+/** One palette colour (its dark-theme hex) as the chosen theme paints it. */
+export function themed(hex: string, choice: ThemeChoice): [number, number, number] {
+  const { theme, accent, custom } = choice;
+  if (theme === "dark" && accent === "teal") return hexToRgb(hex);
+
+  const src = rgbToHsl(hexToRgb(hex));
+  if (!isAccent(src)) return hslToRgb(shade(hex, theme));
+
+  if (src[2] < 0.1) {
+    // Text on an accent button: whichever of near-black or white reads on the
+    // button as painted. Biased to white (0.4, not the 0.18 crossover), which
+    // keeps dark text on bright teal but puts white on every deep accent.
+    const bg = themed(ROLE.accent, choice);
+    return luminance(bg) > 0.4 ? hslToRgb([rgbToHsl(bg)[0], 0.6, 0.06]) : [252, 252, 252];
+  }
+
+  let [h, s, l] = shade(hex, theme);
+  if (accent === "custom" && isHex(custom)) {
+    // The picked colour *is* the accent; every tint and hover shade keeps its
+    // distance from it. Shades near the accent move with its lightness, the
+    // far tints (selected-row backgrounds) hardly at all.
+    const [ph, ps, pl] = rgbToHsl(hexToRgb(custom));
+    const [, bs, bl] = shade(ROLE.accent, theme);
+    const near = Math.max(0, 1 - Math.abs(l - bl) / 0.35);
+    return hslToRgb([ph, clamp(s * (ps / bs)), clamp(l + (pl - bl) * near)]);
+  }
+  const target = ACCENTS.find((a) => a.id === accent)?.hue ?? TEAL;
+  return hslToRgb([(h + target - TEAL + 360) % 360, s, l]);
 }
 
 export function cssColor(hex: string, choice: ThemeChoice): string {
@@ -136,7 +159,7 @@ export function loadChoice(): ThemeChoice {
     return {
       theme: THEMES.some((t) => t.id === raw?.theme) ? raw.theme : DEFAULT_CHOICE.theme,
       accent: raw?.accent === "custom" || ACCENTS.some((a) => a.id === raw?.accent) ? raw.accent : DEFAULT_CHOICE.accent,
-      custom: /^[0-9a-f]{6}$/.test(raw?.custom ?? "") ? raw.custom : DEFAULT_CHOICE.custom,
+      custom: isHex(raw?.custom) ? raw.custom : DEFAULT_CHOICE.custom,
     };
   } catch {
     return DEFAULT_CHOICE;
