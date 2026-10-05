@@ -1,3 +1,4 @@
+import { Pop } from "../../../Pop";
 import { ChevronDown, ChevronRight, Copy, Download, FileText, Folder, FolderOpen, TriangleAlert } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { diffTree, diffValues, type FileStatus, type TreeEntry } from "../diff";
@@ -157,12 +158,14 @@ export function FilePreview({ files, onDownload, repo, comparing, deletes = fals
       <div className="ag-preview-head">
         <h3>
           {fold}
+          {/* The count ticks when a file joins or leaves the list — a discrete
+              event even while typing, unlike the YAML beside it. */}
           {diffing
-            ? `Changes vs the repository (${changed.length})`
+            ? <>Changes vs the repository (<Pop value={changed.length} variant="tick">{changed.length}</Pop>)</>
             : // "All files" rather than "Generated files" once the repository is
               // known: the list then also holds what the repo has and this tree
               // does not, which nothing here generated.
-              `${repo ? "All" : "Generated"} files (${entries.length})`}
+              <>{repo ? "All" : "Generated"} files (<Pop value={entries.length} variant="tick">{entries.length}</Pop>)</>}
           {comparing && <span className="ag-file-note"> · reading the repository…</span>}
         </h3>
         <div className="ag-preview-actions">

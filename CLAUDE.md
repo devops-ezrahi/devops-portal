@@ -1611,6 +1611,19 @@ per-module choices:
   browser (`localStorage["portal.theme"]`), applied in `main.tsx` before the
   first render. The menu's swatches are drawn through the same function, so
   they show the colours a choice actually paints.
+- **A value that changes in place acknowledges it once.** `Pop`/`usePop` in
+  `src/client/Pop.tsx` replays a brief WAAPI motion when its `value` changes —
+  `pop` (the scale a badge does: Submitted → In Review, In Progress → Failed,
+  Saving… → Saved) or `tick` (a 3px lift for a count). It compares with
+  `Object.is`, so pass the label or number, never the object: every poll hands
+  back fresh ones. **Never on mount** — thirty rows landing at once, or a
+  drawer opening, is not news; that is why the job drawers are keyed on the job
+  id. **Never per keystroke** — a value derived from what is being typed (a
+  preview, a problem list, a name) does not get one. A thing whose *arrival* is
+  the change is either always rendered and `hidden` (the unread dot, the theme
+  tick) or passes `appear` once its parent has settled (the `override` tag).
+  WAAPI, not a remount, so nothing inside loses DOM state; it checks
+  reduced-motion itself, as `flip.tsx` does.
 - **Links in a ticket are links.** `LinkedText` turns bare `http(s)` URLs and
   Jira's `[text|url]` / `[url]` markup in descriptions and messages into
   anchors that open in a new tab; any other scheme stays text.

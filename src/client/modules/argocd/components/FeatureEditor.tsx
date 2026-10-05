@@ -1,5 +1,6 @@
+import { Pop } from "../../../Pop";
 import { ArrowUpRight, ChevronDown, ChevronRight, Plus, TriangleAlert } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BY_ID, CATEGORIES, FEATURES, MORE_KEY, defaultValues, isRecord, primaryFields } from "../catalog";
 import { buildValues } from "../build";
 import { Help } from "../../../Help";
@@ -118,6 +119,12 @@ export function FeatureEditor({
    * a release nothing is set on yet, because the required block above is where
    * you start.
    */
+  // False through the first render: an override tag laid out with the editor
+  // is not news, one that turns up on a card already on screen is.
+  const settled = useRef(false);
+  useEffect(() => {
+    settled.current = true;
+  }, []);
   const [open, setOpen] = useState<Set<string>>(
     () => new Set(OPTIONAL.filter((f) => features[f.id]?.on || inherited?.[f.id]?.some((i) => i.state.on)).map((f) => f.cat))
   );
@@ -271,6 +278,7 @@ export function FeatureEditor({
     if (!of) return null;
     return (
       <OverrideLight
+        appear={settled.current}
         name={spec.name}
         where={[of.base && "base", of.defaults && defaultsLabel].filter(Boolean).join(" and ")}
         onRemove={() => removeOverride(spec.id)}
@@ -442,11 +450,14 @@ export function FeatureEditor({
 function OverrideLight({
   name,
   where,
+  appear,
   onRemove,
   onMoveOut,
   onMoveOutOfDefaults,
 }: {
   name: string;
+  /** Pop as it arrives — false while the editor's own first render lays every tag out. */
+  appear: boolean;
   /** The layer(s) holding the other copy — "base", "shop-prod defaults", or both. */
   where: string;
   onRemove: () => void;
@@ -454,7 +465,7 @@ function OverrideLight({
   onMoveOutOfDefaults?: () => void;
 }) {
   return (
-    <Help label={`the override on ${name}`} interactive trigger={<span className="ag-override-tag">override</span>}>
+    <Help label={`the override on ${name}`} interactive trigger={<Pop value appear={appear} className="ag-override-tag">override</Pop>}>
       <p>
         <strong>{name}</strong> is set both here and in {where}, to different values — two sources for one value, and
         this one wins.

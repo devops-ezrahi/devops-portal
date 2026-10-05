@@ -1,3 +1,4 @@
+import { Pop } from "../../../Pop";
 import { LinkedText } from "./LinkedText";
 import { OutgoingComments, useOutbox } from "./Outbox";
 import { MessageSquarePlus } from "lucide-react";
@@ -34,10 +35,10 @@ export function TicketDetailView({
     <article className="ticket-detail">
       <div className="detail-heading">
         <div className="badge-row">
-          <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
-          <span className={priorityClass(ticket.priority)} title={`Response within ${priorityResponseHours[ticket.priority]} hours`}>
+          <Pop value={ticket.stage} className={stageClass(ticket.stage)}>{ticket.stage}</Pop>
+          <Pop value={ticket.priority} className={priorityClass(ticket.priority)} title={`Response within ${priorityResponseHours[ticket.priority]} hours`}>
             {ticket.priority}
-          </span>
+          </Pop>
           {ticket.url ? (
           <a className="detail-id" href={ticket.url} target="_blank" rel="noreferrer" title="Open in Jira">
             {ticket.id}

@@ -1,3 +1,4 @@
+import { Pop } from "../../../Pop";
 import { LinkedText } from "./LinkedText";
 import { Spinner } from "../../../Spinner";
 import { OutgoingComments, useOutbox } from "./Outbox";
@@ -169,10 +170,10 @@ export function AdminTicketDetail({
   return (
     <article className="ticket-detail">
       <div className="badge-row">
-        <span key={stage} className={`${stageClass(stage)} badge-swap`}>{stage}</span>
-        <span className={priorityClass(ticket.priority)} title={`Response within ${priorityResponseHours[ticket.priority]} hours`}>
+        <Pop value={stage} className={stageClass(stage)}>{stage}</Pop>
+        <Pop value={ticket.priority} className={priorityClass(ticket.priority)} title={`Response within ${priorityResponseHours[ticket.priority]} hours`}>
           {ticket.priority}
-        </span>
+        </Pop>
         {ticket.url ? (
           <a className="detail-id" href={ticket.url} target="_blank" rel="noreferrer" title="Open in Jira">
             {ticket.id}
@@ -370,23 +371,18 @@ function useSaving() {
   return [states, track] as const;
 }
 
+// ponytail: one element across all three states, so Saving… → Saved pops on
+// the node that was already there (the first "Saving…" just fades in).
 function SaveState({ state }: { state: FieldState }) {
   if (!state) return null;
-  if (state === "saving")
-    return (
-      <span className="save-state" role="status">
-        <Spinner size={12} /> Saving…
-      </span>
-    );
-  if (state === "saved")
-    return (
-      <span className="save-state saved" role="status">
-        <Check size={12} aria-hidden="true" /> Saved
-      </span>
-    );
+  const kind = state === "saving" || state === "saved" ? state : "failed";
   return (
-    <span className="save-state failed" role="alert">
-      {state}
-    </span>
+    <Pop
+      value={kind}
+      className={kind === "saving" ? "save-state" : `save-state ${kind}`}
+      role={kind === "failed" ? "alert" : "status"}
+    >
+      {kind === "saving" ? <><Spinner size={12} /> Saving…</> : kind === "saved" ? <><Check size={12} aria-hidden="true" /> Saved</> : state}
+    </Pop>
   );
 }

@@ -1,3 +1,4 @@
+import { Pop } from "../../../Pop";
 import { AlertTriangle, Pencil, Plus, Share2, X } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 import { useFlip } from "../../../flip";
@@ -96,7 +97,7 @@ function Chip({
       title={title ?? names?.join(", ")}
     >
       {kind}
-      {names && names.length > 1 && <b> ×{names.length}</b>}
+      {names && names.length > 1 && <b> ×<Pop value={names.length} variant="tick">{names.length}</Pop></b>}
     </span>
   );
 }
@@ -263,7 +264,7 @@ export function ReleaseGrid({
         )}
         {card.overrides.count > 0 && (
           <span className="ag-card-foot">
-            overridden in {card.overrides.count} of {card.overrides.total} namespaces
+            overridden in <Pop value={card.overrides.count} variant="tick">{card.overrides.count}</Pop> of {card.overrides.total} namespaces
           </span>
         )}
       </>

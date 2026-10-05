@@ -1,3 +1,4 @@
+import { Pop } from "../../../Pop";
 import { CircleStop, TriangleAlert } from "lucide-react";
 import { Spinner } from "../../../Spinner";
 import { useState } from "react";
@@ -111,7 +112,7 @@ export function JobDetail({ job, onStop, onResolvePreserve }: Props) {
     <article className="ticket-detail">
       <div className="detail-heading">
         <div className="badge-row">
-          <span className={statusClass(job.status)}>{(job.status === "pending" || job.status === "in-progress") && !job.pendingPreserve?.length && <Spinner size={11} />}{statusLabel(job.status)}</span>
+          <Pop value={job.status} className={statusClass(job.status)}>{(job.status === "pending" || job.status === "in-progress") && !job.pendingPreserve?.length && <Spinner size={11} />}{statusLabel(job.status)}</Pop>
           <span className="detail-id">{job.id}</span>
         </div>
         <div className="detail-title-row">
@@ -180,7 +181,7 @@ export function JobDetail({ job, onStop, onResolvePreserve }: Props) {
               >
                 <summary>
                   {group.step}
-                  <span className="job-log-count">{group.lines.length}</span>
+                  <Pop value={group.lines.length} variant="tick" className="job-log-count">{group.lines.length}</Pop>
                 </summary>
                 <pre className="job-log-body">
                   {group.lines.map((line, n) => (

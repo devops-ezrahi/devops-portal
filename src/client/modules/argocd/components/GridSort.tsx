@@ -1,3 +1,4 @@
+import { Pop } from "../../../Pop";
 import { Check, ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 
@@ -64,7 +65,7 @@ function SortMenu<T>({ sorts, value, onChange, hidden }: { sorts: Sorts<T>; valu
     <div className="ag-grid-sort" ref={root} style={hidden ? { visibility: "hidden" } : undefined}>
       Sort
       <button type="button" className="ag-sort-button" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        {sorts[value].label}
+        <Pop value={value}>{sorts[value].label}</Pop>
         <ChevronDown size={13} aria-hidden="true" />
       </button>
       {open && (

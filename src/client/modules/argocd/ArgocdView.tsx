@@ -1,3 +1,4 @@
+import { Pop } from "../../Pop";
 import { zipSync, strToU8 } from "fflate";
 import { FlipList } from "../../flip";
 import {
@@ -1075,13 +1076,13 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       <header className="topbar">
         <h1>ArgoCD</h1>
         <div className="ag-topbar-actions">
-          <span className={`ag-save-state ${saveState}`} role="status">
+          <Pop value={saveState === "error"} className={`ag-save-state ${saveState}`} role="status">
             {saveState === "error" && (
               <>
                 <TriangleAlert size={15} aria-hidden="true" /> Not saved
               </>
             )}
-          </span>
+          </Pop>
           {draft.id && (
             <button type="button" className="ghost-button" onClick={() => void handleDelete()}>
               <Trash2 size={18} aria-hidden="true" /> Delete
@@ -1322,7 +1323,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                 >
                   <summary>
                     <ChevronRight size={14} aria-hidden="true" />
-                    {promotions.length} {promotions.length === 1 ? "suggestion" : "suggestions"}: values every
+                    <Pop value={promotions.length} variant="tick">{promotions.length}</Pop> {promotions.length === 1 ? "suggestion" : "suggestions"}: values every
                     namespace sets the same way
                   </summary>
               {promotions.map((p) => (

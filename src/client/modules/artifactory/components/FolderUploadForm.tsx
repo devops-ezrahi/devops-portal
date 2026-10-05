@@ -1,3 +1,4 @@
+import { Pop } from "../../../Pop";
 import { Zip, ZipDeflate, ZipPassThrough } from "fflate";
 import { Spinner } from "../../../Spinner";
 import { FolderOpen, Upload, X } from "lucide-react";
@@ -401,7 +402,9 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
 
       <button type="submit" className="primary" disabled={!scannedFolder || submitting}>
         {submitting ? <Spinner size={18} /> : <Upload size={18} aria-hidden="true" />}
-        {submitting ? `Uploading… ${percent}%` : "Upload to Artifactory"}
+        {/* ponytail: the percent ticks, the bytes/MB/s line above does not —
+            that one moves on every part and would only shimmer. */}
+        {submitting ? <>Uploading… <Pop value={percent} variant="tick">{percent}%</Pop></> : "Upload to Artifactory"}
       </button>
     </form>
   );

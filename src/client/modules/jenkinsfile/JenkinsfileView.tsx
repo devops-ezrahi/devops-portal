@@ -1,3 +1,4 @@
+import { Pop } from "../../Pop";
 import { Check, ChevronRight, Pencil, Plus, Trash2, TriangleAlert, X } from "lucide-react";
 import { FlipList } from "../../flip";
 import { ListSizeToggle } from "../../ListSizeToggle";
@@ -467,13 +468,13 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
       <header className="topbar">
         <h1>Jenkinsfile</h1>
         <div className="jf-topbar-actions">
-          <span className={`jf-save-state ${saveState}`} role="status">
+          <Pop value={saveState === "error"} className={`jf-save-state ${saveState}`} role="status">
             {saveState === "error" && (
               <>
                 <TriangleAlert size={15} aria-hidden="true" /> Not saved
               </>
             )}
-          </span>
+          </Pop>
           {draft.id && (
             <button type="button" className="ghost-button" onClick={() => void handleDelete()}>
               <Trash2 size={18} aria-hidden="true" /> Delete

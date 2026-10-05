@@ -183,7 +183,9 @@ export function WhiteningView({ user, isAdmin, refreshKey, onError }: ModuleView
         <div className="content-column">
           {selectedJob ? (
             <section className="detail-panel" aria-label="Job detail">
+              {/* Keyed so opening another job is a new drawer, not its badges popping. */}
               <JobDetail
+                key={selectedJob.id}
                 job={selectedJob}
                 onStop={() => handleStop(selectedJob)}
                 onResolvePreserve={(keep) => handleResolvePreserve(selectedJob, keep)}

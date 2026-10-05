@@ -1,3 +1,4 @@
+import { Pop } from "./Pop";
 import { Check, Palette } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ColorPicker } from "./ColorPicker";
@@ -73,7 +74,10 @@ export function ThemePicker() {
                   <span className="theme-preview-accent" style={{ background: cssColor(ROLE.accent, c) }} />
                 </span>
                 <span className="theme-row-label">{t.label}</span>
-                {selected && <Check size={15} aria-hidden="true" />}
+                {/* Always there, hidden when not picked, so the tick pops as it moves here. */}
+                <Pop value={selected} hidden={!selected}>
+                  <Check size={15} aria-hidden="true" />
+                </Pop>
               </button>
             );
           })}
@@ -94,7 +98,9 @@ export function ThemePicker() {
                   onClick={() => pick(c)}
                 >
                   <span className="theme-accent-dot" style={{ background: cssColor(ROLE.accent, c), color: cssColor(ROLE.onAccent, c) }}>
-                    {selected && <Check size={13} aria-hidden="true" />}
+                    <Pop value={selected} hidden={!selected} className="theme-accent-check">
+                      <Check size={13} aria-hidden="true" />
+                    </Pop>
                   </span>
                   <span className="theme-accent-label">{a.label}</span>
                 </button>
@@ -118,7 +124,9 @@ export function ThemePicker() {
                     : undefined
                 }
               >
-                {choice.accent === "custom" && <Check size={13} aria-hidden="true" />}
+                <Pop value={choice.accent === "custom"} hidden={choice.accent !== "custom"} className="theme-accent-check">
+                  <Check size={13} aria-hidden="true" />
+                </Pop>
               </span>
               <span className="theme-accent-label">Custom</span>
             </button>

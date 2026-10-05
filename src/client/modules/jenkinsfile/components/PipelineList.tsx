@@ -1,3 +1,4 @@
+import { Pop } from "../../../Pop";
 import type { JenkinsfilePipeline } from "../../../../server/types";
 import { Loading } from "../../../Spinner";
 import { RowDelete } from "../../../RowDelete";
@@ -30,7 +31,7 @@ export function PipelineList({ pipelines, selectedId, isAdmin, onSelect, onDelet
           <strong>{pipeline.name}</strong>
           <div className="ticket-row-meta">
             <small>
-              {pipeline.stages.length} stage{pipeline.stages.length === 1 ? "" : "s"}
+              <Pop value={pipeline.stages.length} variant="tick">{pipeline.stages.length}</Pop> stage{pipeline.stages.length === 1 ? "" : "s"}
             </small>
             {/* Admins see every pipeline, so the owner is the useful column; a
                 user is only ever looking at their own. */}

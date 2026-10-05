@@ -1,3 +1,4 @@
+import { Pop } from "../../Pop";
 import { Plus } from "lucide-react";
 import { Loading } from "../../Spinner";
 import { FlipList } from "../../flip";
@@ -171,10 +172,10 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
                   key={ticket.id}
                   onClick={() => openTicket(ticket.id).catch((err: Error) => onError(err.message))}
                 >
-                  {unreadIds.has(ticket.id) && <span className="update-dot" aria-label="Updated" />}
+                  <Pop value={unreadIds.has(ticket.id)} hidden={!unreadIds.has(ticket.id)} className="update-dot" aria-label="Updated" />
                   <span className="badge-row">
-                    <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
-                    <span className={priorityClass(ticket.priority)}>{ticket.priority}</span>
+                    <Pop value={ticket.stage} className={stageClass(ticket.stage)}>{ticket.stage}</Pop>
+                    <Pop value={ticket.priority} className={priorityClass(ticket.priority)}>{ticket.priority}</Pop>
                   </span>
                   <strong>{ticket.title}</strong>
                   <small>{ticket.id}</small>
@@ -194,8 +195,8 @@ export function UserTicketingView({ onError }: { onError: (message: string) => v
                     key={ticket.id}
                     onClick={() => openTicket(ticket.id).catch((err: Error) => onError(err.message))}
                   >
-                    {unreadIds.has(ticket.id) && <span className="update-dot" aria-label="Updated" />}
-                    <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
+                    <Pop value={unreadIds.has(ticket.id)} hidden={!unreadIds.has(ticket.id)} className="update-dot" aria-label="Updated" />
+                    <Pop value={ticket.stage} className={stageClass(ticket.stage)}>{ticket.stage}</Pop>
                     <strong>{ticket.title}</strong>
                     <small>{ticket.id}</small>
                   </button>

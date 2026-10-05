@@ -1,3 +1,4 @@
+import { Pop } from "../../../Pop";
 import { CircleStop } from "lucide-react";
 import { Spinner } from "../../../Spinner";
 import { classifyLogLine } from "../../../logLines";
@@ -90,7 +91,7 @@ export function JobDetail({ job, onStop }: Props) {
     <article className="ticket-detail">
       <div className="detail-heading">
         <div className="badge-row">
-          <span className={jobStatusClass(job)}>{(job.status === "pending" || job.status === "in-progress") && <Spinner size={11} />}{jobStatusLabel(job)}</span>
+          <Pop value={jobStatusLabel(job)} className={jobStatusClass(job)}>{(job.status === "pending" || job.status === "in-progress") && <Spinner size={11} />}{jobStatusLabel(job)}</Pop>
           <span className="detail-id">{job.id}</span>
         </div>
         <div className="detail-title-row">
@@ -179,7 +180,7 @@ export function JobDetail({ job, onStop }: Props) {
           <h3>Progress</h3>
           <progress className="job-progress" value={job.progress.done} max={job.progress.total} />
           <p className="field-hint">
-            {job.progress.done} of {job.progress.total} package(s)
+            <Pop value={job.progress.done} variant="tick">{job.progress.done}</Pop> of {job.progress.total} package(s)
           </p>
         </section>
       )}
@@ -203,7 +204,7 @@ export function JobDetail({ job, onStop }: Props) {
                     </a>
                   )}
                 </span>
-                <span className={`stage ${packageStatusClass(status)}`}>{packageStatusLabel(status)}</span>
+                <Pop value={status} className={`stage ${packageStatusClass(status)}`}>{packageStatusLabel(status)}</Pop>
                 {error && <span className="package-error">{error}</span>}
               </div>
             ))}

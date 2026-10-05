@@ -183,7 +183,7 @@ export function ArtifactoryView({ user, isAdmin, refreshKey, onError }: ModuleVi
         <div className="content-column">
           {selectedJob ? (
             <section className="detail-panel" aria-label="Job detail">
-              <JobDetail job={selectedJob} onStop={() => handleStop(selectedJob)} />
+              <JobDetail key={selectedJob.id} job={selectedJob} onStop={() => handleStop(selectedJob)} />
             </section>
           ) : (
             <section className="detail-panel art-panel" aria-label="New job">

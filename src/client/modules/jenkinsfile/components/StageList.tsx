@@ -1,3 +1,4 @@
+import { Pop } from "../../../Pop";
 import { ChevronsDownUp, ChevronsUpDown, Columns2, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useFlip } from "../../../flip";
@@ -228,7 +229,7 @@ export function StageList({ stages, errors, onToggle, onCollapseAll, onReorder, 
       <div className="jf-list-head">
         <h2>Stages</h2>
         <span className="jf-group-count">
-          {stages.length} step{stages.length === 1 ? "" : "s"}
+          <Pop value={stages.length} variant="tick">{stages.length}</Pop> step{stages.length === 1 ? "" : "s"}
         </span>
         {stages.length > 0 && (
           <button type="button" className="ghost-button jf-head-action" onClick={() => onCollapseAll(!allCollapsed)}>

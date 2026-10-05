@@ -6306,6 +6306,9 @@ label.ag-add { cursor: pointer }
   border-radius: 50%;
 }
 
+/* The tick's Pop wrapper, kept a grid so the dot still centres the svg. */
+.theme-accent-check:not([hidden]) { display: grid }
+
 .theme-accent.selected .theme-accent-dot {
   box-shadow: 0 0 0 2px rgb(var(--c-0c1215)), 0 0 0 4px rgb(var(--c-cfd8dc));
 }
@@ -6440,15 +6443,11 @@ label.ag-add { cursor: pointer }
 .save-state.saved { color: rgb(var(--c-20c7bd)) }
 .save-state.failed { color: rgb(var(--c-e0736d)) }
 
-/* A badge that just took a new value pops once, so the change is noticed
-   without reading it. Keyed on the value, so it replays per change. */
-.badge-swap { animation: badge-pop 280ms var(--ease-out) }
-
-@keyframes badge-pop {
-  0%   { transform: scale(0.85); opacity: 0.4 }
-  60%  { transform: scale(1.06); opacity: 1 }
-  100% { transform: scale(1) }
-}
+/* A value that changes in place pops once (Pop.tsx — WAAPI, keyframes live
+   there). A transform does nothing to an inline box, so a bare <span> becomes
+   inline-block; :where() keeps it at zero specificity, so any display a badge
+   already sets still wins. */
+:where(.pop:not([hidden])) { display: inline-block }
 
 /* What a <details> reveals eases in rather than appearing in one frame. */
 details[open] > :not(summary) { animation: fade-up 180ms var(--ease-out) }

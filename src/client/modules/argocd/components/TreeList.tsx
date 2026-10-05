@@ -1,3 +1,4 @@
+import { Pop } from "../../../Pop";
 import type { ArgocdTree } from "../../../../server/types";
 import { Loading } from "../../../Spinner";
 import { RowDelete } from "../../../RowDelete";
@@ -30,8 +31,8 @@ export function TreeList({ trees, selectedId, isAdmin, onSelect, onDelete, loade
           <strong>{tree.name}</strong>
           <div className="ticket-row-meta">
             <small>
-              {tree.releases.length} microservice{tree.releases.length === 1 ? "" : "s"} ·{" "}
-              {tree.namespaces.length} namespace{tree.namespaces.length === 1 ? "" : "s"}
+              <Pop value={tree.releases.length} variant="tick">{tree.releases.length}</Pop> microservice{tree.releases.length === 1 ? "" : "s"} ·{" "}
+              <Pop value={tree.namespaces.length} variant="tick">{tree.namespaces.length}</Pop> namespace{tree.namespaces.length === 1 ? "" : "s"}
             </small>
             {/* Admins see every tree, so the owner is the useful column; a user
                 is only ever looking at their own. */}

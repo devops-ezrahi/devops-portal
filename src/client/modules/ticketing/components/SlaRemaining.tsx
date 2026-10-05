@@ -1,3 +1,4 @@
+import { usePop } from "../../../Pop";
 import { priorityResponseHours } from "../config";
 import { formatSlaRemaining, slaRemainingMs } from "../utils";
 import type { TicketSummary } from "../../../../server/types";
@@ -15,10 +16,14 @@ const ONE_HOUR_MS = 3_600_000;
  */
 export function SlaRemaining({ ticket }: { ticket: TicketSummary }) {
   const remaining = slaRemainingMs(ticket);
+  const urgent = remaining !== null && remaining < ONE_HOUR_MS;
+  // ponytail: pops when it turns urgent, not per minute — a chip on every row
+  // ticking on every poll is noise, the last hour starting is news.
+  const ref = usePop<HTMLElement>(urgent);
   if (remaining === null) return null;
-  const urgent = remaining < ONE_HOUR_MS;
   return (
     <small
+      ref={ref}
       className={urgent ? "sla-remaining urgent" : "sla-remaining"}
       title={`${ticket.priority} priority promises a reply within ${priorityResponseHours[ticket.priority]}h`}
     >

@@ -1,3 +1,4 @@
+import { Pop } from "../../Pop";
 import { Plus } from "lucide-react";
 import { Loading } from "../../Spinner";
 import { FlipList } from "../../flip";
@@ -50,10 +51,10 @@ function TicketRow({
       ].filter(Boolean).join(" ")}
       onClick={() => onOpen(ticket.id)}
     >
-      {isUnread && <span className="update-dot" aria-label="Updated" />}
+      <Pop value={isUnread} hidden={!isUnread} className="update-dot" aria-label="Updated" />
       <span className="badge-row">
-        <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
-        <span className={priorityClass(ticket.priority)}>{ticket.priority}</span>
+        <Pop value={ticket.stage} className={stageClass(ticket.stage)}>{ticket.stage}</Pop>
+        <Pop value={ticket.priority} className={priorityClass(ticket.priority)}>{ticket.priority}</Pop>
         <SlaRemaining ticket={ticket} />
       </span>
       <strong>{ticket.title}</strong>

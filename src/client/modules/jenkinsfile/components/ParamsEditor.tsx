@@ -1,3 +1,4 @@
+import { Pop } from "../../../Pop";
 import { Plus, X } from "lucide-react";
 import { Help } from "../../../Help";
 import { PARAM_TYPES, newParam, type ParamTypeSpec } from "../params";
@@ -68,7 +69,7 @@ export function ParamsEditor({ params, used, touched, onLeave, onChange }: Props
       <div className="jf-list-head">
         <h2>Pipeline parameters</h2>
         <span className="jf-group-count">
-          {params.length} param{params.length === 1 ? "" : "s"}
+          <Pop value={params.length} variant="tick">{params.length}</Pop> param{params.length === 1 ? "" : "s"}
         </span>
       </div>
 
