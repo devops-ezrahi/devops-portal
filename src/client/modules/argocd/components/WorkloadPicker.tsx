@@ -5,7 +5,8 @@ import type { Workload } from "../api";
  * The workloads a paste or chart holds, each a checkbox, all ticked to start.
  * A tick is by name — the converter's `--include =<name>` — so two kinds that
  * share a name are ticked together, and a microservice is converted when any
- * workload in it is ticked (the importer may group several into one).
+ * workload in it is ticked (the importer may group several into one). The
+ * converter then trims `shared` to what two or more ticked microservices use.
  */
 export function WorkloadPicker({
   workloads,
@@ -34,7 +35,10 @@ export function WorkloadPicker({
             Untick what should not be converted. A microservice is converted when any of its workloads is ticked — the importer may group
             several (by <code>app.kubernetes.io/part-of</code>, then <code>app</code>) into one.
           </p>
-          <p>What several microservices share is kept either way, in that namespace's <code>shared</code> release.</p>
+          <p>
+            The namespace's <code>shared</code> release keeps only what two or more of the converted microservices use. Something only one
+            of them still uses moves into it, and what only unticked ones used is left out.
+          </p>
         </Help>
         {workloads && workloads.length > 0 && (
           <span className="ag-workloads-actions">

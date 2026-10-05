@@ -1408,8 +1408,10 @@ and a new one connects from the repository panel as usual.
   Unticking sends `include: [names]`, passed as the converter's exact
   `--include =<name>`; all ticked sends nothing, so an untouched picker is the
   old whole-dump convert. A microservice is kept when any of its workloads is
-  ticked (the importer may group several), and `shared` is never filtered. A
-  list that cannot be read is said under the field, and Convert takes all.
+  ticked (the importer may group several). Under a selection the converter
+  keeps in `shared` only what two or more converted microservices use — one
+  user takes it home, only unticked users drop it. A list that cannot be read
+  is said under the field, and Convert takes all.
 - **An untouched convert commits the converter's bytes.** `mergeConverted`
   carries the import's `imported` texts, so the first Commit after a Convert
   does not rewrite every file's quoting and comments.
