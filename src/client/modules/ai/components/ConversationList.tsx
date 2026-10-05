@@ -1,5 +1,5 @@
 import type { AiConversation } from "../../../../server/types";
-import { Loading } from "../../../Spinner";
+import { Loading } from "../../../Pending";
 import { FlipList } from "../../../flip";
 import { RowDelete } from "../../../RowDelete";
 

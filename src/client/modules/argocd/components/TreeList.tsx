@@ -1,6 +1,6 @@
 import { Pop } from "../../../Pop";
 import type { ArgocdTree } from "../../../../server/types";
-import { Loading } from "../../../Spinner";
+import { Loading } from "../../../Pending";
 import { RowDelete } from "../../../RowDelete";
 
 type Props = {

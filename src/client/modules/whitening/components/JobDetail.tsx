@@ -1,6 +1,5 @@
 import { Pop } from "../../../Pop";
 import { CircleStop, TriangleAlert } from "lucide-react";
-import { Spinner } from "../../../Spinner";
 import { useState } from "react";
 import { classifyLogLine } from "../../../logLines";
 import type { JobLogEntry, WhiteningJob, WhiteningJobStatus } from "../../../../server/types";
@@ -112,7 +111,7 @@ export function JobDetail({ job, onStop, onResolvePreserve }: Props) {
     <article className="ticket-detail">
       <div className="detail-heading">
         <div className="badge-row">
-          <Pop value={job.status} className={statusClass(job.status)}>{(job.status === "pending" || job.status === "in-progress") && !job.pendingPreserve?.length && <Spinner size={11} />}{statusLabel(job.status)}</Pop>
+          <Pop value={job.status} className={statusClass(job.status)}>{statusLabel(job.status)}</Pop>
           <span className="detail-id">{job.id}</span>
         </div>
         <div className="detail-title-row">

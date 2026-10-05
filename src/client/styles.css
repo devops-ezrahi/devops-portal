@@ -1852,7 +1852,6 @@ input[type="radio"]:focus:not(:focus-visible) {
   padding: 56px 18px;
 }
 
-.loading-state .spin { color: rgb(var(--c-20c7bd)) }
 
 .error-banner {
   background: rgb(var(--c-2a1517));
@@ -6417,7 +6416,6 @@ label.ag-add { cursor: pointer }
    checks the media query itself); everything here is plain CSS and is.
    ========================================================================= */
 
-.spin { animation: spin 0.8s linear infinite }
 
 /* A label with a save state beside it ("Stage · Saving…"). */
 .field-label {
@@ -6456,9 +6454,6 @@ details[open] > :not(summary) { animation: fade-up 180ms var(--ease-out) }
 .comment.pending { opacity: 0.65; border-left-color: rgb(var(--c-6f8088)) }
 .comment.pending small { display: inline-flex }
 
-/* A running job's badge spins, so a list of jobs says which are still working. */
-.stage > .spin { vertical-align: -1px; margin-right: 4px }
-
 /* "Loading jobs…" where an empty list would otherwise claim there are none. */
 .loading-row {
   display: flex;
@@ -6466,4 +6461,18 @@ details[open] > :not(summary) { animation: fade-up 180ms var(--ease-out) }
   gap: 8px;
   color: rgb(var(--c-6f8088));
 }
-.loading-row .spin { color: rgb(var(--c-20c7bd)) }
+
+/* Something on its way (Pending.tsx). Invisible for the first 300ms, so a fast
+   answer never flashes a word at all; past that it fades in and breathes until
+   the answer replaces it — and the answer is what pops. No spinner: a wheel in
+   every corner read as the page labouring, and most waits here are short. */
+.pending {
+  animation:
+    fade-in 220ms var(--ease-out) 300ms both,
+    breathe 1.8s ease-in-out 520ms infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 1 }
+  50%      { opacity: 0.5 }
+}

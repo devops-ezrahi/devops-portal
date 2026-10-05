@@ -1,5 +1,5 @@
 import { FileCode2, FilePlus2, GitBranch, TriangleAlert, X } from "lucide-react";
-import { Spinner } from "../../../Spinner";
+import { Pending } from "../../../Pending";
 import { useState } from "react";
 import { exampleRepoUrl, isSshUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
 import { Help } from "../../../Help";
@@ -176,7 +176,7 @@ export function NewTreeDialog({
                 Back
               </button>
               <button type="button" className="primary" disabled={!repoUrl.trim() || busy} onClick={() => void handleConnect()}>
-                {busy ? <><Spinner /> Reading…</> : pending ? "Import anyway" : "Connect"}
+                {busy ? <Pending>Reading…</Pending> : pending ? "Import anyway" : "Connect"}
               </button>
             </div>
           </div>

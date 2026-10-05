@@ -1624,6 +1624,12 @@ per-module choices:
   tick) or passes `appear` once its parent has settled (the `override` tag).
   WAAPI, not a remount, so nothing inside loses DOM state; it checks
   reduced-motion itself, as `flip.tsx` does.
+- **Waiting is words, not a wheel.** `Pending` (`src/client/Pending.tsx`)
+  wraps "Saving…", "Committing…", "Loading tickets…": invisible for 300ms, so a
+  fast answer shows nothing at all, then a fade-in and a slow breathe. The
+  answer is what moves (`Pop`). There are no spinners — one in every corner
+  read as the page labouring when most waits here are a few hundred ms. A busy
+  button keeps its own icon and swaps only its label.
 - **Links in a ticket are links.** `LinkedText` turns bare `http(s)` URLs and
   Jira's `[text|url]` / `[url]` markup in descriptions and messages into
   anchors that open in a new tab; any other scheme stays text.

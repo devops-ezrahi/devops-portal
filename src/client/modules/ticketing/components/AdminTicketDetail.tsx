@@ -1,6 +1,6 @@
 import { Pop } from "../../../Pop";
 import { LinkedText } from "./LinkedText";
-import { Spinner } from "../../../Spinner";
+import { Pending } from "../../../Pending";
 import { OutgoingComments, useOutbox } from "./Outbox";
 import { Check, ChevronDown, ChevronUp, MessageSquarePlus, Pencil } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -382,7 +382,7 @@ function SaveState({ state }: { state: FieldState }) {
       className={kind === "saving" ? "save-state" : `save-state ${kind}`}
       role={kind === "failed" ? "alert" : "status"}
     >
-      {kind === "saving" ? <><Spinner size={12} /> Saving…</> : kind === "saved" ? <><Check size={12} aria-hidden="true" /> Saved</> : state}
+      {kind === "saving" ? <Pending>Saving…</Pending> : kind === "saved" ? <><Check size={12} aria-hidden="true" /> Saved</> : state}
     </Pop>
   );
 }

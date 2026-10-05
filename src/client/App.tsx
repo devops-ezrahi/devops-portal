@@ -1,5 +1,5 @@
 import { ArrowUp, RefreshCcw } from "lucide-react";
-import { Spinner } from "./Spinner";
+import { Pending } from "./Pending";
 import { useEffect, useRef, useState } from "react";
 import {
   getMe,
@@ -252,8 +252,8 @@ export function App() {
 
       <main className="main">
         {loading ? (
-          <div className="loading-state" role="status" aria-label="Loading">
-            <Spinner size={28} />
+          <div className="loading-state">
+            <Pending>Loading…</Pending>
           </div>
         ) : (
           modules

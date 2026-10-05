@@ -1,4 +1,4 @@
-import { Spinner } from "../../../Spinner";
+import { Pending } from "../../../Pending";
 import { useRef, useState } from "react";
 import { LinkedText } from "./LinkedText";
 
@@ -45,8 +45,8 @@ export function OutgoingComments({ items, author }: { items: Outgoing[]; author:
       {items.map((item) => (
         <div className="comment pending" key={`out-${item.key}`}>
           <strong dir="auto">{author}</strong>
-          <small className="save-state" role="status">
-            <Spinner size={12} /> Sending…
+          <small className="save-state">
+            <Pending>Sending…</Pending>
           </small>
           <p><LinkedText text={item.body} /></p>
         </div>

@@ -1,6 +1,6 @@
 import { Pop } from "../../Pop";
 import { Plus } from "lucide-react";
-import { Loading } from "../../Spinner";
+import { Loading } from "../../Pending";
 import { FlipList } from "../../flip";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ListSizeToggle } from "../../ListSizeToggle";

@@ -1,7 +1,6 @@
 import { Pop } from "../../../Pop";
 import { RowDelete } from "../../../RowDelete";
-import { Loading } from "../../../Spinner";
-import { Spinner } from "../../../Spinner";
+import { Loading } from "../../../Pending";
 import { jobStatusClass, jobStatusLabel } from "../jobStatus";
 import type { ArtifactoryJob } from "../../../../server/types";
 
@@ -41,7 +40,7 @@ export function JobList({ jobs, selectedJobId, isAdmin, onSelect, onDelete, load
           {job.status !== "pending" && job.status !== "in-progress" && (
             <RowDelete label={job.id} onDelete={() => onDelete(job.id)} />
           )}
-          <Pop value={jobStatusLabel(job)} className={jobStatusClass(job)}>{(job.status === "pending" || job.status === "in-progress") && <Spinner size={11} />}{jobStatusLabel(job)}</Pop>
+          <Pop value={jobStatusLabel(job)} className={jobStatusClass(job)}>{jobStatusLabel(job)}</Pop>
           <strong>{job.name ?? (job.kind === "url-copy" ? "URL Copy" : "Folder Upload")}</strong>
           <div className="ticket-row-meta">
             <small>{jobSubtitle(job) || job.id}</small>
