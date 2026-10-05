@@ -45,6 +45,7 @@ import {
   type DraftTree,
 } from "./document";
 import { Help } from "../../Help";
+import { ListSizeToggle } from "../../ListSizeToggle";
 import { addedKinds, resourcesOf } from "./resources";
 import {
   applyDefaultsDemotion,
@@ -1090,10 +1091,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       </header>
 
       <div
-        // The tree list sits above the editor, not beside it: the editor is the
-        // wide thing here, and a side column beside a 5 000px-tall panel made
-        // every press in the list jump the page.
-        className="ag-workspace"
+        className="workspace-grid"
         ref={rootRef}
         // A × deep in a feature card marks itself `data-undo`; capture runs
         // before its own onClick, so this is the tree as it was.
@@ -1101,6 +1099,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       >
         <div className="ticket-column">
           <div className="ticket-list-header">
+            <ListSizeToggle />
             <h2>{isAdmin && showAll ? "All Trees" : "My Trees"}</h2>
             {isAdmin && (
               <button className="ghost-button" onClick={() => setShowAll((v) => !v)}>
@@ -1198,6 +1197,31 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                   </ul>
                 </details>
               )}
+            </div>
+            {/* The diff sits right under the repositories it compares against.
+                At the bottom, under a 5 000px editor, pressing a file opened
+                its scope and threw the page back up to it. */}
+            <div className={sectionClass("files")}>
+              <FilePreview
+                fold={foldButton("files", "the files")}
+                files={files}
+                onDownload={handleDownload}
+                repo={repoFiles}
+                comparing={comparing}
+                error={baselineError}
+                deletes={!!subPath.trim()}
+                onOpenFile={openFile}
+                actions={
+                  <CommitButton
+                    blocked={gitBlocked(draft, gitEnabled)}
+                    saved={!!draft.id}
+                    push={push}
+                    what="tree"
+                    onCommit={() => void handleCommit()}
+                  />
+                }
+                notice={<PushResult push={push} what="tree" />}
+              />
             </div>
             {/* Namespaces first, microservices second. The namespace is the
                 wider choice — it says which environment everything below is
@@ -1438,8 +1462,8 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
               </div>
             )}
 
-            <div className={sectionClass("files")}>
-              {problems.length > 0 && (
+            {problems.length > 0 && (
+              <div className="ag-section">
                 <ul className="ag-problems">
                   {problems.map((p) => (
                     // A problem is about a field, and reading it used to leave
@@ -1460,28 +1484,8 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
                     </li>
                   ))}
                 </ul>
-              )}
-              <FilePreview
-                fold={foldButton("files", "the files")}
-                files={files}
-                onDownload={handleDownload}
-                repo={repoFiles}
-                comparing={comparing}
-                error={baselineError}
-                deletes={!!subPath.trim()}
-                onOpenFile={openFile}
-                actions={
-                  <CommitButton
-                    blocked={gitBlocked(draft, gitEnabled)}
-                    saved={!!draft.id}
-                    push={push}
-                    what="tree"
-                    onCommit={() => void handleCommit()}
-                  />
-                }
-                notice={<PushResult push={push} what="tree" />}
-              />
-            </div>
+              </div>
+            )}
           </section>
         </div>
       </div>

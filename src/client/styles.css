@@ -4293,19 +4293,6 @@ input.jf-title {
   width: 100%;
 }
 
-/* ArgoCD: the tree list is a strip above the editor, not a column beside it. */
-.ag-workspace {
-  display: grid;
-  gap: 14px;
-  width: 100%;
-}
-.ag-workspace .ticket-list {
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  max-height: 150px;
-  overflow-y: auto;
-}
-.ag-workspace .ticket-row { border-right: 1px solid rgb(var(--c-202b31)) }
-
 /* A size: the number takes the room, the unit menu sits beside it. */
 .ag-quantity {
   display: flex;
