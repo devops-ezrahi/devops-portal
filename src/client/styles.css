@@ -5766,6 +5766,61 @@ label.ag-add { cursor: pointer }
   gap: 12px;
 }
 
+/* The Convert dialog's workload picker: a short scrolling list of checkboxes,
+   the name first and its kind quiet beside it. */
+.ag-workloads > span { display: flex; align-items: center; gap: 6px }
+.ag-workloads-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 10px; color: var(--muted, #8b98a5); font-weight: 500 }
+.ag-workloads-actions button {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: #2dd4bf;
+  font: inherit;
+  cursor: pointer;
+}
+.ag-workloads-actions button:hover { text-decoration: underline }
+.ag-workloads-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid #2a3940;
+  border-radius: 6px;
+  background: #0d1316;
+}
+/* Scoped past the form's own label/input rules, which make every label a
+   column and every input full width — a 40px checkbox beside a wrapped name. */
+.request-form .ag-workloads-list label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.ag-workloads-list label:hover { background: #142026 }
+.request-form .ag-workloads-list input[type="checkbox"] {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+.ag-workloads-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  font-weight: 500;
+}
+.ag-workloads-kind { flex: none; color: var(--muted, #8b98a5); font-size: 12px; font-weight: 500 }
+
 .ag-import-text {
   width: 100%;
   border: 1px solid #2a3940;

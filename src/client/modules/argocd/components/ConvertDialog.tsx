@@ -1,7 +1,8 @@
 import { FileCode2, Package, TriangleAlert, Upload, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Help } from "../../../Help";
-import { convertManifests } from "../api";
+import { convertManifests, listWorkloads, type Workload } from "../api";
+import { WorkloadPicker } from "./WorkloadPicker";
 import { importTree, type TreeImport } from "../importTree";
 import type { ArgocdTree } from "../../../../server/types";
 
@@ -54,6 +55,12 @@ export function ConvertDialog({
   const [envGroups, setEnvGroups] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [workloads, setWorkloads] = useState<Workload[] | null>(null);
+  const [listing, setListing] = useState(false);
+  const [listError, setListError] = useState("");
+  /** Unticked workload names. Kept across re-lists, so editing the paste does not re-tick them. */
+  const [off, setOff] = useState<Set<string>>(new Set());
+  const listSeq = useRef(0);
   const yamlInput = useRef<HTMLInputElement>(null);
   const chartInput = useRef<HTMLInputElement>(null);
 
@@ -61,7 +68,61 @@ export function ConvertDialog({
   const found = source === "yaml" ? namespacesIn(yaml) : [];
   const groups = envGroups.split(";").map((g) => g.replace(/\s+/g, "")).filter(Boolean);
   const badGroup = groups.find((g) => !ENV_GROUP.test(g));
-  const ready = !!chart.repoUrl.trim() && (source === "yaml" ? !!yaml.trim() : !!chartFile) && bad === undefined && !badGroup;
+  const names = [...new Set((workloads ?? []).map((w) => w.name))];
+  const picked = names.filter((n) => !off.has(n));
+  // Only a real narrowing is sent: all ticked (or no list) converts everything,
+  // exactly as before there was a picker.
+  const include = workloads && picked.length < names.length ? picked : undefined;
+  const ready =
+    !!chart.repoUrl.trim() &&
+    (source === "yaml" ? !!yaml.trim() : !!chartFile) &&
+    bad === undefined &&
+    !badGroup &&
+    (include === undefined || include.length > 0);
+
+  // What the picker lists, re-read a moment after the paste, chart or values
+  // stop changing. A chart has to be rendered to know, so this asks the server
+  // for both shapes rather than parsing YAML here and a chart there.
+  useEffect(() => {
+    const has = source === "yaml" ? !!yaml.trim() : !!chartFile;
+    const seq = ++listSeq.current;
+    if (!has) {
+      setWorkloads(null);
+      setListError("");
+      setListing(false);
+      return;
+    }
+    setListing(true);
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const body = {
+            namespace: DNS.test(namespace) ? namespace : "default",
+            ...(source === "yaml" ? { yaml } : { helm: { archive: await base64Of(chartFile!), values: values || undefined } }),
+          };
+          const { workloads: found } = await listWorkloads(body);
+          if (seq !== listSeq.current) return;
+          setWorkloads(found);
+          setListError("");
+        } catch (err) {
+          if (seq !== listSeq.current) return;
+          setWorkloads(null);
+          setListError(err instanceof Error ? err.message : "the request failed");
+        } finally {
+          if (seq === listSeq.current) setListing(false);
+        }
+      })();
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [source, yaml, chartFile, values, namespace]);
+
+  function toggleWorkload(name: string) {
+    setOff((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(name)) next.add(name);
+      return next;
+    });
+  }
 
   function changeYaml(text: string) {
     setYaml(text);
@@ -83,6 +144,7 @@ export function ConvertDialog({
         chartRevision: chart.revision,
         namespace,
         ...(groups.length ? { envGroups: groups } : {}),
+        ...(include ? { include } : {}),
         ...(source === "yaml"
           ? { yaml }
           : { helm: { archive: await base64Of(chartFile!), values: values || undefined } }),
@@ -220,6 +282,15 @@ export function ConvertDialog({
               </label>
             </>
           )}
+
+          <WorkloadPicker
+            workloads={workloads}
+            off={off}
+            loading={listing}
+            error={listError}
+            onToggle={toggleWorkload}
+            onAll={(on) => setOff(on ? new Set() : new Set(names))}
+          />
 
           {bad && (
             <p className="ag-new-error">

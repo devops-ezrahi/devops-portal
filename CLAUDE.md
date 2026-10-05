@@ -1400,6 +1400,16 @@ and a new one connects from the repository panel as usual.
   objects; `SPLIT_DUMP` then calls the importer's `file_unclaimed`, which files
   the rest of the paste into the converter's input — config into `shared.yaml`,
   an undiscovered workload into its own file, Helm test Pods skipped.
+- **The dialog lists the workloads and converts only the ticked ones.**
+  `POST /api/argocd/convert/workloads` renders a chart (or reads the paste) and
+  returns every Deployment/StatefulSet/DaemonSet/CronJob/Job/DeploymentConfig
+  (`workloadsIn`) — no chart repo clone, so it answers before one is set. The
+  dialog re-asks 600ms after the input stops changing, all rows ticked.
+  Unticking sends `include: [names]`, passed as the converter's exact
+  `--include =<name>`; all ticked sends nothing, so an untouched picker is the
+  old whole-dump convert. A microservice is kept when any of its workloads is
+  ticked (the importer may group several), and `shared` is never filtered. A
+  list that cannot be read is said under the field, and Convert takes all.
 - **An untouched convert commits the converter's bytes.** `mergeConverted`
   carries the import's `imported` texts, so the first Commit after a Convert
   does not rewrite every file's quoting and comments.

@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { afterAll, describe, expect, it } from "vitest";
-import { convertToUniversal } from "./convert";
+import { convertToUniversal, workloadsIn } from "./convert";
 
 // The real converter, from a universal-chart checkout beside this repo. Its
 // own repo is the chart repo a tree points at, so cloning it here is exactly
@@ -41,6 +41,36 @@ spec:
             - name: MODE
               value: production
 `;
+
+describe("workloadsIn", () => {
+  it("lists every workload kind, unwraps a List, and gives a namespace-less one the default", () => {
+    const text = `apiVersion: v1
+kind: List
+items:
+  - kind: Deployment
+    metadata: { name: web, namespace: shop }
+  - kind: ConfigMap
+    metadata: { name: cfg }
+---
+kind: StatefulSet
+metadata: { name: db }
+---
+kind: CronJob
+metadata: { name: report }
+---
+- not: a mapping
+`;
+    expect(workloadsIn(text, "dflt")).toEqual([
+      { kind: "Deployment", name: "web", namespace: "shop" },
+      { kind: "StatefulSet", name: "db", namespace: "dflt" },
+      { kind: "CronJob", name: "report", namespace: "dflt" },
+    ]);
+  });
+
+  it("reads past a TAB after a scalar, as Helm can render one", () => {
+    expect(workloadsIn("kind: Deployment\t\nmetadata:\n  name: web\n", "d")).toEqual([{ kind: "Deployment", name: "web", namespace: "d" }]);
+  });
+});
 
 describe.skipIf(!canConvert)("convertToUniversal", () => {
   const work = mkdtempSync(join(tmpdir(), "convert-test-"));
@@ -96,6 +126,19 @@ describe.skipIf(!canConvert)("convertToUniversal", () => {
     });
     expect(files.map((f) => f.path)).toContain("base/stalker.yaml");
     expect(warnings[0]).toMatch(/^Does not render cleanly/);
+  }, 120_000);
+
+  it("converts only the workloads picked, by exact name", async () => {
+    const worker = DEPLOYMENT.replace(/stalker/g, "stalker-worker");
+    const { files } = await convertToUniversal({
+      chartRepoUrl: chartRepo,
+      chartRevision: branch,
+      namespace: "interconn",
+      yaml: [DEPLOYMENT, worker].join("---\n"),
+      include: ["stalker"],
+    });
+    const bases = files.map((f) => f.path).filter((p) => p.startsWith("base/"));
+    expect(bases).toEqual(["base/stalker.yaml"]);
   }, 120_000);
 
   it("splits a dirty kubectl dump into microservices, like the namespace importer", async () => {

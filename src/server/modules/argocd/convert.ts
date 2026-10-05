@@ -2,6 +2,7 @@ import { execFile } from "child_process";
 import { access, mkdir, readFile, readdir, writeFile } from "fs/promises";
 import { join } from "path";
 import { promisify } from "util";
+import { parseAllDocuments } from "yaml";
 import { cloneAt, withCredentials } from "../../git";
 import { log } from "../../log";
 import { redactSecrets } from "../../redact";
@@ -126,7 +127,19 @@ export type ConvertInput = {
    * renders several workloads is several microservices.
    */
   helm?: { archive: string; values?: string };
+  /**
+   * Workload names to convert (the dialog's picker). Each is passed as an
+   * exact `--include =<name>`: a microservice is converted when any workload
+   * in it is named here. Absent = everything.
+   */
+  include?: string[];
 };
+
+/** What the picker lists: one row per workload the paste or chart holds. */
+export type Workload = { kind: string; name: string; namespace: string };
+
+/** The kinds that become a microservice — what the importer groups by. */
+const WORKLOAD_KINDS = new Set(["Deployment", "StatefulSet", "DaemonSet", "CronJob", "Job", "DeploymentConfig"]);
 
 export type ConvertResult = { files: RepoFile[]; warnings: string[] };
 
@@ -200,6 +213,63 @@ async function chartDir(root: string): Promise<string> {
   throw new Error("That archive holds no Chart.yaml — expected the .tgz `helm package` writes");
 }
 
+/** A chart rendered with `helm template`, or the paste as it is — plain YAML either way. */
+async function renderManifests(input: Pick<ConvertInput, "namespace" | "yaml" | "helm">, dir: string): Promise<string> {
+  if (!input.helm) return input.yaml ?? "";
+  const helmDir = join(dir, "helm");
+  await mkdir(join(helmDir, "src"), { recursive: true });
+  await writeFile(join(helmDir, "chart.tgz"), Buffer.from(input.helm.archive, "base64"));
+  // Relative, from the destination: GNU tar reads a leading `C:` as a host.
+  await run("tar", ["-xf", "../chart.tgz"], join(helmDir, "src"), "Unpacking the chart");
+  const src = await chartDir(join(helmDir, "src"));
+  const args = ["template", await chartName(src), src, "--namespace", input.namespace];
+  if (input.helm.values?.trim()) {
+    await writeFile(join(helmDir, "values.yaml"), input.helm.values, "utf8");
+    args.push("-f", join(helmDir, "values.yaml"));
+  }
+  return run("helm", args, helmDir, "helm template");
+}
+
+/** Every workload in plain YAML, `List`s unwrapped; unreadable documents are skipped. */
+export function workloadsIn(text: string, defaultNamespace: string): Workload[] {
+  const out: Workload[] = [];
+  const seen = new Set<string>();
+  const visit = (doc: unknown) => {
+    if (!doc || typeof doc !== "object") return;
+    const d = doc as { kind?: unknown; items?: unknown; metadata?: { name?: unknown; namespace?: unknown } };
+    if (typeof d.kind === "string" && d.kind.endsWith("List") && Array.isArray(d.items)) return d.items.forEach(visit);
+    const name = d.metadata?.name;
+    if (typeof d.kind !== "string" || !WORKLOAD_KINDS.has(d.kind) || typeof name !== "string") return;
+    const namespace = typeof d.metadata?.namespace === "string" ? d.metadata.namespace : defaultNamespace;
+    const key = `${d.kind}/${namespace}/${name}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push({ kind: d.kind, name, namespace });
+    }
+  };
+  // Trailing whitespace stripped for the same reason the importer retries
+  // without it: Helm can render a TAB after a scalar that the parser rejects.
+  for (const doc of parseAllDocuments(text.replace(/[ \t]+$/gm, ""))) {
+    try {
+      visit(doc.toJS());
+    } catch {
+      /* a document that will not parse lists nothing; Convert reports it */
+    }
+  }
+  return out;
+}
+
+/** The picker's list: render (a chart) and read the workloads out — no chart repo, no converter. */
+export async function listWorkloads(input: Pick<ConvertInput, "namespace" | "yaml" | "helm">): Promise<Workload[]> {
+  if (!input.helm) return workloadsIn(input.yaml ?? "", input.namespace);
+  const dir = await createTmpDir("ag-workloads-");
+  try {
+    return workloadsIn(await renderManifests(input, dir), input.namespace);
+  } finally {
+    await removeTmpDir(dir);
+  }
+}
+
 export async function convertToUniversal(input: ConvertInput): Promise<ConvertResult> {
   const dir = await createTmpDir("ag-convert-");
   try {
@@ -211,22 +281,7 @@ export async function convertToUniversal(input: ConvertInput): Promise<ConvertRe
     if (!(await access(converter).then(() => true, () => false)))
       throw new Error(`${input.chartRepoUrl}@${input.chartRevision} has no ${CONVERTER_PATH} to convert with`);
 
-    // A chart is rendered first; what comes out is the same plain YAML a paste is.
-    let manifests = input.yaml ?? "";
-    if (input.helm) {
-      const helmDir = join(dir, "helm");
-      await mkdir(join(helmDir, "src"), { recursive: true });
-      await writeFile(join(helmDir, "chart.tgz"), Buffer.from(input.helm.archive, "base64"));
-      // Relative, from the destination: GNU tar reads a leading `C:` as a host.
-      await run("tar", ["-xf", "../chart.tgz"], join(helmDir, "src"), "Unpacking the chart");
-      const src = await chartDir(join(helmDir, "src"));
-      const args = ["template", await chartName(src), src, "--namespace", input.namespace];
-      if (input.helm.values?.trim()) {
-        await writeFile(join(helmDir, "values.yaml"), input.helm.values, "utf8");
-        args.push("-f", join(helmDir, "values.yaml"));
-      }
-      manifests = await run("helm", args, helmDir, "helm template");
-    }
+    const manifests = await renderManifests(input, dir);
 
     const importer = join(dir, "chart", IMPORTER_DIR);
     if (!(await access(join(importer, "namespace_importer.py")).then(() => true, () => false)))
@@ -244,14 +299,21 @@ export async function convertToUniversal(input: ConvertInput): Promise<ConvertRe
     // A failed check still returns the tree — it is what the user edits to fix
     // it — with the failure leading the warnings.
     const groups = (input.envGroups ?? []).flatMap((g) => ["--env-group", g]);
+    // Exact names (`=web`, not `web`, which would also take web-worker).
+    if (input.include?.length) groups.push("--include", input.include.map((n) => `=${n}`).join(","));
     const verify = await runChecked(
       python,
       [converter, "--input", join(dir, "in"), "--output", join(dir, "out"), "--chart", join(dir, "chart"), ...groups],
       dir,
       "The converter"
     );
-    if (verify.failed && !(await access(join(dir, "out", "base")).then(() => true, () => false)))
+    if (verify.failed && !(await access(join(dir, "out", "base")).then(() => true, () => false))) {
+      if (/unrecognized arguments:.*--include/.test(verify.tail))
+        throw new Error(
+          `${input.chartRepoUrl}@${input.chartRevision} has a converter without --include, so a workload selection cannot be applied — convert everything, or point the tree at a newer chart revision`
+        );
       throw new Error(`The converter failed: ${redactSecrets(verify.tail)}`);
+    }
 
     const files = await readTree(join(dir, "out"));
     const conflicts = await readFile(join(dir, "out", "report", "render_conflicts.txt"), "utf8").catch(() => "");
