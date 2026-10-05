@@ -9,6 +9,7 @@ import {
 import { log, warn, error as logError } from "./log";
 import { AccessDeniedScreen } from "./AccessDeniedScreen";
 import { ErrorScreen } from "./ErrorScreen";
+import { ThemePicker } from "./ThemePicker";
 import { restoreListSize } from "./ListSizeToggle";
 import { LoginScreen } from "./LoginScreen";
 import { argocdModule } from "./modules/argocd";
@@ -243,6 +244,8 @@ export function App() {
           >
             <RefreshCcw size={17} aria-hidden="true" /> Refresh
           </button>
+
+          <ThemePicker />
         </div>
       </header>
 

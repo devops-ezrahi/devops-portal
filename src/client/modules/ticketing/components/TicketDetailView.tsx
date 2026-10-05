@@ -1,3 +1,4 @@
+import { LinkedText } from "./LinkedText";
 import { MessageSquarePlus } from "lucide-react";
 import { useState } from "react";
 import type { FormEvent } from "react";
@@ -58,7 +59,7 @@ export function TicketDetailView({
           same shape an Artifactory job's dependencyFallback uses. */}
       {ticket.notice && <div className="warn-banner">{ticket.notice}</div>}
 
-      <p className="description-text">{ticket.description}</p>
+      <p className="description-text"><LinkedText text={ticket.description} /></p>
 
       <section>
         <h3>Messages</h3>
@@ -73,7 +74,7 @@ export function TicketDetailView({
               <div className="comment" key={comment.id}>
                 <strong dir="auto">{comment.authorName}</strong>
                 <small>{formatDate(comment.createdAt)}</small>
-                <p>{comment.body}</p>
+                <p><LinkedText text={comment.body} /></p>
               </div>
             )
           )}

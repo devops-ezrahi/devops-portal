@@ -1593,6 +1593,20 @@ per-module choices:
   a `?` inside a row that is itself a button would be a button inside a button.
   That last rule is why the `?` sits *beside* a label rather than inside it, and
   why `Help`'s own click handler calls `preventDefault`/`stopPropagation`.
+- **Every colour is a palette variable, and a theme is a function over it.**
+  `styles.css` opens with `--c-<hex>: r g b` for every colour it uses, named
+  after its dark-theme hex, and rules paint with `rgb(var(--c-…))` (or `/ 12%`
+  for alpha). The header's palette button (`ThemePicker.tsx`) picks a theme
+  (Dark, Midnight, Graphite, Light) and an accent; `theme.ts` reads the names
+  back off the loaded stylesheet, moves each colour in HSL, and writes the
+  result over `:root` — so **write a new colour as a plain hex-named variable**
+  and every theme picks it up with no list to update. The choice is per
+  browser (`localStorage["portal.theme"]`), applied in `main.tsx` before the
+  first render. The menu's swatches are drawn through the same function, so
+  they show the colours a choice actually paints.
+- **Links in a ticket are links.** `LinkedText` turns bare `http(s)` URLs and
+  Jira's `[text|url]` / `[url]` markup in descriptions and messages into
+  anchors that open in a new tab; any other scheme stays text.
 - **The red banner at the top is for failures only** — a save, list or
   delete the server refused. Warnings from a pull or convert, and a repo that
   could not be read, are already said in place under the repository panel;
