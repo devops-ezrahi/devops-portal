@@ -368,8 +368,8 @@ function MapSource({
           <div className="jf-picker" role="radiogroup" aria-label={`${spec.name} map variable`}>
             {options.map((name) => (
               <label className="jf-checkbox" key={name}>
-                <input type="radio" name={id} checked={value === name} onChange={() => onChange(name)} />
-                <code>{name}</code>
+                <input type="radio" name={id} aria-label={`${spec.name} ${name}`} checked={value === name} onChange={() => onChange(name)} />
+                {name}
                 {!mapVars.includes(name) && <span className="jf-kind">not declared above</span>}
               </label>
             ))}
