@@ -31,12 +31,20 @@ type Props = {
 export const ImagesContext = createContext<PickableImage[]>([]);
 
 /**
+ * The map variables earlier Groovy cards declare (`def envs = [...]`), which a
+ * map argument can take in place of its own entries. Per stage, provided by
+ * `StageList` around each card, so it skips the five components in between.
+ */
+export const MapVarsContext = createContext<string[]>([]);
+
+/**
  * One argument of one stage, rendered by its kind. The value shapes here are
  * exactly what `groovy.ts` renders and what the server stores, so nothing is
  * translated on the way out.
  */
 export function ArgField({ spec, value, stepDefault, idPrefix, required, stashNames = [], onChange, onRemove }: Props) {
   const images = useContext(ImagesContext);
+  const mapVars = useContext(MapVarsContext);
   const id = `${idPrefix}-${spec.name}`;
   // The step's own default beats the catalog's generic example: sonarStage
   // really does fall back to `sonar`, and showing `python311` there would be a lie.
@@ -143,22 +151,10 @@ export function ArgField({ spec, value, stepDefault, idPrefix, required, stashNa
         ))}
 
       {spec.kind === "stringMap" &&
-        (typeof value === "string" ? (
-          // A variable standing in for the map (`envs`), as imported. Clearing it
-          // is how you get the rows back.
-          <input
-            type="text"
-            className="jf-expression"
-            aria-label={`${spec.name} (Groovy expression)`}
-            title="A Groovy expression — clear it to edit as a map"
-            spellCheck={false}
-            value={value}
-            onChange={(e) => onChange(e.target.value.trim() ? e.target.value : [])}
-          />
-        ) : spec.allowedKeys ? (
+        (spec.allowedKeys ? (
           <FixedKeys spec={spec} pairs={pairsOf(value)} onChange={onChange} />
         ) : (
-          <MapRows spec={spec} pairs={pairsOf(value)} onChange={onChange} onDropArg={onRemove} />
+          <MapSource spec={spec} id={id} value={value} mapVars={mapVars} onChange={onChange} onDropArg={onRemove} />
         ))}
 
       {spec.kind === "objectList" && (
@@ -329,6 +325,78 @@ function StashPicker({
  * closure body, and flipping the switch keeps what is already in it. Empty is
  * the resting state — a step with neither is just a step with no commands.
  */
+/**
+ * A map argument is either typed out as entries or handed a map variable a
+ * Groovy card declares (`populateEnvVars(envs)`) — the same one-argument,
+ * two-shapes switch `commands` has. A string value *is* the variable form,
+ * which is what `groovy.ts` writes verbatim and `parse.ts` reads back.
+ */
+function MapSource({
+  spec,
+  id,
+  value,
+  mapVars,
+  onChange,
+  onDropArg,
+}: {
+  spec: ArgSpec;
+  id: string;
+  value: unknown;
+  mapVars: string[];
+  onChange: (value: unknown) => void;
+  onDropArg?: () => void;
+}) {
+  const isVar = typeof value === "string";
+  const listId = `${id}-maps`;
+
+  function choose(variable: boolean) {
+    if (variable === isVar) return;
+    // Entries do not carry across: a variable is a name, not the pairs in it.
+    onChange(variable ? (mapVars.at(-1) ?? "") : []);
+  }
+
+  return (
+    <>
+      <div className="jf-segmented jf-commands-kind" role="group" aria-label={`${spec.name} source`}>
+        <button type="button" className={isVar ? "" : "active"} aria-pressed={!isVar} onClick={() => choose(false)}>
+          Entries
+        </button>
+        <button type="button" className={isVar ? "active" : ""} aria-pressed={isVar} onClick={() => choose(true)}>
+          Map variable
+        </button>
+      </div>
+      {isVar ? (
+        <>
+          {/* A <datalist>, not a <select>: a map built some other way
+              (`def envs = readMap()`) is not suggested but still typable. */}
+          <input
+            id={id}
+            type="text"
+            className="jf-expression"
+            list={listId}
+            spellCheck={false}
+            placeholder={mapVars[0] ?? "envs"}
+            value={value as string}
+            onChange={(e) => onChange(e.target.value)}
+          />
+          <datalist id={listId}>
+            {mapVars.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+          {!mapVars.length && (
+            <p className="field-hint">
+              No map declared above this card. Add a Groovy card before it, e.g. <code>def envs = [SERVICE: 'x']</code>.
+            </p>
+          )}
+        </>
+      ) : (
+        <MapRows spec={spec} pairs={pairsOf(value)} onChange={onChange} onDropArg={onDropArg} />
+      )}
+    </>
+  );
+}
+
 function Commands({
   spec,
   id,

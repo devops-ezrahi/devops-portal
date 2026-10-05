@@ -13,6 +13,18 @@ export const DEFAULT_LIBRARY = "jenkins-k8s-shared-library";
  */
 export type MapPairs = [string, string][];
 
+/**
+ * Names a Groovy card declares as a map literal — `def envs = [A: 'x']`,
+ * `Map<String, String> envs = [:]`, or a bare `envs = [...]` at a line start —
+ * which is what a map argument can take in place of its own entries.
+ * ponytail: a regex over the text, not a parse; a map built any other way
+ * (`def envs = readMap()`) is still typable, just not suggested.
+ */
+export function mapVariables(code: string): string[] {
+  const re = /^\s*(?:def\s+|Map(?:<[^>\n]*>)?\s+)?([A-Za-z_]\w*)\s*=\s*\[\s*(?::|['"]?[\w.-]+['"]?\s*:)/gm;
+  return [...new Set([...code.matchAll(re)].map((m) => m[1]))];
+}
+
 export function pairsOf(value: unknown): MapPairs {
   if (Array.isArray(value)) return value as MapPairs;
   if (value && typeof value === "object") return Object.entries(value as Record<string, string>);

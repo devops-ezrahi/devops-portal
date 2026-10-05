@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { STEPS, stepSpec } from "./catalog";
 import {
+  mapVariables,
   closureOf,
   createStage,
   hasErrors,
@@ -223,5 +224,18 @@ describe("createStage", () => {
   it("mints a unique id per stage", () => {
     const made = Array.from({ length: 50 }, () => createStage("genStage").id);
     expect(new Set(made).size).toBe(50);
+  });
+});
+
+describe("mapVariables", () => {
+  it("finds maps a Groovy card declares, and nothing else", () => {
+    const code = [
+      "def test = [banana: banana]",
+      "Map<String, String> envs = [:]",
+      "extra = ['SERVICE': 'x']",
+      "def list = ['a', 'b']",
+      "def tag = env.TAG",
+    ].join("\n");
+    expect(mapVariables(code)).toEqual(["test", "envs", "extra"]);
   });
 });
