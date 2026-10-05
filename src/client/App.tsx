@@ -284,11 +284,12 @@ function ScrollTopButton() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
-  if (!shown) return null;
+  // Always mounted so it can slide out as well as in; `inert` keeps the hidden one out of tab order.
   return (
     <button
       type="button"
-      className="scroll-top"
+      className={`scroll-top${shown ? " shown" : ""}`}
+      inert={!shown}
       aria-label="Back to top"
       title="Back to top"
       onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
