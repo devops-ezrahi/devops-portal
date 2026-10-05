@@ -347,7 +347,8 @@ function MapSource({
   function choose(variable: boolean) {
     if (variable === isVar) return;
     // Entries do not carry across: a variable is a name, not the pairs in it.
-    onChange(variable ? (mapVars.at(-1) ?? "") : []);
+    // Nothing is pre-picked — an empty string is "variable, none chosen yet".
+    onChange(variable ? "" : []);
   }
 
   return (
@@ -368,7 +369,16 @@ function MapSource({
           <div className="jf-picker" role="radiogroup" aria-label={`${spec.name} map variable`}>
             {options.map((name) => (
               <label className="jf-checkbox" key={name}>
-                <input type="radio" name={id} aria-label={`${spec.name} ${name}`} checked={value === name} onChange={() => onChange(name)} />
+                <input
+                  type="radio"
+                  name={id}
+                  aria-label={`${spec.name} ${name}`}
+                  checked={value === name}
+                  // onClick, not onChange: a radio fires no change when it is
+                  // already on, and pressing the chosen one again un-picks it.
+                  onClick={() => onChange(value === name ? "" : name)}
+                  readOnly
+                />
                 {name}
                 {!mapVars.includes(name) && <span className="jf-kind">not declared above</span>}
               </label>
