@@ -6259,3 +6259,23 @@ label.ag-add { cursor: pointer }
 .theme-accent.selected .theme-accent-dot {
   box-shadow: 0 0 0 2px rgb(var(--c-0c1215)), 0 0 0 4px rgb(var(--c-cfd8dc));
 }
+
+/* The custom colour: a rainbow until picked. The native input covers the dot
+   invisibly, so a press anywhere on it opens the browser's own picker. */
+label.theme-accent {
+  cursor: pointer;
+}
+
+.theme-accent-custom {
+  position: relative;
+  background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red);
+}
+
+.theme-accent-custom input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}

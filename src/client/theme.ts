@@ -4,29 +4,30 @@
 // in HSL, and writes the result back over :root. So a colour added to the CSS
 // tomorrow is themed without anyone listing it here.
 
-export type ThemeId = "dark" | "midnight" | "graphite" | "light";
-export type AccentId = "teal" | "green" | "blue" | "indigo" | "violet" | "pink" | "orange";
+export type ThemeId = "dark" | "light";
+export type AccentId = "teal" | "green" | "blue" | "violet" | "pink" | "orange" | "red" | "custom";
 
 export const THEMES: { id: ThemeId; label: string }[] = [
   { id: "dark", label: "Dark" },
-  { id: "midnight", label: "Midnight" },
-  { id: "graphite", label: "Graphite" },
   { id: "light", label: "Light" },
 ];
 
 // The hue each accent turns the teal family to. Teal is the palette as written.
-export const ACCENTS: { id: AccentId; label: string; hue: number }[] = [
+// "custom" is not listed: its hue comes from the colour the user picked.
+export const ACCENTS: { id: Exclude<AccentId, "custom">; label: string; hue: number }[] = [
   { id: "teal", label: "Teal", hue: 175 },
   { id: "green", label: "Green", hue: 140 },
   { id: "blue", label: "Blue", hue: 212 },
-  { id: "indigo", label: "Indigo", hue: 236 },
   { id: "violet", label: "Violet", hue: 266 },
   { id: "pink", label: "Pink", hue: 326 },
   { id: "orange", label: "Orange", hue: 24 },
+  { id: "red", label: "Red", hue: 0 },
 ];
 
-export type ThemeChoice = { theme: ThemeId; accent: AccentId };
-export const DEFAULT_CHOICE: ThemeChoice = { theme: "dark", accent: "teal" };
+// `custom` is the picked colour as a 6-digit hex, kept even while a preset is
+// chosen so the picker reopens on it.
+export type ThemeChoice = { theme: ThemeId; accent: AccentId; custom?: string };
+export const DEFAULT_CHOICE: ThemeChoice = { theme: "dark", accent: "teal", custom: "e05560" };
 
 // The colours the picker's previews are drawn from — the page background, a
 // panel, body text and the accent, as the stylesheet names them.
@@ -71,34 +72,40 @@ const isAccent = ([h, s]: Hsl) => h >= 160 && h <= 188 && s >= 0.38;
 const isNeutral = ([h, s]: Hsl) => s < 0.25 || (h >= 183 && h <= 215 && s < 0.45);
 
 /** One palette colour (its dark-theme hex) as the chosen theme paints it. */
-export function themed(hex: string, { theme, accent }: ThemeChoice): [number, number, number] {
+export function themed(hex: string, { theme, accent, custom }: ThemeChoice): [number, number, number] {
   let [h, s, l] = rgbToHsl(hexToRgb(hex));
   const accentLike = isAccent([h, s, l]);
   const neutral = !accentLike && isNeutral([h, s, l]);
 
-  if (theme === "midnight" && neutral && s > 0.05) {
-    h = 226;
-    s = clamp(s * 1.3 + 0.06);
-  }
-  if (theme === "graphite" && neutral) s *= 0.12;
   if (theme === "light" && hex !== "000000") {
     if (accentLike && l < 0.1) {
-      // Text on an accent button: the button stays mid-tone, so its text stays dark.
+      // Text on an accent button. The button is darkened below, so near-black
+      // text on it reads as mud; white is what a deep accent carries.
+      l = 0.99;
     } else if (s >= 0.4 && l >= 0.35 && l <= 0.68) {
       // A mid-tone colour (the accent, a status hue) is already a colour, not a
-      // shade — inverting it would wash it out. Darken it enough to read on white.
+      // shade — inverting it would wash it out. Darken it enough to read on
+      // white, and saturate the accent back up, since darkening greys it.
       l *= 0.75;
+      if (accentLike) s = clamp(s * 1.15);
     } else {
       l = 1 - l;
       if (neutral) l = Math.pow(l, 1.25);
     }
   }
   if (accentLike && accent !== "teal") {
-    const target = ACCENTS.find((a) => a.id === accent)?.hue ?? TEAL;
+    const target = accent === "custom" ? customHue(custom) : ACCENTS.find((a) => a.id === accent)?.hue ?? TEAL;
     h = (h + target - TEAL + 360) % 360;
   }
   if (theme === "dark" && accent === "teal") return hexToRgb(hex);
   return hslToRgb([h, s, l]);
+}
+
+// ponytail: only the hue of a picked colour is used — the accent family's
+// tints and hover shades keep their own lightness, so a picked grey or
+// near-black still comes out as a saturated accent of that hue.
+function customHue(custom?: string): number {
+  return /^[0-9a-f]{6}$/.test(custom ?? "") ? rgbToHsl(hexToRgb(custom!))[0] : TEAL;
 }
 
 export function cssColor(hex: string, choice: ThemeChoice): string {
@@ -128,7 +135,8 @@ export function loadChoice(): ThemeChoice {
     const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
     return {
       theme: THEMES.some((t) => t.id === raw?.theme) ? raw.theme : DEFAULT_CHOICE.theme,
-      accent: ACCENTS.some((a) => a.id === raw?.accent) ? raw.accent : DEFAULT_CHOICE.accent,
+      accent: raw?.accent === "custom" || ACCENTS.some((a) => a.id === raw?.accent) ? raw.accent : DEFAULT_CHOICE.accent,
+      custom: /^[0-9a-f]{6}$/.test(raw?.custom ?? "") ? raw.custom : DEFAULT_CHOICE.custom,
     };
   } catch {
     return DEFAULT_CHOICE;

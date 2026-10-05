@@ -99,6 +99,33 @@ export function ThemePicker() {
                 </button>
               );
             })}
+            {/* The last circle is a native colour input: the dot is a rainbow
+                until a colour is picked, then that colour as it paints. */}
+            <label
+              role="menuitemradio"
+              aria-checked={choice.accent === "custom"}
+              title="Custom colour"
+              className={`theme-accent${choice.accent === "custom" ? " selected" : ""}`}
+            >
+              <span
+                className="theme-accent-dot theme-accent-custom"
+                style={
+                  choice.accent === "custom"
+                    ? { background: cssColor(ROLE.accent, choice), color: cssColor(ROLE.onAccent, choice) }
+                    : undefined
+                }
+              >
+                {choice.accent === "custom" && <Check size={13} aria-hidden="true" />}
+                <input
+                  type="color"
+                  aria-label="Custom colour"
+                  value={`#${choice.custom ?? "e05560"}`}
+                  onClick={() => choice.accent !== "custom" && pick({ ...choice, accent: "custom" })}
+                  onChange={(e) => pick({ ...choice, accent: "custom", custom: e.target.value.slice(1) })}
+                />
+              </span>
+              <span className="theme-accent-label">Custom</span>
+            </label>
           </div>
         </div>
       )}

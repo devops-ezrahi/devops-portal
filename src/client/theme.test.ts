@@ -13,8 +13,9 @@ describe("themed", () => {
     const c = { theme: "light", accent: "teal" } as const;
     expect(lum(themed("0b0f12", c))).toBeGreaterThan(220);
     expect(lum(themed("f4f7f8", c))).toBeLessThan(30);
-    // text on an accent button stays dark, since the button stays mid-tone
-    expect(lum(themed("041113", c))).toBeLessThan(30);
+    // text on an accent button turns white, since the button is darkened
+    expect(lum(themed("041113", c))).toBeGreaterThan(240);
+    expect(lum(themed("20c7bd", c))).toBeLessThan(140);
     // shadows and backdrops stay shadows
     expect(themed("000000", c)).toEqual([0, 0, 0]);
   });
@@ -25,5 +26,11 @@ describe("themed", () => {
     expect(b).toBeGreaterThan(r);
     expect(b).toBeGreaterThan(themed("20c7bd", c)[1]);
     expect(themed("e05560", c)).toEqual(themed("e05560", { theme: "dark", accent: "teal" })); // error red stays red
+  });
+
+  it("takes a custom accent's hue from the picked colour", () => {
+    const [r, g, b] = themed("20c7bd", { theme: "dark", accent: "custom", custom: "ff0000" });
+    expect(r).toBeGreaterThan(g);
+    expect(r).toBeGreaterThan(b);
   });
 });
