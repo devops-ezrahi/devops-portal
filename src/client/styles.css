@@ -4897,11 +4897,29 @@ input.jf-title {
   color: rgb(var(--c-6f8088));
 }
 
-.ag-grid-sort select {
-  width: auto;
+.ag-grid-sort { position: relative }
+
+.ag-sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-height: 0;
   padding: 3px 8px;
+  border: 1px solid rgb(var(--c-2a3940));
+  border-radius: 6px;
+  background: rgb(var(--c-0d1316));
+  color: rgb(var(--c-f4f7f8));
   font-size: 12px;
+  font-weight: 400;
+}
+
+.ag-sort-button:hover { border-color: rgb(var(--c-20c7bd) / 60%) }
+
+.ag-sort-menu {
+  width: auto;
+  min-width: 170px;
+  padding: 6px;
+  font-size: 13px;
 }
 
 .ag-card-shell[draggable="true"] > .ag-card { cursor: grab }
