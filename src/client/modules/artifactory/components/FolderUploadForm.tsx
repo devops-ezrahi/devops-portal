@@ -1,4 +1,5 @@
 import { Zip, ZipDeflate, ZipPassThrough } from "fflate";
+import { ProgressBar } from "../../../ProgressBar";
 import { FolderOpen, Upload, X } from "lucide-react";
 import { useState } from "react";
 import { Help } from "../../../Help";
@@ -388,7 +389,7 @@ export function FolderUploadForm({ onSubmitted, onError }: Props) {
 
       {submitting && (
         <>
-          <progress className="job-progress" value={percent} max={100} />
+          <ProgressBar value={percent} max={100} />
           <small className="upload-status">
             {sent.files.toLocaleString()} / {scannedFolder!.entries.length.toLocaleString()} files
             &middot; {formatBytes(sent.bytes)} sent

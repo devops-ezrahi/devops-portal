@@ -1,5 +1,6 @@
 import { FileCode2, Package, TriangleAlert, Upload, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { BusyIcon } from "../../../BusyIcon";
 import { Help } from "../../../Help";
 import { convertManifests, listWorkloads, type Workload } from "../api";
 import { WorkloadPicker } from "./WorkloadPicker";
@@ -313,6 +314,7 @@ export function ConvertDialog({
               Cancel
             </button>
             <button type="button" className="primary" disabled={!ready || busy} onClick={() => void handleConvert()}>
+              <BusyIcon busy={busy} icon={null} />
               {busy ? "Converting…" : "Convert"}
             </button>
           </div>

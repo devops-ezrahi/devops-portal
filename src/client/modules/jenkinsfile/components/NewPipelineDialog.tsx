@@ -1,6 +1,7 @@
 import { FilePlus2, FileUp, GitBranch, TriangleAlert, Upload, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { exampleRepoUrl, isSshUrl, normalizeRepoUrl } from "../../../../server/gitUrl";
+import { BusyIcon } from "../../../BusyIcon";
 import type { JenkinsfilePipeline } from "../../../../server/types";
 import { pullJenkinsfile } from "../api";
 import { highlightGroovy } from "../highlight";
@@ -199,6 +200,7 @@ export function NewPipelineDialog({
                 disabled={!repoUrl.trim() || busy}
                 onClick={() => void handleConnect()}
               >
+                <BusyIcon busy={busy} icon={null} />
                 {busy ? "Reading…" : pending ? "Import anyway" : "Connect"}
               </button>
             </div>

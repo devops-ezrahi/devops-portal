@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, Copy, Download, FileText, Folder, FolderOpen, TriangleAlert } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
+import { Collapse } from "../../../Collapse";
 import { diffTree, diffValues, type FileStatus, type TreeEntry } from "../diff";
 import type { RepoFile } from "../api";
 import type { GeneratedFile } from "../tree";
@@ -146,7 +147,9 @@ export function FilePreview({ files, onDownload, repo, comparing, deletes = fals
             {open ? <FolderOpen size={13} aria-hidden="true" /> : <Folder size={13} aria-hidden="true" />}
             <span className="ag-folder-name">{node.name}</span>
           </button>
-          {open && <ul className="ag-file-children">{render(node.children, depth + 1)}</ul>}
+          <Collapse open={open}>
+            <ul className="ag-file-children">{render(node.children, depth + 1)}</ul>
+          </Collapse>
         </li>
       );
     });
