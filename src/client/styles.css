@@ -3781,7 +3781,8 @@ code {
   font-size: 13px;
 }
 
-.jf-arg .jf-checkbox input[type="checkbox"] {
+.jf-arg .jf-checkbox input[type="checkbox"],
+.jf-arg .jf-checkbox input[type="radio"] {
   width: 15px;
   height: 15px;
   min-height: 0;

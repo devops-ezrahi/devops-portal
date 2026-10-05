@@ -320,12 +320,6 @@ function StashPicker({
 }
 
 /**
- * `commands` is one argument with two shapes, so the switch lives with the
- * field rather than in the add list: the same textarea holds shell lines or a
- * closure body, and flipping the switch keeps what is already in it. Empty is
- * the resting state — a step with neither is just a step with no commands.
- */
-/**
  * A map argument is either typed out as entries or handed a map variable a
  * Groovy card declares (`populateEnvVars(envs)`) — the same one-argument,
  * two-shapes switch `commands` has. A string value *is* the variable form,
@@ -347,7 +341,8 @@ function MapSource({
   onDropArg?: () => void;
 }) {
   const isVar = typeof value === "string";
-  const listId = `${id}-maps`;
+  const held = isVar && (value as string).trim() && !mapVars.includes(value as string) ? [value as string] : [];
+  const options = [...mapVars, ...held];
 
   function choose(variable: boolean) {
     if (variable === isVar) return;
@@ -366,30 +361,24 @@ function MapSource({
         </button>
       </div>
       {isVar ? (
-        <>
-          {/* A <datalist>, not a <select>: a map built some other way
-              (`def envs = readMap()`) is not suggested but still typable. */}
-          <input
-            id={id}
-            type="text"
-            className="jf-expression"
-            list={listId}
-            spellCheck={false}
-            placeholder={mapVars[0] ?? "envs"}
-            value={value as string}
-            onChange={(e) => onChange(e.target.value)}
-          />
-          <datalist id={listId}>
-            {mapVars.map((name) => (
-              <option key={name} value={name} />
+        // Picked like `unstash` is: one press, from what earlier cards declare.
+        // A name none of them declares any more (or an imported expression)
+        // stays listed and marked, so it can be swapped rather than vanish.
+        options.length ? (
+          <div className="jf-picker" role="radiogroup" aria-label={`${spec.name} map variable`}>
+            {options.map((name) => (
+              <label className="jf-checkbox" key={name}>
+                <input type="radio" name={id} checked={value === name} onChange={() => onChange(name)} />
+                <code>{name}</code>
+                {!mapVars.includes(name) && <span className="jf-kind">not declared above</span>}
+              </label>
             ))}
-          </datalist>
-          {!mapVars.length && (
-            <p className="field-hint">
-              No map declared above this card. Add a Groovy card before it, e.g. <code>def envs = [SERVICE: 'x']</code>.
-            </p>
-          )}
-        </>
+          </div>
+        ) : (
+          <p className="jf-note">
+            No map declared above this card. Add a Groovy card before it, e.g. <code>def envs = [SERVICE: 'x']</code>.
+          </p>
+        )
       ) : (
         <MapRows spec={spec} pairs={pairsOf(value)} onChange={onChange} onDropArg={onDropArg} />
       )}
@@ -397,6 +386,12 @@ function MapSource({
   );
 }
 
+/**
+ * `commands` is one argument with two shapes, so the switch lives with the
+ * field rather than in the add list: the same textarea holds shell lines or a
+ * closure body, and flipping the switch keeps what is already in it. Empty is
+ * the resting state — a step with neither is just a step with no commands.
+ */
 function Commands({
   spec,
   id,
