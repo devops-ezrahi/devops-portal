@@ -1,4 +1,5 @@
 import { CircleStop } from "lucide-react";
+import { ProgressBar } from "../../../ProgressBar";
 import { classifyLogLine } from "../../../logLines";
 import { jobStatusClass, jobStatusLabel } from "../jobStatus";
 import type {
@@ -176,7 +177,7 @@ export function JobDetail({ job, onStop }: Props) {
       {job.progress && job.progress.total > 0 && (
         <section>
           <h3>Progress</h3>
-          <progress className="job-progress" value={job.progress.done} max={job.progress.total} />
+          <ProgressBar value={job.progress.done} max={job.progress.total} />
           <p className="field-hint">
             {job.progress.done} of {job.progress.total} package(s)
           </p>

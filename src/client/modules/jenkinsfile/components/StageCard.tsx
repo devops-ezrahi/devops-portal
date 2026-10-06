@@ -1,5 +1,6 @@
 import { AlertTriangle, ChevronRight, GripVertical, Minimize2, Pencil, Plus, X } from "lucide-react";
 import { useState } from "react";
+import { Collapse } from "../../../Collapse";
 import { Help } from "../../../Help";
 import { COMMON_ARG_NAMES, KIND_LABEL, pinsRuntime, RUNTIME_ARG_NAMES, stepSpec, type ArgSpec, type StepSpec } from "../catalog";
 import { emptyValue, stageLabel } from "../pipeline";
@@ -126,7 +127,7 @@ export function StageCard({
         </span>
       </div>
 
-      {open && (
+      <Collapse open={open}>
         <div className="jf-card-body">
           {!spec ? (
             <p className="jf-empty">Unknown step “{stage.step}” — it is not in the shared library.</p>
@@ -142,7 +143,7 @@ export function StageCard({
             />
           )}
         </div>
-      )}
+      </Collapse>
     </li>
   );
 }
@@ -357,7 +358,7 @@ function ArgGroup({
         )}
       </div>
 
-      {open && (
+      <Collapse open={open}>
         <div className="jf-arg-list">
           <ArgFields
             args={args}
@@ -368,7 +369,7 @@ function ArgGroup({
             onRemove={onRemove}
           />
         </div>
-      )}
+      </Collapse>
     </section>
   );
 }

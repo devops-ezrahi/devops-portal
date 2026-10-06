@@ -1,4 +1,5 @@
 import { Check, ChevronRight, Pencil, Plus, Trash2, TriangleAlert, X } from "lucide-react";
+import { Collapse } from "../../Collapse";
 import { ListSizeToggle } from "../../ListSizeToggle";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleViewProps } from "../../moduleTypes";
@@ -610,9 +611,8 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
 
             {/* Library, parameters and Groovy fold behind one row,
                 so the stages can sit near the top once they are set. Folded, the
-                row says what is set, so nothing hidden is a surprise. Siblings
-                rather than a wrapper, so `.jf-section + .jf-section` still rules
-                them apart. */}
+                row says what is set, so nothing hidden is a surprise. They slide in
+                inside a Collapse, which styles.css rules apart like siblings. */}
             <div className="jf-section">
               <button
                 type="button"
@@ -631,8 +631,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
               </button>
             </div>
 
-            {optionsOpen && (
-              <>
+            <Collapse open={optionsOpen}>
               <div className="jf-section">
                 <LibraryField
                   value={draft.library}
@@ -656,8 +655,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
                   onChange={(params) => patchDraft({ params })}
                 />
               </div>
-              </>
-            )}
+            </Collapse>
 
             <div className="jf-section jf-builder">
               <StageList

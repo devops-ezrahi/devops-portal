@@ -25,7 +25,7 @@ export function jobStatusClass(job: ArtifactoryJob): string {
   if (job.status === "completed" && job.dependencyFallback) return "stage stage-incomplete";
   switch (job.status) {
     case "pending": return "stage stage-submitted";
-    case "in-progress": return "stage stage-in-progress";
+    case "in-progress": return "stage stage-in-progress job-running";
     case "completed": return "stage stage-resolved";
     case "failed": return "stage stage-waiting-on-customer";
     case "aborted": return "stage stage-aborted";

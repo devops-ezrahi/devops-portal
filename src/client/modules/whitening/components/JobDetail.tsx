@@ -83,7 +83,7 @@ function formatDate(iso: string): string {
 function statusClass(status: WhiteningJobStatus): string {
   switch (status) {
     case "pending": return "stage stage-submitted";
-    case "in-progress": return "stage stage-in-progress";
+    case "in-progress": return "stage stage-in-progress job-running";
     case "completed": return "stage stage-resolved";
     case "failed": return "stage stage-waiting-on-customer";
     case "aborted": return "stage stage-aborted";

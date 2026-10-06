@@ -1,5 +1,6 @@
 import { AlertTriangle, Check, ChevronDown, Copy, Download, X } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Collapse } from "../../../Collapse";
 import { highlightGroovy } from "../highlight";
 import { log, error as logError } from "../../../log";
 
@@ -103,7 +104,8 @@ export function JenkinsfilePreview({ code, problems, problemCount, actions, noti
       </div>
       {notice}
 
-      {!folded && (problems.length > 0 || problemCount > 0) && (
+      <Collapse open={!folded}>
+      {(problems.length > 0 || problemCount > 0) && (
         <ul className="jf-errors" aria-label="Pipeline problems">
           {problemCount > 0 && (
             <li>
@@ -119,11 +121,10 @@ export function JenkinsfilePreview({ code, problems, problemCount, actions, noti
         </ul>
       )}
 
-      {!folded && (
-        <pre className="jf-code">
-          <code className="hljs" dangerouslySetInnerHTML={{ __html: html }} />
-        </pre>
-      )}
+      <pre className="jf-code">
+        <code className="hljs" dangerouslySetInnerHTML={{ __html: html }} />
+      </pre>
+      </Collapse>
 
       {pending && (
         <div className="modal-backdrop" role="presentation">

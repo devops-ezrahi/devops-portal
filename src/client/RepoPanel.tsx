@@ -1,3 +1,4 @@
+import { BusyIcon } from "./BusyIcon";
 import {
   ChevronDown,
   ChevronRight,
@@ -51,7 +52,7 @@ export function CommitButton({
       title={blocked || (!saved ? `Saving — the commit writes the saved ${what}` : "Commit and open a pull request")}
       onClick={onCommit}
     >
-      <GitPullRequestArrow size={16} aria-hidden="true" /> {push.kind === "busy" ? "Committing…" : "Commit"}
+      <BusyIcon busy={push.kind === "busy"} icon={<GitPullRequestArrow size={16} aria-hidden="true" />} /> {push.kind === "busy" ? "Committing…" : "Commit"}
     </button>
   );
 }
@@ -166,7 +167,7 @@ export function RepoPanel({ role, repoUrl, revision, sub, link, blocked, error, 
               }
             }}
           >
-            <CloudDownload size={16} aria-hidden="true" /> {pulling ? "Pulling…" : confirming ? "Pull anyway" : "Pull"}
+            <BusyIcon busy={pulling} icon={<CloudDownload size={16} aria-hidden="true" />} /> {pulling ? "Pulling…" : confirming ? "Pull anyway" : "Pull"}
           </button>
         </div>
       </div>

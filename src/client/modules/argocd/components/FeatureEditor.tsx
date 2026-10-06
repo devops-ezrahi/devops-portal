@@ -2,6 +2,7 @@ import { ArrowUpRight, ChevronDown, ChevronRight, Plus, TriangleAlert } from "lu
 import { useEffect, useState } from "react";
 import { BY_ID, CATEGORIES, FEATURES, MORE_KEY, defaultValues, isRecord, primaryFields } from "../catalog";
 import { buildValues } from "../build";
+import { Collapse } from "../../../Collapse";
 import { Help } from "../../../Help";
 import { FeatureField } from "./FeatureField";
 import type { FeatureSpec, FeatureState, FieldSpec } from "../catalog";
@@ -344,7 +345,8 @@ export function FeatureEditor({
               <span className="ag-category-name">{cat.name}</span>
               {count > 0 && <span className="ag-category-count">{count} on</span>}
             </button>
-            {shown && specs.map((spec) => {
+            <Collapse open={shown}>
+            {specs.map((spec) => {
               const state = features[spec.id];
               const on = !!state?.on;
               // A feature nothing here sets but the tree's defaults do is still
@@ -401,6 +403,7 @@ export function FeatureEditor({
                 </div>
               );
             })}
+            </Collapse>
           </section>
         );
       })}

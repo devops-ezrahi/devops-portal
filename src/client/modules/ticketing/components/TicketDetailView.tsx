@@ -1,6 +1,7 @@
 import { LinkedText } from "./LinkedText";
 import { MessageSquarePlus } from "lucide-react";
 import { useState } from "react";
+import { BusyIcon } from "../../../BusyIcon";
 import type { FormEvent } from "react";
 import { log, error as logError } from "../../../log";
 import { addComment } from "../api";
@@ -83,7 +84,7 @@ export function TicketDetailView({
         <form className="comment-form" onSubmit={submitComment}>
           <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="Message" required />
           <button className="primary" disabled={submitting || !body.trim()}>
-            <MessageSquarePlus size={18} aria-hidden="true" /> Send
+            <BusyIcon busy={submitting} icon={<MessageSquarePlus size={18} aria-hidden="true" />} /> Send
           </button>
         </form>
       </section>

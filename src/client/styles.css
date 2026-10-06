@@ -209,6 +209,9 @@
      immediate even though the tail is still running. `ease` starts slow and
      is what makes a 150ms transition feel like 250ms. */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  /* How long a fold, a chevron or a bar takes. Subtle on purpose: felt more
+     than seen. */
+  --motion: 180ms;
 }
 
 * {
@@ -322,6 +325,43 @@ textarea {
 @keyframes fade-out {
   from { opacity: 1 }
   to   { opacity: 0 }
+}
+
+/* Collapse.tsx — a fold slides to the content's real height. */
+.collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--motion) var(--ease-out);
+}
+.collapse.open { grid-template-rows: 1fr }
+.collapse > .collapse-inner { min-height: 0; overflow: hidden }
+.collapse.settled > .collapse-inner { overflow: visible }
+
+/* BusyIcon.tsx — the icon gives way to a spinner only once the action has
+   taken 400ms, so a fast one shows nothing. */
+@keyframes busy-hide { to { visibility: hidden } }
+@keyframes busy-show { to { visibility: visible } }
+.busy-icon { position: relative; display: inline-flex; width: 16px; height: 16px; flex: 0 0 auto; vertical-align: -3px }
+.busy-icon > svg { animation: busy-hide 0s 400ms forwards }
+.busy-spinner {
+  position: absolute;
+  inset: 1px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  visibility: hidden;
+  animation: busy-show 0s 400ms forwards, spin 650ms linear infinite;
+}
+
+/* Motion is decoration: the OS "reduce motion" setting turns it off. The
+   spinners keep turning — a frozen one reads as a hang. */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+  .busy-spinner { animation-duration: 0s, 650ms !important }
+  .loading-state::after, .job-running::before { animation-duration: 650ms !important }
 }
 
 .fullpage-screen {
@@ -1249,6 +1289,21 @@ input[type="radio"]:focus:not(:focus-visible) {
 .stage-in-progress {
   background: rgb(var(--c-133a38));
   color: rgb(var(--c-9fe4dc));
+}
+
+/* A job badge (not a ticket's "In Progress" stage — nothing is running there)
+   carries a turning ring while the job runs. */
+.job-running::before {
+  content: '';
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 650ms linear infinite;
 }
 
 /* Between In Progress (teal) and Waiting on Customer (amber): the work is
@@ -2226,10 +2281,19 @@ input[type="radio"]:focus:not(:focus-visible) {
   cursor: pointer;
 }
 
+/* ProgressBar.tsx — glides between polls, which are seconds apart. */
 .job-progress {
   width: 100%;
   height: 8px;
-  accent-color: rgb(var(--c-20c7bd));
+  border-radius: 4px;
+  overflow: hidden;
+  background: rgb(var(--c-1e2d34));
+}
+.job-progress > span {
+  display: block;
+  height: 100%;
+  background: rgb(var(--c-20c7bd));
+  transition: width 300ms var(--ease-out);
 }
 
 .package-table {
@@ -2876,7 +2940,17 @@ code {
   gap: 16px;
 }
 
-.jf-editor > .jf-section + .jf-section {
+.jf-editor > .jf-section + .jf-section,
+.jf-editor > .collapse + .jf-section {
+  border-top: 1px solid rgb(var(--c-202b31));
+  padding-top: 16px;
+}
+
+/* Pipeline options slide in as one Collapse: the grid gap moves inside it, so
+   at 0fr it takes no room and the rule above each section still draws. */
+.jf-editor > .collapse { margin-top: -16px; align-self: start }
+.jf-editor > .collapse .collapse-inner > .jf-section {
+  margin-top: 16px;
   border-top: 1px solid rgb(var(--c-202b31));
   padding-top: 16px;
 }
@@ -3611,7 +3685,7 @@ code {
 .jf-group-chevron {
   color: rgb(var(--c-6f8088));
   flex-shrink: 0;
-  transition: transform 140ms var(--ease-out);
+  transition: transform var(--motion) var(--ease-out);
 }
 
 .jf-group-chevron.open {
@@ -3883,6 +3957,9 @@ code {
   gap: 10px;
   min-width: 0;
 }
+
+/* The problems and the code fold as one; keep the gap between them. */
+.jf-preview > .collapse .collapse-inner { display: grid; gap: 10px; min-width: 0 }
 
 .jf-preview-head {
   display: flex;
@@ -5946,13 +6023,27 @@ label.ag-add { cursor: pointer }
 }
 
 .ag-fold:active { transform: none }
-.ag-fold svg { transition: transform 0.15s }
+.ag-fold svg { transition: transform var(--motion) var(--ease-out) }
 .ag-fold[aria-expanded="false"] svg { transform: rotate(-90deg) }
 
 .ag-section.folded > :not(.ag-grid-headrow, .ag-scope-actions, .ag-preview),
 .ag-section.folded .ag-preview > :not(.ag-preview-head),
 .ag-section.folded .ag-scope-actions > :not(.ag-grid-head) {
   display: none;
+}
+
+/* Unfolding fades the section back in. Only a fade, not Collapse's slide: a
+   section's body is its heading's siblings, spread over components that own
+   the heading. */
+.ag-section > :not(.ag-grid-headrow, .ag-scope-actions, .ag-preview),
+.ag-section .ag-preview > :not(.ag-preview-head) {
+  transition: opacity var(--motion) var(--ease-out);
+}
+@starting-style {
+  .ag-section > :not(.ag-grid-headrow, .ag-scope-actions, .ag-preview),
+  .ag-section .ag-preview > :not(.ag-preview-head) {
+    opacity: 0;
+  }
 }
 
 .ag-scope-actions {
@@ -6423,3 +6514,7 @@ label.ag-add { cursor: pointer }
 .color-hex:focus-within {
   border-color: rgb(var(--c-20c7bd));
 }
+
+/* A field label's spinner sits at the label's own small size. */
+.owner-select > span .busy-icon,
+.admin-edit-form label > span .busy-icon { width: 12px; height: 12px; margin-left: 4px; vertical-align: -1px }
