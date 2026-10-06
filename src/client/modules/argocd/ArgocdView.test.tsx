@@ -102,7 +102,7 @@ describe("ArgocdView", () => {
   it("shows the required features without a tick, and defaulted fields only on request", async () => {
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Microservice$/ }));
 
     // Workload and image are on screen before any category is opened, and there
     // is nothing to untick them with.
@@ -120,7 +120,7 @@ describe("ArgocdView", () => {
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Microservice$/ }));
     rename("microservice", "api-gateway");
     fireEvent.change(screen.getByLabelText("image.repository"), { target: { value: "nginx" } });
 
@@ -138,11 +138,11 @@ describe("ArgocdView", () => {
     localStorage.setItem("argocd.valuesView", "combined"); // adding a feature is Full config's job
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Microservice$/ }));
     rename("microservice", "api-gateway");
     fireEvent.change(screen.getByLabelText("image.tag"), { target: { value: "1.0.0" } });
 
-    fireEvent.click(screen.getByRole("button", { name: /Namespace/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Namespace$/ }));
     rename("namespace", "shop-web");
     // The namespace layer starts empty — it holds overrides, not a copy.
     fireEvent.change(screen.getByLabelText("image.tag"), { target: { value: "1.4.2" } });
@@ -160,7 +160,7 @@ describe("ArgocdView", () => {
     localStorage.setItem("argocd.valuesView", "combined"); // adding a feature is Full config's job
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Microservice$/ }));
     const listed = () => document.querySelector(".ag-problems")?.textContent ?? "";
     const onCard = () => document.querySelector('[data-feature-card="image"] .ag-feature-problems')?.textContent ?? "";
     // Base is not what deploys — the converter writes the repository beside
@@ -171,7 +171,7 @@ describe("ArgocdView", () => {
     // refuses, and the workload defaults to a Deployment whether or not
     // anything was typed. It is said twice on purpose — once in the list under
     // the form, once on the Image card itself — so both places are asserted.
-    fireEvent.click(screen.getByRole("button", { name: /Namespace/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Namespace$/ }));
     rename("namespace", "shop-web");
     await waitFor(() => expect(listed()).toMatch(/No image.repository/));
     expect(onCard()).toMatch(/No image.repository/);
@@ -527,7 +527,7 @@ describe("ArgocdView", () => {
   it("never offers `enabled` as an optional field — ticking the feature is what sets it", async () => {
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Microservice$/ }));
     rename("microservice", "api-gateway");
 
     fireEvent.click(screen.getByRole("button", { name: /Networking/ }));
@@ -642,7 +642,7 @@ describe("ArgocdView", () => {
   it("wires a claim into the pod in one press, and then suggests it to a mount", async () => {
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Microservice$/ }));
     fireEvent.click(screen.getByRole("button", { name: /Storage/ }));
 
     const pvc = feature("PersistentVolumeClaims");
@@ -676,7 +676,7 @@ describe("ArgocdView", () => {
   it("pulls a ConfigMap in as env vars in one press, and says when it already is", async () => {
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Microservice$/ }));
     fireEvent.click(
       screen.getAllByRole("button", { name: /Config/ }).find((b) => b.classList.contains("ag-category-head"))!
     );
@@ -717,7 +717,7 @@ describe("ArgocdView", () => {
 
     // The card's own warning takes you back to base, where the warning is.
     fireEvent.click(document.querySelector(".ag-card-warn")!);
-    expect(screen.getByText("Base — storefront", { selector: "h3" })).toBeInTheDocument();
+    expect(screen.getByText("Base — storefront", { selector: "h3 .ag-fold" })).toBeInTheDocument();
     await waitFor(() => expect(scroll).toHaveBeenCalledTimes(2));
     delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
   });
@@ -748,20 +748,20 @@ describe("ArgocdView", () => {
     localStorage.setItem("argocd.valuesView", "combined");
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Microservice$/ }));
     rename("microservice", "checkout");
     // Leave the name field, or the card is still an <input> and not a button.
     fireEvent.blur(screen.getByLabelText("Microservice name"));
     // Base is the same everywhere, so it has no defaults to offer.
     expect(screen.queryByRole("button", { name: /defaults/ })).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Namespace/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Namespace$/ }));
     rename("namespace", "prod");
     fireEvent.blur(screen.getByLabelText("Namespace name"));
 
     // One bar above the microservices, for every one of them in prod.
     fireEvent.click(screen.getByRole("button", { name: /^prod defaults/ }));
-    expect(screen.getByText("prod defaults", { selector: "h3" })).toBeInTheDocument();
+    expect(screen.getByText("prod defaults", { selector: "h3 .ag-fold" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Identity & Observability/ }));
     const sa = feature("ServiceAccount");
     fireEvent.click(sa.querySelector("input[type=checkbox]")!);
@@ -780,7 +780,7 @@ describe("ArgocdView", () => {
     const inherited = feature("ServiceAccount").querySelector(".ag-inherited")!;
     expect(inherited.textContent).toContain("regcred");
     fireEvent.click(within(inherited as HTMLElement).getByRole("button", { name: /prod defaults/ }));
-    expect(screen.getByText("prod defaults", { selector: "h3" })).toBeInTheDocument();
+    expect(screen.getByText("prod defaults", { selector: "h3 .ag-fold" })).toBeInTheDocument();
 
     // Choosing Base leaves the defaults, which base does not have.
     fireEvent.click(card("Layers", /Base/));
@@ -810,7 +810,7 @@ describe("ArgocdView", () => {
   it("puts a field back on the optional list", async () => {
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: /Microservice/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Microservice$/ }));
     rename("microservice", "storefront");
 
     fireEvent.click(screen.getByRole("button", { name: /image\.pullPolicy/ }));
