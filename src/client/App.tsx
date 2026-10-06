@@ -1,22 +1,32 @@
-import { RefreshCcw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowUp, RefreshCcw } from "lucide-react";
+import { memo, useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import {
   getMe,
   setDevRole,
   ForbiddenError,
   UnauthenticatedError,
 } from "./api";
+import { log, warn, error as logError } from "./log";
 import { AccessDeniedScreen } from "./AccessDeniedScreen";
 import { ErrorScreen } from "./ErrorScreen";
+import { ThemePicker } from "./ThemePicker";
+import { restoreListSize } from "./ListSizeToggle";
 import { LoginScreen } from "./LoginScreen";
+import { argocdModule } from "./modules/argocd";
 import { artifactoryModule } from "./modules/artifactory";
-import { ragflowModule } from "./modules/ragflow";
+import { jenkinsfileModule } from "./modules/jenkinsfile";
 import { ticketingModule } from "./modules/ticketing";
 import { whiteningModule } from "./modules/whitening";
-import type { PortalModule } from "./moduleTypes";
+import type { ModuleViewProps, PortalModule } from "./moduleTypes";
 import type { PortalUser } from "../server/types";
+// Inlined at bundle time and tree-shaken to the one string, so the running
+// build identifies itself with no endpoint, no fetch and no state. CI bumps
+// package.json before `docker build`, so this is the released version.
+import { version } from "../../package.json";
 
-const modules: PortalModule[] = [ticketingModule, artifactoryModule, whiteningModule, ragflowModule];
+// AI is off for now — add `aiModule` (./modules/ai) back to this array to
+// bring the tab back. The server keeps serving /api/ai/*; nothing calls it.
+const modules: PortalModule[] = [ticketingModule, artifactoryModule, whiteningModule, jenkinsfileModule, argocdModule];
 
 function slugFor(mod: PortalModule) {
   return mod.userNav.label.toLowerCase();
@@ -27,22 +37,43 @@ function moduleFromPath(pathname: string): string {
   return modules.find((m) => slugFor(m) === slug)?.id ?? modules[0].id;
 }
 
+// Stella easter eggs. She's a cat. Not load-bearing.
+
 export function App() {
   const [user, setUser] = useState<PortalUser | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Keyed by module id: modules stay mounted, so one shell-wide banner would
+  // follow you into every other tab and never clear.
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
   const [unauthenticated, setUnauthenticated] = useState(false);
   const [ssoUrl, setSsoUrl] = useState("");
   const [activeModuleId, setActiveModuleId] = useState(() => moduleFromPath(window.location.pathname));
+  // Modules mount on first visit and are hidden — never unmounted — afterwards, so
+  // a running upload keeps its progress bar, selection and poll across tab switches.
+  const [visited, setVisited] = useState<string[]>([activeModuleId]);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [stellaPop, setStellaPop] = useState(false);
+  const [stellaWalks, setStellaWalks] = useState(false);
+  const brandClicks = useRef(0);
+
+  // 1-in-100 per page load / tab switch / refresh, she strolls through the header.
+  useEffect(() => {
+    // ponytail: ?stella forces the walk so it's testable without 100 reloads
+    if (stellaWalks || (!window.location.search.includes("stella") && Math.random() >= 0.01)) return;
+    setStellaWalks(true);
+    setTimeout(() => setStellaWalks(false), 9000);
+  }, [activeModuleId, refreshKey]);
 
   useEffect(() => {
+    log("app", "shell mounted", { modules: modules.map((m) => m.id), initialModule: activeModuleId });
     function onPopState() {
-      setActiveModuleId(moduleFromPath(window.location.pathname));
+      const next = moduleFromPath(window.location.pathname);
+      log("router", "popstate", window.location.pathname, "→", next);
+      setActiveModuleId(next);
     }
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
@@ -50,20 +81,23 @@ export function App() {
 
   function navigateTo(id: string) {
     const mod = modules.find((m) => m.id === id);
+    log("router", "navigate", activeModuleId, "→", id, mod ? `/${slugFor(mod)}` : "(unknown module)");
     if (mod) window.history.pushState({}, "", `/${slugFor(mod)}`);
     setActiveModuleId(id);
   }
 
   useEffect(() => {
     let mounted = true;
+    log("auth", "loading /api/me", { retryKey });
     setLoading(true);
-    setError(null);
+    setErrors({});
     setLoadError(null);
     setForbidden(false);
     setUnauthenticated(false);
     getMe()
       .then(({ user: me, isAdmin: admin }) => {
-        if (!mounted) return;
+        if (!mounted) return log("auth", "ignoring /api/me result — unmounted");
+        log("auth", "signed in", { id: me.id, displayName: me.displayName, groups: me.groups, isAdmin: admin });
         setUser(me);
         setIsAdmin(admin);
         setLoading(false);
@@ -71,11 +105,14 @@ export function App() {
       .catch((err: Error) => {
         if (!mounted) return;
         if (err instanceof UnauthenticatedError) {
+          warn("auth", "unauthenticated — showing login screen", { ssoUrl: err.ssoUrl });
           setUnauthenticated(true);
           setSsoUrl(err.ssoUrl);
         } else if (err instanceof ForbiddenError) {
+          warn("auth", "forbidden — user is not in ALLOWED_GROUPS", err.message);
           setForbidden(true);
         } else {
+          logError("auth", "/api/me failed", err);
           setLoadError(err.message);
         }
         setLoading(false);
@@ -86,6 +123,20 @@ export function App() {
   }, [retryKey]);
 
   const activeModule = modules.find((m) => m.id === activeModuleId) ?? modules[0];
+
+  useEffect(() => {
+    setVisited((v) => (v.includes(activeModule.id) ? v : [...v, activeModule.id]));
+  }, [activeModule.id]);
+
+  // Refresh clears stale banners along with the data behind them.
+  useEffect(() => setErrors({}), [refreshKey]);
+
+  // The list column's minimized/maximized choice, shared by every module.
+  useEffect(restoreListSize, []);
+
+  useEffect(() => {
+    log("app", "rendering module", activeModule.id, { isAdmin, refreshKey });
+  }, [activeModule.id, isAdmin, refreshKey]);
 
   if (forbidden) {
     return <AccessDeniedScreen />;
@@ -105,66 +156,187 @@ export function App() {
         <div className="dev-banner" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
           <span>
             Dev mode — SSO is off.{" "}
-            <a href="http://devops-portal.homelab.local" className="dev-banner-link">
-              Open devops-portal.homelab.local
+            <a href="https://portal.devops-ezrahi.duckdns.org" className="dev-banner-link">
+              Open portal.devops-ezrahi.duckdns.org
             </a>{" "}
             to log in as a real user.
           </span>
           <div className="role-toggle">
             <button
               className={!isAdmin ? "active" : ""}
-              onClick={() => setDevRole("user").then(() => setRetryKey((k) => k + 1))}
+              onClick={() => {
+                log("dev", "switching role → user");
+                setDevRole("user").then(() => setRetryKey((k) => k + 1));
+              }}
             >User</button>
             <button
               className={isAdmin ? "active" : ""}
-              onClick={() => setDevRole("admin").then(() => setRetryKey((k) => k + 1))}
+              onClick={() => {
+                log("dev", "switching role → admin");
+                setDevRole("admin").then(() => setRetryKey((k) => k + 1));
+              }}
             >Admin</button>
           </div>
         </div>
       )}
       <header className="app-header">
-        <div className="brand">DevOps</div>
+        <div
+          className="brand"
+          onClick={() => {
+            brandClicks.current += 1;
+            if (brandClicks.current < 15) return;
+            brandClicks.current = 0;
+            setStellaPop(true);
+            setTimeout(() => setStellaPop(false), 3000);
+          }}
+        >
+          DevOps Mahan
+          <span className="brand-version">v{version}</span>
+          {stellaPop && (
+            <div className="stella-pop">
+              <img src="/stella-1.png" alt="" />
+            </div>
+          )}
+        </div>
 
         <nav className="app-nav" aria-label="Primary navigation">
           {modules.map((mod) => {
             const nav = isAdmin ? mod.adminNav : mod.userNav;
             return (
-              <button
+              // An anchor, not a button: middle-click and ctrl/cmd-click only
+              // open a new tab for elements that actually carry an href. The
+              // onClick keeps normal clicks as in-app navigation, and bails on
+              // modified clicks so the browser handles those itself.
+              <a
                 key={mod.id}
+                href={`/${slugFor(mod)}`}
                 className={`nav-button${activeModuleId === mod.id ? " active" : ""}`}
-                onClick={() => navigateTo(mod.id)}
+                aria-current={activeModuleId === mod.id ? "page" : undefined}
+                onClick={(e) => {
+                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                  e.preventDefault();
+                  navigateTo(mod.id);
+                }}
               >
                 <nav.Icon aria-hidden="true" />
                 {nav.label}
-              </button>
+              </a>
             );
           })}
+          <div className="stella-lane">
+            {stellaWalks && <img src="/stella-3.png" alt="" />}
+          </div>
         </nav>
 
         <div className="header-actions">
           <div className="user-box">
-            <span>{user?.displayName ?? "Signed in user"}</span>
+            {/* dir="auto" so a Hebrew name from the SSO `name` claim renders
+                right-to-left instead of reversed. */}
+            <span dir="auto">{user?.displayName ?? "Signed in user"}</span>
           </div>
 
-          <button className="ghost-button" onClick={() => setRefreshKey((k) => k + 1)}>
+          <button
+            className="ghost-button"
+            onClick={() => {
+              log("app", "refresh clicked — remounting", activeModuleId, `refreshKey ${refreshKey} → ${refreshKey + 1}`);
+              setRefreshKey((k) => k + 1);
+            }}
+          >
             <RefreshCcw size={17} aria-hidden="true" /> Refresh
           </button>
+
+          <ThemePicker />
         </div>
       </header>
 
       <main className="main">
-        {error && <div className="error-banner">{error}</div>}
         {loading ? (
           <div className="loading-state" aria-label="Loading" />
         ) : (
-          <activeModule.View
-            user={user!}
-            isAdmin={isAdmin}
-            refreshKey={refreshKey}
-            onError={setError}
-          />
+          modules
+            .filter((mod) => visited.includes(mod.id))
+            .map((mod) => (
+              <ModuleSlot
+                key={mod.id}
+                mod={mod}
+                hidden={mod.id !== activeModule.id}
+                error={errors[mod.id]}
+                user={user!}
+                isAdmin={isAdmin}
+                refreshKey={refreshKey}
+                setErrors={setErrors}
+              />
+            ))
         )}
       </main>
+      <ScrollTopButton />
     </div>
+  );
+}
+
+/**
+ * One module, re-rendered only when something it is given changes. Modules stay
+ * mounted once visited, and the shell re-renders on every nav click — without
+ * `memo` and a stable `onError`, each click re-rendered every visited module,
+ * and ArgoCD regenerating its whole tree made every tab switch cost hundreds of
+ * milliseconds once it had been opened.
+ */
+const ModuleSlot = memo(function ModuleSlot({
+  mod,
+  hidden,
+  error,
+  user,
+  isAdmin,
+  refreshKey,
+  setErrors,
+}: {
+  mod: PortalModule;
+  hidden: boolean;
+  error: string | undefined;
+  user: PortalUser;
+  isAdmin: boolean;
+  refreshKey: number;
+  setErrors: Dispatch<SetStateAction<Record<string, string>>>;
+}) {
+  const onError = useCallback(
+    (message: string) => {
+      logError(mod.id, "error banner", message);
+      setErrors((prev) => ({ ...prev, [mod.id]: message }));
+    },
+    [mod.id, setErrors],
+  );
+  return (
+    <div className="module-slot" hidden={hidden}>
+      {error && <div className="error-banner">{error}</div>}
+      <MemoView View={mod.View} user={user} isAdmin={isAdmin} refreshKey={refreshKey} onError={onError} />
+    </div>
+  );
+});
+
+/** The View itself, kept out of the slot's re-render when only `hidden` flips. */
+const MemoView = memo(function MemoView({ View, ...props }: ModuleViewProps & { View: PortalModule["View"] }) {
+  return <View {...props} />;
+});
+
+/** Appears once the page is scrolled past a screen's worth; takes it back to the top. */
+function ScrollTopButton() {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setShown(window.scrollY > window.innerHeight);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+  // Always mounted so it can slide out as well as in; `inert` keeps the hidden one out of tab order.
+  return (
+    <button
+      type="button"
+      className={`scroll-top${shown ? " shown" : ""}`}
+      inert={!shown}
+      aria-label="Back to top"
+      title="Back to top"
+      onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+    >
+      <ArrowUp size={20} aria-hidden="true" />
+    </button>
   );
 }

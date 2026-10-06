@@ -28,8 +28,11 @@ src/
     types.ts          # shared cross-module types (API interfaces, DTOs)
     modules/
       ticketing/      # router.ts + JiraTicketingApi.ts + InMemoryTicketingApi.ts + domain files
-      artifactory/    # router.ts + RealArtifactoryApi.ts
-      ragflow/        # router.ts (single real backend, reads config.chat)
+      artifactory/    # router.ts + RealArtifactoryApi.ts + devSimulation.ts
+      whitening/      # router.ts + RealWhiteningApi.ts + devSimulation.ts
+      ai/             # router.ts + RealAiApi.ts (clones a registered repo, asks opencode CLI)
+      jenkinsfile/    # router.ts + PipelineStore.ts (saved pipeline documents, no jobs)
+      argocd/         # router.ts + TreeStore.ts (saved GitOps trees, no jobs)
   client/
     App.tsx           # thin shell: loads /api/me, renders nav, mounts active module View
     api.ts            # cross-cutting fetch helpers only (request, getMe, getPortalConfig, demo users)
@@ -49,7 +52,7 @@ Each feature is a self-contained module in two mirrored folders. **Conform new m
 
 - `router.ts` exports `create<Name>Router(...)` and is mounted in `src/server/app.ts`.
 - The data layer lives **inside the module folder** — never add data files at `src/server/*.ts`.
-- **Inject the data API into the router only when more than one implementation exists.** Ticketing (`JiraTicketingApi` / `InMemoryTicketingApi`) and Artifactory (`RealArtifactoryApi`) take an injected API instance — this keeps them swappable and unit-testable. Single-backend modules (`ragflow`) keep their logic in a sibling `service.ts` (or inline in the router for `ragflow`) that the router imports directly; no DI ceremony.
+- **Inject the data API into the router only when more than one implementation exists.** Ticketing (`JiraTicketingApi` / `InMemoryTicketingApi`), Artifactory (`RealArtifactoryApi`), Whitening (`RealWhiteningApi`) and AI (`RealAiApi`) take an injected API instance — this keeps them swappable and unit-testable. Jenkinsfile is the counter-example: one implementation, nothing to select on, so `createJenkinsfileRouter()` constructs its own `PipelineStore` (with a `dataDir` parameter for tests) and `app.ts` passes nothing.
 - `app.ts` selects the implementation by config, e.g. `config.jira.enabled ? new JiraTicketingApi(config.jira) : new InMemoryTicketingApi()`.
 
 **Client** — `src/client/modules/<name>/`:
@@ -64,9 +67,17 @@ The shell passes `refreshKey` as a prop; modules use it as a React `key` to remo
 
 Shipped code must use real data sources only — no seed/demo data baked into modules. Test fixtures belong under `__tests__/` (e.g. `modules/ticketing/__tests__/seedTickets.ts`) and are injected into the in-memory API by tests, never loaded by default.
 
-One **intentional, temporary** exception remains for local dev/demo and is slated for replacement:
+Two **intentional** exceptions remain, both for local dev/demo and both gated on
+the same signal (`SSO_REQUIRED` is not `true` — no proxy in front):
 
-- `src/client/api.ts` `demoUsers` + role switcher, and the dev fallback user in `auth.ts` — let the app run locally without an SSO proxy in front.
+- The dev role switcher in `src/client/App.tsx` (`POST /api/dev/role`) and the dev fallback user in `auth.ts` — let the app run locally without an SSO proxy in front.
+- `modules/jenkinsfile/devSimulation.ts` — a scripted image list for the
+  builder's `image` picker. There is no Artifactory behind `npm run dev`, so
+  without it the field suggests nothing and the picker cannot be seen at all
+  offline. `pickableImages` reaches for it only when `SSO_REQUIRED` is not
+  `true` **and** no real `JENKINS_IMAGES_PATH`/Artifactory is configured — a
+  real lookup always wins, and a deployment never serves it.
+- `modules/artifactory/devSimulation.ts` + `modules/whitening/devSimulation.ts` — scripted runs behind the **Test** button each module shows in dev. Nothing is seeded: the job lists start empty, and a run only exists once you press it. Both routers mount `POST /api/<module>/jobs/simulate` only when `SSO_REQUIRED` is not `true`, and the client only renders the button for the `dev` user. The scripts drive the real job map, log, progress and abort controller, so Stop works on them too. `src/server/devSimulate.test.ts` pins that the routes 404 once SSO is required.
 
 ## Config & environment
 
@@ -76,25 +87,1590 @@ Key variables (see `.env.example`):
 
 | Variable                                                     | Default         | Effect                                                                                                                      |
 | ------------------------------------------------------------ | --------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `LOG_LEVEL`                                                  | `info`          | `debug` \| `info` \| `warn` \| `error`. Everything goes to stdout (one stream, so ordering survives). `info` is one line per mutation, per 4xx/5xx, per slow (>1s) request, plus every job-log line mirrored with its job id — `kubectl logs \| grep ART-0007` reconstructs a run. `debug` adds successful GETs (the lists poll every 2-8s per open tab) and per-call Artifactory/Jira/Bitbucket detail. |
 | `SSO_REQUIRED`                                               | `false`         | Enforce SSO proxy headers; returns 401 if absent                                                                            |
 | `SSO_URL`                                                    | —               | SSO login URL sent to the client on 401                                                                                     |
+| `SSO_NAME_HEADER`                                            | —               | Header the proxy carries the IdP's `name` claim in (the person's full name, not the username). Unset = fall back to `X-Forwarded-Preferred-Username`. Node parses header bytes as latin-1, so `auth.ts` re-decodes non-ASCII names (Hebrew, accents) as UTF-8 when that is what they are. The proxy must be configured to pass the claim through — that half lives in the homelab chart, not here. |
 | `ALLOWED_GROUPS`                                             | —               | Pipe-separated groups allowed to use the portal at all (empty = allow everyone); 403 otherwise                              |
 | `ADMIN_GROUP`                                                | `portal-admins` | Pipe-separated groups that grant admin access                                                                               |
-| `ARTIFACTORY_URL` / `ARTIFACTORY_REPO` / `ARTIFACTORY_TOKEN` | —               | All three required to activate `RealArtifactoryApi`                                                                         |
+| `ARTIFACTORY_URL` / `ARTIFACTORY_REPO` / `ARTIFACTORY_TOKEN` | —               | All three required to activate `RealArtifactoryApi` (REST — `HEAD` to check, `PUT` to upload; no `jf` CLI)                  |
 | `ARTIFACTORY_DOCKER_REPO`                                    | —               | Docker repo the Whitening module pushes retagged images to via `skopeo`                                                     |
-| `GIT_URL` / `GIT_TOKEN`                                      | —               | Gitea base URL + PAT; required for the Whitening module to open pull requests                                               |
+| `ARTIFACTORY_MAVEN_REPO` / `_RPM_REPO` / `_PYPI_REPO` / `_CONDA_REPO` / `_HELM_REPO` | —       | Per-type repos the Artifactory module routes detected artifacts to (`packageTypes.ts`); unset = that type is skipped with a log line. Helm is the one that is not routed by filename: a chart is a `.tgz` exactly like an npm package, so `readTarballIdentity` decides from the manifest inside (`<chart>/Chart.yaml` vs `package/package.json`). |
+| `NPM_SOURCE_TOKEN`                                            | —               | Credential for the *source* npm registry when a URL copy is submitted with **Include dependencies** ticked. That path derives the registry from the pasted tarball URL (`<registry>/<name>/-/<file>.tgz`), writes it plus this token into a throwaway `.npmrc`, and runs a real `npm install` — once per target platform, since optional deps are platform-gated. Unset is normal: a public registry needs nothing, and a source registry on the same host as `ARTIFACTORY_URL` reuses `ARTIFACTORY_TOKEN` automatically. |
+| `GIT_URL` / `GIT_TOKEN`                                      | —               | Bitbucket Server base URL + HTTP access token; required for the Whitening module to open pull requests. The AI module reuses the same token to authenticate `git clone` for registered `ai-*` project repos on the `GIT_URL` host — any other host clones anonymously (unset = clone stays unauthenticated, so public repos still work). The **Jenkinsfile** builder reuses it too, for reading a Jenkinsfile out of a Bitbucket repo and committing one back. The token only ever reaches the `GIT_URL` host (`tokenFor`). |
+| `GITHUB_TOKEN`                                               | —               | The Jenkinsfile builder's credential for repos on **github.com** (`jenkinsfileTokenFor`), where `GIT_TOKEN` cannot go. Sent to github.com only; it pushes the branch and opens the PR through `openPullRequest`. Either this or `GIT_URL`+`GIT_TOKEN` enables Connect/Pull/Commit. Any other host clones anonymously. |
+| `GIT_USERNAME`                                               | —               | Empty (default) puts the token alone in the clone URL; set it only if Bitbucket wants `username:token` basic auth           |
+| `JENKINS_IMAGES_PATH`                                        | —               | Artifactory storage path whose child folders name the agent images the Jenkinsfile builder's `image` field suggests (e.g. `docker-local/jenkins-agents`). One AQL search per hour per pod returns the names *and* each image's `SCREAMING_CASE` Docker labels (`JDK=17`), which are shown beside the name. Unset, or unreachable, = the field is plain free text exactly as before. |
+| `ARGOCD_CHART_REPO_URL` / `_CHART_PATH` / `_CHART_REVISION`   | universal-chart repo, `.`, `main` | Where the universal chart lives — what each generated release renders. |
+| `ARGOCD_APPSET_CHART_PATH`                                   | `ms-applicationSet` | The second chart in that same repo. The generated `root-applicationSet.yaml` deploys it once per namespace directory, and it owns the per-release fan-out over `<ns>/values/*.yaml` plus the three-file layering (`base/<file>` → `<ns>/defaults.yaml` → `<ns>/values/<file>`). Keeping that in the chart is why a generated tree carries no per-namespace ApplicationSet of its own. |
+| `ARGOCD_VALUES_TOKEN`                                        | —               | Credential for the *values* repo, and only for its own host (`valuesTokenFor` → `tokenFor`). A values repo on the `GIT_URL` host reuses `GIT_TOKEN`/`GIT_USERNAME` and needs nothing here — **`GIT_TOKEN` is scoped to that host and reaches nowhere else**, so a values repo on GitHub while `GIT_URL` names an on-prem Bitbucket needs this variable, and unset is what makes a private one fail with Git's own `Invalid username or token`. A public values repo needs neither: it is still cloned, so the builder's preview still diffs against the branch — it is Commit that needs the write. |
+| `ARGOCD_VALUES_REPO_URL` / `_VALUES_REVISION`                | —               | Where a generated tree is committed — the `$values` ref source, and the repo the root app watches. All five only *pre-fill* a new tree; each document keeps its own copy and can point elsewhere, unlike `JENKINS_SHARED_LIBRARY`. Defaults match `convert_to_universal_chart.py`'s own CLI defaults, so a tree built here lands where the converter's would — except the values repo URL, which has none: a placeholder host there pre-filled every scratch tree with a repo the preview then failed to clone. |
 | `JIRA_URL` / `JIRA_TOKEN` / `JIRA_PROJECT_KEY`               | —               | All three required to activate `JiraTicketingApi` (Jira Data Center, Bearer PAT); otherwise `InMemoryTicketingApi` fallback |
-| `CHAT_API_URL` / `CHAT_API_KEY`                              | —               | Both required to enable the chat proxy; otherwise `/api/ragflow/chat` returns 503                                           |
+| `JIRA_STORY_POINTS_FIELD`                                    | —               | Custom-field id holding story points (e.g. `customfield_10016`) — instance-specific; unset = points stay portal-only and are not synced to Jira |
+| `JIRA_MAINTENANCE_ISSUE_TYPE`                                | `Maintenance`   | The Jira issue type the portal **creates** tickets as, and the one `listAdminTickets` filters the admin queue on — deliberately one var, since creating anything else files tickets the queue then cannot see. It is a Jira fact: the request catalog's display name ("CI/CD Pipeline") is not an issue type any instance has, and Jira answers an unresolvable one with *both* `Could not find issuetype` and a red-herring `project is required`. |
+| `AI_SKILLS_DIR`                                               | `~/.claude/skills` | Where the AI module's project registry lives — one `ai-<name>/SKILL.md` per repo (frontmatter `description` + a `Repo:` line, plus a free-text body describing how to work with that repo). This app's own code reads `description`/`Repo:` for the picker UI and the clone step (opencode has no bash access, so it can't clone itself) — but opencode's own native skill-discovery reads the *same* files: each question is prefixed "Use the ai-\<project\> skill", and opencode loads the SKILL.md body itself via its `skill` tool. That discovery is fixed to a few paths opencode always scans (`~/.claude/skills`, `~/.config/opencode/skills`, `~/.agents/skills`, plus project-level equivalents) — keep `AI_SKILLS_DIR` pointed at one of those (the default already is) or the portal's picker still works but opencode's `skill` tool won't find the project when asked to use it. The module activates once at least one `ai-*` entry is found there. The server logs the resolved path and the project count at startup, because an empty registry is otherwise indistinguishable from a wrong path. |
+| `OPENCODE_API_KEY`                                            | —               | `OPENCODE_MODEL` (default `anthropic/claude-sonnet-5`) picks the provider — the env var opencode reads for credentials is derived from it (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) and set from `OPENCODE_API_KEY`. Leave `OPENCODE_API_KEY` empty for opencode's own free `opencode/*-free` models — they reject a non-empty placeholder as an invalid key. |
+| `OPENCODE_BASE_URL`                                           | —               | Points the provider at a gateway/proxy instead of its public endpoint. opencode exposes no env var for this, so the server writes it into the opencode config it already generates for the read-only policy, as `provider.<id>.options.baseURL` — `<id>` is the provider half of `OPENCODE_MODEL`, so set the two together. |
+| `DATA_DIR`                                                    | OS temp dir     | Where job history, the AI repo clones and opencode's session store are kept. In the cluster this is the PVC mount (`/data`); the tmpdir default is purely so local dev runs with an empty `.env`. Everything under it is derived (`<DATA_DIR>/{artifactory,whitening,ai}`, `<DATA_DIR>/clones`), so there is no second path var. See **Job persistence** below. |
+| `AI_ARCHIVE_AFTER_HOURS`                                      | `4`             | Idle hours before a chat folds into the client's collapsed **Archived** list. `updatedAt` is the clock — every question restamps it, so asking in an archived chat un-archives it and the repo clone is re-pulled as usual. The sweep runs on read (inside `listConversations`), not on a timer. The topbar's **Archive** button (`POST /api/ai/conversations/:id/archive`) does the same stamp early, by hand. Un-archiving belongs to `submitQuestion`, not to the sweep — a chat archived by hand was just used, so any "clear the flag when not idle" rule would undo the click on the next read. Archiving never moves `updatedAt`, because that is what the client sorts by. Set to `0` to watch it work without waiting. **Nothing is ever deleted** — chats and jobs live under `DATA_DIR`, so there is no memory to reclaim by dropping them. |
 
-`whitening.json` at the repo root is read by the whitening packer, not by the app, and now
-holds only `images: false`. **Department, team and repository come from the CI job that
-runs the packer** (`WHITENING_*` env vars in `.github/workflows/ci.yml`'s `pack` step) —
-the packer writes them into the pack's `repository/config.json`, which is what the
-Whitening module reads (never the filename).
+There is **no `whitening.json` at this repo's root** — the packer treats it as
+optional, and every setting it used to carry now comes from the CI job that runs
+the packer (`.github/workflows/ci.yml`'s `pack` step): department, team and
+repository as `WHITENING_*` env vars, which the packer writes into the pack's
+`repository/config.json` (what the Whitening module reads, never the filename),
+and the docker-save tars as `--no-images`. Without that flag the packer packs
+them and the zip goes from ~1 MB to ~127 MB, so the two travel together — don't
+drop one.
+
+The same filename means something else on the **other** side of the wire — see
+**Whitening: preserving target-repo files** below. That one is the *target*
+repo's file, read by the app; this repo simply doesn't have one.
 
 Groups are pipe-separated (not comma) so LDAP-style DNs containing commas work. Set `ALLOWED_GROUPS`/`ADMIN_GROUP` to plain group names (e.g. `devops-admins`), even when the IdP's groups claim sends full DNs (`CN=devops-admins,OU=...,DC=...`) — `auth.ts`'s `parseGroups` detects `CN=` and extracts just the CN for matching, since oauth2-proxy comma-joins multiple groups into one `X-Forwarded-Groups` header value and a naive split can't tell a group boundary from a comma inside a DN.
 
 Adding a new env var: add to `.env.example`, expose it in `src/server/config.ts`, consume via the config object.
+
+## Job persistence
+
+All three job-running modules (artifactory, whitening, ai) keep their history on
+disk under `DATA_DIR`, one JSON file per job, via the shared `src/server/jobStore.ts`.
+**Memory holds only what is in flight**, plus a summary of every job with `log`
+stripped — which is what the list endpoints serve.
+
+- The split works because `patch`, `appendLog` and `aborted` are only ever called
+  on a *running* job (every `cancelJob` returns early on a finished one), so
+  `JobStore.get` stays synchronous over the live map and no mutation path had to
+  change shape.
+- **Two writes per job, never one per log line**: `add()` at creation and
+  `settle()` in each `run()`'s `finally`, after the last `appendLog`. Writing on
+  every log line would rewrite a growing file per subprocess stdout line.
+- Writes are serialised through one queue per store and go via temp-file +
+  rename, so a crash mid-write cannot leave a torn file that kills the next boot.
+- At boot the store reads every job file back. Anything still `pending` or
+  `in-progress` on disk died with the last process, so it is rewritten as
+  `failed — Interrupted by a server restart`; ids resume past the highest on disk
+  rather than restarting at `0001`.
+- `GET /api/<module>/jobs` returns log-free jobs; the drawer fetches the full one
+  from `GET /api/<module>/jobs/:id`. That is why both Views hold the open job in
+  its own state instead of reading it out of the list array.
+- **Nothing is deleted on its own.** Artifactory's old `MAX_JOBS` cap and the AI
+  module's 48h delete are both gone. A chat is ~40 KB and opencode's own session
+  is ~5-10 KB, so the volume holds tens of thousands. The only delete is a
+  person's: every list row but a ticket shows a hover `×` (`RowDelete`, two
+  presses), backed by `JobStore.remove` / `DELETE /api/<module>/jobs/:id` (AI:
+  `DELETE /api/ai/conversations/:id`, which takes the chat's jobs with it). A
+  running job is refused — Stop it first.
+
+opencode's session store must live on the same volume: the portal keeps only
+`conversation.opencodeSessionId`, and the transcript that id points at is
+opencode's SQLite DB under `~/.local/share/opencode`. Persist conversations
+without it and every restored chat's next follow-up question hits opencode with
+a dangling `--session`. The chart mounts it as a `subPath` off the same PVC.
+
+## Artifactory: how a folder upload travels
+
+A dropped folder is zipped in the tab and **sent in 8 MB parts while it is still
+being zipped** — the two used to run one after the other, so the wait was the
+sum of them and the whole archive had to exist in the browser before a byte
+moved. `POST /api/artifactory/uploads` mints an `art-<uuid>` temp dir, each
+`PUT /api/artifactory/uploads/:id?offset=` writes one part at that offset, and
+`POST /api/artifactory/jobs/folder-upload` hands the finished file to the job
+exactly as the old single multipart POST did — the job pipeline never learned
+about any of this.
+
+- **The id is the directory name**, so nothing is held in memory between
+  requests and an abandoned upload is swept by the existing 24h `art-` sweep.
+  It is a UUID because holding it is what grants the right to write into that
+  upload, and it is matched against `UPLOAD_ID` *before* it is joined into a path.
+- **Each part carries the offset it belongs at and is written there**, not
+  appended, so **up to `MAX_INFLIGHT` (3) are in flight at once** and the order
+  they arrive in does not matter. One at a time was a stop-and-wait protocol: the
+  zip loop halted for a full round trip per part, so compression and the network
+  took turns instead of overlapping — free over localhost, and most of the wait
+  once a cluster router and oauth2-proxy sit in between. Three is also the memory
+  ceiling (`3 × 8 MB`), which is the whole point of streaming this at all. What
+  the ordering rule used to buy is bought once at the end instead: the tab sends
+  the zipped size as `archiveBytes` and `jobs/folder-upload` refuses an archive
+  that is not exactly that long.
+- **The upload says where its own time went.** `zipEntries` returns
+  `readMs`/`zipMs`/`blockedMs` (file I/O, deflate, waiting on the wire), the
+  `accepted` log line carries the split and a `mbPerSec`, and the progress line
+  on the page shows the rate and a `zip% / net%` beside it — prod needs
+  `localStorage.portalDebug` before a console line appears, and a slow upload is
+  reported, not devtooled. This path was tuned three times by guess before that
+  existed; the split is what says whether the next lever is client CPU (one
+  Worker for the whole zip loop — never `AsyncZipDeflate`, which is a Worker per
+  entry) or the network.
+- **The 500 MB cap is enforced by a stream in the pipeline** (`byteLimit`), not
+  a `data` listener on the request — destroying the request from a listener
+  still lets `pipeline` resolve, and the oversized part was then answered
+  "200 OK" and kept. The client checks the same number before sending, because
+  the server's only way to stop a part is to cut the connection, which reaches
+  the user as a dead socket rather than a sentence.
+- A single `fetch` with a `ReadableStream` body would say all this in one call
+  and is what this would be on a Chrome-only intranet: it needs HTTP/2, which
+  `npm run dev` does not serve, and Firefox does not implement it at all.
+
+## Artifactory: an archive may just be carrying a folder
+
+A dropped `.zip` / `.tar` / `.tar.gz` is unpacked on the server and
+whatever is inside it is routed exactly as the same files dropped as a folder
+would be. That is what people reach for when a folder drop is awkward — a
+browser file picker cannot select a directory, a folder arrives by mail as one
+attachment — and before this it was one unrecognised file.
+
+- **It is the last fallback in `collectItems`, after every classifier has
+  declined.** So an archive that *is* a package is never torn open: a `.tgz`
+  whose manifest names an npm package or a Helm chart, a `foo-1.0.tar.gz` that
+  is a PyPI sdist, and a `.zip` sitting at a Maven layout path are all still
+  uploaded as the artifacts they are. Ordering is the whole correctness
+  argument here, and `archiveUnpack.test.ts` pins it.
+- **`collectItems` recurses into itself** rather than growing a second routing
+  path — a zip of jars has to land where those jars dropped loose would, and
+  the Maven root prefix, the tarball sniff and the duplicate-package fold all
+  have to hold inside the archive too. `MAX_ARCHIVE_DEPTH` (2) is an archive
+  inside an archive and no further; the expanded size is not measured, since
+  the outer archive is already capped at 500 MB by the upload route.
+- **`extractArchive` runs from the destination and names the archive
+  relatively.** GNU tar reads a leading `C:` as a remote host spec, the same
+  trap `readTarballIdentity` already works around.
+- **`tar` and `unzip` only** — both were already in the image, and no other
+  archive format is unpacked.
+- An archive that unpacks to nothing recognisable is named in the log and
+  counted unrelated, rather than failing silently or uploading itself flat.
+
+Left out: the **single-URL copy** path. A pasted URL to a `bundle.zip` is still
+an unrecognised artifact uploaded flat to `ARTIFACTORY_REPO`, as before — that
+path resolves one artifact's identity and dependencies, and unpacking there is
+a different question from "this folder arrived zipped".
+
+## Artifactory: a pasted URL may name a folder
+
+A package is rarely one file — a Maven package is a pom *and* a jar (plus its
+classifiers and checksums), and neither half is useful alone — so the folder is
+what people paste when they mean "copy this package". Artifactory serves a
+folder's bytes as an HTML browse page, so fetching one *succeeds* and the copy
+used to publish that page under the folder's own name.
+
+- **`listSourceFolder` asks before fetching.** `api/storage/<repo>/<path>?list`
+  lists a folder's children and refuses a file, so a non-OK response *is* the
+  "this is a file" answer — there is no status code on the download path that
+  says "that was a directory". `null` (a file, or a source with no storage API)
+  takes the single-artifact path unchanged, so nothing about the old shape
+  moved. Only `/artifactory/<repo>/…` URLs are asked, and never a bare repo
+  root: `deep=1` on one would walk the whole repository.
+- **The files are downloaded into a tree and handed to `collectItems`**, the
+  same routine a dropped folder goes through — Maven root prefix, tarball
+  sniff, coordinates inside a bare jar, duplicate-package fold. That extraction
+  is the point: a folder arriving over HTTP has to land exactly where the same
+  folder dropped on the Upload tab would, and two copies of that routing is two
+  places for it to drift.
+- **One package is anyone's copy; several is an admin's.** `distinct` counts
+  `name@version` across the collected items, so a pom and its jar are one
+  package, not two. More than one is a bulk copy into shared repositories, so
+  it needs `allowMultiple` — `isAdmin`, passed as a third argument to
+  `submitUrlCopy` the way `cancelJob` already takes it. A non-admin's job fails
+  naming what it found rather than uploading more than was meant.
+- **Include dependencies is a `dependencyFallback`, not a failure.** A folder
+  copy already takes everything the folder holds, and there is no single
+  artifact to resolve a tree from — so the drawer says so over the same amber
+  banner, and the copy completes.
+- `MAX_FOLDER_FILES` (500) exists so a URL one segment too high fails saying so
+  instead of quietly pulling a repository through the pod.
+
+## Artifactory: where each package type is stored
+
+Every type has one layout its own Artifactory indexer looks in, and putting a
+file anywhere else silently produces a repo nothing can install from.
+`packageTypes.ts` is the routing table; `storageMatrix.test.ts` pins the exact
+target path for every type through **both** entry points, which is the test to
+change if any of this moves.
+
+| Type | Target | Why that shape |
+| ---- | ------ | -------------- |
+| npm | `<npmRepo>/<name>/-/<basename>-<version>.tgz` | The registry layout. The scope stays in the *directory* and is dropped from the filename (`@babel/core/-/core-7.0.0.tgz`) — the same form the public registry and `jfrog-cli` use. (`npm publish` against Artifactory writes the scope twice, `@scope/name/-/@scope/name-1.0.0.tgz`; both resolve, so this is not worth matching.) |
+| maven | `<mavenRepo>/<group as dirs>/<artifactId>/<version>/<file>` | The layout **is** the address. Artifactory answers a pom deployed off its own coordinates with a **409**, since POM consistency checks are on by default. |
+| pypi | `<pypiRepo>/<file>`, flat | The indexer reads the wheel's or sdist's own metadata, so the path carries nothing. Flat also stays clear of `packages/**` and `simple/**`, which Artifactory reserves. |
+| rpm | `<rpmRepo>/<file>`, flat | YUM metadata depth defaults to 0, i.e. `repodata` at the repo root, which is what a flat layout indexes. |
+| conda | `<condaRepo>/<subdir>/<file>` | The channel subdir is part of the address; see the `ponytail:` note in `packageTypes.ts`. |
+| helm | `<helmRepo>/<name>-<version>.tgz`, flat | Artifactory builds `index.yaml` from each chart's own `Chart.yaml`, so the path carries nothing — the same reason RPM and PyPI are flat. |
+
+**A `.tgz` is identified by what is inside it, never by its name.**
+`classify` deliberately does not touch `.tgz`: the filename gives neither the
+npm scope (`@babel/core` ships as `core-7.0.0.tgz`) nor whether the tarball is
+an npm package at all — a Helm chart is the same gzipped tar with the same
+extension. `readTarballIdentity` looks for `package/package.json` first (an
+exact path) and then `<chart>/Chart.yaml` (a wildcard, `--no-wildcards-match-slash`
+so a bundled subchart's manifest cannot win). When *neither* can be read, the
+URL copy falls back to `npmIdentityFromUrl` — a registry-layout URL carries the
+scope in its directory, and without that fallback
+`.../%40octokit/types/-/types-16.0.0.tgz` fell through to "unrecognised
+artifact" and was uploaded flat as `types-16.0.0.tgz`. That fallback path also
+now fails loudly when `ARTIFACTORY_REPO` (the unrecognised-file repo, which is
+genuinely optional) is unset, instead of PUTting to a path with no repo in it —
+which Artifactory answers with a 404 reading "User authentication has failed due
+to Repo key cannot be empty", sending the reader after a token problem that does
+not exist.
+
+**A pasted URL may be an Artifactory *page*, not a download.** `downloadUrl` in
+`packageTypes.ts` rewrites the tree browser (`/ui/repos/tree/General/<repo>/<path>`
+— exactly what this app's own `webUrl` hands out) and the package view
+(`/ui/native/<repo>/<path>`) to `/artifactory/<repo>/<path>`; anything else is
+returned untouched. It runs in `submitUrlCopy`, not in the router's schema, so
+the job records the URL everything downstream actually used.
+
+**A groupId cannot be read off a path, so the pom is the authority.**
+`org/foo/bar/1.0/bar-1.0.jar` is a valid layout under any number of roots, and
+folding the wrong ones in produces `maven-local/pub/java/org/foo/...` — a path
+nothing resolves from, and a 409 for the pom. Both entry points now take the
+answer from the file rather than guessing at it:
+
+- **URL copy** fetches the sibling pom (`mavenPomUrl` — named from the layout,
+  `<artifactId>-<version>.pom`, so `bar-1.0-sources.jar` still asks for
+  `bar-1.0.pom`) and, if its coordinates disagree with the URL, **corrects the
+  jar's target too**: both files must land under the same group or neither
+  resolves. A 404 is normal and quiet — the copy still completes, from the
+  path-derived target as before. Checksum sidecars are not fetched; Artifactory
+  computes its own on PUT. **The pair travels in both directions**
+  (`fetchMavenSibling`): a pasted jar pulls its pom, and a pasted pom pulls its
+  jar, because a jar without its pom is unresolvable for anyone consuming the
+  repo and a pom without its jar resolves to nothing to run. The pom is the
+  authority either way — pasted, it is already on disk as the artifact and its
+  coordinates are read from there, which is also what lets a pasted pom resolve
+  dependencies at all. A pom-packaging artifact (a BOM, a parent) genuinely has
+  no jar, and that is the same quiet 404 as a jar published without a pom.
+- **Folder upload** takes it from each version folder's own pom
+  (`mavenPoms`): every file in `…/<artifactId>/<version>/` beside a
+  `<artifactId>-<version>.pom` is placed by that pom's coordinates, whatever
+  the folders above it spell. One prefix learned per drop and stripped from
+  every path used to be the whole rule, and a real `.m2.zip` came out as
+  `vladsch/flexmark/…` for `com.vladsch.flexmark` — a 409 on every pom. The
+  prefix is still learned (the first pom that lines up with where it sits), but
+  only places files in a folder with no pom of its own. So
+  `deps/.m2/repository/org/foo/...` still uploads as `org/foo/...`, and a drop
+  with no pom in it behaves exactly as before.
+- **Checksum sidecars are never uploaded** (`isMavenChecksum`: `.sha1`,
+  `.sha256`, `.sha512`, `.md5`). Artifactory reads a PUT to `x.jar.sha1` as
+  "set the checksum of `x.jar`" and 404s — "Target file to set checksum on
+  doesn't exist" — whenever the jar has not landed yet, which in a parallel
+  upload is a coin toss. It computes all four itself. `.asc` still goes.
+
+**A flat folder of jars is the common case, not the exotic one** — it is what
+`mvn dependency:copy-dependencies` writes — and no filename can give a groupId.
+`mavenCoordsFromJar` reads `META-INF/maven/<g>/<a>/pom.properties` out of the jar
+instead, which is the same trick the npm path already plays with
+`package/package.json` inside a `.tgz`. A jar without one falls through to
+"unrelated file" as before. The embedded `pom.xml` beside it is deliberately
+**not** uploaded: a pom whose `<parent>` is missing from the repo fails
+resolution outright, which is worse than the "Missing POM" warning a bare jar
+produces.
+
+**Dependency resolution runs the ecosystem's real client — it does not walk the
+graph itself.** npm, Maven and PyPI each resolve; RPM and conda do not.
+`npmDependencies.ts` shells out to `npm install`, `toolDependencies.ts` to `mvn
+dependency:copy-dependencies` and `pip download`, and each writes a directory in
+a layout `classify` already routes, so there is no target-path logic in the
+resolvers at all: run the tool, walk the output, `classify` each file. That is
+the whole reason this is cheap.
+
+Hand-rolling the walk was considered and rejected. A pom's `<dependencies>` is
+not the answer — it needs parent chasing, `<dependencyManagement>`,
+`${property}` interpolation, BOM `<scope>import</scope>`, ranges, exclusions and
+nearest-wins; a wheel's `Requires-Dist` needs PEP 508 markers and version
+backtracking against the index. Both land at roughly 85% correct, and a
+half-resolved tree is a broken offline install that gives no sign it is broken.
+
+- **The source repository is derived from the pasted URL**, never guessed and
+  never configured. `mavenRepoFromUrl` strips `mavenLayoutPath`'s output off the
+  end of the URL (the layout *is* the address, so this is exact, not a
+  heuristic); `pypiIndexFromUrl` puts the index beside the `packages/` segment,
+  which covers PyPI and Nexus. `null` from either is a log line and
+  a single-artifact copy, same as `npmRegistryFromUrl`. Credentials come from
+  `sourceTokenFor` — a source on the same host as `ARTIFACTORY_URL` reuses
+  `ARTIFACTORY_TOKEN`, anything else is anonymous. No new env vars.
+- **Artifactory's storage path is not its registry**, and it is what people paste
+  because it is what its own UI links to. `/artifactory/<repo>/…` serves bytes;
+  npm and pip have to be pointed at `/artifactory/api/npm/<repo>` and
+  `/artifactory/api/pypi/<repo>` or they get the HTML UI back — which npm reports
+  as `Unexpected token '<', "<!DOCTYPE "... is not valid JSON` and pip as no index
+  at all, neither of which names the cause. `artifactoryApiEndpoint` in
+  `packageTypes.ts` does that one rewrite for both, and only for `artifactory`:
+  on Nexus (`/repository/<name>`) the storage path *is* the registry, and a URL
+  already in `api/` form is left alone so it is not wrapped twice.
+- **No `-ntp` on the mvn command line.** It landed in Maven 3.6.1 and an older
+  `mvn` answers it with a usage dump instead of a warning, which fails the whole
+  resolve; runtime pods have been seen on 3.5.3. `MVN_PROGRESS_RE` already keeps
+  the transfer chatter out of the job log, which is all the flag bought. The
+  Dockerfile's own pre-warm dropped it for the same reason.
+- **Maven needs the pom**, so resolution only runs when `fetchMavenPom` found
+  one, keyed on the pom's coordinates rather than the URL's.
+  `-DoutputDirectory` is deliberately separate from `-Dmaven.repo.local`: only
+  the former is uploaded, so the dependency plugin's own jars never get
+  published into the customer's repo. The plugin is pinned by full coordinates,
+  because the `dependency:` prefix resolves via a metadata lookup that takes
+  whatever is newest — a failure in a closed network. It is baked into
+  `/opt/m2` at image build and copied per job, so a job never fetches it through
+  the source mirror and two concurrent jobs never share a writable local repo.
+- **PyPI is wheels only** (`--only-binary=:all:`). `pip download` runs a
+  package's `setup.py` for any sdist it fetches, as the portal's own user — the
+  same door the npm path closes with `--ignore-scripts`. A tree containing an
+  sdist-only package therefore fails to resolve and copies the single artifact.
+  One pass, for this pod's platform tags; npm resolves twice because optional
+  deps are platform-gated, and wheels are tagged the same way if a Windows
+  consumer ever needs the mirror.
+- **RPM has no resolver, on purpose.** `dnf --resolve` resolves against *enabled
+  repos*, and in the pod that is only the source repo, so anything needing
+  system libs fails. Enable the base OS repos to fix that and one `.rpm` drags
+  every system package in behind it, because nothing is "already installed" in a
+  container. Both directions are wrong, so the URL form still names `dnf
+  download --resolve <pkg>` as a manual step feeding the Upload tab.
+- **`maven` and `python3-pip` are optional at runtime.** Each resolver probes
+  for its binary and returns `null` when it is absent, which the caller turns
+  into "not installed in this image — copying the single artifact". The
+  Dockerfile line is revertable, and a dev box with neither still runs the
+  module.
+- **A fallback is visible without reading the log.** Every "copying the single
+  artifact" path goes through one helper that also writes the reason to
+  `job.dependencyFallback`, so the drawer says *Dependencies: Requested, not
+  copied* over an amber banner naming the cause. The badge reads **Incomplete**
+  — in the list as well as the drawer, from the one `jobStatus.ts` both share.
+  That is a label, not a status: the job really is `completed`, since it did the
+  copy it was asked for, and failing it would be a lie in the other direction.
+  The dev Test menu's **npm — dependencies not resolved** scenario replays it.
+- `runTool.ts` is the one streaming-spawn helper all three share — line
+  buffering, the 300-line log cap, the 15s heartbeat, and keeping a user's Stop
+  an `AbortError` while a timeout becomes a message. Three copies of that is
+  three places to swallow a Stop.
+
+**The Upload tab takes files, never a folder.** A dropped folder is refused
+with a line saying to zip or tar it first, and the drop zone says the same up
+front. Walking and zipping a `node_modules` in the tab is what took it out; an
+archive is one file, and the server unpacks it and routes what is inside
+exactly as the folder would have been (see *an archive may just be carrying a
+folder*). `Choose files` is the same path through a picker. The streaming
+zip/part upload below still carries the files that are dropped.
+
+**A `node_modules` holds more package folders than it has packages** — this
+repo's own is 884 folders for 799 packages, because npm nests a second copy of
+the same version wherever hoisting cannot reach a dependent. Every copy packs to
+the same tarball at the same target path, so `uniquePackages` keeps one per
+`name@version` and the rest are dropped, out loud ("Ignoring N duplicate copies
+…") because the count is otherwise smaller than the number of folders the user
+knows they dropped. A nested copy of a *different* version is a different
+package and is kept.
+
+**That fold is separate from `discoverPackages`, which returns every
+directory**, because the directory list is also what decides which files on disk
+belong to a package at all. Deduplicating during the walk left the shadowed
+copies' files outside every package, and they were then reported as
+unrelated loose files — 114 of them for this repo, against a true 44.
+
+Zipping itself is `fflate`'s **synchronous** `ZipDeflate` at level 1, with
+already-compressed extensions (`.tgz`, `.whl`, `.rpm`, `.jar`, …) stored
+verbatim. `AsyncZipDeflate` spawns a Worker *per entry*, which for a folder of
+thousands of small files costs far more than the deflate it moves off-thread —
+3,000 files measured at 47.8s async against 0.41s sync.
+
+## Ticketing: one Jira account, many people
+
+The portal authenticates to Jira with a single service-level PAT (`JIRA_TOKEN`),
+so Jira records **every** portal action as that one account. Two places had to
+work around it rather than pretend otherwise:
+
+- **Comments.** Jira resolves a comment's author from whoever's credentials made
+  the request, so the whole thread came back as one person talking to
+  themselves. `stampPortalAuthor` writes `<name> (via DevOps Portal, <id>)` as
+  the body's first line and `readPortalAuthor` strips it again on the way in —
+  readable in Jira's own UI, and a comment written *in* Jira carries no stamp
+  and keeps the author Jira recorded. The client's own `[status] ` prefix still
+  leads the body once the stamp is off, so `isStatusMessage` is unaffected.
+  The **admin** half of the thread is stamped by the same helper, for the same
+  reason — without it every reply from the queue came back as the service
+  account. `mapComment` strips the stamp before the client sees the body, so the
+  client's `[status] ` prefix still leads and `isStatusMessage` is unaffected on
+  both sides.
+- **The assignee list is everyone who has logged in, kept on disk.**
+  `listAdminCandidates` reads `auth.ts`'s directory of users the proxy has
+  sent, which is `<DATA_DIR>/users.json` (`loadKnownUsers`, called by both
+  entry points; rewritten only when a person is new or their name/groups
+  changed). It used to be memory only, so every release emptied the admin
+  dropdown until each admin happened to open the portal again.
+- **Reporter.** `createTicket` sets `reporter` to the portal user's Jira
+  username (`usernameFor`), so Jira records who actually filed it. Two things
+  can refuse that — the portal identity is not a Jira user (SSO and Jira need
+  not share a directory), or the token's account lacks *Modify Reporter* on the
+  project — and both come back as a 400 that fails the **whole** create. So the
+  reporter is dropped and the create retried once: filing as the service account
+  is a worse ticket, but a ticket. **Nothing about a refusal is remembered
+  between creates** — not the reporter, not a field the create screen refused.
+  Both used to be (`unknownReporters`, `offCreateScreen`), and one bad value or
+  one failed "my tickets" poll then filed every later ticket as the service
+  account on the default priority until the pod restarted. A refusal now costs
+  one extra round trip per create. `unknownReporters` survives only as the
+  listing's shortcut to `reporter = currentUser()`.
+  `JIRA_MAINTENANCE_ISSUE_TYPE` may be the type's numeric id (`3`), sent as
+  `{"id": …}` and unquoted in JQL — what a localised instance resolves when
+  the display name does not match.
+- **Priorities are renamed on the way to Jira.** The portal shows five
+  (`Lowest`…`Highest`); the instance's own names are `Trivial`, `Low`,
+  `Normal`, `Warning`, `Major` (`jiraPriorityName` in `priority.ts`), and
+  `parsePriority` maps them back when a ticket is read.
+- **A new ticket is exactly what the admin queue queries for.** `listAdminTickets`
+  filters on four things — `project`, `JIRA_TICKET_LABEL`,
+  `JIRA_MAINTENANCE_ISSUE_TYPE` and `sprint = <the board's active sprint>` — and
+  `createTicket` has to satisfy all four or it files a ticket the people meant to
+  work it cannot see. The first three are fields on the create; the sprint is a
+  second call (`addToActiveSprint`, `POST /rest/agile/1.0/sprint/<id>/issue`),
+  because a new issue lands in the backlog otherwise. It never throws: the issue
+  exists by then, so no active sprint (or a failed move) is a warning and a
+  backlog ticket, not a create reported as failed. No `JIRA_BOARD_ID` means the
+  queue has no sprint clause either, so there is nothing to do.
+- **A create that did less than it was asked to says so on the page**, not only
+  in the pod log. `TicketDetail.notice` carries the reason — Jira refused the
+  reporter, there was no sprint to join — and both detail views render it as the
+  same `.warn-banner` an Artifactory job's `dependencyFallback` uses, for the
+  same reason: the ticket exists, so a failure would be a lie, but a silent
+  difference is one nobody finds until it matters. It is set on the create
+  response only, since it describes the act of creating rather than the ticket,
+  and re-opening the ticket does not show it again.
+- **`JIRA_TICKET_LABEL` is the only label a create places** (plus the idempotency
+  key, a UUID the Jira path records nowhere else — drop it and a double-submit
+  files two tickets). It used to also stamp the owning team, every one of the
+  requester's groups, and one `key:value` per catalog field: a dozen labels of
+  portal bookkeeping in what is a shared, project-wide namespace a human then
+  reads in Jira. The catalog fields are already in the description. **Team
+  visibility is now deliberate, not inferred** — `teamGroups` in the admin
+  detail is what widens a ticket past its reporter, where before it was
+  whichever groups the filer happened to be in.
+- **Labels cannot contain whitespace**, and Jira rejects the *entire* create over
+  one that does rather than dropping it — "The label 'DevOps Admins' can't
+  contain spaces". `jiraLabel` normalises every label, including
+  `JIRA_TICKET_LABEL` in the constructor and the idempotency key at both ends —
+  a label written one way and queried another finds nothing. An admin editing
+  `teamGroups` replaces the whole `labels` field, so the portal's own label is
+  put back there too, or the ticket vanishes from every portal listing the
+  moment its teams are edited.
+
+## Whitening: preserving target-repo files
+
+The PR the Whitening module opens is built by **emptying the cloned target repo
+and copying the pack's `repository/<repo>/` tree over it**
+(`RealWhiteningApi.ts`, `pushSourceAndOpenPr`). There is no per-file decision:
+anything the closed-network repo has and the pack does not shows up as a
+deletion, purely because `git add -A` sees it gone. That is wrong for files that
+legitimately live only on that side — its CI config, a local env file, internal
+docs.
+
+- **The target repo opts out with its own `whitening.json`**, at its root, listing
+  glob patterns under `preserve`. Not the pack's copy and not
+  `repository/config.json`: what survives is the receiving repo's call, so it
+  must not depend on what a given pack happened to ship.
+- **`preserve` means "don't delete", and "ask before overwriting".** Deletions
+  are undone silently (`--diff-filter=D`). A preserved path the pack *also*
+  ships (`--diff-filter=M` — same helper, `preservedChanges`) is a question
+  instead: the job **holds** there, `pendingPreserve` on the job carries the
+  file list to the drawer, and the user ticks each file to keep the
+  repository's version or leaves it unticked to import the packed one
+  (`POST /api/whitening/jobs/:id/preserve`). Keeping is the same `git restore
+  --source=HEAD` the deletion path uses; importing is doing nothing, since the
+  packed content is already staged. Freezing every modification instead would
+  silently drop genuine updates; overwriting silently is what this replaced.
+- **The wait is not a job status.** `pendingPreserve` sits on an `in-progress`
+  job, so `JobStore.hydrate` already turns a wait cut short by a restart into
+  "Interrupted by a server restart", and Stop still works — the job's own
+  `AbortController` rejects the promise the run is parked on. There is no
+  timeout: a job nobody answers is a job somebody can Stop. The `dev` Test
+  button's **Preserve conflict** scenario replays the prompt offline (a
+  `WhiteningBeat` with `ask`).
+- **Git does the globbing**, via `:(glob)` pathspecs — `*` stops at a directory
+  boundary, `**` crosses one. No `minimatch`/`picomatch`: those exist here only
+  as dev-only transitives, so importing one breaks the prod image (prod deps
+  only), and Node 20 has no usable `path.matchesGlob`. The module already shells
+  out to git for everything else.
+- The list is read **before** the wipe destroys it, and the restore runs
+  **after** `git add -A` but **before** the "no changes vs. default branch"
+  check — otherwise a PR whose entire diff was those deletions still opens.
+- `whitening.json` itself is always preserved implicitly. Without that, the file
+  saying "don't delete these" deletes itself on the first PR and the next one
+  finds no list. The pack usually ships its own copy, so it is normally the
+  first row of the prompt — deliberately, since replacing the target's preserve
+  list is exactly the kind of overwrite worth a click.
+- A malformed `whitening.json` **fails the job** rather than being ignored:
+  quietly protecting nothing deletes the very files it was written to save. A
+  pattern matching nothing is fine and silent.
+
+## Jenkinsfile builder
+
+The Jenkinsfile module is a visual builder for the internal
+`jenkins-k8s-shared-library` Groovy library: stages are drag-reorderable cards,
+each stage exposes every argument its library step accepts, and the generated
+Groovy is previewed live and copied or downloaded. It runs no jobs and talks to
+no external system — the only server-side state is saved pipeline documents.
+
+- **The `@Library` import is optional and half fixed.** The library *name* is a
+  deployment fact (`JENKINS_SHARED_LIBRARY`, served alongside the pipeline list
+  rather than on the public `/api/config`), so the builder only asks for a branch
+  to pin — typing the name into every pipeline only creates the chance to typo
+  it. Off is the resting state: a dotted button in the shape of the box it opens
+  into. An empty `library` emits no import line at all.
+- **The `image` field suggests, it does not constrain.** `ImagePicker.tsx` is a
+  combobox — the image name on the left, its labels on the right — and anything
+  typed is still accepted, which is why it is not a `<select>`. It opens
+  downwards, or upwards when the field sits too near the bottom of the window,
+  which a stage low in a long list usually does. It replaced a native
+  `<datalist>`, which can neither lay a row out in two columns nor open upwards.
+  The names come from Artifactory (`JENKINS_IMAGES_PATH`).
+  Artifactory is the source rather than the dockerfiles repo that builds these
+  images, or the Confluence page that repo's CI publishes, because it is the
+  only one of the three that also lists an image pushed there by hand. One AQL
+  search (`api/search/aql`, not `api/storage?list`) gets the names and the
+  labels together, since the labels are properties on each manifest and a
+  listing carries no properties. Only `SCREAMING_CASE` labels are shown
+  (`JDK=17`) — Docker's own conventional labels are lowercase and dotted and
+  say nothing to someone picking an image. Cached an hour in `images.ts`; a
+  failed lookup is deliberately not cached. The list reaches `ArgField` through
+  `ImagesContext`, not a prop, because unlike `stashNames` it is one list for
+  the whole builder rather than one per stage.
+- **The library's surface is transcribed by hand** into
+  `client/modules/jenkinsfile/catalog.ts`, one `StepSpec` per `vars/*.groovy`
+  file, with `COMMON_ARGS` spread into all of them exactly as the library does
+  `sonarArgsSpec + genStage.genStageArgsSpec`. **When the library gains or
+  renames an argument, update that file** — nothing reads the library repo at
+  runtime. That is deliberate: no clone step, no Groovy parser, and no way for a
+  network failure to leave the builder empty.
+- `pipeline.ts` re-implements the checks `Args/ArgsValidator` makes (title
+  required, exactly one of `image`/`node`, required keys on
+  `secrets`/`additionalRepos`/`customPVC`), so a mistake shows up while you type
+  rather than three minutes into a build. `groovy.ts` is the generator and is
+  pure — both are covered by unit tests, which is where the output format is
+  pinned.
+- The output is **scripted, not declarative**: every step in the library opens
+  its own `stage()` through `podLauncher`/`nodeExecutor`, so they are called one
+  after another at the top level, never inside a `pipeline {}` block.
+- **A pipeline starts empty or from an existing file.** The topbar's New button
+  asks which (`NewPipelineDialog.tsx`); importing takes a paste or a file.
+  `parse.ts` is the inverse of `groovy.ts` and nothing more — a string-aware
+  scanner over the shapes the library uses (`@Library`, `properties([parameters
+  ([…])])`, a flat run of top-level step calls with a named-argument map), not a
+  Groovy parser. Named arguments are grouped into one map exactly as Groovy
+  collects them, which is what lets one reader serve both a step call and a
+  `booleanParam(…)`. **Anything it cannot take is reported, never dropped
+  silently** — the dialog holds the import back once to show the list, since a
+  stage that vanishes without a word is worse than one re-added by hand. A
+  declarative `pipeline { … }` file is named as such rather than importing as
+  nothing. The round-trip is what the tests pin: parsing the generator's own
+  output must regenerate it byte for byte.
+  - **It reads statements, not calls.** The file is split into top-level
+    statements (`statements`: a newline outside brackets, unless the line ends
+    mid-expression or the next opens `} else {`, `.chain()`…). One that is not a
+    step call — `if (…) { genStage(…) }`, `node {}`, `timeout {}`, a Jenkins
+    `stage('x') {}`, a helper's call, `errorStage`, `parallel buildMatrix(…)`,
+    a `def` or a function — **becomes a Groovy card where it stood**, a run of
+    them one card, so the
+    file keeps doing what it did. They all used to vanish, then to be named and
+    dropped. Only a statement inside a *parallel branch* is still named and
+    dropped, since a Groovy card is not a branch; and a file with no library
+    step at all still says so. A known name in Groovy's parenthesis-free form
+    (`sleep 30`, `parallel a: {…}`) is a call.
+    `properties([…])` entries that are not parameters (`buildDiscarder`,
+    `pipelineTriggers`) are named as job properties the builder does not write
+    back.
+  - **A string is held as its Groovy value**, `${…}` being the one thing that
+    means interpolation — so `readString` reads the way Groovy does (a
+    single-quoted `${f}` is the shell's and is held as `\${f}`; a double-quoted
+    `$VAR` becomes `${VAR}`; `\$` is `$`, `\n` a newline) and `quote` writes it
+    back that way, never escaping inside a `${…}`. `stringEnd` is the one place
+    every scan skips a string, and it knows a GString's `${…}` can hold quotes.
+  - **Groovy where a value goes is kept, never quoted into a literal.** In a
+    text field `image: DEFAULT_IMAGE` becomes `"${DEFAULT_IMAGE}"` (same value);
+    a call in an expression field stays a call. A flag, number, list or entries
+    field cannot hold Groovy (`unshallow: isRelease`), so that comes in empty
+    and is named. `__tests__/chaos/` is a deliberately abusive real-world file
+    and its expected warnings, pinned line for line.
+- **The list you reorder is the list you edit.** `StageList.tsx` is one column of
+  `StageCard.tsx`s: the header is the card collapsed (grip, position, title,
+  description, ▲/▼, ×) and expanding it drops the whole argument editor in
+  underneath. There is no rail-and-panel split to keep in sync, so the order on
+  screen is the order in the file. **Whether a card is minimized is saved with
+  the pipeline** (`JenkinsfileStage.collapsed`), so one opens the way it was
+  left; the header carries an explicit Minimize/Edit button beside the chevron,
+  because folding a card away needs a visible way back.
+- **`populateEnvVars` is a card like any other**, not a pipeline-level preamble —
+  it is a top-level call in the generated Groovy exactly as the stages are, so
+  where it sits in the list is where it lands in the file. It is the one
+  `callStyle: "bare"` step in the catalog (`populateEnvVars([SERVICE: 'x'])`, not
+  `populateEnvVars(envVars: [...])`), it takes no title or runtime, and the
+  palette hides it once one exists (`SINGLETON_STEPS`). Records written before
+  this carry the map at the top level instead; `toDraft` migrates one into a
+  leading card on open and `toInput` writes `envVars: {}` back, so the migration
+  runs once. Per-stage `envVars` still covers the in-stage case, and is what the
+  library recommends for parallel builds since `populateEnvVars` writes to the
+  global env.
+- **Pipeline parameters** are emitted as a `properties([parameters([...])])`
+  block ahead of the stages. All five Jenkins types are offered — boolean,
+  string, text, choice, password — described in `params.ts`, which carries the
+  emitted function name as data because `booleanParam` is the one that is not
+  named after its type. Every type stores its default as a **string** (`"true"` /
+  `"false"` for a boolean) so switching a parameter's type keeps what was already
+  typed; `choice` has no default field at all, since Jenkins takes the first
+  choice. Records written when every parameter was a `booleanParam` with a real
+  boolean default are normalised by `toDraft`.
+- **A parameter no stage reads is marked amber**, not red: the Jenkinsfile it
+  generates is valid, the parameter just has no effect — which is otherwise
+  silent until someone wonders why ticking the box changed nothing. It is held
+  back by the same `touched` gate as a stage's problems, and **each parameter is
+  its own scope** — the section as a whole was left long ago on an open
+  pipeline, so a section-wide gate marked a just-added parameter the moment its
+  name was typed. `paramScope` keys on the **name**, not the position: a
+  parameter carries no id, and an index is not one, since removing a parameter
+  and adding another puts the new one on an index that was already left. A name
+  still being typed is a scope nobody has left, which is the wanted answer, and
+  renaming an existing one quietens it until the next press outside, which is
+  also right. Opening or importing a pipeline touches every parameter, exactly
+  as it touches every stage. `useLeaveScopes` therefore collects **every** scope on
+  the pressed element's ancestor chain rather than just the nearest: scopes now
+  nest, and pressing into a parameter must not count as leaving the parameters
+  section that holds it.
+  `usedParamNames` scans `JSON.stringify(stages)` for `params.<name>` (and the
+  bracket form) rather than the generated Groovy — a reference can sit in any
+  argument shape, an expression, a command line, a closure body or a map value,
+  and the generated file also contains the declaration itself, which would match
+  every name.
+- Parameters exist mainly to make a stage's skip condition a build-time choice:
+  declare `skipImage`, then set a stage's `skipStage` to `params.skipImage`.
+  `skipStage` is therefore an `expression` argument — a raw Groovy string emitted
+  **unquoted** — not a checkbox. The library's `genStage` does a bare
+  `if (args.skipStage)` and its validator coerces with `turnToBoolean`, so any
+  truthy expression is legal there. Records written when it was a boolean still
+  work: `true` renders as `true`, and `false` means "not set" and drops out.
+- **`commands` is one argument with two shapes**, because the library's
+  `executeCommands` branches on exactly that: an `ArrayList` it joins with `&&`
+  and hands to `sh`/`bat`, or a `Closure` it calls. The `commands` kind renders a
+  Shell/Closure switch over one textarea, and the value is boxed so the two are
+  never confused — an array is shell, `{ closure }` is Groovy written through
+  verbatim. `postCommands` takes the same choice. Flipping the switch keeps the
+  text: the same lines usually want to become `sh '…'` calls. On the two gen
+  stages `commands` is `required`, so it is pinned open beside title and image
+  rather than sitting in the collapsed common group — a gen stage with no
+  commands is not a stage. `common(exclude, require)` in the catalog is what
+  marks it, per step, because `semVerStage` and `sonarStage` run their own work
+  and take none.
+- **Problems are held back until you press outside the thing they are about.**
+  They are computed from the first keystroke, but a field you are still in the
+  middle of is not a mistake yet, so `touched` gates them per stage (plus one
+  scope for the parameters). `useLeaveScopes` is one document `pointerdown`
+  listener rather than a handler per card — the press that reveals a stage's
+  problems usually lands on a *different* stage or on the page background,
+  neither of which the card can see. Elements opt in with `data-touch-scope`;
+  each card also has its own `onBlur`, but only for a *non-null* `relatedTarget`
+  — a null one means a press on something unfocusable, which may well be inside
+  that same card, and moving between a stage's own fields must not turn it red.
+  Opening or starting a pipeline resets the gate.
+- **Every argument a step takes is on screen, always**, in catalog order: the
+  ones in use as fields, the rest as one-line rows you click to add, so adding
+  one expands it in place rather than reshuffling the list. The three the library
+  validates for (`title`, and exactly one of `image`/`node`) are pinned open
+  above the rest and cannot be removed — `image`/`node` as a two-way segmented
+  control, since they are one choice and not two fields. **What is pinned is a
+  per-step question**, because every wrapper in the library assigns its own
+  (`args.title = args.title ?: 'Sonar Scanning'`) before validating: only the two
+  gen stages leave `title`, the runtime and `commands` open, and `common(exclude,
+  require)` marks them. `pinsRuntime(spec)` is the same rule for the image/node
+  control — a step with a default image has nothing to choose. Everywhere else
+  they are ordinary optional arguments in the add list, and validation follows
+  the same `required` flag rather than a second hardcoded rule. A step's own
+  default is the field's placeholder, so leaving it blank visibly means "use
+  `sonar`". The step's-own/from-genStage split into two groups only applies to
+  steps that actually wrap `genStage`.
+- **A list of maps is a list of boxes.** `secrets`, `additionalRepos` and
+  `customPVC` render one bordered entry per element, each field labelled and
+  explained by the `?` beside its name — three bare inputs reading
+  `secret/team/service`, `token`, `SERVICE_TOKEN` say nothing about which is
+  which. `ObjectField` carries `hint` and `description` for that; both go in the
+  one popover. This module's own `FieldHelp`/`.jf-help` is gone — the portal has
+  one `?`, see **Shared UI conventions**.
+- **Removing the last entry removes the argument.** Both `MapRows` and
+  `ObjectRows` render one placeholder row when the value is empty, so without
+  this the `×` on a single row appeared to do nothing — `onChange([])` just
+  re-rendered the same blank row.
+- **`unstash` picks, it does not type.** It offers the stash names declared by
+  *earlier* stages (`stashesBefore` in `StageList`) — the library stashes after
+  a stage's commands run, so a stage cannot unstash its own. A name held over
+  from a since-deleted stage stays on the list, marked, so it can be unticked
+  rather than silently vanishing.
+- **A list is one box per entry**, the same shape `secrets` and `stash` use — a
+  textarea made every entry look like one paragraph whose line breaks happened
+  to matter. Enter opens the next box, Backspace in an empty one removes it, and
+  a multi-line paste splits across boxes rather than collapsing into one, which
+  is what pasting out of an existing Jenkinsfile does. The `commands` closure
+  form stays a textarea: that one is a block of Groovy, not a list. Blank entries
+  are kept in the value — removing them under the cursor is what used to make
+  Enter look broken — and dropped by the generator. Textareas that remain grow a
+  row per line and are not user-resizable; a dragged height only fights the
+  auto-size on the next keystroke.
+- **A list pasted out of an existing Jenkinsfile is unwrapped.** `"npm install",`
+  on its own line becomes `'npm install'`, not `'"npm install",'`. `unwrap` in
+  `groovy.ts` only strips a quote pair that wraps the whole line with none of
+  that quote inside it, so `echo "hi"` and `"$A" = "$B"` survive untouched.
+- **`parallel` is a box in the list.** *Add parallel block* opens an empty
+  one with no palette (held in `StageList`'s `emptyBoxes` until a stage lands
+  in it — an empty box is never saved), its own *Add stage* adds inside it, and dragging a collapsed card onto a card in a box
+  joins it (anywhere else leaves it). Underneath it is still one flat list:
+  consecutive stages sharing `JenkinsfileStage.group` are one box, so
+  reordering is the same three drag handlers — a drop also says which box.
+  `parallelGroups` writes each box as one `parallel('<title>': { … }, …)`, even
+  with a single branch, since that is what is on screen; `parse.ts` reads such a
+  block back into one box (a branch with several steps, or `failFast`, is
+  imported with a warning). Records from when it was a per-card `parallel`
+  flag are migrated by `toDraft` (`migrateParallel`). `UNBOXED_STEPS` never
+  join a box: `populateEnvVars` sets the env everything after it reads, and a
+  Groovy card is statements, not a branch.
+- **Groovy between the stages is a card** (`step: "groovy"`, `callStyle:
+  "raw"`, one `code` argument of kind `code`), in the palette like any step.
+  Its text is written verbatim where the card sits — an `if` around a stage, a
+  helper's call, a `def` the next stages read — so a pipeline is not limited to
+  what the library's steps say. Its header shows its first line, and it opens
+  on add, since there is nothing to it until something is typed. `groovy` is
+  the builder's own name, so `parse.ts` never reads a `groovy(…)` call as one.
+- **There is no Groovy block above the stages any more** — Groovy cards
+  replaced it. Variables a shell command interpolates (`${tag}` — `quote`
+  already keeps such a string a GString) and functions a Closure command calls
+  are a card like anything else, and the importer leaves a file's own
+  declarations where they stood (the old `splitDefs` lifted them all to the
+  top, which moved a `def v = env.VERSION` above the stage it read from).
+  **`import` lines are the one exception**: Groovy takes them only at the top
+  of the file, so `toGroovy` lifts them out of whatever card holds them to just
+  under `@Library`. A record saved with a `groovy` block is migrated by
+  `toDraft` into a leading card and saved back with `groovy: ""`, once — the
+  field stays in the schema only so old records still load.
+- **`sleep` is Jenkins' own step** (`builtin: true` in the catalog), the one
+  step with no `genStage` arguments.
+- **Drag and drop is native HTML5**, no library — three handlers over an array
+  in `StageList.tsx`, and it is the only way to reorder. A card is draggable only
+  while collapsed: a text input inside an expanded card cannot be selected with
+  the mouse if its ancestor is grabbing the drag.
+- **Adding a stage is the last thing in the list**, and its palette is a popover
+  rather than a panel in the flow — one that reflowed the page on open would move
+  the button out from under the cursor that just pressed it. It is centred with
+  auto margins, not `translateX(-50%)`: the shared `row-in` animation animates
+  `transform` and would win.
+- Maps are edited as ordered key/value **pairs**, not as objects — an object
+  cannot hold the half-typed state of renaming a key. They become objects again
+  at the edges (`recordOf` on the way to the server; the generator reads either
+  shape). A map whose keys the library fixes (`resources`) is the exception: it
+  renders as one labelled box per allowed key, so the key cannot be misspelled
+  into a `resourcesValidator` failure.
+- Pipelines live one JSON file per pipeline under `<DATA_DIR>/jenkinsfile`,
+  ids `JF-0001`, via `PipelineStore` — the AI module's conversation store in
+  miniature, not `JobStore` (which is `status`/`log`-shaped and splits in-flight
+  from settled). **These are user documents, so `DELETE` really deletes.** The
+  "nothing is ever deleted" rule above is about run history.
+- **The name is minted, then editable; there is no Save button.** The server
+  names a pipeline `<author> #<n>` on create (`mintName` in `router.ts`), where
+  `n` is the lowest free number among that author's own pipelines — so two
+  people never collide, and deleting #2 lets the next one reuse it. Minting
+  still matters because a pipeline is saved the moment it has a stage, long
+  before anyone thinks to name it. The name then heads the editor
+  panel — the editor column is **one** `.detail-panel`, like every other
+  module's content column, with the name as its first `.jf-section` and the
+  repo/preview/options/stages separated by a rule inside the box rather
+  than by four outlines. It names what that panel is showing, so it sits inside
+  it rather than floating above the column or in the toolbar.
+  It is **text with a pencil beside it**, the same shape a
+  ticket's title uses (`.detail-title-row` / `.title-edit-input` / `.edit-toggle`
+  are reused verbatim), because a box sitting there permanently reads as a
+  search field. Enter and Escape both just blur: every keystroke is already in
+  the draft and autosave is what writes it, so there is no commit to confirm or
+  cancel. A list of `Dev User #7` says nothing about what any of them build. **A blank name keeps the stored one**
+  rather than emptying the list row, and the create/update response's `name` is
+  taken back into the draft only when nothing has been typed — otherwise a slow
+  save would overwrite whatever was typed while it was in flight.
+- **Saving is automatic**, debounced ~800ms after the last change, with the state
+  shown in the topbar. Two refs make it safe: `persisted` holds the JSON of what
+  the server last returned, so an edit that lands back in the same shape is not
+  written again and the response cannot loop; `queue` chains the writes, so the
+  create that mints the id finishes before the first PUT needs it. A draft nobody
+  has touched is never written — opening the module must not litter the list with
+  empty pipelines. The response is merged field-by-field (`id`, `name`,
+  `updatedAt`) rather than wholesale, so typing during a slow request is not
+  stamped on.
+- The saved list uses the portal's standard `.ticket-row` shape, same as every
+  other module. Editing a pipeline is opening it; there is nothing else to do to it.
+
+## Jenkinsfile: connecting a repository
+
+A pipeline can be read out of the repo that holds it and committed back to it —
+New's third choice, then Pull and Commit on the panel that names the repo. It is
+**the ArgoCD module's pull/push, reused rather than reinvented**: same guards,
+same per-document force-pushed branch, same `githubRepo`/`openPullRequest`, same
+"the push writes the *stored* record, so flush the autosave first" rule. Two
+builders that commit to git must not have two ideas of what pressing Commit
+does, so the parts that are not about values trees or Jenkinsfiles were promoted
+out of ArgoCD rather than copied:
+
+- `src/server/repoGuards.ts` — `safeRepoUrl` (http(s) only),
+  `safeRef`, `safeDirPath`, `safeFilePath`, and `tokenFor`. `valuesRepo.ts`
+  re-exports the first three and keeps `safeTreePath`, because the `.yaml` suffix
+  is a rule about a values tree and not about git.
+- `src/server/pullRequest.ts` — `openPullRequest` / `canOpenPullRequest`,
+  dispatching on the repo URL to `github.ts` (github.com) or `bitbucket.ts`
+  (Whitening's `BitbucketApi`, moved up; any `<base>/scm/<project>/<repo>.git`
+  URL, with the REST API taken from the same `<base>`). The token is the one
+  the push already used, so a PR never sends a credential to a new host. A
+  repo on neither gets its branch pushed and a note to open the PR by hand.
+
+**Two credentials, each tied to one host.** On Bitbucket the builder reuses
+`GIT_URL`/`GIT_TOKEN`, the same credential Whitening and AI already use for
+application repos. On github.com it uses `GITHUB_TOKEN`. That variable exists
+because `GIT_TOKEN` only reaches the `GIT_URL` host, so a private GitHub repo
+could not be read or written at all. `jenkinsfileTokenFor` only offers the
+fallback when `githubRepo(url)` matches. Unlike ArgoCD's `ARGOCD_VALUES_TOKEN`,
+which is handed to any host that is not `GIT_URL`, editing the repo URL cannot
+send `GITHUB_TOKEN` anywhere else. Any other host clones anonymously.
+`gitEnabled` is `config.git.enabled || !!githubToken`.
+
+**Finding the Jenkinsfile is the one genuinely new part.** ArgoCD is pointed at a
+directory and takes everything in it; here there is one file whose name is a
+convention rather than a rule, and nobody wants to type the path of the file they
+are about to import. So the clone is searched (`pickJenkinsfile`), bounded the
+way `pullValuesTree` is bounded — 4 000 entries, 4 levels, `node_modules`/`target`
+/`dist` and friends skipped — never an unbounded walk of a monorepo.
+
+- **A repo-root `Jenkinsfile` wins outright**; failing that, a single candidate
+  anywhere is taken. `Jenkinsfile`, `Jenkinsfile.release` and `deploy.jenkinsfile`
+  all count, case-insensitively.
+- **Several is a question, not a guess.** Taking the shallowest or the
+  alphabetically first would import the wrong pipeline silently and then commit
+  over it, which is the one failure worth a click to avoid. So it comes back as a
+  404 naming them, and the answer goes in the path field that is already on
+  screen — no picker component for a case that ends in typing a path anyway.
+  None is the same sentence in the other direction.
+- Both are a *return value*, not an exception: they are ordinary answers about a
+  repository, and a route should not have to recognise them by pattern-matching
+  its own error message.
+
+**Parsing is `parse.ts`, unchanged** — the importer the New dialog already had.
+Connecting sets the text and falls through to the same warnings gate, so a file
+that is half-understood says so once before replacing anything, exactly as a
+pasted one does. Parsing server-side would have forked it.
+
+**One difference from ArgoCD's push, deliberately.** `pushJenkinsfile` fetches
+the pipeline's branch and continues it when the remote already has one, where
+`pushValuesTree` does `clone --branch <base>` then `checkout -B` and so rebuilds
+the branch from the base branch every time. That makes a second press of Commit
+a real no-op ("the repository already matches this pipeline") instead of a fresh
+commit with identical content. `pushValuesTree` now does the same, which is what
+its own test was asking for.
+
+**Pasted SSH URLs are rewritten to HTTPS** (`gitUrl.ts`). Any host but
+github.com / gitlab.com / bitbucket.org is taken to be Bitbucket Server, whose
+HTTPS clone path carries `/scm/` where its SSH one does not — so it is put
+back, and the SSH port dropped. When the SSH host is `GIT_URL`'s, the URL is
+rebuilt on `GIT_URL` itself, so a Bitbucket served on `:7990` or under
+`/bitbucket` keeps both — and still matches the host `tokenFor` hands the token
+to. Every caller passes `GIT_URL` in (the routers from `config`, the fields from
+the list response), because `gitUrl.ts` must stay import-free for the browser.
+`repoWebUrl` keeps a context path too (`/bitbucket/projects/P/repos/r/browse`).
+
+**A branch the repo does not have falls back to its default.** Every builder
+pre-fills `main`, and most Bitbucket repos are on `master`. `cloneAt` (`git.ts`)
+retries a "Remote branch … not found" on the branch `git ls-remote --symref
+HEAD` names; Pull/Connect (both builders) and Convert's chart clone go through
+it, and the pull responses carry the branch actually read, which the client
+writes back into the revision field — so the next Commit targets it too.
+
+## ArgoCD: the universal-chart GitOps builder
+
+The ArgoCD module is to [`universal-chart`](https://github.com/devops-ezrahi/universal-chart)
+what the Jenkinsfile builder is to the shared library: a catalog-driven visual
+builder whose output is generated files, saved as documents, previewed live,
+copied or downloaded. It runs no jobs, holds no credentials and never touches
+git — you paste the result into your values repo.
+
+A saved **tree** holds N releases x M namespaces and generates the layout
+`universal-chart/gitops-factory`'s `convert_to_universal_chart.py` already writes, so a tree
+authored here and one converted there land in the same repo and are read by the
+same wiring:
+
+```
+base/<release>.yaml              # the microservice, the same in every namespace — like a chart's values.yaml
+<ns>/defaults.yaml               # set once for every microservice in <ns> — layered over base
+<ns>/values/<release>.yaml       # this microservice in <ns>, only what differs — applied last, so it wins
+```
+
+**A namespace is a folder, and may be a variant.** `prd/yellow` and
+`prd/black` both deploy into `prd`, share `base/`, and each carry their own
+`defaults.yaml` + `values/` — the chart's ms-applicationSet takes that as its
+`folder`. `ArgocdNamespace.name` is the folder path, so a variant is just a
+namespace whose name has a `/`. `values/` may hold grouping sub-folders
+(`values/group1/ms1.yaml`); the release is still named after its file, and
+`ArgocdNamespace.groups` remembers each release's sub-folder so a rebuild
+writes it back in place rather than beside it (two files of one name in a
+folder are two Applications of one name). `importTree` finds folders by their
+`defaults.yaml` or `values/`, anywhere below the root. **`base/` mirrors that
+sub-folder** — the chart reads `base/group1/ms1.yaml` for
+`<ns>/values/group1/ms1.yaml` — so `importTree` reads a grouped base file as
+its release and `buildTree` writes base back into the group (`releaseGroup`:
+the first namespace that names one). Flat base beside grouped values fails to
+render. The microservice grid boxes each group under its name.
+
+**The root Application/ApplicationSet are not generated.** They are set up once
+by whoever runs ArgoCD, not per tree. `importTree` still reads the repos out of
+one a repo already has, under either name (`rootApplicationSet.yaml`, the
+converter's current one, or `root-applicationSet.yaml`).
+
+**Every value goes through `tpl`** in the chart now, so base can say
+`host: api.{{ .Values.environment }}.example.org` against each folder's
+defaults. `findEnvSpecific` therefore skips a templated value, and
+`checkValues` flags a `{{` tpl would mangle (`{{ define`, or a field that is not
+the release's own like Alertmanager's `{{ .CommonLabels }}`) with the escape to
+use instead.
+
+**A template reads as the blank it is.** Keys are `tpl`'d too, so a converted
+base has `volumes: { settings-{{ .Values.color }}: … }`, and CronJobs, sidecars
+and ConfigMaps named the same way. `templates.ts` resolves `{{ .Values.x }}` /
+`{{ .Release.Namespace }}` against every folder the open file renders for
+(`TemplateScopes`, set in `ArgocdView`: each running folder's defaults plus its
+own override; one folder when editing an override). An entry title shows the
+placeholder as a chip (`settings-[color]`), and a templated field gets a quiet
+`→ settings-black · settings-yellow` line under it — amber naming the folders
+that leave the value unset, which the chart would render empty.
+
+`checkValues` carries the converter's per-release findings from that merge
+(nodePort on ClusterIP, emptyDir without sizeLimit, a PVC `volumeName` with no
+PV, Redis `dir /tmp` / short sentinel `down-after-milliseconds`). Its
+namespace-wide ones (dangling ConfigMap/Secret/SA references, missing NADs) are
+left to the converter — one release's document cannot see its namespace.
+
+**The deployment wiring is two files plus a chart**, and the per-namespace half
+is no longer generated at all:
+
+```
+root Application / ApplicationSet           set up once, outside this builder
+  ms-applicationSet chart                   one AppSet per namespace / variant folder
+    one Application per <folder>/values/**/*.yaml
+```
+
+Adding a namespace is adding a directory; adding a release is adding a file.
+The fan-out globs `<ns>/values/*.yaml` directly, so there are no
+`<ns>/releases/*.yaml` pointer files and no per-namespace ApplicationSet in the
+tree; the three-file layering (`base/<file>` → `<ns>/defaults.yaml` →
+`<ns>/values/<file>`) lives in the `ms-applicationSet` chart, versioned
+alongside the universal chart it applies.
+
+**That order is a contract between three repos.** It used to be
+`<ns>/defaults.yaml` first, which meant a namespace default lost to any base
+file setting the same key — a monorepo image tag set once for `shop-prod`
+never reached a microservice whose base had a tag. The chart's
+`applicationSet.yaml`, the converter's `chain`/`value_files` and this module's
+`buildTree` changed together; change one and change all three. There is no
+tree-root `defaults.yaml` — base is the same in every namespace, so it has no
+defaults of its own.
+
+- **The merge/diff logic is carried over, not reinvented.** `values.ts`'s
+  `deepMerge` / `commonSubtree` / `subtractDefaults` come from
+  `universal-chart/gitops-factory/ui/core-logic.test.js` — which exists so this logic cannot
+  drift from the converter's `deep_merge` / `common_subtree` /
+  `subtract_defaults`. That file's own assertions came across with it into
+  `values.test.ts`. **Change one side and change the other**, or a tree the
+  portal writes and a tree the converter writes stop layering the same way.
+- **Every layer file is written, empty ones included.** A `valueFiles` entry
+  that does not exist fails the whole render, so an empty layer is `{}` with a
+  header comment rather than an absent file.
+- **An override carries an orange border, and its tag is the way out of it.**
+  Teal means "selected"; an override is not a state anyone chose so much as one
+  they are carrying, so it gets its own colour — on the whole card, the category
+  head and the namespace tile, because a 6px dot beside a name was easy to miss.
+  A card with a problem is outlined the same way, worst first (red, amber, then
+  override orange). The small `override` tag is a `Help` trigger —
+  the popover says what overriding costs (a second copy of that value, kept in
+  step with base forever) and holds a **Remove override** button that deletes
+  the feature from the layer. Not `on: false`: in an override file "off here"
+  and "not overridden here" are different statements. This is the per-feature
+  half of what `findPromotions` does for a whole tree.
+- **`enabled` is never on a feature's add list.** Ticking the feature *is*
+  `enabled: true` — every such emit writes `enabled: v.enabled !== false` — so
+  offering it as an optional field said the same thing twice and read as though
+  a ticked Service might still be off. Ticking a feature on also clears a stale
+  `false` underneath it, which an import can leave behind and which would
+  otherwise render nothing at all. It still *shows* when it holds `false`, for
+  the same reason: an invisible value that silently disables an object is worse
+  than a redundant checkbox. A plain `false` on a field whose default is off is
+  the absence of a decision (an import writes every key it reads), so that one
+  stays on the add list.
+
+- **Three features are `req` and sit above the categories**: release identity,
+  workload type and image. They are always open and carry no checkbox — the
+  same call the Jenkinsfile builder makes about `title` and `image`/`node`. They
+  stay *off* until a field is typed into, so `buildValues` is untouched and an
+  untouched namespace override still writes nothing: "required" describes what
+  is on screen, not what is emitted. That also keeps the layering honest —
+  a required feature that emitted its default into every override file would
+  push `workload.type: deployment` over a base that says `statefulset`.
+- **A field only a namespace can answer is not offered in base at all.**
+  `FieldSpec.ns` marks it — `nameOverride` and `fullnameOverride` today, which
+  are the object names in the cluster and the usual reason a release is
+  `checkout-dev` in one place. Base is environment-agnostic, so a value there is
+  inherited everywhere and then overridden everywhere, which is the promotion
+  `findEnvSpecific` already nags about: not offering the mistake beats warning
+  about it afterwards. It still **shows** in base when it already holds a value
+  — an import or an older tree can have put one there, and `primaryFields` is
+  recomputed over what survives the filter, so the feature opens on its next
+  field rather than on nothing. Same rule, same reason, as `enabled`.
+- **A problem is a button to the field it names.** `Problem.feature` carries a
+  catalog id and pressing the row fires the same jump a release card's chip
+  does — reading "No image.repository" and then scrolling forty-five collapsed
+  cards for the one it means is the whole reason the chips got that jump in the
+  first place. The ids are hand-written, so `checks.test.ts` sweeps a set of
+  documents and asserts every id it emits exists in `BY_ID`: a typo makes a row
+  that looks pressable and goes nowhere, which is worse than not linking it.
+- **A release card's chips are one row per scope, not one wrapped line.** The
+  workload, then the parts of its pod template indented under it on a hung
+  rule, then the objects beside it, then the cluster-scoped ones. Wrapped
+  together, a `Volume` sat next to a `ConfigMap` as though they were the same
+  kind of thing — which is the exact confusion `Scope` was introduced to end,
+  undone by the layout. Kinds a namespace override adds keep their own row
+  below, rather than reading as more objects in the base file.
+- **A claim offers to mount itself.** A PVC, ConfigMap or Secret reaches the
+  container only through a `volumes` entry *and* a `volumeMounts` entry — two
+  features away from the one that created it, and storage nothing mounts is
+  storage the pod never sees. So each named row of those three carries a **Mount
+  this** button (`FeatureSpec.mountable` names the volume kind it becomes) that
+  adds both in one press. Once taken it stays, disabled, reading **Mounted** — an
+  offer that silently vanished read as one that was never there. A ConfigMap or
+  Secret also offers **Use as env vars** (an `envFrom` row, **In env** once
+  taken), the other way the same object reaches the container. Both open the
+  categories they wrote into — `envFrom` sits under Container and the volume
+  under Storage, and a row added out of sight is a press that seems to do
+  nothing. The `mountPath` is deliberately left empty: where it lands is the one
+  thing nobody can guess, and it is the next field on screen.
+- **A ConfigMap or Secret takes files.** Dropped on an entry, or picked with
+  **From files…** under the list (`FieldSpec.fromFiles`), each file becomes a
+  ConfigMap row (`fileName`/`fileBody`, as text) or a Secret `data` line
+  (`name=<base64>`, so binary files survive). A new entry is named after the
+  first file.
+- **A column that names another feature's object suggests them.**
+  `RowCol.suggest` returns the feature whose row names to offer — a mount offers
+  this release's volumes, a volume's source offers its ConfigMaps, Secrets or
+  claims, by kind. A native `<datalist>`, never a `<select>` and not the
+  Jenkinsfile builder's combobox: the list is one column of names, and an object
+  the chart does not create (a ConfigMap the platform team owns) has to stay
+  typable.
+- **The shared release is the converter's own, not an invention.**
+  `convert_to_universal_chart.py` writes one release per namespace called
+  `shared` — `workload.type: none`, no Service — that owns the objects several
+  microservices in that namespace use: a ConfigMap, a Secret, a claim, a
+  NetworkPolicy, a Role. Those kinds render under their raw map key with **no
+  release-name prefix**, so two Helm releases declaring the same name collide;
+  declaring them once there is what lets everything beside it just reference
+  them. The grid's **Shared** button adds exactly that, and disappears once the
+  tree has one — after which it is an ordinary release
+  (`base/shared.yaml`, `<ns>/values/shared.yaml`) and the fan-out and layering
+  already cover it. The `?` beside the button is the only place that is
+  explained, because it is a convention nobody meets anywhere else.
+- **`cluster-shared/` is a different thing and is still not generated.** That is
+  the converter's *global* release for cluster-scoped kinds, with its own
+  `cluster-shared-application.yaml` outside the per-namespace fan-out.
+  `NON_NAMESPACE_DIRS` already excludes the directory so a portal tree committed
+  beside converter output keeps the same root ApplicationSet; building one is a
+  second feature, and the per-feature `cluster` scope is what warns about the
+  collision in the meantime.
+- **Defaults belong to a namespace — one per namespace, for every
+  microservice in it** (`ArgocdNamespace.defaults`). They are edited from a
+  wide bar above the microservice squares, shown only while that namespace is
+  selected: base is the same in every environment and has none. `<ns>/defaults.yaml`
+  is **exactly what was set there** — `buildTree` no longer promotes values it
+  notices every microservice shares (the old `commonSubtree` + `withoutClaimed`
+  pass is gone), because a defaults file holding values nobody typed there is a
+  file nobody can explain. A value every microservice sets alike stays in each
+  one's own file; `findPromotions` still offers the base-ward move.
+  - **Setting a value in defaults sets it for every microservice there.** A
+    microservice's own *different* copy of a path that edit just changed is
+    dropped from its namespace file (`patchScope`, via `removeShadowed`), so a
+    tag typed once shows on every card; Ctrl+Z brings the copies back. The
+    converter writes only labels and group values into `defaults.yaml`, so a
+    converted tree starts with nothing to collide.
+  - **Import reads `<ns>/defaults.yaml` whole** as that namespace's defaults —
+    whoever wrote it, the portal or the converter — and folds nothing into the
+    overrides, which were written against base + these defaults and read back
+    as they are.
+  - **Trees saved with tree-wide Defaults are migrated on open**
+    (`migrateTreeDefaults`): each namespace takes a copy, its own settings
+    winning. A copied default that a base file also sets used to lose to it and
+    now wins, so the open says which ones — a deployment change is not made
+    silently. The server schema no longer accepts tree-level `defaults`, so the
+    next save drops it.
+  - `findEnvSpecific` counts a namespace's defaults as that namespace answering
+    for itself: a monorepo tag set there means base's tag is no longer taken
+    as-is. It names namespaces **per path** (`takenBy`) — one list for all
+    paths put shop-prod under `replicaCount` because it took base's
+    `image.tag`, which was a false warning on a namespace that overrides it.
+  - **`findPromotions` never offers an `ENV_SPECIFIC_PATHS` value**, even when
+    every namespace agrees. Moving orders-db's `postgres:16.3` out of base as
+    the per-namespace warning asked made all six namespaces identical, which
+    offered it straight back — the two findings undid each other forever.
+- **A namespace's microservice opens on its own file.** The editor's
+  *Namespace only* / *Full config* switch (per viewer, `argocd.valuesView`,
+  default *Namespace only*) decides whether the layers below are shown: Namespace
+  only passes no `inherited` to `FeatureEditor`, so the cards are exactly what
+  `<ns>/values/<ms>.yaml` sets — features it does not set, empty categories and
+  an empty Extra values are not shown at all (`compact`). Full config is
+  the whole deployed document described below, and the only place a base
+  feature can be switched off in one namespace. What is written is the same.
+- **What a microservice inherits in a namespace is on its own card, greyed,
+  with the way back**: its base, then that namespace's defaults over it — one
+  block per layer, in chain order, labelled *from the base values* / *from
+  shop-prod defaults* and linking to that scope. Never merged into one block:
+  under a single label, a base value read as though the namespace set it. Base and a namespace's defaults inherit nothing. A
+  feature only a lower layer sets still opens (an unticked box beside a value
+  module about). Each layer is drawn with the feature's own field controls
+  inside a `<fieldset disabled>` — greyed, not typeable, reading exactly as the
+  value would to edit — whose legend is the link to where it can be edited
+  (a disabled fieldset's first legend stays pressable). Ticking the feature and
+  setting it here is what overrides it.
+- **"Overridden" means a second copy of one value** — a key this namespace sets
+  that base or the namespace's defaults *also* set, to something else
+  (`shadowing` in `values.ts`). That drives the orange card, its `override`
+  tag, the orange namespace tile, and "overridden in N of M namespaces" on a
+  microservice card. A key only the namespace sets is not an override: it is
+  that value's one source of truth, and it is exactly the layout the builder
+  recommends for a tag, a replica count or a host. Marking it orange flagged
+  the page's own advice — following *image.tag belongs per-namespace* turned
+  every namespace orange. It used to be "puts anything in the override file"
+  (`subtractDefaults` against what is below), and before that "is ticked here",
+  which lit a Route nothing differed on.
+  - **The override popover offers both ways to keep one copy**: *Remove
+    override* (this namespace falls back to base) and *Move out of base*
+    (`applyDemotion` in `promote.ts`, the inverse of `applyPromotion`) — the
+    shadowed paths leave base, every namespace still taking base's value gets
+    its own copy, and nothing deploys differently. That is the fix a real
+    per-environment difference wants (perf's bigger requests, prod's bigger
+    claim), and it is what cleared the example tree's 31 second copies.
+    Each *Move out* is offered only when that layer holds the other copy:
+    *Move out of defaults* (`applyDefaultsDemotion`) is the same move one
+    layer up — the value leaves `<ns>/defaults.yaml` and every other
+    microservice in that namespace still taking it gets its own copy.
+- **A list a lower layer has is continued, not restarted.** Env vars,
+  volumes, labels — any `rows`/`kv` field — show the inherited entries greyed,
+  then this layer's own entries and the one working Add button under them; no
+  blank placeholder entry, no second label. Entries merge by name, so what is
+  added here is added to base's. A feature whose fragment holds a YAML
+  sequence (`ingress.hosts`, `extraDeploy`) is excluded (`sequenceIn`): Helm
+  replaces a sequence whole, so "adding one" there would drop the greyed ones.
+- **Ctrl+Z undoes a ×.** A text box has its own undo; a button that removes a
+  value had none. Every × in a feature card is `data-undo`, and the view's
+  capture-phase click handler snapshots the tree before it runs; Remove
+  override, the Move out/Move to base offers and deleting a microservice or
+  namespace snapshot explicitly. Ctrl+Z pops it unless focus is in a text
+  field (that is the field's own undo) or the module is hidden. Only
+  `releases`/`namespaces` are restored — the first save mints the id, and
+  restoring that would fork the tree. The stack clears on open/new/connect/pull.
+- **The "Move to base" suggestions fold into one line** (`<details>`), open or
+  closed per viewer in `localStorage`.
+- **A problem is shown twice: in the list under the form, and on the card it
+  names.** Pressing it in the list is what scrolls to the card — and arriving at
+  a card with no sign of why is the other half of the same complaint. Same
+  `Problem.feature` id drives both.
+  - **`findEnvSpecific` findings are problems too** (base `image.tag`,
+    `replicaCount`, a host…), in base and in each namespace still taking base's
+    value. They used to be said only on the microservice card up top, never on
+    the field. `featureForPath` maps the path to its card by top-level key, and
+    `checks.test.ts` sweeps `ENV_SPECIFIC_PATHS` so none maps to nothing. The
+    card's own warning is a jump as well, and switches to Base, where the value
+    lives.
+  - **A jump is consumed.** `FeatureEditor` is keyed per scope and remounts on
+    every layer or microservice press; a `jump` left set replayed its
+    `scrollIntoView` on each, which read as the page scrolling for no reason.
+    `onJumped` clears it the moment it fires.
+- **Commit sits on the file preview, not the repository panel.** It writes the
+  files listed there, which is where you decide whether they are right; Pull
+  stays with the repo it reads. `CommitButton`/`PushResult` live in
+  `RepoPanel.tsx` beside the `gitBlocked` rule they share with Pull.
+- **A field added from the add list can be put back on it.** The `×` beside its
+  label resets it to the chart's own answer as well as dropping it from
+  `added` — dropping it from `added` alone would leave whatever was typed
+  emitting from a field nobody can see.
+- **Adding a microservice opens its name.** `addRelease` returns the new id and
+  the grid starts editing it. An unnamed release generates `release.yaml` and is
+  indistinguishable from the last one, so naming it later means finding it again.
+- **A field the chart already answers is on an add list, not on screen.** An
+  open feature shows `primaryFields(spec)` — the fields marked `req`, or its
+  first one, skipping a leading `enabled` since that is the feature's own
+  checkbox said twice — plus any field holding a value that is **not** its own
+  `def`. The rest are `+ name` chips under an "Optional:" label. The last part
+  is what makes it work: `defaultValues` writes every `def` into the state the
+  moment a feature is switched on, so "has a value" alone would show
+  `service.enabled`, `service.type`, `route.tls.termination` and the rest of
+  the chart's own answers on every card. Marking `req` in the catalog is how a
+  feature says more than one field is a real decision (`image.tag`, the four
+  `resources` fields, `hpa` min *and* max, `service.ports`, `ingress.hosts`).
+- **The repositories box names both repos, not two branches.** Collapsed it
+  reads `CHART universal-chart@main → VALUES microservices-values@main`; open,
+  each half is introduced by a line saying what its four fields do — the chart
+  is read-only and renders a release, the values repo is what you push to and
+  what the root Application watches. "Repositories · chart main · values main"
+  named neither.
+- **The catalog is transcribed by hand** into `client/modules/argocd/catalog.ts`,
+  one `FeatureSpec` per section of the chart's own `ui/studio.html`, plus pod
+  metadata and sidecars/initContainers, which that file never covered. **When
+  the chart gains or renames a value, update this file** — nothing reads the
+  chart repo at runtime, so there is no clone step and no way for a network
+  failure to leave the builder empty. Same call, same reasons, as
+  `jenkinsfile/catalog.ts`.
+- **A values file reads by importance, one block per key.** Top-level keys
+  follow `FEATURES` registration order (`orderKeys`) — workload, image,
+  replicas, container, env, ports, resources, probes, storage, networking,
+  config, scaling, scheduling, and the names/stamps (`identity`) near the end —
+  with a blank line between them (`toYaml(doc, true)`, used by `buildTree` and
+  the diff's canonical form only; every other `toYaml` is a round-trip and stays
+  tight). The converter's `TOP_LEVEL_KEY_ORDER` is the same list: **reorder a
+  feature here and change it there**, or a converted tree and a built one lay
+  the same file out differently.
+- **Writing YAML is hand-rolled, reading it is not.** `yaml.ts` is ported from
+  the chart's own emitter (stable key order, block scalars, `{}` for the empty
+  ones); parsing goes through the `yaml` package, because a hand-rolled parser
+  is the kind of 85%-correct thing that fails silently — on values that are
+  about to be deployed. **The writer writes what it is given**, `""`, `{}` and
+  `null` included, below the top level: those came out of a repo file (an empty
+  ConfigMap still deploys, `node-role…/worker: ""` still schedules). Dropping an
+  unset *form field* is each `emit`'s job (`put`/`some`/`nz`). It used to
+  `clean()` every nested map, and a repo read and written straight back showed
+  hundreds of edits nobody made.
+- **Import keeps what it cannot show.** `import.ts` reloads each feature through
+  its `load` (or generically, from each field's `path`), then re-emits and
+  subtracts: whatever the re-emit fails to reproduce under a key a *switched-on*
+  feature owns goes into that feature's **Other settings** (`__more`, the last
+  field every feature gets from `F`, deep-merged over its emit by
+  `buildValues`) — so a live Route's `serviceName` or a probe's `scheme: HTTP`
+  shows on the card it belongs to, with no warning. Anything else goes into
+  `extraValues` — merged last, so it wins — and is named in the warnings the
+  dialog shows before anything is replaced. `jenkinsfile/parse.ts`'s rule, and
+  the round-trip is what `import.test.ts` pins. Every warning is listed, never
+  the first few: the connect dialog scrolls, and a Pull/Convert leaves the full
+  list under the repository panel until dismissed.
+- **Every `mapOf` has a `load` that inverts it.** Seventeen features keep their
+  value as a `name`-keyed map edited as rows, and a row is exactly what a
+  field's `path` cannot read back — so a pull ticked ConfigMaps, Volumes,
+  volumeClaimTemplates and fourteen others *on* with an empty form while their
+  real content sat in `extraValues`. That is the one thing this module does not
+  do: a value that deploys must be visible. `mapRows`/`bodyRows`/`kvText`/
+  `portsText`/`yamlText` in `catalog.ts` are the inverses of `mapOf`/`raw`/
+  `kvOf`/`parsePorts`, and `importRoundTrip.test.ts` is the check — one document
+  holding every such key, in, and **nothing** left over. **A `kv` or `yaml`
+  field needs a `load` too**, rows or not: neither has a `path` to read back
+  through. ServiceMonitor's `labels` and Scheduling's `nodeSelector`/
+  `tolerations` had none, so a repo carrying them connected "with 4
+  warnings" — both are in that test now.
+- **`load` is merged over the path-derived read, not a replacement for it**, so
+  a feature with both rows and plain fields (`volumeClaimTemplates`, its two
+  retention selects) needs only say what `path` cannot. And **a feature that
+  read nothing back is left off**: ticked-and-empty is a card that lies about
+  where its content is, so the import warning becomes the only claim made about
+  that key — which is a true one.
+- **`checks.ts` runs on the merged document, not on catalog state**, so a value
+  that arrived through `extraValues` or an import is checked exactly like one
+  typed into a field. It is the cookbook's cross-checks, ported from
+  `studio.html`'s `checks()`: ingress and route both on, HPA on a DaemonSet,
+  HPA against `replicaCount`, a mount with no volume, `pdb.minAvailable` equal
+  to the replica count, and so on.
+- **A namespace runs every release in the tree**; a namespace entry only carries
+  what it *overrides*. So a values file is written for all of them, empty ones
+  included — `<ns>/values/` **is** the fan-out, so a release with no file there
+  is a release that does not deploy.
+- **Pressing a file in the preview opens the scope that writes it** — Base and
+  that microservice for `base/<ms>.yaml`, the namespace's Defaults for
+  `<ns>/defaults.yaml`, the namespace and microservice for
+  `<ns>/values/[group/]<ms>.yaml` (`openFile` in `ArgocdView`; the longest
+  namespace name wins, since a variant folder is `prd/yellow`). A repo-only
+  file has no scope and just shows.
+- **The preview is the directory listing the values repo will hold**, folders
+  and all, and the catalog's categories collapse to the ones a layer actually
+  uses. Both exist for the same reason: a namespace override touches two
+  sections and four files, and neither should mean scrolling past forty-five
+  collapsed cards to find them.
+- Trees live one JSON file per tree under `<DATA_DIR>/argocd`, ids `AG-0001`,
+  via `TreeStore` — `PipelineStore` in miniature. **These are user documents, so
+  `DELETE` really deletes.** Autosave, minted names and the ownership rules are
+  the Jenkinsfile builder's, unchanged.
+
+## ArgoCD: converting plain YAML or a Helm chart
+
+**Convert** (New's third choice — there is no topbar button) turns Kubernetes
+manifests or a packaged chart into universal-chart values, then folds them into
+the open tree — which keeps its repository, so it commits like anything else,
+and a new one connects from the repository panel as usual.
+
+- **The converter is `convert_to_universal_chart.py` itself, not a port.**
+  `POST /api/argocd/convert` shallow-clones the tree's own chart repo at the
+  tree's own revision and runs `gitops-factory/convert_to_universal_chart.py`
+  from there, so the converter is always the one shipped beside that chart
+  version and nothing is vendored. Its output is the layout `importTree`
+  already reads, so the browser takes it exactly like a pull.
+- **The conversion is verified, not `--skip-verify`.** The converter renders
+  every release with helm and checks no two claim one object; a tree that fails
+  is still returned (it is what gets fixed) with `Does not render cleanly — …`
+  leading the warnings. Skipping it turned Harbor's unrenderable Ingress and
+  Kafka's doubly-owned ServiceAccount into quiet successes that failed in Argo CD.
+- **A paste is all app.** The importer's full-namespace pull is selective (what
+  workloads reference, no Roles) because a live namespace holds other teams'
+  objects; `SPLIT_DUMP` then calls the importer's `file_unclaimed`, which files
+  the rest of the paste into the converter's input — config into `shared.yaml`,
+  an undiscovered workload into its own file, Helm test Pods skipped.
+- **The dialog lists the workloads and converts only the ticked ones.**
+  `POST /api/argocd/convert/workloads` renders a chart (or reads the paste) and
+  returns every Deployment/StatefulSet/DaemonSet/CronJob/Job/DeploymentConfig
+  (`workloadsIn`) — no chart repo clone, so it answers before one is set. The
+  dialog re-asks 600ms after the input stops changing, all rows ticked.
+  Unticking sends `include: [names]`, passed as the converter's exact
+  `--include =<name>`; all ticked sends nothing, so an untouched picker is the
+  old whole-dump convert. A microservice is kept when any of its workloads is
+  ticked (the importer may group several). Under a selection the converter
+  keeps in `shared` only what two or more converted microservices use — one
+  user takes it home, only unticked users drop it. A list that cannot be read
+  is said under the field, and Convert takes all.
+- **An untouched convert commits the converter's bytes.** `mergeConverted`
+  carries the import's `imported` texts, so the first Commit after a Convert
+  does not rewrite every file's quoting and comments.
+- **A Helm chart is rendered first**, with `helm template <name> <chart> -n
+  <ns> [-f values]` where `<name>` is the chart's own `Chart.yaml` name, and the
+  render then goes through the **same splitter as pasted YAML** — a chart that
+  renders several Deployments/StatefulSets is several microservices, not one.
+  There is no name field to fill in. The image carries `helm` (from
+  `alpine/helm`) and `python3-yaml` for this.
+- **YAML may be dirty** — pasted into the box or added as files, which append
+  to the same box. It is split into microservices by the chart repo's own
+  `gitops-factory/namespace_importer.py` (the `oc`-driven namespace puller),
+  run with its `run_oc` answered from the paste (`SPLIT_DUMP` in `convert.ts`)
+  — so grouping (`part-of` → `app` → workload name), `shared.yaml`, store
+  placement and metadata stripping are the importer's, not a port. A
+  reference the paste lacks is the importer's fetch failure, shown as a
+  warning.
+- **A namespace is a folder, as it is to the converter** (`<input>/<ns>/`).
+  `SPLIT_DUMP` groups documents by their own `metadata.namespace` and pulls
+  each namespace separately, so a paste spanning `shop-dev` and `shop-prod`
+  lands in two folders. The dialog's **Default namespace** only takes the
+  documents that name none — which is everything `helm template` renders. It is
+  prefilled from the first namespace in the paste, and the dialog lists every
+  one it found. A `metadata.namespace` that is not a DNS label fails the
+  convert rather than becoming a directory name.
+- `mergeConverted` (`document.ts`): a same-named microservice is replaced in
+  place (keeping its id); into a namespace the tree already has, the
+  converter's `<ns>/defaults.yaml` is folded into each converted entry so the
+  existing defaults are untouched.
+
+**What the converter leaves out of base, and why the portal agrees.**
+
+- **No `nameOverride` anywhere.** The ms-applicationSet chart sets
+  `helm.releaseName` to the values file's name, so the chart's `fullname` is
+  already `<microservice>`. Before that, the Application name (`<ms>-<ns
+  suffix>`) was the release name, and every converted base carried
+  `nameOverride: <ms>` only to undo it. `fullnameOverride` stays: it pins a
+  running workload whose raw name differs from its file, so its Service and
+  PVCs are not renamed. `importTree` therefore names each release after its
+  **base file** — the file is the release — never after either override.
+- **The image repository travels with its tag** into `<ns>/values/<ms>.yaml`,
+  not into base as well. So base alone has no `image.repository`, and
+  `checkValues(doc, inBase)` skips the "No image.repository" problem there;
+  a namespace, which is what deploys, still gets it. The base card shows the
+  repository a namespace deploys rather than "no image".
+
+**A namespace file keeps what was set in it.** `buildTree` subtracts only the
+chart's own defaults (`subtractChartDefaults` — what ticking a feature writes)
+from a namespace file, not every value base also has. Dropping every restated
+value made a repo's own `image.repository` show as "removed" in the diff of a
+file nobody had touched.
+
+## ArgoCD: the preview is a diff against the connected branch
+
+The builder regenerates the whole tree on every keystroke, so "what did I
+change" is not something it knows — it is the generated files held against what
+the connected branch has. Without that, pressing Commit is a leap: forty-odd
+files in the preview and no way to see that this press moves two of them.
+
+- **The baseline is the Pull button's clone, minus the import.** The same
+  `POST /api/argocd/pull` comes back and nothing in the draft is touched, so
+  there is no second endpoint and no server-side diff — `diff.ts` is client
+  code, next to `buildTree`, which is where both sides of the comparison
+  already live. Pull itself keeps the files it just read, so pressing it costs
+  one clone rather than two.
+- **The read is keyed on the connection and debounced**, not on the draft: the
+  repo URL is a text field, and one clone per keystroke is not a thing to do to
+  a git server.
+- **It is not gated on `gitEnabled`, unlike the two buttons.** Reading a public
+  repo needs no credential, and gating it meant a portal without
+  `ARGOCD_VALUES_TOKEN` silently never diffed anything — which is how this
+  first shipped, and it read as a feature that did not work.
+- **A read that fails says why, on the page.** `Showing the generated files
+  only — the repository could not be read…` carries git's own sentence
+  (`Authentication failed for …`, `Remote branch main not found`), because the
+  two things that actually go wrong here — a private values repo with no token,
+  and a `master` branch behind a `main` default — are both invisible otherwise.
+  A missing diff has to name what is missing; the alternative is the user
+  reporting that nothing happened.
+- **The comparison is between the parsed documents, not the two texts.** The
+  builder writes every key in catalog order and heads each file with its own
+  comment, so a file authored anywhere else — by hand, or by
+  `convert_to_universal_chart.py` — differed on every line that moved and on the
+  line nobody wrote. None of that changes what deploys, and a listing full of it
+  hides the one value that did change. A file whose values match is `unchanged`
+  and carries the note *same values, written in a different order*; either side
+  failing to parse is a real difference and is reported as one.
+- **The line diff runs over a canonical rendering of both sides**, not over
+  their own text: `canonical()` parses and re-emits with every map key sorted,
+  so a block that only moved is not eight removals and eight additions of the
+  same lines with the one real change buried in them. Neither side's own order
+  is that canon — the builder's is catalog order and a hand-written file's is
+  whatever it was typed in — which is why both are rewritten rather than one
+  being normalised towards the other. Sequences keep their order; there it is
+  the value. A side that will not parse falls back to the raw text.
+- **The preview diffs against `values.revision`, while the commit continues the
+  tree's own branch** when the remote has one (`pushJenkinsfile`'s rule), so a
+  second Commit with nothing new is a real no-op. Those only differ by what an
+  earlier push left on the branch, which the pull request already shows.
+- **A removal is only shown when the push would actually make one** — that is,
+  when `values.path` names a subdirectory this tree owns. At the repository root
+  the commit only adds and updates, and a shared root holds other trees' files;
+  listing those as deletions would name deletions that never happen.
+- **The listing opens on the changes and the button switches to the whole
+  tree**, heading naming what is on screen — the job lists' All/Mine rule. The
+  status is one letter in the gutter the file rows already reserve for a
+  chevron they do not have, so marking a file widens no row.
+- The line diff is a plain LCS over a values file's few dozen lines, bailing to
+  a whole-file replace past 2 000 — no dependency for what is twenty lines, and
+  `diff.test.ts` is what pins it.
+
+## Job lists: scope and links
+
+Both job modules (artifactory, whitening) share these, and the ticket queue
+follows the first:
+
+- **An admin opens on their own jobs.** The server sends an admin everything and
+  the toggle narrows it client-side, but the default is `showAll = false`: the
+  run an admin just started is the one they came to look at, and in a shared
+  list it is buried. The button names the list it switches *to*; the heading
+  beside it says which one is on screen.
+- **The selected job is in the URL** (`/artifactory/ART-0007`), so a job can be
+  pasted to someone. `useDeepLink` in `src/client/deepLink.ts` is the whole
+  mechanism: the shell's router only ever reads the *first* path segment
+  (`moduleFromPath` in App.tsx), so a second one costs it nothing, and the prod
+  SPA fallback already serves index.html for any path. Two details matter —
+  the push effect is keyed on the selected id **alone**, because modules stay
+  mounted when hidden and an effect running every render would have a
+  background module shove its own path over the one the nav just pushed; and
+  the `popstate` handler ignores a pop whose first segment is another module,
+  which would otherwise clear the selection sitting behind the tab you left.
+
+## Shared UI conventions
+
+The five modules are meant to read as one product, so these are portal-wide, not
+per-module choices:
+
+- **A job's package table is one row per package, not per file.** A Maven copy
+  uploads the jar *and* its pom under the same coordinates, and a `.m2` drop
+  adds `.sha1`/`.asc` sidecars and `-sources.jar` classifiers on top; listing
+  each separately read as several different packages that happened to share a
+  name. `groupPackages` in the Artifactory `JobDetail` folds them by
+  `type|name@version`, links the non-sidecar file, and shows the **worst**
+  status in the group — a pom that failed while the jar landed is a broken
+  copy, and rolling it up as "Uploaded" would hide that.
+- **A row's error gets its own line.** `.package-row` is `flex-wrap: wrap` with
+  the error at `flex-basis: 100%`. Sharing the line with the name meant a
+  200-character Artifactory error won, and since `.package-name` is `flex: 1`
+  (basis 0) with `word-break: break-all`, its min-content is *one character* —
+  the name came out as a vertical column of letters down the left edge.
+- **One `?`, and it is where every field explanation lives.**
+  `src/client/Help.tsx` is the only one — a popover that opens on hover, press
+  *and* focus, so it works by touch and by keyboard, which is what a `title=`
+  tooltip does not. A field gets a label and a `?`, never a sentence underneath:
+  forty-five true sentences stacked up read as a wall to scroll past rather than
+  as help. It flips to `.help-body.right` near the window edge, so a `?` at the
+  right of a wide row (a stage card's header) still opens inside the panel.
+  Two things stay on screen: text that *is* the content (an empty state, the
+  copy on a choice card, a drop zone's own line) and anything that reports a
+  problem or a live value — a parameter no stage reads, a job's progress count.
+  A **browse list stays inline too**: the Jenkinsfile builder's click-to-add
+  argument rows keep their hints, because that is what you read to choose, and
+  a `?` inside a row that is itself a button would be a button inside a button.
+  That last rule is why the `?` sits *beside* a label rather than inside it, and
+  why `Help`'s own click handler calls `preventDefault`/`stopPropagation`.
+- **Every colour is a palette variable, and a theme is a function over it.**
+  `styles.css` opens with `--c-<hex>: r g b` for every colour it uses, named
+  after its dark-theme hex, and rules paint with `rgb(var(--c-…))` (or `/ 12%`
+  for alpha). The header's palette button (`ThemePicker.tsx`) picks a theme
+  (Dark, Midnight, Graphite, Light) and an accent; `theme.ts` reads the names
+  back off the loaded stylesheet, moves each colour in HSL, and writes the
+  result over `:root` — so **write a new colour as a plain hex-named variable**
+  and every theme picks it up with no list to update. The choice is per
+  browser (`localStorage["portal.theme"]`), applied in `main.tsx` before the
+  first render. The menu's swatches are drawn through the same function, so
+  they show the colours a choice actually paints.
+- **Links in a ticket are links.** `LinkedText` turns bare `http(s)` URLs and
+  Jira's `[text|url]` / `[url]` markup in descriptions and messages into
+  anchors that open in a new tab; any other scheme stays text.
+- **The red banner at the top is for failures only** — a save, list or
+  delete the server refused. Warnings from a pull or convert, and a repo that
+  could not be read, are already said in place under the repository panel;
+  repeating them in red read as the page being broken. Autosave shows nothing
+  while it works (it flashed "Saving…" on every keystroke) and only
+  *Not saved* when it fails.
+- **The topbar is `<h1>` then actions, primary last.** "New" is
+  `className="primary"` with `<Plus size={18} />` in every module — Tickets,
+  Artifactory ("New Job"), Whitening, AI ("New chat") and Jenkinsfile. Secondary
+  actions (Delete, Archive) are `ghost-button` to its left.
+- **`.workspace-grid` is two columns** (`minmax(260px, 340px)` list +
+  `minmax(0, 1fr)` content). A view with only one thing to show must not use it
+  — a lone child lands in the narrow list column. Use `.workspace-single` with a
+  `.detail-panel`, as the AI module's unconfigured state does.
+- **`.empty-state` is a padded block.** `.module-empty` centres it in its panel
+  and sizes it by its content; `.chat-panel .empty-state` is the variant that
+  fills the window, and belongs only to the chat.
+- **A modal must not be trapped inside `.module-slot`.** That wrapper fades each
+  module in, and a fill mode on that animation would keep it affecting opacity
+  for good — which makes the slot a permanent stacking context at `z-index:
+  auto`, painted below the sticky `.app-header`. Every modal inside a module
+  then sits under the header whatever `z-index` it asks for. So the slot's
+  animation carries no `forwards`/`both`, for the same reason it carries no
+  `transform` (which would make it the containing block for `position: fixed`
+  and shrink each backdrop to the panel).
+- **A modal has to fit a short window**, not just scroll inside one: `.modal`
+  caps at `calc(100vh - 44px)`, so any form inside it is sized for a 13" laptop
+  with the browser chrome out — roughly 520px of dialog, which is what
+  `.modal .request-form`'s smaller padding and 120px textarea are for.
+- **An editable title is text with a pencil**, never a permanent input — a box
+  sitting in a heading row reads as a search field. Two placements, by
+  container: inside a card the pencil goes to the row's far edge as an
+  `.icon-button` (`.detail-title-row`, the ticket detail); on a bare column
+  heading it sits against the text and drops the 38px box until hover
+  (`.jf-title-row`), where a bordered button that size reads as stuck to the
+  name.
+
+## Logging
+
+`src/server/log.ts` is the only logger — `log.info/warn/error/debug(scope, message, fields?)`,
+one line each, `2026-08-19T20:28:23.500Z WARN  [scope] message key=value`. Never
+`console.log` in server code: every line here goes through `redactSecrets`, and that
+is the single choke point that keeps tokens out of the log.
+
+- **`log.error(scope, msg, err)`** takes the error itself and walks the whole `.cause`
+  chain, then prints the stack. Node's `fetch` throws a bare `TypeError: fetch failed`
+  and hides `ENOTFOUND`/`ECONNREFUSED`/cert errors one level down, so passing the error
+  rather than `err.message` is the difference between a usable log and a useless one.
+- **`userMessage(err)`** is the same information phrased for the UI — `fetch failed
+  (getaddrinfo ENOTFOUND artifactory.example.com)`. Job failures and the 500 branch of
+  the error handler both use it, so what a developer reads on screen names the real cause.
+- **Correlation.** `requestLogger` gives every request an id, returns it as
+  `X-Request-Id`, and every error body carries it as `requestId`. The client appends
+  `(ref <id>)` to the message it throws, so the string on screen greps the pod log
+  directly. The browser console prints the same `ref` on every response.
+- **Job logs are mirrored to stdout** with the job id (`[artifactory ART-0007]`,
+  `[whitening WHT-0003]`, `[ai RES-0012]`) — each module's `appendLog` does it, so
+  anything the user sees in the job drawer is also in `kubectl logs`.
+- **Client:** `src/client/log.ts` wraps `window.fetch` once, so every request is logged
+  with timing, status and `ref` without any module's `api.ts` knowing. Verbose output is
+  on in dev, and in prod per browser via `localStorage.portalDebug = "1"`. Errors ignore
+  that gate and always print — a user reporting a problem shouldn't have to reproduce it
+  twice.
 
 ## Branching
 
@@ -106,6 +1682,20 @@ git checkout -b fix/<short-description>       # bug fix
 ```
 
 Use the existing branch only if the work is a direct continuation of what that branch already contains.
+
+This is enforced, not just advised: the global Stop hook
+(`~/.claude/hooks/auto-commit-push.sh`, registered in `~/.claude/settings.json`
+so it covers every repo on this machine) refuses to commit onto
+`main`/`master`/`dev`/`develop`/`trunk`. When a turn ends with changes on one of
+those, it creates a branch named after the generated commit subject
+(`feat(auth): add login retry` → `feat/add-login-retry`) and commits there.
+Follow-up turns are already off the protected branch, so they stay put — one
+branch per task, not per turn. Merging back to `dev`/`main` is a deliberate act,
+which is also what cuts the release.
+
+Two long-lived branches: `main` is the stable release channel, `dev` is the
+prerelease channel (`1.1.0-dev.1`, …). Push to either cuts a release — see
+Versioning & releases below.
 
 ## Committing
 
@@ -119,11 +1709,40 @@ git commit -m "..."
 
 Never commit `.env`, secrets, or files from `dist/` or `node_modules/`. These are covered by `.gitignore` but always verify with `git status` before committing.
 
-Commit messages: imperative mood, ≤72 chars on the subject line. Describe _why_, not just what changed.
+Commit messages: **Conventional Commits**, ≤72 chars on the subject line, imperative mood. The body is where you describe _why_.
+
+| Subject                                | Release effect |
+| -------------------------------------- | -------------- |
+| `feat: …`                              | minor bump     |
+| `fix: …`                               | patch bump     |
+| `feat!: …` / `BREAKING CHANGE:` footer | major bump     |
+| `chore:` `docs:` `test:` `refactor:` `build:` `ci:` `style:` `perf:` | patch bump |
+| anything else (merge commits, non-conventional subjects) | patch bump |
+
+CI runs semantic-release off these subjects, so the type is not cosmetic — it
+decides how far the version moves. There is no "no release" any more: patch is
+the floor (see Versioning & releases), so `chore:` means "don't call this a
+feature", not "don't ship this".
+
+The Stop hook's auto-commits follow the same convention: it posts the staged
+diff to opencode's free zen models to name the change, and falls back to
+`chore: checkpoint <ts>` if that fails or returns anything that isn't a valid
+subject line.
+
+**No API key is involved.** `https://opencode.ai/zen/v1/chat/completions` is
+OpenAI-compatible and serves the `*-free` models unauthenticated, so this costs
+nothing per turn and there is no credential to configure or rotate. It replaced
+a Haiku call over the Anthropic Messages API, which needed `ANTHROPIC_API_KEY`
+set per machine and was in practice never set — which is why the history before
+this is wall-to-wall `chore: checkpoint`.
+
+Details of the model choice (which free models are unusable, and why it is the
+completions endpoint rather than `opencode run`) are in the hook itself and in
+the global `~/.claude/CLAUDE.md`.
 
 ## Pushing
 
-After committing, push the branch to origin so work is backed up and reviewable. A Stop hook does this automatically after every turn; the manual commands below are for pushing by hand.
+After committing, push the branch to origin so work is backed up and reviewable. The Stop hook does this automatically after every turn — but only when `origin` is under `shugi12345` or `devops-ezrahi`, so third-party clones get local checkpoints and no push. The manual commands below are for pushing by hand.
 
 ```bash
 git push -u origin <branch-name>   # first push on a new branch
@@ -141,35 +1760,130 @@ npm test          # vitest run (unit + integration)
 npm run build     # tsc --noEmit + vite build (type-check included)
 ```
 
+CI runs both on every push and gates the release on them. **The whitening
+pack ships no tests**: the pack step untracks `*.test.ts(x)`, `__tests__/` and
+`src/test/` (index only) before `pack.py`, which packs `git ls-files`. The
+build does not need them — nothing outside a test imports one.
+
+## Versioning & releases
+
+**Never hand-edit `package.json`'s `version`.** semantic-release owns it. It
+runs in CI's `pack` job (`.releaserc.json`) on every push to `main` or `dev`,
+reads the Conventional Commit subjects since the last `v*` tag, and then:
+
+1. writes the new version into `package.json` / `package-lock.json`,
+2. commits that back as `chore(release): <version> [skip ci]`,
+3. tags `v<version>` (`v1.2.0-dev.3` on `dev`) and cuts the GitHub release.
+
+It runs **before** the whitening pack step and in the same workspace, because
+`pack.py` reads `package.json` off disk to name the zip
+(`devops-portal-<version>.zip`), and the `v<version>` release it just cut is
+where CI uploads that zip as an asset. Both channels produce packs.
+
+**One version = one tag = one release.** There are no `pack/*` tags any more —
+the packer creates none, and deltas its dependency bundle against the previous
+release tag. (Old `pack/*` tags and releases from before this predate the
+change; nothing reads them.)
+
+Every push to `main`/`dev` releases: `.releaserc.json`'s `releaseRules` floor
+every commit at **patch**, including merge commits and anything with no
+Conventional Commit type at all. `feat:` still outranks the floor to minor and
+`feat!:`/`BREAKING CHANGE:` to major — the `!` form only works because of
+`parserOpts.breakingHeaderPattern`; the angular preset's own header pattern
+doesn't parse `!` and used to drop those commits on the floor entirely — so
+typing commits honestly still decides
+how far the version moves — it just can't produce "no release" any more. That
+also means work committed straight to `dev` cuts a prerelease per push; keep
+using feature branches (CI only fires on `main`/`dev`) so the version climbs
+per merge instead of per turn.
+
+So the "bundle" flow is just: land Conventional Commits on `dev` or `main`, and
+CI does bump → build → pack.
+
 ## Deployment
 
 The app runs in a single container fronted by oauth2-proxy (bundled into the
-same image — see `scripts/entrypoint.sh`), deployed onto the `k3d-homelab`
+same image — see `scripts/entrypoint.sh`; the image also carries `git`, `unzip`,
+`maven` + a headless JRE and `python3-pip`, the last two for the Artifactory
+module's dependency resolvers, and `helm` + `python3-yaml` for the ArgoCD
+module's Convert), deployed onto the `k3d-homelab`
 cluster maintained in the sibling `../homelab` repo (see that repo's
-`CLAUDE.md` for cluster-wide setup). `Dockerfile` builds from `dist/`. The Helm
-chart lives in `../homelab/devops-portal/chart` (homelab is the single source
-of truth for infra) — Secrets are deliberately not part of the chart. In k8s,
-env vars come from a ConfigMap/Secret — no `.env` file in production.
+`CLAUDE.md` for cluster-wide setup). The `Dockerfile` is self-building from
+source — the builder stage runs `npm run build` itself, and `.dockerignore`
+excludes `dist/`, so no prebuilt output is handed to it. The Helm chart lives in
+`../homelab/devops-portal/chart` (homelab is the single source of truth for
+infra) — Secrets are deliberately not part of the chart. In k8s, env vars come
+from a ConfigMap/Secret — no `.env` file in production.
 
-### Deploying — one script
+### Deploying — push to `main` or `dev`
+
+That is the whole thing. The `pack` job in `.github/workflows/ci.yml`:
+
+1. semantic-release cuts the version,
+2. builds and pushes `ghcr.io/devops-ezrahi/devops-portal:<version>` — pushing
+   needs only `github.token` + `packages: write`, no secret to rotate; the
+   package is private, so *pulling* needs the `ghcr-pull` Secret that External
+   Secrets builds in the cluster (`../homelab/manifests/external-secrets.yaml`),
+3. whitening-packs and uploads the zip to the release,
+4. commits that tag into `devops-portal/chart/values.yaml` on **homelab's
+   `main`**, using the `HOMELAB_TOKEN` secret — `github.token` is scoped to this
+   repo and cannot push cross-repo.
+
+ArgoCD watches homelab `main` with `automated: {selfHeal: true}`, so step 4 is
+the deploy. Commit to pod is roughly four to five minutes, and CI is most of it
+— steps 1-3 take ~3 minutes, ArgoCD ~90s to notice plus the rollout.
+
+That ~90s used to be six minutes. ArgoCD polls (a webhook is impossible — the
+lab's domain resolves to a LAN IP GitHub cannot reach), and the wait is **two**
+timers that stack: `timeout.reconciliation` *and* repo-server's
+`--revision-cache-expiration`, which caches the branch → commit-SHA lookup for
+3m by default and hands a fast reconcile a stale SHA. Both are 30s in
+`../homelab/helm-values/argocd.yaml.tmpl`. If a deploy ever seems stuck, check
+that before suspecting CI:
+
+```bash
+kubectl -n argocd get application devops-portal \
+  -o jsonpath='{.status.sync.revision} {.status.reconciledAt}{"\n"}'
+kubectl -n argocd annotate application devops-portal \
+  argocd.argoproj.io/refresh=hard --overwrite   # skip the wait
+```
+
+**One PAT drives both halves, and it lives in two places.** The same classic
+token is the `HOMELAB_TOKEN` Actions secret here *and* Vault's
+`secret/homelab/github` `GITHUB_TOKEN` (from which ESO builds `ghcr-pull` for
+the kubelet and `repo-homelab` for ArgoCD) — rotating it means updating both or
+half the pipeline breaks silently. It needs **`repo` *and* `read:packages`**:
+`repo` alone pushes to homelab fine and then every image pull dies in
+`ImagePullBackOff` with a bare `403 Forbidden`, which reads like a broken image
+rather than a missing scope. After writing a new token to Vault, force the
+resync instead of waiting out the 1h `refreshInterval`:
+
+```bash
+kubectl -n devops-portal annotate externalsecret ghcr-pull force-sync=$(date +%s) --overwrite
+kubectl -n argocd       annotate externalsecret repo-homelab force-sync=$(date +%s) --overwrite
+```
+
+The portal is then live at **https://portal.\<LAB_DOMAIN\>** — the domain is
+set in `../homelab/lab.env`. No hosts-file entry; the hostname is public DNS.
+
+### The shortcut, when four minutes is too long
 
 ```bash
 ../homelab/scripts/deploy-portal.sh
 ```
 
-`docker build` → `k3d image import` (side-loads straight into the node's
-containerd) → `helm upgrade` → `rollout restart`. That last step matters: the
-tag is always `local` with `imagePullPolicy: IfNotPresent`, so without it the
-kubelet keeps the image it already has and the deploy silently no-ops.
+It reads the tag the Deployment currently asks for, builds the working tree
+under *that* tag, and `k3d image import`s it into the node's containerd, so
+`imagePullPolicy: IfNotPresent` finds it locally and never reaches ghcr.io.
+ArgoCD sees no diff, so it neither fights nor undoes the swap — the local image
+stays in front of that tag until the next release moves it. This is a local
+override, not a release: nothing about it is reproducible from git.
 
-The portal is then live at **https://portal.\<LAB_DOMAIN\>** — the domain is
-set in `../homelab/lab.env`. No hosts-file entry; the hostname is public DNS.
-
-> There used to be a Gitea Actions → in-cluster registry → ArgoCD pipeline,
-> and this file used to say it was the only way code reached the cluster. All
-> of it was removed — it existed solely to move a locally-built image onto a
-> locally-running cluster. Instructions elsewhere mentioning `git push gitea`,
-> `act-runner`, or `registry.homelab.local` are stale.
+> There used to be a Gitea Actions → in-cluster registry → ArgoCD pipeline.
+> That was removed and is not what came back — this one publishes to GHCR and
+> the "GitOps" half is a single `sed` + commit into homelab. Instructions
+> elsewhere mentioning `git push gitea`, `act-runner`, or
+> `registry.homelab.local` are stale.
 
 ## Finishing a task
 

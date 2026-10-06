@@ -1,18 +1,27 @@
 export type CustomerStage =
   | "Submitted"
-  | "Triaged"
   | "In Progress"
+  | "In Review"
   | "Waiting on Customer"
-  | "Resolved"
-  | "Closed";
+  | "Closed"
+  | "Cancelled";
 
 export type TicketScope = "mine" | "team";
+
+/** Jira's default priority scheme — sent as `fields.priority.name` verbatim. */
+export type TicketPriority = "Highest" | "High" | "Medium" | "Low" | "Lowest";
 
 export type PortalUser = {
   id: string;
   email: string;
   displayName: string;
   groups: string[];
+  /**
+   * The IdP's username claim, when the proxy passes one. Distinct from `id`:
+   * Keycloak's subject is a UUID, while backends the portal talks to (Jira,
+   * Bitbucket) know the person by this handle. See `usernameFor`.
+   */
+  username?: string;
 };
 
 export type TicketComment = {
@@ -32,25 +41,43 @@ export type TicketSummary = {
   teamGroups: string[];
   rawStatus: string;
   stage: CustomerStage;
+  priority: TicketPriority;
+  /** Admin-set effort estimate; required before a ticket can be Closed. */
+  storyPoints?: number;
+  /**
+   * When the team first replied — the moment the response-time promise is
+   * met. Derived from comments, so the queue can stop the SLA clock without
+   * loading each ticket's full detail.
+   */
+  respondedAt?: string;
   assigneeId: string;
   assigneeName: string;
   createdAt: string;
   updatedAt: string;
   lastActivityAt: string;
+  /** The ticket in the system of record (Jira's browse page). Unset in memory. */
+  url?: string;
 };
 
 export type TicketDetail = TicketSummary & {
   description: string;
-  metadata: Record<string, string>;
   comments: TicketComment[];
+  /**
+   * Set only on the response to a create that succeeded but did less than it
+   * was asked to — the reporter Jira refused, a sprint it could not join. The
+   * same idea as an Artifactory job's `dependencyFallback`: the ticket exists,
+   * so failing the request would be a lie, but the difference has to be visible
+   * without reading the pod log. Transient by design — it describes the act of
+   * creating, not the ticket, so re-opening the ticket does not show it again.
+   */
+  notice?: string;
 };
 
 export type RequestFieldDefinition = {
   name: string;
+  /** Used in the validation error the API returns for a missing field. */
   label: string;
-  type: "text" | "textarea" | "select";
   required: boolean;
-  options?: string[];
 };
 
 export type RequestTypeDefinition = {
@@ -74,12 +101,14 @@ export type AdminTicketFilters = {
 
 export type CreateTicketInput = {
   requestType: string;
+  priority: TicketPriority;
   fields: Record<string, string>;
   idempotencyKey?: string;
 };
 
 export type AdminTicketUpdate = {
   stage?: CustomerStage;
+  storyPoints?: number;
   rawStatus?: string;
   title?: string;
   description?: string;
@@ -108,7 +137,27 @@ export interface TicketingApi {
 
 export type ArtifactoryJobKind = "url-copy" | "folder-upload";
 
-export type ArtifactoryJobStatus = "pending" | "in-progress" | "completed" | "failed";
+export type ArtifactoryJobStatus = "pending" | "in-progress" | "completed" | "failed" | "aborted";
+
+export type PackageUploadStatus = "uploaded" | "exists" | "failed";
+
+/** Ecosystem an artifact belongs to — decides which repo it is uploaded to. */
+export type PackageType = "npm" | "maven" | "rpm" | "pypi" | "conda" | "helm";
+
+export type PackageUploadResult = {
+  /** `arg` for npm, `org.apache.commons:commons-lang3` for Maven. */
+  name: string;
+  version: string;
+  /** Repo-relative target, repo prefix included, e.g. `npm-local/arg/-/arg-4.1.5.tgz`. */
+  path: string;
+  type?: PackageType;
+  status: PackageUploadStatus;
+  /** Repo tree browser link. */
+  url?: string;
+  /** Native package view link — `/ui/native/<path>` instead of the tree browser. */
+  nativeUrl?: string;
+  error?: string;
+};
 
 export type ArtifactoryJob = {
   id: string;
@@ -118,41 +167,81 @@ export type ArtifactoryJob = {
   submittedByName: string;
   createdAt: string;
   updatedAt: string;
+  /** Human name for the job — `arg@4.1.5`, or `node_modules (142 packages)`. */
+  name?: string;
   sourceUrl?: string;
+  /** url-copy only. Persisted, so a finished job still says deps were asked for. */
+  includeDependencies?: boolean;
+  /**
+   * Why the dependency tree was not copied, on a job that asked for one. The
+   * fallback is deliberately not a failed job, so without this the drawer said
+   * "Completed / Dependencies: Included" over a single-artifact copy and only
+   * the log knew better.
+   */
+  dependencyFallback?: string;
   folderName?: string;
   fileCount?: number;
   totalBytes?: number;
   errorMessage?: string;
+  /** Artifactory repo tree link to the uploaded artifact (or the repo, for many). */
+  resultUrl?: string;
+  progress?: { done: number; total: number };
+  packages?: PackageUploadResult[];
   log: string[];
 };
 
 export type UrlCopyInput = {
   sourceUrl: string;
-};
-
-export type UploadedFile = {
-  originalname: string;
-  mimetype: string;
-  buffer: Buffer;
+  /**
+   * Resolve the npm package's runtime dependency tree and upload all of it, not
+   * just the one tarball. Ignored for anything that is not an npm package — see
+   * RealArtifactoryApi.resolveDependencies, which never fails the job over it.
+   */
+  includeDependencies?: boolean;
 };
 
 export type FolderUploadInput = {
   folderName: string;
   fileCount: number;
   totalBytes: number;
-  files?: UploadedFile[];
+  /**
+   * The dropped folder, zipped by the client and appended to disk part by part
+   * as it was zipped. The job owns the file and the directory holding it, and
+   * deletes both when it ends.
+   */
+  archivePath: string;
 };
 
+/** Which scripted run the Test button replays — one per package type, plus two failure modes. */
+export type ArtifactoryScenario =
+  | PackageType
+  | "partial-failure"
+  | "total-failure"
+  | "dependency-fallback";
+
 export interface ArtifactoryApi {
-  submitUrlCopy(input: UrlCopyInput, submitter: PortalUser): Promise<ArtifactoryJob>;
+  /** `allowMultiple` lets a folder URL holding more than one package through — admin only. */
+  submitUrlCopy(input: UrlCopyInput, submitter: PortalUser, allowMultiple?: boolean): Promise<ArtifactoryJob>;
   submitFolderUpload(input: FolderUploadInput, submitter: PortalUser): Promise<ArtifactoryJob>;
+  /** Dev-only scripted run — the routers only expose it when SSO is off. */
+  simulate(submitter: PortalUser, scenario?: ArtifactoryScenario): Promise<ArtifactoryJob>;
   listJobs(user: PortalUser, allUsers?: boolean): Promise<ArtifactoryJob[]>;
   getJob(jobId: string): Promise<ArtifactoryJob | null>;
+  /** `null` when there is no such job; already-finished jobs are left alone. */
+  cancelJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<ArtifactoryJob | null>;
+  /** `false` when there is no such job; a running one is refused. */
+  deleteJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<boolean>;
 }
 
 // ---- Whitening Module ----
 
-export type WhiteningJobStatus = "pending" | "in-progress" | "completed" | "failed";
+export type WhiteningJobStatus = "pending" | "in-progress" | "completed" | "failed" | "aborted";
+
+/** One log line, tagged with the phase that emitted it so the UI can collapse by step. */
+export type JobLogEntry = {
+  step: string;
+  line: string;
+};
 
 export type WhiteningJob = {
   id: string;
@@ -168,26 +257,304 @@ export type WhiteningJob = {
   version: string;
   prUrl?: string;
   errorMessage?: string;
-  log: string[];
+  /**
+   * Set while the run is held: paths the target repo's preserve list covers that
+   * the pack also ships. The user answers with the subset to keep.
+   */
+  pendingPreserve?: string[];
+  log: JobLogEntry[];
 };
+
+/** Which scripted run the Test button replays — a clean run, or a failure at one of the three stages. */
+export type WhiteningScenario =
+  | "success"
+  | "preserve-conflict"
+  | "clone-failure"
+  | "dependency-failure"
+  | "image-failure";
 
 export interface WhiteningApi {
   submitUnpack(archive: Buffer, archiveName: string, submitter: PortalUser): Promise<WhiteningJob>;
+  /** Dev-only scripted run — the routers only expose it when SSO is off. */
+  simulate(submitter: PortalUser, scenario?: WhiteningScenario): Promise<WhiteningJob>;
   listJobs(user: PortalUser, allUsers?: boolean): Promise<WhiteningJob[]>;
   getJob(jobId: string): Promise<WhiteningJob | null>;
+  /** `null` when there is no such job; already-finished jobs are left alone. */
+  cancelJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<WhiteningJob | null>;
+  /** `false` when there is no such job; a running one is refused. */
+  deleteJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<boolean>;
+  /** Answer a job's preserve prompt with the paths to keep from the repo; `null` when nothing is pending. */
+  resolvePreserve(jobId: string, keep: string[], user: PortalUser, allUsers?: boolean): Promise<WhiteningJob | null>;
 }
 
-// ---- RAGFlow / Chat Module ----
+// ---- AI Module ----
 
 export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
 };
 
-export type ChatSession = {
+export type AiJobStatus = "pending" | "in-progress" | "completed" | "failed" | "aborted";
+
+/** One repo the AI module can answer about, sourced from a ai-* skill file — shown in the new-chat category picker. */
+export type AiCategory = {
+  name: string;
+  description: string;
+};
+
+export type AiConversation = {
   id: string;
+  /** First question, truncated — shown in the chat list. */
   title: string;
-  messages: ChatMessage[];
-  createdAt: number;
-  updatedAt: number;
+  /**
+   * Picked once, fixed for the conversation's life. `null` means "not sure" —
+   * the first question classifies it, using the same skill-derived category
+   * list, before that turn proceeds.
+   */
+  project: string | null;
+  /** Set after the first turn completes; reused via --session on every later turn. */
+  opencodeSessionId?: string;
+  /**
+   * Stamped by the idle sweep once a chat goes quiet, or by the Archive button,
+   * and cleared by `submitQuestion` the moment the chat is used again — the
+   * client folds archived chats into a collapsed section rather than hiding
+   * them. Archiving never moves `updatedAt`, so an archived chat still ages
+   * into deletion from when it was last used.
+   */
+  archivedAt?: string;
+  submittedBy: string;
+  submittedByName: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AiJob = {
+  id: string;
+  conversationId: string;
+  status: AiJobStatus;
+  submittedBy: string;
+  submittedByName: string;
+  createdAt: string;
+  updatedAt: string;
+  project: string;
+  question: string;
+  /** opencode's own tool-use trace (glob/read/bash calls) — its "thinking", not the final answer. */
+  thinking?: string;
+  answer?: string;
+  errorMessage?: string;
+  log: JobLogEntry[];
+};
+
+export interface AiApi {
+  /** Repos the AI module can answer about, for the new-chat category picker. */
+  listCategories(): AiCategory[];
+  /** `project: null` starts an "I'm not sure" conversation — classified from the first question. */
+  startConversation(project: string | null, submitter: PortalUser): Promise<AiConversation>;
+  listConversations(user: PortalUser, allUsers?: boolean): Promise<AiConversation[]>;
+  /** `null` when there is no such chat; asking in it again un-archives it. */
+  archiveConversation(conversationId: string, user: PortalUser, allUsers?: boolean): Promise<AiConversation | null>;
+  /** The chat and every question asked in it. `false` when there is no such chat; a running question is refused. */
+  deleteConversation(conversationId: string, user: PortalUser, allUsers?: boolean): Promise<boolean>;
+  submitQuestion(conversationId: string, question: string, submitter: PortalUser): Promise<AiJob>;
+  listJobs(conversationId: string, user: PortalUser, allUsers?: boolean): Promise<AiJob[]>;
+  getJob(jobId: string): Promise<AiJob | null>;
+  /** `null` when there is no such job; already-finished jobs are left alone. */
+  cancelJob(jobId: string, user: PortalUser, allUsers?: boolean): Promise<AiJob | null>;
+}
+
+/**
+ * One call to a shared-library step. `step` names the `vars/*.groovy` file
+ * (`genStage`, `sonarStage`, ...); `args` is the Groovy `Map args` that step
+ * takes, held opaque here — the catalog that gives each key a type lives on the
+ * client (`client/modules/jenkinsfile/catalog.ts`), because only the builder UI
+ * and the Groovy generator need to interpret it.
+ */
+export type JenkinsfileStage = {
+  id: string;
+  step: string;
+  args: Record<string, unknown>;
+  /** Whether the builder shows this card folded to its header. Saved with the pipeline. */
+  collapsed?: boolean;
+  /**
+   * The parallel box this stage sits in. Consecutive stages sharing one are
+   * written as one `parallel(...)` block — one branch per stage.
+   */
+  group?: string;
+  /** Legacy: "runs alongside the stage above". `toDraft` turns runs of it into a `group`. */
+  parallel?: boolean;
+};
+
+/** The parameter types Jenkins' `parameters([...])` block accepts. */
+export type JenkinsfileParamType = "boolean" | "string" | "text" | "choice" | "password";
+
+/** One entry of the pipeline's `properties([parameters([...])])` block. */
+export type JenkinsfileParam = {
+  name: string;
+  type: JenkinsfileParamType;
+  /**
+   * Always a string, whatever the type — `"true"` / `"false"` for a boolean.
+   * One shape means the editor can switch a parameter's type without dropping
+   * what was already typed into it.
+   */
+  defaultValue: string;
+  description: string;
+  /** `choice` only: the options, in the order Jenkins offers them. */
+  choices?: string[];
+};
+
+export type JenkinsfilePipeline = {
+  id: string;
+  /** Assigned by the server as `<author> #<n>` — there is no name field to fill in. */
+  name: string;
+  /** What goes inside `@Library('...') _` — the library name, optionally `@branch`. */
+  library: string;
+  /**
+   * Legacy: the pipeline-level `populateEnvVars` map, from before it became a
+   * stage card of its own. Records written since then carry `{}` here and a
+   * `populateEnvVars` stage instead; `toDraft` migrates the old shape on open.
+   */
+  envVars: Record<string, string>;
+  /**
+   * Top-level Groovy written between the parameters and the stages — `def`
+   * variables and functions a stage's commands can use.
+   */
+  groovy?: string;
+  /** Build parameters, referenced from skip conditions and commands as `params.<name>`. */
+  params?: JenkinsfileParam[];
+  /**
+   * The repository this pipeline was read from and commits back to, absent
+   * until one is connected. `path` is where the Jenkinsfile sits in it — found
+   * by searching the clone, or typed when the search has more than one answer.
+   * Kept on the record rather than sent with each push, so a commit's
+   * destination is the one the owner connected and not the one a request asks
+   * for.
+   */
+  repo?: { repoUrl: string; revision: string; path: string };
+  stages: JenkinsfileStage[];
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/**
+ * ArgoCD / universal-chart builder — one saved document is a whole GitOps tree.
+ *
+ * A tree holds N releases (microservices) x M namespaces. `features` is the
+ * builder's catalog state, keyed by feature id, and is deliberately `unknown`
+ * inside: the shape of a feature's fields is the chart's business, described by
+ * the client's catalog, and pinning it here would mean editing the server every
+ * time `values.yaml` grows a key — the same reason a Jenkinsfile stage's `args`
+ * stays open.
+ */
+export type ArgocdFeatureState = { on: boolean; v: Record<string, unknown> };
+
+/** The environment-agnostic values for one release — what `base/<release>.yaml` is built from. */
+export type ArgocdRelease = {
+  /** Stable across renames, so the editor's tabs and React keys survive one. */
+  id: string;
+  /** The release-slug: the file name under `base/` and the ApplicationSet's `{{release}}`. */
+  name: string;
+  features: Record<string, ArgocdFeatureState>;
+  /** Raw YAML merged last — the escape hatch, and where an import's leftovers land. */
+  extraValues?: string;
+  /**
+   * The file stem it was imported from (`ms2.v2`, `Payment_API`). Written back
+   * under it, because the file name IS the Argo Application and the Helm
+   * release: `slug()`ing it renamed a working release into a second copy.
+   * Absent for a release made in the portal, which is named `slug(name)`.
+   */
+  file?: string;
+  /**
+   * Every `base/` path it was read from (`base/ms2.yaml`, `base/team-a/ms2.yaml`).
+   * The rebuild writes the base to each of them and nowhere else: which one
+   * a folder reads depends on the chart revision deploying the repo.
+   */
+  basePaths?: string[];
+};
+
+/** One namespace's overrides: only what differs from the release's base. */
+export type ArgocdNamespace = {
+  /**
+   * The folder in the values repo, which is also the Kubernetes namespace —
+   * or a variant folder under one (`prd/yellow`, `prd/yellow/eu`): the chart's
+   * ms-applicationSet deploys that into `prd`, sharing the one `base/`. The
+   * namespace is always the first segment.
+   */
+  name: string;
+  /**
+   * A release's grouping sub-folder under `values/` (`group1` for
+   * `prd/yellow/values/group1/ms1.yaml`), by release id. Purely grouping — the
+   * release is still named after its file. Absent = directly in `values/`.
+   */
+  groups?: Record<string, string>;
+  /**
+   * Release ids this folder does NOT run — no `<ns>/values/<release>.yaml` is
+   * written for them. A converted tree with variant folders runs `ms1` in
+   * `prd/yellow` and `ms2` in `prd`, never both everywhere. Absent = runs all.
+   */
+  absent?: string[];
+  /**
+   * Set once for this namespace, applied to every microservice in it — written
+   * as `<ns>/defaults.yaml`, which the chart layers over `base/<file>` and under
+   * `<ns>/values/<file>`. A monorepo image tag, an environment label.
+   */
+  defaults?: { features: Record<string, ArgocdFeatureState>; extraValues?: string };
+  releases: {
+    /** The release id (not the name) this overrides. */
+    release: string;
+    features: Record<string, ArgocdFeatureState>;
+    extraValues?: string;
+  }[];
+  /**
+   * Imported with a `values/` but no `defaults.yaml`: the root ApplicationSet
+   * (`** /defaults.yaml`) never deployed it, so no `defaults.yaml` is written for
+   * it unless defaults are set here — writing one started deploying the folder.
+   */
+  noDefaults?: boolean;
+};
+
+/**
+ * `keep`: a tree file the import could not model (a values file with no base,
+ * a `.yml`, a second file for one release) — written back as it is on every
+ * push, so a push under `values.path` never deletes what the import warned about.
+ */
+export type ImportedFile = { text: string; fp: string; keep?: boolean };
+
+export type ArgocdTree = {
+  id: string;
+  /** Assigned by the server as `<author> #<n>`, exactly like a pipeline's. */
+  name: string;
+  /**
+   * Where the universal chart lives. `path` is the chart each release renders;
+   * `appsetPath` is the `ms-applicationSet` chart in the same repo that the root
+   * ApplicationSet deploys once per namespace, and which owns the per-release
+   * fan-out and the three-file value layering.
+   */
+  chart: { repoUrl: string; path: string; appsetPath: string; revision: string };
+  /** Where this generated tree is committed — the `$values` ref source. */
+  values: { repoUrl: string; revision: string; path: string };
+  /** The app-of-apps' name; `platform-root` unless someone renames it. */
+  rootAppName: string;
+  releases: ArgocdRelease[];
+  namespaces: ArgocdNamespace[];
+  /**
+   * The repo's own text for every file the import read, by path, with `fp` a
+   * hash of the canonical form of what the rebuild wrote for that path right
+   * after the import. While the rebuild still writes those same values, the repo's bytes
+   * are written instead — so an untouched pull rebuilds byte for byte (comments,
+   * quoting, key order and all) and the diff and the commit hold only the files
+   * that were actually edited.
+   */
+  imported?: Record<string, ImportedFile>;
+  /**
+   * Legacy: tree-wide defaults from before they were per namespace. Only ever
+   * read — `migrateTreeDefaults` copies them into each namespace on open, and
+   * the server's schema no longer accepts the field, so the next save drops it.
+   */
+  defaults?: { features: Record<string, ArgocdFeatureState>; extraValues?: string };
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
 };

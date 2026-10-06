@@ -4,6 +4,7 @@ import type {
   AssigneeCandidate,
   RequestTypeDefinition,
   TicketDetail,
+  TicketPriority,
   TicketSummary
 } from "../../../server/types";
 
@@ -22,7 +23,12 @@ export function getTicket(id: string) {
   return request<{ ticket: TicketDetail }>(`/api/tickets/${id}`);
 }
 
-export function createTicket(payload: { requestType: string; fields: Record<string, string>; idempotencyKey: string }) {
+export function createTicket(payload: {
+  requestType: string;
+  priority: TicketPriority;
+  fields: Record<string, string>;
+  idempotencyKey: string;
+}) {
   return request<{ ticket: TicketDetail }>("/api/tickets", {
     method: "POST",
     body: JSON.stringify(payload)

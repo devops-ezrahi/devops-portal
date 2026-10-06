@@ -1,0 +1,9 @@
+# Auto-generated MINIMAL override for 'node-probe' — image, replicas,
+# plus (if present) this namespace's own structural difference from the
+# shared base/node-probe.yaml (see conflicts_and_warnings.txt).
+# This is the client's single source of truth for day-2 tuning; safe to hand-edit
+# and applied LAST (highest precedence) over base/node-probe.yaml.
+
+image:
+  repository: busybox
+  tag: '1.36'

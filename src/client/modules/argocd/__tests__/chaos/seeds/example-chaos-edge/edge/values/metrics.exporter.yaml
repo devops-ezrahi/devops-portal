@@ -1,0 +1,11 @@
+# Auto-generated MINIMAL override for 'metrics.exporter' — image, replicas,
+# plus (if present) this namespace's own structural difference from the
+# shared base/metrics.exporter.yaml (see conflicts_and_warnings.txt).
+# This is the client's single source of truth for day-2 tuning; safe to hand-edit
+# and applied LAST (highest precedence) over base/metrics.exporter.yaml.
+
+image:
+  repository: nginx
+  tag: '1.27'
+
+replicaCount: 1

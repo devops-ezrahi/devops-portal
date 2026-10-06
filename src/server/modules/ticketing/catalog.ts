@@ -1,6 +1,11 @@
 import { z } from "zod";
 import type { RequestTypeDefinition } from "../../types";
 
+// One entry, because the create form collects one shape: name, description,
+// priority. Two other types (OpenShift Access, Incident Support) and their
+// per-type fields lived here for a UI that was never built — the form always
+// took requestTypes[0] and filled every other field with the title. Add an
+// entry here plus a picker in CreateTicketView if the portal ever needs more.
 export const requestCatalog: RequestTypeDefinition[] = [
   {
     id: "ci-cd-pipeline",
@@ -8,54 +13,8 @@ export const requestCatalog: RequestTypeDefinition[] = [
     description: "Create or update build, test, deploy, or release automation.",
     ownerTeam: "devops-platform",
     fields: [
-      { name: "title", label: "Summary", type: "text", required: true },
-      { name: "application", label: "Application", type: "text", required: true },
-      { name: "repository", label: "Repository URL", type: "text", required: true },
-      {
-        name: "environment",
-        label: "Target environment",
-        type: "select",
-        required: true,
-        options: ["Development", "Test", "Staging", "Production"]
-      },
-      { name: "description", label: "Request details", type: "textarea", required: true }
-    ]
-  },
-  {
-    id: "openshift-access",
-    name: "OpenShift Access",
-    description: "Request project, role, quota, route, or secret access changes.",
-    ownerTeam: "platform-operations",
-    fields: [
-      { name: "title", label: "Summary", type: "text", required: true },
-      { name: "cluster", label: "Cluster", type: "text", required: true },
-      { name: "namespace", label: "Namespace", type: "text", required: true },
-      {
-        name: "accessLevel",
-        label: "Access level",
-        type: "select",
-        required: true,
-        options: ["View", "Edit", "Admin", "Route", "Secret"]
-      },
-      { name: "description", label: "Business justification", type: "textarea", required: true }
-    ]
-  },
-  {
-    id: "incident-support",
-    name: "Incident Support",
-    description: "Ask DevOps to investigate deployment, platform, or automation issues.",
-    ownerTeam: "devops-support",
-    fields: [
-      { name: "title", label: "Incident summary", type: "text", required: true },
-      {
-        name: "severity",
-        label: "Severity",
-        type: "select",
-        required: true,
-        options: ["Low", "Medium", "High", "Critical"]
-      },
-      { name: "system", label: "Affected system", type: "text", required: true },
-      { name: "description", label: "Symptoms and impact", type: "textarea", required: true }
+      { name: "title", label: "Summary", required: true },
+      { name: "description", label: "Request details", required: true }
     ]
   }
 ];
@@ -72,16 +31,10 @@ export function validateRequestFields(requestTypeId: string, fields: Record<stri
 
   const shape: Record<string, z.ZodTypeAny> = {};
   for (const field of requestType.fields) {
-    let schema = z.string().trim();
-    if (field.required) {
-      schema = schema.min(1, `${field.label} is required`);
-    }
-    if (field.options?.length) {
-      schema = schema.refine((value) => field.options?.includes(value), {
-        message: `${field.label} must be one of: ${field.options.join(", ")}`
-      });
-    }
-    shape[field.name] = field.required ? schema : schema.optional().default("");
+    const schema = z.string().trim();
+    shape[field.name] = field.required
+      ? schema.min(1, `${field.label} is required`)
+      : schema.optional().default("");
   }
 
   return z.object(shape).parse(fields) as Record<string, string>;

@@ -12,17 +12,13 @@ export function seedTickets(): TicketDetail[] {
       teamGroups: ["team-alpha", "devops-platform"],
       rawStatus: "In Progress",
       stage: mapInternalStatus("In Progress"),
+      priority: "High",
       assigneeId: "",
       assigneeName: "",
       createdAt: "2026-06-05T08:30:00.000Z",
       updatedAt: "2026-06-07T10:15:00.000Z",
       lastActivityAt: "2026-06-07T10:15:00.000Z",
       description: "Production deployments need a manual approval gate before promotion.",
-      metadata: {
-        application: "payments-api",
-        repository: "https://git.example.com/payments/api",
-        environment: "Production"
-      },
       comments: [
         {
           id: "c-1001-1",
@@ -42,17 +38,13 @@ export function seedTickets(): TicketDetail[] {
       teamGroups: ["team-alpha", "platform-operations"],
       rawStatus: "Waiting on Customer",
       stage: mapInternalStatus("Waiting on Customer"),
+      priority: "Medium",
       assigneeId: "",
       assigneeName: "",
       createdAt: "2026-06-04T12:00:00.000Z",
       updatedAt: "2026-06-06T14:20:00.000Z",
       lastActivityAt: "2026-06-06T14:20:00.000Z",
       description: "Inventory service needs more CPU and memory quota for load tests.",
-      metadata: {
-        cluster: "ocp4-prod",
-        namespace: "inventory-prod",
-        accessLevel: "Admin"
-      },
       comments: [
         {
           id: "c-1002-1",
@@ -72,16 +64,14 @@ export function seedTickets(): TicketDetail[] {
       teamGroups: ["team-beta", "devops-support"],
       rawStatus: "Resolved",
       stage: mapInternalStatus("Resolved"),
+      priority: "Low",
+      storyPoints: 3,
       assigneeId: "",
       assigneeName: "",
       createdAt: "2026-06-01T09:45:00.000Z",
       updatedAt: "2026-06-03T16:05:00.000Z",
       lastActivityAt: "2026-06-03T16:05:00.000Z",
       description: "Nightly deployment failed during image promotion.",
-      metadata: {
-        severity: "Medium",
-        system: "reporting-worker"
-      },
       comments: []
     }
   ];

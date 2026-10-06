@@ -1,0 +1,617 @@
+import { execFile, spawn } from "child_process";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "fs";
+import { mkdir, rm, stat } from "fs/promises";
+import { platform, tmpdir } from "os";
+import { dirname, join } from "path";
+import { promisify } from "util";
+import { config } from "../../config";
+import { authenticatedRepoUrl } from "../../git";
+import { log, userMessage } from "../../log";
+import { JobStore, writeJsonAtomic } from "../../jobStore";
+import { redactSecrets } from "../../redact";
+import type { PortalUser, AiApi, AiCategory, AiConversation, AiJob } from "../../types";
+import { sweepConversations } from "./sweepConversations";
+
+const execFileAsync = promisify(execFile);
+const isWindows = platform() === "win32";
+
+// ponytail: fixed 5m ceiling — opencode retries silently forever on a bad/
+// exhausted API key rather than erroring, so this is the only thing that
+// stops a job hanging forever. Make it configurable if real questions
+// routinely need longer.
+const RUN_TIMEOUT_MS = 5 * 60 * 1000;
+
+// Read-only, enforced in code rather than by a mounted file. This used to live
+// only in docker/opencode.json, which meant dev (where opencode auto-creates an
+// EMPTY ~/.config/opencode/opencode.jsonc) had no deny rules at all — combined
+// with --auto, the agent could edit files in the clone. That failure mode is
+// fail-OPEN, so the policy now travels with the code: written to disk at
+// startup and passed via OPENCODE_CONFIG, which takes precedence over any
+// ambient user/project config. A missing mount can no longer grant write access.
+const OPENCODE_POLICY = {
+  $schema: "https://opencode.ai/config.json",
+  permission: {
+    read: "allow",
+    glob: "allow",
+    grep: "allow",
+    skill: "allow",
+    lsp: "allow",
+    edit: "deny",
+    write: "deny",
+    patch: "deny",
+    bash: "deny",
+    webfetch: "deny",
+    websearch: "deny",
+    task: "deny",
+    external_directory: "deny",
+    question: "deny",
+  },
+};
+
+/** `anthropic/claude-sonnet-5` -> `anthropic`. */
+function providerOf(model: string): string {
+  return model.split("/")[0] || "anthropic";
+}
+
+/**
+ * Embeds GIT_TOKEN into the clone URL, same auth form the Whitening module's
+ * BitbucketApi.authenticatedCloneUrl uses — registered ai-* projects live on
+ * the same Bitbucket instance. Left alone when GIT_URL/GIT_TOKEN aren't set,
+ * or when repoUrl isn't an http(s) URL `new URL` can rewrite (an SSH form
+ * like `git@host:org/repo.git`, e.g. the ai-homelab skill's GitHub repo,
+ * authenticates via the machine's own SSH key instead) — so a public or
+ * SSH-auth'd repoUrl still clones. Only applied once, at clone time: `git
+ * fetch origin` on later questions reuses the credentialed origin already
+ * stored in the clone's own .git/config.
+ *
+ * The body moved to `src/server/git.ts` when the ArgoCD module needed the same
+ * rewrite; it is re-exported here because this is the name its callers and its
+ * own test use. Importing *from* this file instead would have run the
+ * `writeOpencodePolicy()` below on every ArgoCD request.
+ */
+export { authenticatedRepoUrl };
+
+/**
+ * Written once per process; opencode reads it via OPENCODE_CONFIG.
+ *
+ * OPENCODE_BASE_URL rides along in the same file because opencode exposes no
+ * env var for it — a custom endpoint is only `provider.<id>.options.baseURL`.
+ * The id is the provider half of OPENCODE_MODEL, so pointing the module at a
+ * gateway means setting both vars together.
+ */
+function writeOpencodePolicy(): string {
+  const dir = join(tmpdir(), "ai-opencode");
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, "opencode.json");
+  const baseUrl = config.ai.baseUrl;
+  const contents = baseUrl
+    ? {
+        ...OPENCODE_POLICY,
+        provider: { [providerOf(config.ai.model)]: { options: { baseURL: baseUrl } } },
+      }
+    : OPENCODE_POLICY;
+  writeFileSync(path, JSON.stringify(contents, null, 2));
+  return path;
+}
+
+const OPENCODE_CONFIG_PATH = writeOpencodePolicy();
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function truncateTitle(question: string): string {
+  return question.length > 60 ? question.slice(0, 60) + "…" : question;
+}
+
+type OpencodeEvent = {
+  type: string;
+  sessionID?: string;
+  part?: {
+    tool?: string;
+    text?: string;
+    state?: { input?: unknown };
+  };
+};
+
+export class RealAiApi implements AiApi {
+  /**
+   * Conversations stay resident: one is ~400 bytes, so even 10k chats is a few
+   * MB, and the idle sweep walks all of them on every list anyway. The jobs
+   * hanging off them are the fat part, and those live in the JobStore.
+   */
+  private conversations = new Map<string, AiConversation>();
+  private conversationCounter = 0;
+  private readonly conversationsDir: string;
+  private readonly jobs: JobStore<AiJob>;
+  private readonly clonesDir: string;
+  /** One per running job, so `cancelJob`/timeout can stop the work already in flight. */
+  private controllers = new Map<string, AbortController>();
+
+  /** `dataDir` is a parameter purely so tests can point it at a mkdtemp. */
+  constructor(dataDir: string = config.dataDir) {
+    this.jobs = new JobStore<AiJob>(join(dataDir, "ai", "jobs"), "RES");
+    this.conversationsDir = join(dataDir, "ai", "conversations");
+    this.clonesDir = join(dataDir, "clones");
+    this.loadConversations();
+  }
+
+  private loadConversations() {
+    mkdirSync(this.conversationsDir, { recursive: true });
+    let files: string[];
+    try {
+      files = readdirSync(this.conversationsDir);
+    } catch {
+      return;
+    }
+    for (const file of files) {
+      if (!file.endsWith(".json") || file.endsWith(".tmp")) continue;
+      let conversation: AiConversation;
+      try {
+        conversation = JSON.parse(readFileSync(join(this.conversationsDir, file), "utf8")) as AiConversation;
+      } catch (err) {
+        // One unreadable file must not stop the process booting.
+        log.warn("ai", `skipping unreadable conversation ${file}`, {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        continue;
+      }
+      if (!conversation?.id) continue;
+      this.conversations.set(conversation.id, conversation);
+      const n = Number(conversation.id.slice("CONV-".length));
+      if (Number.isFinite(n) && n > this.conversationCounter) this.conversationCounter = n;
+    }
+    log.info("ai", `loaded ${this.conversations.size} conversation(s)`, {
+      dir: this.conversationsDir,
+      nextId: this.conversationCounter + 1,
+    });
+  }
+
+  /** Small and rarely mutated, so every mutation writes the whole record through. */
+  private saveConversation(conversation: AiConversation) {
+    void writeJsonAtomic(join(this.conversationsDir, `${conversation.id}.json`), conversation).catch((err) =>
+      log.error("ai", `could not persist ${conversation.id}`, err)
+    );
+  }
+
+  private newConversationId() {
+    return `CONV-${String(++this.conversationCounter).padStart(4, "0")}`;
+  }
+
+  private patchConversation(conversationId: string, updates: Partial<AiConversation>) {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return;
+    Object.assign(conversation, { ...updates, updatedAt: nowIso() });
+    this.saveConversation(conversation);
+  }
+
+  private patch(jobId: string, updates: Partial<AiJob>) {
+    const job = this.jobs.get(jobId);
+    if (!job) return;
+    Object.assign(job, { ...updates, updatedAt: nowIso() });
+  }
+
+  // Mirrored to stdout with the job id — a question that fails inside opencode
+  // leaves no other trace in the pod.
+  private appendLog(jobId: string, line: string) {
+    const job = this.jobs.get(jobId);
+    if (!job) return;
+    job.log.push({ step: "AI", line: redactSecrets(line) });
+    job.updatedAt = nowIso();
+    log.info(`ai ${jobId}`, line);
+  }
+
+  private cloneDirFor(project: string): string {
+    const safe = project.replace(/[^a-zA-Z0-9_-]/g, "_");
+    return join(this.clonesDir, safe);
+  }
+
+  /**
+   * "I'm not sure" conversations: pick a category from the question text
+   * itself, using the same skill-derived category list the picker shows —
+   * one opencode call, no repo clone needed since it only reasons over the
+   * category descriptions we already have, not any file contents.
+   */
+  private async classifyProject(jobId: string, question: string, signal: AbortSignal): Promise<string> {
+    const categories = this.listCategories();
+    if (categories.length === 0) throw new Error("No AI categories configured");
+    if (categories.length === 1) return categories[0].name;
+
+    this.appendLog(jobId, "Figuring out which repo fits your question ...");
+    const scratchDir = join(this.clonesDir, "_classify");
+    await mkdir(scratchDir, { recursive: true });
+
+    const list = categories.map((c) => `- ${c.name}: ${c.description}`).join("\n");
+    const prompt =
+      `Categories:\n${list}\n\nQuestion: ${question}\n\n` +
+      `Which category best fits this question? Reply with ONLY the category name from the list above, nothing else.`;
+
+    // ponytail: `undefined` session, so every classification opens a throwaway
+    // opencode session whose id nothing records. Harmless while opencode's store
+    // was ephemeral; now that it is on the PVC they accumulate (~5KB each, and
+    // only on "I'm not sure" questions). Reusing one session would bias the
+    // classifier with its own prior answers, so this stays as-is until it matters.
+    const { answer } = await this.askOpencode(jobId, scratchDir, prompt, undefined, signal);
+    const picked = answer.trim().split("\n")[0].replace(/[.:,]+$/, "").trim().toLowerCase();
+    const match = categories.find((c) => c.name.toLowerCase() === picked || picked.includes(c.name.toLowerCase()));
+    if (!match) {
+      throw new Error(`Couldn't tell which repo fits (got "${answer.trim()}") — start a new chat and pick one explicitly.`);
+    }
+    this.appendLog(jobId, `Chose: ${match.name}`);
+    return match.name;
+  }
+
+  listCategories(): AiCategory[] {
+    return Object.entries(config.ai.projects).map(([name, p]) => ({ name, description: p.description }));
+  }
+
+  async startConversation(project: string | null, submitter: PortalUser): Promise<AiConversation> {
+    if (project && !config.ai.projects[project]) throw new Error(`Unknown project "${project}"`);
+    const conversation: AiConversation = {
+      id: this.newConversationId(),
+      title: "",
+      project,
+      submittedBy: submitter.id,
+      submittedByName: submitter.displayName,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    this.conversations.set(conversation.id, conversation);
+    this.saveConversation(conversation);
+    return conversation;
+  }
+
+  async listConversations(user: PortalUser, allUsers = false): Promise<AiConversation[]> {
+    // ponytail: swept on read, not on a timer — every open tab reloads this
+    // list, and there is nothing to reclaim while nobody is looking. Add an
+    // unref'd interval only if idle-process memory ever actually matters.
+    // `all()` is every job ever, but only the in-flight ones are still
+    // non-terminal, which is exactly the "busy" set the sweep looks for.
+    const { archived } = sweepConversations(this.conversations, this.jobs.all(), config.ai.archiveAfterMs);
+    for (const id of archived) this.saveConversation(this.conversations.get(id)!);
+    // A chat folding out of someone's list should be greppable in the pod log.
+    if (archived.length) log.info("ai", "archived idle chats", { archived: archived.length });
+
+    return [...this.conversations.values()]
+      .filter((c) => allUsers || c.submittedBy === user.id)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async archiveConversation(
+    conversationId: string,
+    user: PortalUser,
+    allUsers = false
+  ): Promise<AiConversation | null> {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return null;
+    if (!allUsers && conversation.submittedBy !== user.id) {
+      throw new Error("Forbidden: not your chat");
+    }
+    // Same as the sweep, and for the same reason: not via patchConversation.
+    // `updatedAt` is the delete clock, so archiving by hand must not push the
+    // chat's eventual deletion out by however long it had already been idle.
+    if (!conversation.archivedAt) conversation.archivedAt = nowIso();
+    this.saveConversation(conversation);
+    log.info("ai", "chat archived", { id: conversationId, by: user.id });
+    return conversation;
+  }
+
+  async submitQuestion(conversationId: string, question: string, submitter: PortalUser): Promise<AiJob> {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) throw new Error("Conversation not found");
+    // The only un-archive there is — for the sweep's stamp and the button's
+    // alike. Done before the job exists, so the chat leaves the Archived list
+    // the moment the question is asked rather than when the answer lands.
+    delete conversation.archivedAt;
+    // Unconditional, even when there is nothing to change: patchConversation
+    // restamps `updatedAt`, and that is the only clock the idle sweep reads.
+    // Stamping it just on the first question would archive a chat in active use.
+    this.patchConversation(conversationId, conversation.title ? {} : { title: truncateTitle(question) });
+
+    const job: AiJob = {
+      id: this.jobs.nextId(),
+      conversationId,
+      status: "pending",
+      submittedBy: submitter.id,
+      submittedByName: submitter.displayName,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+      project: conversation.project ?? "",
+      question,
+      log: [],
+    };
+    this.jobs.add(job);
+    void this.run(job.id, conversationId, question);
+    return job;
+  }
+
+  async listJobs(conversationId: string, user: PortalUser, allUsers = false): Promise<AiJob[]> {
+    return this.jobs
+      .all()
+      .filter((j) => j.conversationId === conversationId && (allUsers || j.submittedBy === user.id))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async getJob(jobId: string): Promise<AiJob | null> {
+    return this.jobs.read(jobId);
+  }
+
+  async deleteConversation(conversationId: string, user: PortalUser, allUsers = false): Promise<boolean> {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return false;
+    if (!allUsers && conversation.submittedBy !== user.id) throw new Error("Forbidden: not your chat");
+    const jobs = this.jobs.all().filter((j) => j.conversationId === conversationId);
+    if (jobs.some((j) => this.jobs.get(j.id))) throw new Error("Stop the running question before deleting this chat");
+    for (const job of jobs) await this.jobs.remove(job.id);
+    this.conversations.delete(conversationId);
+    await rm(join(this.conversationsDir, `${conversationId}.json`), { force: true });
+    log.info("ai", "chat deleted", { id: conversationId, by: user.id, jobs: jobs.length });
+    return true;
+  }
+
+  async cancelJob(jobId: string, user: PortalUser, allUsers = false): Promise<AiJob | null> {
+    // Live first, disk second: cancelling a job that just finished returns it
+    // rather than 404ing, which is what it did while everything was in memory.
+    const job = this.jobs.get(jobId) ?? (await this.jobs.read(jobId));
+    if (!job) return null;
+    if (!allUsers && job.submittedBy !== user.id) {
+      throw new Error("Forbidden: not your job");
+    }
+    if (job.status !== "pending" && job.status !== "in-progress") return job;
+
+    this.patch(jobId, { status: "aborted", errorMessage: undefined });
+    this.appendLog(jobId, `Aborted by ${user.displayName}.`);
+    this.controllers.get(jobId)?.abort();
+    return job;
+  }
+
+  private async run(jobId: string, conversationId: string, question: string) {
+    const controller = new AbortController();
+    this.controllers.set(jobId, controller);
+    const signal = controller.signal;
+
+    const timeout = setTimeout(() => {
+      if (this.jobs.get(jobId)?.status === "in-progress") {
+        this.appendLog(
+          jobId,
+          `Timed out after ${RUN_TIMEOUT_MS / 60000}m waiting on opencode — check OPENCODE_API_KEY / provider rate limits.`
+        );
+        this.patch(jobId, { status: "failed", errorMessage: "Timed out waiting on opencode" });
+      }
+      controller.abort();
+    }, RUN_TIMEOUT_MS);
+
+    try {
+      this.patch(jobId, { status: "in-progress" });
+
+      const conversation = this.conversations.get(conversationId);
+      if (!conversation) throw new Error("Conversation not found");
+
+      if (!conversation.project) {
+        const chosen = await this.classifyProject(jobId, question, signal);
+        this.patchConversation(conversationId, { project: chosen });
+        this.patch(jobId, { project: chosen });
+      }
+      const project = conversation.project!;
+
+      const repoUrl = config.ai.projects[project]?.repoUrl;
+      if (!repoUrl) throw new Error(`Unknown project "${project}"`);
+      const cloneDir = this.cloneDirFor(project);
+
+      if (!(await pathExists(cloneDir))) {
+        this.appendLog(jobId, `Cloning ${project} ...`);
+        await mkdir(dirname(cloneDir), { recursive: true });
+        await this.runCli(
+          jobId,
+          "git",
+          ["clone", "--depth", "1", authenticatedRepoUrl(repoUrl), cloneDir],
+          undefined,
+          signal
+        );
+      } else {
+        // Every question re-pulls — a plain `git pull` can choke on a shallow
+        // (--depth 1) history, so fetch + hard-reset instead.
+        this.appendLog(jobId, `Refreshing ${project} ...`);
+        await this.runCli(jobId, "git", ["fetch", "--depth", "1", "origin"], cloneDir, signal);
+        await this.runCli(jobId, "git", ["reset", "--hard", "origin/HEAD"], cloneDir, signal);
+      }
+
+      // Only on the first question of a conversation: the skill tool's output
+      // (the SKILL.md body — how this project wants to be worked with) lands
+      // in the opencode session transcript, so a continuing --session already
+      // has it and re-loading would just waste a turn.
+      const prompt = conversation.opencodeSessionId
+        ? question
+        : `Use the ai-${project} skill, then answer: ${question}`;
+
+      this.appendLog(jobId, "Asking opencode ...");
+      const { answer, thinking, sessionId } = await this.askOpencode(
+        jobId,
+        cloneDir,
+        prompt,
+        conversation.opencodeSessionId,
+        signal
+      );
+
+      if (!conversation.opencodeSessionId && sessionId) {
+        this.patchConversation(conversationId, { opencodeSessionId: sessionId });
+      }
+
+      if (this.jobs.get(jobId)?.status === "in-progress") {
+        this.patch(jobId, { status: "completed", answer, thinking });
+        this.appendLog(jobId, "Done.");
+      }
+    } catch (err) {
+      if (this.jobs.get(jobId)?.status === "in-progress") {
+        const message = userMessage(err);
+        this.patch(jobId, { status: "failed", errorMessage: message });
+        this.appendLog(jobId, `Error: ${message}`);
+        log.error("ai", `${jobId} failed`, err);
+      }
+    } finally {
+      clearTimeout(timeout);
+      this.controllers.delete(jobId);
+      // Terminal on every path out of the try above, so this is where the job
+      // and its log leave memory for the volume.
+      await this.jobs.settle(jobId);
+    }
+  }
+
+  private askOpencode(
+    jobId: string,
+    cwd: string,
+    question: string,
+    existingSessionId: string | undefined,
+    signal: AbortSignal
+  ): Promise<{ answer: string; thinking?: string; sessionId?: string }> {
+    // opencode resolves provider credentials from a PROVIDER_API_KEY env var,
+    // e.g. anthropic/claude-sonnet-5 -> ANTHROPIC_API_KEY.
+    const envVar = `${providerOf(config.ai.model).toUpperCase()}_API_KEY`;
+    const env = {
+      ...process.env,
+      [envVar]: config.ai.apiKey,
+      // Highest-precedence config — carries the read-only deny-list, so this
+      // never depends on a file existing at opencode's default config path.
+      OPENCODE_CONFIG: OPENCODE_CONFIG_PATH,
+    };
+    this.appendLog(
+      jobId,
+      `$ opencode run --dir ${cwd} --model ${config.ai.model}` +
+        (existingSessionId ? ` --session ${existingSessionId}` : "") +
+        ` --format json "<question>"`
+    );
+
+    // --format json: every event carries sessionID (continuity) and tool_use
+    // events give a structured trace instead of scraping ANSI terminal text.
+    // Confirmed empirically: all JSON events land on stdout, stderr is empty.
+    //
+    // spawn, not execFile: reading stdout as data arrives lets the job's
+    // "thinking" grow across polls instead of only appearing once the whole
+    // process exits.
+    //
+    // Plain spawn("opencode", [...]) hangs indefinitely on Windows when its
+    // parent is node.exe rather than an interactive shell — reproduced with
+    // an A/B test (same command, same machine, immediately sequential:
+    // direct-under-bash succeeds in seconds, node-spawned hangs every time
+    // regardless of shell/stdio/exe-path options tried). Not a quoting or
+    // EINVAL issue — genuinely parent-process-specific. Windows dev routes
+    // through the git-bash shell that's proven to work; question travels via
+    // an env var so bash's `"$VAR"` expansion handles quoting, no cmd.exe,
+    // no manual escaping. Production is the Linux image, where a plain spawn
+    // already works (proven in this same investigation).
+    const [bin, args, spawnEnv] = isWindows
+      ? [
+          "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
+          [
+            "-c",
+            'opencode run --dir "$R_DIR" --model "$R_MODEL" --auto --format json' +
+              (existingSessionId ? ' --session "$R_SESSION"' : "") +
+              ' "$R_QUESTION" < /dev/null',
+          ],
+          { ...env, R_DIR: cwd, R_MODEL: config.ai.model, R_QUESTION: question, R_SESSION: existingSessionId ?? "" },
+        ]
+      : ([
+          "opencode",
+          [
+            "run",
+            "--dir", cwd,
+            "--model", config.ai.model,
+            "--auto",
+            "--format", "json",
+            ...(existingSessionId ? ["--session", existingSessionId] : []),
+            question,
+          ],
+          env,
+        ] as const);
+
+    const started = Date.now();
+    return new Promise((resolve, reject) => {
+      const child = spawn(bin, args, { env: spawnEnv, signal, stdio: ["ignore", "pipe", "pipe"] });
+      log.info("ai", `${jobId} spawned opencode`, { pid: child.pid, model: config.ai.model, cwd, session: existingSessionId });
+      let buffer = "";
+      const thinkingLines: string[] = [];
+      const answerParts: string[] = [];
+      let sessionId: string | undefined;
+      let stderrText = "";
+
+      const handleLine = (line: string) => {
+        if (!line.trim()) return;
+        let event: OpencodeEvent;
+        try {
+          event = JSON.parse(line);
+        } catch {
+          return;
+        }
+        if (!sessionId && event.sessionID) sessionId = event.sessionID;
+        if (event.type === "tool_use" && event.part?.tool) {
+          const input = event.part.state?.input;
+          thinkingLines.push(input ? `${event.part.tool} ${JSON.stringify(input)}` : event.part.tool);
+          this.patch(jobId, { thinking: redactSecrets(thinkingLines.join("\n")) });
+        } else if (event.type === "text" && event.part?.text) {
+          answerParts.push(event.part.text);
+        }
+      };
+
+      child.stdout.on("data", (chunk: Buffer) => {
+        buffer += chunk;
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) handleLine(line);
+      });
+      child.stderr.on("data", (chunk: Buffer) => {
+        stderrText += chunk;
+      });
+      child.on("error", (err: NodeJS.ErrnoException) => {
+        reject(err.code === "ENOENT" ? new Error("opencode not found — ensure it is on PATH") : err);
+      });
+      child.on("close", (code) => {
+        if (buffer.trim()) handleLine(buffer);
+        const ms = Date.now() - started;
+        // stderr is normally empty (all JSON events go to stdout), so anything
+        // on it is worth a line even when the run succeeded.
+        log[code === 0 ? "info" : "warn"](`ai ${jobId}`, `opencode exited ${code}`, {
+          ms,
+          answerChars: answerParts.join("").length,
+          toolCalls: thinkingLines.length,
+          session: sessionId,
+          stderr: stderrText.trim().slice(0, 500) || undefined,
+        });
+        if (code === 0) {
+          resolve({
+            answer: answerParts.join("").trim() || "(opencode returned no answer)",
+            thinking: thinkingLines.length ? redactSecrets(thinkingLines.join("\n")) : undefined,
+            sessionId,
+          });
+          return;
+        }
+        reject(new Error(stderrText.trim() || `opencode exited with code ${code}`));
+      });
+    });
+  }
+
+  private async runCli(jobId: string, bin: string, args: string[], cwd: string | undefined, signal: AbortSignal) {
+    this.appendLog(jobId, `$ ${bin} ${args.join(" ")}`);
+    try {
+      const result = await execFileAsync(bin, args, { cwd, maxBuffer: 20 * 1024 * 1024, signal });
+      const lines = `${result.stdout}\n${result.stderr}`.split("\n").filter(Boolean);
+      for (const line of lines) this.appendLog(jobId, line);
+      return result;
+    } catch (err: unknown) {
+      const e = err as NodeJS.ErrnoException & { stderr?: string; stdout?: string };
+      if (e.code === "ENOENT") {
+        throw new Error(`${bin} not found — ensure it is on PATH`);
+      }
+      const detail = [e.stderr, e.stdout, e.message].find(Boolean) ?? `${bin} command failed`;
+      throw new Error(detail.toString().trim());
+    }
+  }
+}

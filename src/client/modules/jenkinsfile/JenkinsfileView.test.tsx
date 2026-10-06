@@ -1,0 +1,632 @@
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { JenkinsfilePipeline, PortalUser } from "../../../server/types";
+
+/** Mirrors the view's own debounce — there is no Save button to press instead. */
+const AUTOSAVE_MS = 800;
+
+const saved: JenkinsfilePipeline = {
+  id: "JF-0001",
+  name: "Alex Morgan #1",
+  library: "jenkins-k8s-shared-library",
+  envVars: { SERVICE: "checkout" },
+  stages: [{ id: "s-1", step: "semVerStage", args: {}, collapsed: true }],
+  createdBy: "u-alex",
+  createdByName: "Alex Morgan",
+  createdAt: "2026-08-27T09:00:00.000Z",
+  updatedAt: "2026-08-27T09:00:00.000Z",
+};
+
+const createPipeline = vi.fn((input: unknown) =>
+  Promise.resolve({ pipeline: { ...saved, ...(input as object), id: "JF-0002" } as JenkinsfilePipeline })
+);
+const updatePipeline = vi.fn((id: string, input: unknown) =>
+  Promise.resolve({ pipeline: { ...saved, ...(input as object), id } as JenkinsfilePipeline })
+);
+
+const pullJenkinsfile = vi.fn(() =>
+  Promise.resolve({
+    path: "ci/Jenkinsfile",
+    text: "@Library('jenkins-k8s-shared-library@main') _\n\ngenStage(title: 'Build', image: 'ubi8', commands: ['npm ci'])",
+    candidates: ["ci/Jenkinsfile"],
+    repoUrl: "https://github.com/org/checkout-service.git",
+    revision: "main",
+  })
+);
+const pushPipeline = vi.fn(() =>
+  Promise.resolve({
+    branch: "portal/jenkinsfile-jf-0002",
+    changed: true,
+    prUrl: "https://github.com/org/checkout-service/pull/7",
+  })
+);
+
+/** A `vi.fn` rather than a plain stub: one test needs a portal with no credential. */
+const listPipelines = vi.fn(() =>
+  Promise.resolve({ pipelines: [saved], sharedLibrary: "jenkins-k8s-shared-library", gitEnabled: true })
+);
+
+vi.mock("./api", () => ({
+  listPipelines,
+  getImages: () =>
+    Promise.resolve({ images: [{ name: "python311", info: "JDK=17" }, { name: "ubi8", info: "OS=ubi8" }] }),
+  createPipeline,
+  updatePipeline,
+  deletePipeline: vi.fn(),
+  pullJenkinsfile,
+  pushPipeline,
+}));
+
+const { JenkinsfileView } = await import("./JenkinsfileView");
+
+// An expanded stage card is the whole catalog for that step — some thirty
+// fields and add-rows — re-rendered on every keystroke. That is fast in a
+// browser and slow in jsdom, and the default 5s is not enough for it once the
+// rest of the suite is running in parallel.
+vi.setConfig({ testTimeout: 30_000 });
+
+const user: PortalUser = { id: "dev", email: "dev@example.com", displayName: "Dev User", groups: [] };
+
+function renderView() {
+  const view = render(<JenkinsfileView user={user} isAdmin={false} refreshKey={0} onError={() => {}} />);
+  const code = () => view.container.querySelector(".jf-code")?.textContent ?? "";
+  return { ...view, code };
+}
+
+/**
+ * Types a value into one of the open stage's arguments, adding it first when it
+ * is one of the optional ones — the required three are always on screen.
+ */
+function setArg(name: string, value: string) {
+  const add = screen.queryByRole("button", { name: `Add ${name}` });
+  if (add) fireEvent.click(add);
+  fireEvent.change(screen.getByLabelText(name), { target: { value } });
+}
+
+/**
+ * Fills a list argument, one box per entry — Enter is what opens the next one.
+ */
+function setList(name: string, entries: string[]) {
+  const add = screen.queryByRole("button", { name: `Add ${name}` });
+  if (add) fireEvent.click(add);
+  entries.forEach((entry, i) => {
+    const box = i === 0 ? screen.getByLabelText(name) : screen.getByLabelText(`${name} ${i + 1}`);
+    fireEvent.change(box, { target: { value: entry } });
+    if (i < entries.length - 1) fireEvent.keyDown(box, { key: "Enter" });
+  });
+}
+
+/**
+ * The palette is a popover under the Add stage button at the foot of the list.
+ * Cards arrive minimized, so this opens the one it just added — every test
+ * below goes on to edit it.
+ */
+function addStage(label: string) {
+  fireEvent.click(screen.getByRole("button", { name: "Add stage" }));
+  fireEvent.click(screen.getByRole("button", { name: `Add ${label}` }));
+  const expand = screen.getAllByRole("button", { name: /^Expand / });
+  fireEvent.click(expand[expand.length - 1]);
+}
+
+/**
+ * Press somewhere outside every stage, which is what reveals their problems.
+ * A press *inside* the card — moving between its own fields — must not.
+ */
+function pressOutsideStages() {
+  fireEvent.pointerDown(document.body);
+}
+
+function pressInsideStage() {
+  fireEvent.pointerDown(document.querySelector(".jf-card")!);
+}
+
+/** Autosave sits on a change for 800ms; this is how a test gets past that. */
+async function settle() {
+  await act(async () => {
+    vi.advanceTimersByTime(AUTOSAVE_MS);
+  });
+}
+
+describe("JenkinsfileView", () => {
+  // The mocks are module-level, so without this `calls[0]` belongs to whichever
+  // test saved first rather than to the one asserting on it.
+  beforeEach(() => {
+    createPipeline.mockClear();
+    updatePipeline.mockClear();
+    pullJenkinsfile.mockClear();
+    pushPipeline.mockClear();
+    // The view reopens the last pipeline it was left on; each test starts fresh.
+    localStorage.clear();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("builds, reorders and previews a pipeline", async () => {
+    const { code } = renderView();
+
+    addStage("Gen stage");
+    setArg("title", "Build");
+    setArg("image", "node20");
+    setList("commands", ["npm ci", "npm run build"]);
+
+    // Done with it: the card folds back to its header and the arguments go away.
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Build" }));
+    expect(screen.queryByLabelText("commands")).not.toBeInTheDocument();
+
+    addStage("Sonar scan");
+
+    expect(code()).toContain("genStage(");
+    expect(code()).toContain("commands: [\n        'npm ci',\n        'npm run build'\n    ]");
+    expect(code().indexOf("genStage")).toBeLessThan(code().indexOf("sonarStage"));
+  });
+
+  it("builds a parallel block as a box, branch by branch, and ungroups it", () => {
+    const { code } = renderView();
+    fireEvent.click(screen.getByRole("button", { name: /Add parallel block/ }));
+    const box = () => screen.getByRole("listitem", { name: "Parallel block" });
+    // The box opens empty; nothing is written until a stage is in it.
+    expect(within(box()).queryAllByRole("button", { name: /^Expand / })).toHaveLength(0);
+    expect(code()).not.toContain("parallel(");
+    for (let i = 0; i < 2; i++) {
+      fireEvent.click(within(box()).getByRole("button", { name: "Add stage to this block" }));
+      fireEvent.click(screen.getByRole("button", { name: "Add Sleep" }));
+    }
+
+    expect(within(box()).getAllByRole("button", { name: /^Expand / })).toHaveLength(2);
+    expect(code()).toMatch(/^parallel\(\n {4}'Sleep': \{/m);
+    expect(code()).toContain("'Sleep 2': {");
+
+    // A stage added from the list's own button lands outside the box.
+    fireEvent.click(screen.getByRole("button", { name: "Add stage" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Sleep" }));
+    expect(within(box()).getAllByRole("button", { name: /^Expand / })).toHaveLength(2);
+
+    fireEvent.click(within(box()).getByRole("button", { name: "Ungroup" }));
+    expect(screen.queryByRole("listitem", { name: "Parallel block" })).not.toBeInTheDocument();
+    expect(code()).not.toContain("parallel(");
+  });
+
+  it("keeps the pipeline options folded until opened", () => {
+    renderView();
+    expect(screen.getByRole("button", { name: /Pipeline options/ })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: /Import the shared library/ })).toBeNull();
+  });
+
+  it("moves a saved pipeline's old Groovy block into the first card, and saves it without one", async () => {
+    listPipelines.mockResolvedValueOnce({
+      pipelines: [{ ...saved, envVars: {}, groovy: "def tag = '1.0'" }],
+      sharedLibrary: "jenkins-k8s-shared-library",
+      gitEnabled: true,
+    });
+    const { code } = renderView();
+    await waitFor(() => expect(screen.getByText("Alex Morgan #1")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Alex Morgan #1"));
+
+    // Where the block was written — above every stage — and nowhere else.
+    expect(code().indexOf("def tag = '1.0'")).toBeLessThan(code().indexOf("semVerStage()"));
+    expect(screen.getByRole("button", { name: "Expand def tag = '1.0'" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Add Groovy variables and functions/ })).toBeNull();
+  });
+
+  it("says nothing about a stage until you leave it", () => {
+    renderView();
+    addStage("Gen stage");
+
+    // Empty, but you are still in the middle of it.
+    expect(screen.queryByText("title is required.")).not.toBeInTheDocument();
+
+    // Moving between fields of the same stage is not leaving it.
+    pressInsideStage();
+    expect(screen.queryByText("title is required.")).not.toBeInTheDocument();
+
+    pressOutsideStages();
+    expect(screen.getByText("title is required.")).toBeInTheDocument();
+    expect(screen.getByText("Set exactly one of image or node.")).toBeInTheDocument();
+    expect(screen.getByText("commands is required.")).toBeInTheDocument();
+
+    // From then on they track what you type.
+    setArg("title", "Build");
+    // image and node are one choice, not two fields — the segmented control swaps them.
+    fireEvent.click(screen.getByRole("button", { name: "node" }));
+    setArg("node", "windows");
+    setList("commands", ["npm ci"]);
+    expect(screen.queryByText("title is required.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Set exactly one of image or node.")).not.toBeInTheDocument();
+  });
+
+  it("migrates a saved pipeline's envVars map into a populateEnvVars card", async () => {
+    const { code } = renderView();
+    await waitFor(() => expect(screen.getByText("Alex Morgan #1")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText("Alex Morgan #1"));
+
+    expect(code()).toContain("populateEnvVars([SERVICE: 'checkout'])");
+    expect(code()).toContain("semVerStage()");
+    // Opened collapsed — the card is on screen, its arguments are not.
+    expect(screen.getByRole("button", { name: "Expand Populate env vars" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("envVars key 1")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand Populate env vars" }));
+    expect(screen.getByLabelText("envVars key 1")).toHaveValue("SERVICE");
+  });
+
+  it("creates the pipeline on its own, then updates it in place", async () => {
+    renderView();
+    addStage("Sonar scan");
+
+    await settle();
+    await waitFor(() => expect(createPipeline).toHaveBeenCalledTimes(1));
+    const input = createPipeline.mock.calls[0][0] as Record<string, unknown>;
+    // No @Library line was asked for, so none is sent.
+    expect(input).toMatchObject({ library: "", stages: [{ step: "sonarStage" }] });
+    // Nothing was typed in the name field, so it goes up blank and the server
+    // mints one — the field is a rename, not a required step before saving.
+    expect(input.name).toBe("");
+    expect(screen.getByRole("status")).toHaveTextContent("");
+
+    // A second change goes to the id the create handed back, not to a new record.
+    setArg("projectKey", "checkout");
+    await settle();
+    await waitFor(() => expect(updatePipeline).toHaveBeenCalledTimes(1));
+    expect(updatePipeline.mock.calls[0][0]).toBe("JF-0002");
+    expect(createPipeline).toHaveBeenCalledTimes(1);
+  });
+
+  it("writes nothing for an untouched draft, or for one that ends up unchanged", async () => {
+    renderView();
+    await settle();
+    expect(createPipeline).not.toHaveBeenCalled();
+
+    addStage("Sonar scan");
+    await settle();
+    await waitFor(() => expect(createPipeline).toHaveBeenCalledTimes(1));
+
+    // Nothing changed since, so nothing is written again.
+    await settle();
+    expect(updatePipeline).not.toHaveBeenCalled();
+  });
+
+  it("minimizes a stage and reopens it with Edit, and saves which", async () => {
+    renderView();
+    addStage("Sonar scan");
+
+    // sonarStage names its own image, so that is the argument it always shows.
+    fireEvent.click(screen.getByRole("button", { name: "Minimize Sonar Scanning" }));
+    expect(screen.queryByRole("button", { name: "Add projectKey" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit Sonar Scanning" }));
+    expect(screen.getByRole("button", { name: "Add projectKey" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Minimize Sonar Scanning" }));
+    await settle();
+    await waitFor(() => expect(createPipeline).toHaveBeenCalled());
+    expect(createPipeline.mock.calls[0][0]).toMatchObject({ stages: [{ collapsed: true }] });
+  });
+
+  it("writes commands as a closure when the switch says so", () => {
+    const { code } = renderView();
+    addStage("Gen stage");
+    setArg("title", "Build");
+    setArg("image", "node20");
+
+    fireEvent.click(screen.getByRole("button", { name: "Closure" }));
+    fireEvent.change(screen.getByLabelText("commands"), { target: { value: "sh 'npm ci'\njunit '**/*.xml'" } });
+
+    expect(code()).toContain("commands: {");
+    expect(code()).toContain("sh 'npm ci'");
+    expect(code()).not.toContain("commands: ['sh");
+  });
+
+  it("gives each list entry its own box, added with Enter and removed with Backspace", () => {
+    const { code } = renderView();
+    addStage("Gen stage");
+    setArg("title", "Build");
+    setArg("image", "node20");
+
+    setList("commands", ["npm ci", "npm test"]);
+    expect(code()).toContain("commands: [\n        'npm ci',\n        'npm test'\n    ]");
+
+    // An empty box is not a mistake to be swept up under the cursor — it stays
+    // until Backspace takes it, and the generator is what drops it.
+    fireEvent.keyDown(screen.getByLabelText("commands 2"), { key: "Enter" });
+    expect(screen.getByLabelText("commands 3")).toHaveValue("");
+    expect(code()).toContain("commands: [\n        'npm ci',\n        'npm test'\n    ]");
+
+    fireEvent.keyDown(screen.getByLabelText("commands 3"), { key: "Backspace" });
+    expect(screen.queryByLabelText("commands 3")).toBeNull();
+  });
+
+  it("splits a multi-line paste across boxes instead of joining it into one", () => {
+    const { code } = renderView();
+    addStage("Gen stage");
+    setArg("title", "Build");
+    setArg("image", "node20");
+
+    fireEvent.paste(screen.getByLabelText("commands"), {
+      clipboardData: { getData: () => "mvn -B package\nmvn -B verify" },
+    });
+    expect(code()).toContain("commands: [\n        'mvn -B package',\n        'mvn -B verify'\n    ]");
+  });
+
+  it("drops an argument when the last entry of it is removed", () => {
+    renderView();
+    addStage("Gen stage");
+
+    fireEvent.click(screen.getByRole("button", { name: "Add customPVC" }));
+    expect(screen.getByLabelText("customPVC #1 claimName")).toBeInTheDocument();
+
+    // The one entry is the argument: taking it away stops using customPVC,
+    // rather than leaving the same blank row behind.
+    fireEvent.click(screen.getByRole("button", { name: "Remove customPVC #1" }));
+    expect(screen.queryByLabelText("customPVC #1 claimName")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add customPVC" })).toBeInTheDocument();
+  });
+
+  it("shows the open pipeline's name and renames it in the list too", async () => {
+    renderView();
+    await act(async () => {});
+
+    // Opening a saved pipeline puts its name in the bar.
+    fireEvent.click(screen.getByText("Alex Morgan #1"));
+    // Shown as text first — the heading, not a field.
+    expect(screen.getByRole("heading", { name: "Alex Morgan #1" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Rename this pipeline" }));
+    const title = screen.getByLabelText("Pipeline name");
+    expect(title).toHaveValue("Alex Morgan #1");
+    fireEvent.change(title, { target: { value: "Checkout release" } });
+    await settle();
+    await waitFor(() => expect(updatePipeline).toHaveBeenCalled());
+    expect((updatePipeline.mock.calls[0][1] as { name: string }).name).toBe("Checkout release");
+    // The side list is the same record, so it follows.
+    await waitFor(() => expect(screen.getByText("Checkout release")).toBeTruthy());
+  });
+
+  it("reopens the pipeline it was left on", async () => {
+    const first = renderView();
+    await act(async () => {});
+    fireEvent.click(screen.getByText("Alex Morgan #1"));
+    first.unmount();
+
+    // A refresh remounts the view; the last pipeline opened comes back with it.
+    renderView();
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Alex Morgan #1" })).toBeTruthy());
+  });
+
+  it("keeps typing in the name field over a slow save's response", async () => {
+    renderView();
+    await act(async () => {});
+    addStage("Gen stage");
+
+    fireEvent.click(screen.getByRole("button", { name: "Rename this pipeline" }));
+    fireEvent.change(screen.getByLabelText("Pipeline name"), { target: { value: "Mine" } });
+    await settle();
+    await waitFor(() => expect(createPipeline).toHaveBeenCalled());
+    // The response carries the stored name; what is in the field wins.
+    expect(screen.getByLabelText("Pipeline name")).toHaveValue("Mine");
+  });
+
+  it("asks whether to start empty or import, and imports a pasted Jenkinsfile", async () => {
+    const { code } = renderView();
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole("button", { name: /New/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Import an existing Jenkinsfile/ }));
+    fireEvent.change(screen.getByLabelText("Or paste it here"), {
+      target: {
+        value: `@Library('jenkins-k8s-shared-library@main') _
+
+genStage(title: 'Build', image: 'python311', commands: ['npm ci'])`,
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+
+    // The cards are the file: the stage is on screen and the preview matches.
+    expect(screen.getByDisplayValue("python311")).toBeTruthy();
+    expect(code()).toContain("@Library('jenkins-k8s-shared-library@main') _");
+    expect(code()).toContain("genStage(");
+    expect(code()).toContain("'npm ci'");
+  });
+
+  it("says what it could not read before importing, and imports the rest anyway", async () => {
+    const { code } = renderView();
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole("button", { name: /New/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Import an existing Jenkinsfile/ }));
+    fireEvent.change(screen.getByLabelText("Or paste it here"), {
+      target: {
+        value: "genStage(title: 'Build', image: 'ubi8')\nparallel(a: { sleep(time: 1) }, b: { echo 'x' })\nparallel(c: { sleep(time: 2) }, d: { echo 'x' })",
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+    // Held back once — a stage that vanishes without a word is worse than one
+    // the user has to re-add by hand. The skipped Groovy is shown as code, and
+    // skipped twice it is listed twice.
+    expect(screen.getAllByText("echo 'x'").map((e) => e.tagName)).toEqual(["CODE", "CODE"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Import anyway" }));
+    expect(code()).toContain("genStage(");
+    expect(code()).not.toContain("echo 'x'");
+  });
+
+  it("adds Groovy between two stages and writes it there as typed", async () => {
+    const { code } = renderView();
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: /New/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Import an existing Jenkinsfile/ }));
+    fireEvent.change(screen.getByLabelText("Or paste it here"), {
+      target: { value: "sleep(time: 1)\nsleep(time: 2)" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+
+    fireEvent.click(screen.getByRole("button", { name: /Add stage/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Groovy" }));
+    fireEvent.change(screen.getByLabelText("Groovy"), { target: { value: "if (isRelease) {\n    notify('go')\n}" } });
+    expect(code()).toContain("sleep(time: 2)\n\nif (isRelease) {\n    notify('go')\n}");
+  });
+
+  it("connects a repository, builds from its Jenkinsfile and commits back to it", async () => {
+    const { code } = renderView();
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole("button", { name: /New/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Connect a repository/ }));
+    fireEvent.change(screen.getByLabelText(/Repository URL/), {
+      target: { value: "git@github.com:org/checkout-service.git" },
+    });
+    // The SSH form is rewritten before it is sent — the portal holds a token,
+    // not a key, and the field says so as you type.
+    expect(screen.getByText(/becomes/)).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    });
+
+    expect(pullJenkinsfile).toHaveBeenCalledWith("https://github.com/org/checkout-service.git", "main", "");
+    // The file is the pipeline now: its stage is on screen and in the preview.
+    expect(code()).toContain("genStage(");
+    // And the panel names the repo it came from, including the path the server
+    // found rather than the empty one that was sent.
+    expect(screen.getByText("ci/Jenkinsfile")).toBeTruthy();
+    expect(screen.getByText(/checkout-service/)).toBeTruthy();
+
+    // The connection is saved with the pipeline, which is what Commit pushes to.
+    await settle();
+    expect(createPipeline.mock.calls[0][0]).toMatchObject({
+      repo: { repoUrl: "https://github.com/org/checkout-service.git", revision: "main", path: "ci/Jenkinsfile" },
+    });
+
+    // One more edit, then Commit straight away: the push writes the *stored*
+    // pipeline, so the pending autosave has to land first or the commit is a
+    // keystroke behind.
+    fireEvent.click(screen.getByRole("button", { name: "Add stage" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Sonar scan" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Commit/ }));
+    });
+
+    expect(updatePipeline).toHaveBeenCalled();
+    const [, committed] = pushPipeline.mock.calls[0] as unknown as [string, string];
+    expect(committed).toContain("sonarStage");
+    expect(committed).toBe(code());
+    // The pull request is a link, not a sentence to copy out of a log.
+    expect(screen.getByRole("link", { name: /Open the pull request/ })).toHaveAttribute(
+      "href",
+      "https://github.com/org/checkout-service/pull/7"
+    );
+  });
+
+  it("says why the repository buttons cannot work when no credential is configured", async () => {
+    // The choice stays visible and explains itself — vanishing would leave the
+    // feature undiscoverable and the reason unknowable.
+    listPipelines.mockResolvedValueOnce({ pipelines: [], sharedLibrary: "", gitEnabled: false });
+    renderView();
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole("button", { name: /New/ }));
+    expect(screen.getByRole("button", { name: /Connect a repository/ })).toBeDisabled();
+  });
+
+  it("starts an empty pipeline when that is the choice", async () => {
+    const { code } = renderView();
+    await act(async () => {});
+    addStage("Gen stage");
+    expect(code()).toContain("genStage(");
+
+    fireEvent.click(screen.getByRole("button", { name: /New/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Start from scratch/ }));
+    expect(code()).toBe("");
+  });
+
+  it("drops a list of images, each with its labels beside it", async () => {
+    renderView();
+    // The list arrives from its own request, so let that resolve first.
+    await act(async () => {});
+    addStage("Gen stage");
+
+    expect(screen.queryByRole("listbox")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show images" }));
+
+    const options = screen.getAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual(["python311JDK=17", "ubi8OS=ubi8"]);
+    fireEvent.pointerDown(options[1]);
+    expect((screen.getByLabelText("image") as HTMLInputElement).value).toBe("ubi8");
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("filters the list as you type, and still takes an image that is not on it", async () => {
+    renderView();
+    await act(async () => {});
+    addStage("Gen stage");
+
+    const image = screen.getByLabelText("image");
+    fireEvent.change(image, { target: { value: "py" } });
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["python311JDK=17"]);
+
+    // Free text: an image nobody has published still goes through to the file.
+    fireEvent.change(image, { target: { value: "something-else" } });
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect((screen.getByLabelText("image") as HTMLInputElement).value).toBe("something-else");
+  });
+
+  it("picks off the list with the keyboard", async () => {
+    renderView();
+    await act(async () => {});
+    addStage("Gen stage");
+
+    const image = screen.getByLabelText("image");
+    fireEvent.keyDown(image, { key: "ArrowDown" });
+    fireEvent.keyDown(image, { key: "ArrowDown" });
+    fireEvent.keyDown(image, { key: "Enter" });
+    expect((image as HTMLInputElement).value).toBe("ubi8");
+  });
+
+  it("offers only what an earlier stage stashed to unstash", () => {
+    renderView();
+    addStage("Gen stage");
+    setArg("title", "Build");
+    setArg("image", "node20");
+    fireEvent.click(screen.getByRole("button", { name: "Add stash" }));
+    fireEvent.change(screen.getByLabelText("stash key 1"), { target: { value: "ByteCode" } });
+    fireEvent.change(screen.getByLabelText("stash value 1"), { target: { value: "**/target/**" } });
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Build" }));
+
+    addStage("Gen stage");
+    fireEvent.click(screen.getByRole("button", { name: "Add unstash" }));
+    // The stash belongs to the stage before it, so it is on offer here.
+    fireEvent.click(screen.getByLabelText("unstash ByteCode"));
+    expect(screen.getByLabelText("unstash ByteCode")).toBeChecked();
+  });
+
+  it("adds the @Library line only when asked, and only takes a branch", () => {
+    const { code } = renderView();
+    fireEvent.click(screen.getByRole("button", { name: /Pipeline options/ }));
+    expect(code()).not.toContain("@Library");
+
+    fireEvent.click(screen.getByRole("button", { name: /Import the shared library/ }));
+    expect(code()).toContain("@Library('jenkins-k8s-shared-library') _");
+
+    fireEvent.change(screen.getByLabelText("jenkins-k8s-shared-library"), { target: { value: "dev-v2" } });
+    expect(code()).toContain("@Library('jenkins-k8s-shared-library@dev-v2') _");
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove the shared library import" }));
+    expect(code()).not.toContain("@Library");
+  });
+
+  it("offers all five parameter types, and writes the one picked", () => {
+    const { code } = renderView();
+    fireEvent.click(screen.getByRole("button", { name: /Pipeline options/ }));
+
+    fireEvent.click(screen.getByRole("button", { name: /Add pipeline parameters/ }));
+    expect(
+      [...screen.getByLabelText("Parameter 1 type").querySelectorAll("option")].map((o) => o.value)
+    ).toEqual(["boolean", "string", "text", "choice", "password"]);
+
+    fireEvent.change(screen.getByLabelText("Parameter 1 name"), { target: { value: "target" } });
+    fireEvent.change(screen.getByLabelText("Parameter 1 type"), { target: { value: "choice" } });
+    fireEvent.change(screen.getByLabelText("Parameter 1 choices"), { target: { value: "dev\nprod" } });
+
+    expect(code()).toContain("choice(name: 'target', choices: ['dev', 'prod'], description: '')");
+  });
+});

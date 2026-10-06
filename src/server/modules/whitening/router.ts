@@ -1,14 +1,16 @@
 import express from "express";
 import multer from "multer";
 import { isAdmin } from "../../auth";
-import type { WhiteningApi } from "../../types";
+import { config } from "../../config";
+import { WHITENING_SCENARIOS } from "./devSimulation";
+import type { WhiteningApi, WhiteningScenario } from "../../types";
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB — packs include dependencies + image tars
 });
 
-const ARCHIVE_NAME = /\.(tgz|tar\.gz)$/i;
+const ARCHIVE_NAME = /\.(tgz|tar\.gz|zip)$/i;
 
 export function createWhiteningRouter(api: WhiteningApi): express.Router {
   const router = express.Router();
@@ -21,7 +23,7 @@ export function createWhiteningRouter(api: WhiteningApi): express.Router {
         return;
       }
       if (!ARCHIVE_NAME.test(file.originalname)) {
-        res.status(400).json({ error: "file must be a .tgz" });
+        res.status(400).json({ error: "file must be a .tgz or .zip" });
         return;
       }
       let job;
@@ -33,6 +35,62 @@ export function createWhiteningRouter(api: WhiteningApi): express.Router {
         return;
       }
       res.status(201).json({ job });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Dev only — the Test button. Never mounted behind an SSO proxy.
+  if (!config.ssoRequired) {
+    router.post("/api/whitening/jobs/simulate", async (req, res, next) => {
+      try {
+        const requested = req.body?.scenario as WhiteningScenario | undefined;
+        const scenario = WHITENING_SCENARIOS.includes(requested!) ? requested : undefined;
+        res.status(201).json({ job: await api.simulate(req.user!, scenario) });
+      } catch (err) {
+        next(err);
+      }
+    });
+  }
+
+  router.post("/api/whitening/jobs/:id/cancel", async (req, res, next) => {
+    try {
+      const job = await api.cancelJob(req.params.id, req.user!, isAdmin(req.user!));
+      if (!job) {
+        res.status(404).json({ error: "Job not found" });
+        return;
+      }
+      res.json({ job });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post("/api/whitening/jobs/:id/preserve", async (req, res, next) => {
+    try {
+      const keep = req.body?.keep;
+      if (!Array.isArray(keep) || keep.some((p) => typeof p !== "string")) {
+        res.status(400).json({ error: "keep must be an array of paths" });
+        return;
+      }
+      const job = await api.resolvePreserve(req.params.id, keep, req.user!, isAdmin(req.user!));
+      if (!job) {
+        res.status(404).json({ error: "Job is not waiting for a preserve decision" });
+        return;
+      }
+      res.json({ job });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.delete("/api/whitening/jobs/:id", async (req, res, next) => {
+    try {
+      if (!(await api.deleteJob(req.params.id, req.user!, isAdmin(req.user!)))) {
+        res.status(404).json({ error: "Job not found" });
+        return;
+      }
+      res.json({ ok: true });
     } catch (err) {
       next(err);
     }

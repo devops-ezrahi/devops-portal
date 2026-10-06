@@ -1,5 +1,5 @@
-import { request, requestFormData } from "../../api";
-import type { ArtifactoryJob, UrlCopyInput } from "../../../server/types";
+import { request } from "../../api";
+import type { ArtifactoryJob, ArtifactoryScenario, UrlCopyInput } from "../../../server/types";
 
 export type FileEntry = { file: File; path: string };
 
@@ -10,16 +10,44 @@ export function submitUrlCopy(input: UrlCopyInput) {
   });
 }
 
-export function submitFolderUpload(folderName: string, entries: FileEntry[]) {
-  const formData = new FormData();
-  formData.append("folderName", folderName);
+/**
+ * A folder upload is three calls, not one. The archive is sent in parts *while*
+ * it is still being zipped — the two used to run one after the other, so the
+ * user waited for the sum of them, and the whole archive had to exist in the
+ * tab before a single byte moved.
+ *
+ * A `ReadableStream` request body would express this in one call, but it is
+ * Chrome-only and needs HTTP/2, which `npm run dev` does not serve.
+ */
+export function beginFolderUpload() {
+  return request<{ uploadId: string }>("/api/artifactory/uploads", { method: "POST" });
+}
 
-  for (const { file, path } of entries) {
-    // Third arg sets the filename in the multipart part — server reads it as originalname
-    formData.append("files", file, path);
-  }
+/**
+ * `offset` is where this part belongs in the archive, and the server writes it
+ * there rather than appending — several parts are in flight at once, so they do
+ * not arrive in order. `completeFolderUpload` is what checks the result is whole.
+ */
+export function uploadArchivePart(uploadId: string, offset: number, part: Blob) {
+  return request<{ bytes: number }>(`/api/artifactory/uploads/${uploadId}?offset=${offset}`, {
+    method: "PUT",
+    body: part,
+    headers: { "Content-Type": "application/octet-stream" },
+  });
+}
 
-  return requestFormData<{ job: ArtifactoryJob }>("/api/artifactory/jobs/folder-upload", formData);
+export function completeFolderUpload(input: {
+  uploadId: string;
+  folderName: string;
+  fileCount: number;
+  totalBytes: number;
+  /** The zipped size the tab sent, checked against the file the server ended up with. */
+  archiveBytes: number;
+}) {
+  return request<{ job: ArtifactoryJob }>("/api/artifactory/jobs/folder-upload", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export function listJobs() {
@@ -28,4 +56,20 @@ export function listJobs() {
 
 export function getJob(id: string) {
   return request<{ job: ArtifactoryJob }>(`/api/artifactory/jobs/${id}`);
+}
+
+export function cancelJob(id: string) {
+  return request<{ job: ArtifactoryJob }>(`/api/artifactory/jobs/${id}/cancel`, { method: "POST" });
+}
+
+export function deleteJob(id: string) {
+  return request<{ ok: true }>(`/api/artifactory/jobs/${id}`, { method: "DELETE" });
+}
+
+/** Dev only — the server route exists only when SSO is off. */
+export function simulateJob(scenario: ArtifactoryScenario) {
+  return request<{ job: ArtifactoryJob }>("/api/artifactory/jobs/simulate", {
+    method: "POST",
+    body: JSON.stringify({ scenario }),
+  });
 }

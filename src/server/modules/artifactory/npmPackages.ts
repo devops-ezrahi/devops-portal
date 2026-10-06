@@ -1,0 +1,338 @@
+import { execFile } from "child_process";
+import { mkdir, readFile, readdir } from "fs/promises";
+import { basename, join } from "path";
+import { promisify } from "util";
+import { config } from "../../config";
+import type { PackageType, PackageUploadResult } from "../../types";
+import { exists, listExisting, nativeUrl, upload, webUrl } from "./artifactoryRest";
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * HEAD is cheap (no body transfer, metadata lookup only) — the ceiling is
+ * Artifactory's own request handling, not this pod. PUT streams real bytes and
+ * costs Artifactory real write-path work, so kept more conservative: past a
+ * point more concurrency just fragments the same egress bandwidth.
+ *
+ * ponytail: informed guesses, not measured optima. Tune against real hardware.
+ */
+const EXISTS_CONCURRENCY = 32;
+const UPLOAD_CONCURRENCY = 8;
+
+/**
+ * Below this many npm items, ask per package instead of listing the repo. The
+ * bulk listing is one request either way, but `?list&deep=1` makes Artifactory
+ * walk the *whole* npm repo — cheap against a 3,000-package node_modules,
+ * pointlessly expensive (and slow on a large repo) to check three tarballs.
+ */
+const BULK_LIST_THRESHOLD = 25;
+
+export type DiscoveredPackage = {
+  dir: string;
+  name: string;
+  version: string;
+};
+
+/**
+ * Run `fn` over `items` with at most `limit` in flight. Every worker pulls from
+ * one shared iterator, so a slow item never blocks the others.
+ */
+export async function pool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  const iterator = items[Symbol.iterator]();
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (const item of iterator) await fn(item);
+  });
+  await Promise.all(workers);
+}
+
+/**
+ * Repo-relative npm registry path. The filename drops the scope — `@babel/core`
+ * publishes as `@babel/core/-/core-7.0.0.tgz`, not `.../@babel/core-7.0.0.tgz`.
+ */
+export function targetPath(name: string, version: string): string {
+  const filename = `${name.split("/").pop()}-${version}.tgz`;
+  return `${config.artifactory.npmRepo}/${name}/-/${filename}`;
+}
+
+/**
+ * Every directory under `root` holding a usable package.json. One recursive walk
+ * covers all the shapes a user can drop: a bare node_modules, a single package,
+ * scoped `@scope/name`, and nested `node_modules/a/node_modules/b`.
+ *
+ * One entry per *directory*, duplicates included — the caller needs the full
+ * list to tell which files on disk belong to a package at all. Deciding what to
+ * upload out of it is `uniquePackages`.
+ */
+export async function discoverPackages(
+  root: string,
+  onSkip: (message: string) => void = () => {}
+): Promise<DiscoveredPackage[]> {
+  const found: DiscoveredPackage[] = [];
+
+  async function walk(dir: string) {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    const hasManifest = entries.some((e) => e.isFile() && e.name === "package.json");
+    if (hasManifest) {
+      const manifestPath = join(dir, "package.json");
+      try {
+        const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+        if (typeof manifest.name === "string" && typeof manifest.version === "string") {
+          found.push({ dir, name: manifest.name, version: manifest.version });
+        } else {
+          onSkip(`Skipping ${basename(dir)}: package.json has no name/version.`);
+        }
+      } catch (err) {
+        onSkip(`Skipping ${basename(dir)}: unreadable package.json (${err instanceof Error ? err.message : String(err)}).`);
+      }
+    }
+
+    if (hasManifest) {
+      // Once a directory is a package, the only place another *distinct*
+      // package can legitimately live inside it is its own node_modules —
+      // src/, dist/, test/, examples/ etc. are that package's own content,
+      // not dependencies, and walking into them risks picking up an
+      // unrelated package.json (a bundled example app, a test fixture) as if
+      // it were something to publish.
+      const nodeModules = entries.find(
+        (e) => e.isDirectory() && e.name === "node_modules" && !e.isSymbolicLink()
+      );
+      if (nodeModules) await walk(join(dir, "node_modules"));
+      return;
+    }
+
+    // Not a package itself (e.g. a bare node_modules root or a `@scope`
+    // folder) — keep looking through every subdirectory for one that is.
+    for (const entry of entries) {
+      if (entry.isDirectory() && !entry.isSymbolicLink()) await walk(join(dir, entry.name));
+    }
+  }
+
+  await walk(root);
+  return found;
+}
+
+/**
+ * One package per `name@version`, however many copies of it are on disk. npm
+ * nests a second copy of the *same* version wherever hoisting cannot reach a
+ * dependent — this repo's own node_modules is 884 package directories for 799
+ * packages — and every copy packs to the same tarball at the same target path,
+ * so keeping them all means packing, checking and PUTting the identical file two
+ * or three times. A nested copy of a *different* version is a different package
+ * and is kept.
+ *
+ * Deliberately not folded into `discoverPackages`: the directories dropped here
+ * are still package directories, and a caller that treats them as anything else
+ * reports every file inside them as an unrelated loose file.
+ */
+export function uniquePackages(
+  packages: DiscoveredPackage[],
+  onSkip: (message: string) => void = () => {}
+): DiscoveredPackage[] {
+  const unique = new Map<string, DiscoveredPackage>();
+  for (const pkg of packages) {
+    const key = `${pkg.name}@${pkg.version}`;
+    if (!unique.has(key)) unique.set(key, pkg);
+  }
+
+  const dropped = packages.length - unique.size;
+  // Said out loud because the number on screen is otherwise smaller than the
+  // number of package folders the user knows they dropped.
+  if (dropped > 0) {
+    onSkip(`Ignoring ${dropped} duplicate copies of packages already found (same name and version).`);
+  }
+  return [...unique.values()];
+}
+
+/**
+ * Build `<name>-<version>.tgz` with the `package/` prefix npm expects.
+ *
+ * GNU tar only: `--transform` renames the members on the way in, so nothing is
+ * copied first. Nested node_modules is excluded, matching what `npm pack`
+ * publishes. (bsdtar spells the same thing `-s`; the image ships GNU tar, and
+ * every other tar call here already assumes it.)
+ *
+ * ponytail: one gzip per package, at tar's default level. Reach for a tar
+ * library only if the spawn itself ever shows up in a profile.
+ */
+async function packPackage(pkg: DiscoveredPackage, stageRoot: string, index: number): Promise<string> {
+  const stage = join(stageRoot, String(index));
+  await mkdir(stage, { recursive: true });
+
+  const filename = `${pkg.name.split("/").pop()}-${pkg.version}.tgz`;
+  const tgz = join(stage, filename);
+  try {
+    // Straight out of the package directory. This used to `cp -r` the whole
+    // tree into `<stage>/package` first, purely so the archive would carry the
+    // `package/` prefix npm expects — which wrote every byte of a
+    // multi-gigabyte node_modules to disk a second time before compressing it.
+    // --transform renames the entries on the way into the archive instead, and
+    // --exclude drops the nested node_modules the copy's `filter` did.
+    await execFileAsync(
+      "tar",
+      [
+        "-czf",
+        tgz,
+        "-C",
+        pkg.dir,
+        "--exclude=./node_modules",
+        // The trailing `S` turns the rewrite off for symlink *targets*: GNU
+        // tar applies a transform to those by default, so `.bin/x -> ./cli.js`
+        // came out pointing at `package/cli.js`, which resolves to nothing.
+        "--transform=s,^\\./,package/,S",
+        "--transform=s,^\\.$,package,S",
+        ".",
+      ],
+      { cwd: stage, maxBuffer: 10 * 1024 * 1024 }
+    );
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException & { stderr?: string };
+    if (e.code === "ENOENT") throw new Error("tar not found — ensure it is on PATH");
+    throw new Error((e.stderr || e.message || "tar failed").toString().trim());
+  }
+  return tgz;
+}
+
+export type UploadItem = {
+  /** Repo-relative target, repo prefix included. */
+  path: string;
+  name: string;
+  version: string;
+  type: PackageType;
+  /** The local file to PUT. Only called once the target is known to be absent. */
+  resolve: () => Promise<string>;
+};
+
+/**
+ * Upload every item the repo does not already have. Shared by all package types:
+ * npm resolves to a freshly packed tarball, everything else to the file the user
+ * already gave us. `signal` is both checked between items and handed to each
+ * request, so Stop drops the transfer in flight rather than waiting it out.
+ */
+export async function uploadFiles(
+  items: UploadItem[],
+  onLog: (line: string) => void,
+  onProgress: (done: number, total: number) => void,
+  signal?: AbortSignal
+): Promise<PackageUploadResult[]> {
+  // Nested node_modules legitimately holds the same name@version more than once.
+  const unique = [...new Map(items.map((item) => [item.path, item])).values()];
+
+  const results: PackageUploadResult[] = unique.map((item) => ({
+    name: item.name,
+    version: item.version,
+    path: item.path,
+    type: item.type,
+    status: "failed",
+    error: "not processed",
+  }));
+
+  onLog(`Checking ${unique.length} package(s) against Artifactory ...`);
+
+  const todo: { item: UploadItem; result: PackageUploadResult }[] = [];
+  const markExisting = (result: PackageUploadResult) => {
+    result.status = "exists";
+    delete result.error;
+    result.url = webUrl(result.path);
+    result.nativeUrl = nativeUrl(result.path);
+  };
+
+  // npm packages all publish under one repo (see targetPath above), so one
+  // bulk listing replaces what would otherwise be one HEAD per package — the
+  // biggest win on a repeat upload of the same tree, where almost everything
+  // already exists. Non-npm items can span different repos, so they always
+  // keep the per-item HEAD check below; npm items fall back to it too if the
+  // listing itself is not usable.
+  const indexed = unique.map((item, index) => ({ item, index }));
+  const npmEntries = indexed.filter(({ item }) => item.type === "npm");
+  const existingNpm =
+    npmEntries.length >= BULK_LIST_THRESHOLD
+      ? await listExisting(config.artifactory.npmRepo, signal)
+      : null;
+
+  if (existingNpm) {
+    for (const { item, index } of npmEntries) {
+      if (signal?.aborted) break;
+      const result = results[index];
+      if (existingNpm.has(result.path)) markExisting(result);
+      else todo.push({ item, result });
+    }
+  }
+
+  const toCheck = existingNpm ? indexed.filter(({ item }) => item.type !== "npm") : indexed;
+  await pool(toCheck, EXISTS_CONCURRENCY, async ({ item, index }) => {
+    if (signal?.aborted) return;
+    const result = results[index];
+    const present = await exists(result.path, signal);
+    if (present === true) {
+      markExisting(result);
+    } else {
+      // `null` means we could not tell — upload rather than silently skip.
+      todo.push({ item, result });
+    }
+  });
+
+  const skipped = unique.length - todo.length;
+  if (skipped > 0) onLog(`${skipped} package(s) already in the repo — skipping.`);
+
+  let done = skipped;
+  onProgress(done, unique.length);
+
+  await pool(todo, UPLOAD_CONCURRENCY, async ({ item, result }) => {
+    if (signal?.aborted) return;
+    try {
+      await upload(result.path, await item.resolve(), signal);
+      result.status = "uploaded";
+      delete result.error;
+      result.url = webUrl(result.path);
+      result.nativeUrl = nativeUrl(result.path);
+      onLog(`Uploaded ${result.name}@${result.version}`);
+    } catch (err) {
+      result.status = "failed";
+      result.error = err instanceof Error ? err.message : String(err);
+      onLog(`Failed ${result.name}@${result.version}: ${result.error}`);
+    } finally {
+      onProgress(++done, unique.length);
+    }
+  });
+
+  return results;
+}
+
+/** npm items for `uploadFiles` — packing is deferred until the upload is needed. */
+export function npmUploadItems(packages: DiscoveredPackage[], stageRoot: string): UploadItem[] {
+  return packages.map((pkg, index) => ({
+    path: targetPath(pkg.name, pkg.version),
+    name: pkg.name,
+    version: pkg.version,
+    type: "npm" as const,
+    resolve: () => packPackage(pkg, stageRoot, index),
+  }));
+}
+
+/**
+ * Pack and upload every discovered package to the npm registry layout, skipping
+ * what the repo already has. Shared by the Artifactory upload module and
+ * Whitening's dependency step.
+ */
+export async function packAndUpload(
+  packages: DiscoveredPackage[],
+  stageRoot: string,
+  onLog: (line: string) => void,
+  onProgress: (done: number, total: number) => void,
+  signal?: AbortSignal
+): Promise<PackageUploadResult[]> {
+  return uploadFiles(npmUploadItems(packages, stageRoot), onLog, onProgress, signal);
+}
+
+/** `arg@4.1.5` for one package, `node_modules (142 packages)` for many. */
+export function jobName(packages: DiscoveredPackage[], fallback: string): string {
+  if (packages.length === 0) return fallback;
+  if (packages.length === 1) return `${packages[0].name}@${packages[0].version}`;
+  return `${fallback} (${packages.length} packages)`;
+}

@@ -1,5 +1,9 @@
 import type { NextFunction, Request, Response } from "express";
+import { mkdirSync, readFileSync } from "fs";
+import { join } from "path";
 import { config } from "./config";
+import { writeJsonAtomic } from "./jobStore";
+import { log } from "./log";
 import type { AssigneeCandidate, PortalUser } from "./types";
 
 declare global {
@@ -12,6 +16,40 @@ declare global {
 
 function readHeader(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
+}
+
+/**
+ * Node parses header bytes as latin-1, so a UTF-8 name — Hebrew, Cyrillic,
+ * anything accented — arrives mojibaked ("×“×‘×™" rather than "דבי").
+ * Reinterpreting the same bytes as UTF-8 recovers it.
+ *
+ * Only applied when the value actually contains high bytes and decodes without
+ * a replacement character, so a name that really is latin-1 is left untouched
+ * rather than mangled the other way.
+ */
+export function decodeHeaderText(value: string): string {
+  if (!/[-ÿ]/.test(value)) return value;
+  const decoded = Buffer.from(value, "latin1").toString("utf8");
+  return decoded.includes("�") ? value : decoded;
+}
+
+/**
+ * Decode a JWT payload without verifying it — oauth2-proxy already verified
+ * the signature before ever setting X-Forwarded-Access-Token, so reading a
+ * claim back out of it sits on the same trust boundary the header-based path
+ * already relied on. Payloads are base64url, so they never touch Node's
+ * latin1 header parsing — this sidesteps the mojibake problem entirely
+ * instead of reconstructing bytes after the fact.
+ */
+export function decodeJwtPayload(token: string): Record<string, unknown> {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return {};
+    const payload = Buffer.from(parts[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    return JSON.parse(payload);
+  } catch {
+    return {};
+  }
 }
 
 // oauth2-proxy comma-joins multiple groups into one X-Forwarded-Groups
@@ -46,20 +84,49 @@ export function userFromSsoHeaders(req: Request): PortalUser | null {
     readHeader(req.headers["x-forwarded-email"]) ??
     readHeader(req.headers["x-user-email"]) ??
     `${id}@example.com`;
-  const displayName =
-    readHeader(req.headers["x-forwarded-preferred-username"]) ??
-    readHeader(req.headers["x-user-name"]) ??
-    id;
+  // oauth2-proxy forwards the access token via X-Forwarded-Access-Token (when
+  // configured with pass_access_token) — it already verified the token's
+  // signature, so reading the `name` claim straight out of the payload is
+  // trustworthy and, unlike every header path below, never passes through
+  // Node's latin1 header decoding that mojibakes non-ASCII names. Tried
+  // first for that reason; the header-based attempts remain as fallbacks for
+  // proxies that don't forward the token.
+  const accessToken = readHeader(req.headers["x-forwarded-access-token"]);
+  const claims = accessToken ? decodeJwtPayload(accessToken) : {};
+  const nameFromToken = claims.name;
+  // ?? only skips null/undefined, not "" — an IdP that sends an empty `name`
+  // claim would otherwise win the chain and blank the display name instead
+  // of falling through, so that case is filtered out explicitly here.
+  const trimmedNameFromToken = typeof nameFromToken === "string" && nameFromToken.trim() ? nameFromToken : undefined;
+  // SSO_NAME_HEADER next, so a deployment can point at whichever header its
+  // proxy carries the IdP's `name` claim in — oauth2-proxy's own passthrough
+  // header name differs by configuration, and the claim is a person's full
+  // name rather than the username the two fallbacks below hold.
+  const displayName = decodeHeaderText(
+    trimmedNameFromToken ??
+      (config.ssoNameHeader ? readHeader(req.headers[config.ssoNameHeader]) : undefined) ??
+      readHeader(req.headers["x-forwarded-preferred-username"]) ??
+      readHeader(req.headers["x-user-name"]) ??
+      id
+  );
   const rawGroups =
     readHeader(req.headers["x-forwarded-groups"]) ??
     readHeader(req.headers["x-user-groups"]) ??
     "";
+  // `id` is whatever the IdP calls a subject, and under Keycloak that is a
+  // `sub` UUID no downstream system has ever heard of. The username claim is
+  // the handle Jira and Bitbucket know the person by, so it is carried
+  // alongside the id rather than derived from it.
+  const username =
+    readHeader(req.headers["x-forwarded-preferred-username"]) ??
+    (typeof claims.preferred_username === "string" ? claims.preferred_username : undefined);
 
   return {
     id,
     email,
     displayName,
     groups: parseGroups(rawGroups),
+    username,
   };
 }
 
@@ -68,7 +135,15 @@ export async function requireSession(req: Request, res: Response, next: NextFunc
 
   if (!user) {
     if (config.ssoRequired) {
-      res.status(401).json({ error: "Authentication required", ssoUrl: config.ssoUrl });
+      // The proxy is meant to inject these; arriving without them means the
+      // request bypassed it or the proxy is misconfigured — name the headers
+      // that were actually present so it is debuggable from the pod log alone.
+      log.warn("auth", "401 — no SSO headers on the request", {
+        id: req.id,
+        route: `${req.method} ${req.originalUrl}`,
+        headers: Object.keys(req.headers).filter((h) => h.startsWith("x-")).join(",") || "(none)",
+      });
+      res.status(401).json({ error: "Authentication required", ssoUrl: config.ssoUrl, requestId: req.id });
       return;
     }
     // Dev fallback: synthesize a user so the app works without an SSO proxy
@@ -86,11 +161,32 @@ export async function requireSession(req: Request, res: Response, next: NextFunc
     const userGroups = req.user!.groups;
     const allowed = config.allowedGroups.some((g) => userGroups.includes(g));
     if (!allowed) {
-      res.status(403).json({ error: "Access denied: your group is not permitted to use this portal" });
+      // Both sides of the comparison, because this is nearly always a mismatch
+      // between ALLOWED_GROUPS and what the IdP actually sends (DN vs. CN,
+      // wrong realm, group not mapped into the token) rather than a real denial.
+      log.warn("auth", "403 — user is in none of ALLOWED_GROUPS", {
+        id: req.id,
+        user: req.user!.id,
+        userGroups: userGroups.join("|") || "(none)",
+        allowedGroups: config.allowedGroups.join("|"),
+      });
+      res.status(403).json({
+        error: "Access denied: your group is not permitted to use this portal",
+        requestId: req.id,
+      });
       return;
     }
   }
 
+  if (!knownUsers.has(req.user!.id)) {
+    log.info("auth", "first request from a user the portal has not seen", {
+      id: req.id,
+      user: req.user!.id,
+      name: req.user!.displayName,
+      groups: req.user!.groups.join("|") || "(none)",
+      admin: isAdmin(req.user!),
+    });
+  }
   rememberUser(req.user!);
   next();
 }
@@ -107,16 +203,106 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-// ponytail: self-populating directory (who's logged in since this process
-// started) rather than querying Keycloak's group-membership admin API. Good
-// enough for "pick a ticket owner from the team" on a small roster; the
-// ceiling is that someone who hasn't logged in yet won't show up until they
-// do. Upgrade path: query GET /admin/realms/{realm}/groups/{id}/members via
-// a Keycloak service-account client if that gap ever actually matters.
+// ponytail: self-populating directory (everyone who has ever logged in)
+// rather than querying Keycloak's group-membership admin API. Good enough for
+// "pick a ticket owner from the team" on a small roster; the ceiling is that
+// someone who hasn't logged in yet won't show up until they do. Upgrade path:
+// query GET /admin/realms/{realm}/groups/{id}/members via a Keycloak
+// service-account client if that gap ever actually matters.
+//
+// It is kept in `<DATA_DIR>/users.json` (`loadKnownUsers`), not memory alone:
+// held only in memory, every release emptied the assignee dropdown until each
+// admin happened to open the portal again.
 const knownUsers = new Map<string, PortalUser>();
+// The same people indexed by SSO username, because ids coming back from Jira
+// are usernames while ids coming from the proxy are subject UUIDs, and both
+// arrive at `displayNameFor`. A second index rather than a second entry in
+// `knownUsers`, whose values() feed the assignee dropdown and must stay one
+// row per person.
+const usersByUsername = new Map<string, PortalUser>();
+
+function lookup(id: string) {
+  return knownUsers.get(id) ?? usersByUsername.get(id);
+}
+
+/** Set by `loadKnownUsers`; unset (tests, a bare `createApp()`) keeps the directory in memory only. */
+let usersFile: string | null = null;
+/** One write at a time, so two first logins in one tick cannot interleave temp files and renames. */
+let saving: Promise<void> = Promise.resolve();
+
+function index(user: PortalUser) {
+  knownUsers.set(user.id, user);
+  if (user.username) {
+    usersByUsername.set(user.username, user);
+  }
+}
+
+/**
+ * Read the directory a previous process left in `dataDir`, and keep it there
+ * from now on. A missing file is a first boot; an unreadable one is logged and
+ * the directory starts empty, as it always used to, rather than refusing to boot.
+ */
+export function loadKnownUsers(dataDir: string = config.dataDir) {
+  usersFile = join(dataDir, "users.json");
+  mkdirSync(dataDir, { recursive: true });
+  try {
+    const saved = JSON.parse(readFileSync(usersFile, "utf8")) as PortalUser[];
+    for (const user of saved) if (user?.id) index(user);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      log.error("auth", "could not read the user directory — starting empty", err);
+    }
+  }
+  log.info("auth", "user directory loaded", {
+    file: usersFile,
+    users: knownUsers.size,
+    admins: [...knownUsers.values()].filter(isAdmin).length,
+  });
+}
 
 export function rememberUser(user: PortalUser) {
-  knownUsers.set(user.id, user);
+  const before = knownUsers.get(user.id);
+  index(user);
+  // Called on every request; only a new person or a changed name/group list
+  // is worth a write.
+  if (!usersFile || (before && JSON.stringify(before) === JSON.stringify(user))) return;
+  const file = usersFile;
+  const snapshot = [...knownUsers.values()];
+  saving = saving
+    .then(() => writeJsonAtomic(file, snapshot))
+    .catch((err) => log.error("auth", "could not save the user directory", err));
+}
+
+/**
+ * The portal id for a name a backend handed back — the inverse of
+ * `usernameFor`. Ids the client compares against (its own `/api/me`, the
+ * assignee dropdown) are the proxy's, so identities coming out of Jira are
+ * folded back onto that axis before they leave the router.
+ */
+export function portalIdFor(id: string): string {
+  return lookup(id)?.id || id;
+}
+
+/**
+ * The name a backend that authenticates people itself (Jira, Bitbucket) knows
+ * this user by. Falls back to the id, which is correct whenever the proxy
+ * sends a username as the id in the first place — and is what a caller would
+ * have used anyway.
+ */
+export function usernameFor(id: string): string {
+  return lookup(id)?.username || id;
+}
+
+// The one place a user's name is decided. Ticket records carry a name
+// snapshot taken whenever the assignment was made, which drifts from what
+// /api/me reports — and is an empty string when the assigner's roster didn't
+// have that user, leaving the UI to fall back on the raw id (a Keycloak sub
+// UUID). Resolve against the live directory first so every surface shows the
+// same string; the snapshot is only a fallback for users this process hasn't
+// seen since it started.
+export function displayNameFor(id: string, storedName = ""): string {
+  if (!id) return storedName;
+  return lookup(id)?.displayName || storedName || id;
 }
 
 export function listAdminCandidates(): AssigneeCandidate[] {

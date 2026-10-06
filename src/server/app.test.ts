@@ -57,12 +57,10 @@ describe("portal API", () => {
     const app = createApp();
     const payload = {
       requestType: "ci-cd-pipeline",
+      priority: "High",
       idempotencyKey: "key-123",
       fields: {
         title: "Add smoke tests",
-        application: "portal",
-        repository: "https://git.example.com/portal",
-        environment: "Staging",
         description: "Run smoke tests after deploy"
       }
     };
@@ -84,6 +82,15 @@ describe("portal API", () => {
       .expect(201);
 
     expect(second.body.ticket.id).toBe(first.body.ticket.id);
+    expect(first.body.ticket.priority).toBe("High");
+
+    await request(app)
+      .post("/api/tickets")
+      .set("x-user-id", "u-alex")
+      .set("x-user-name", "Alex Morgan")
+      .set("x-user-groups", "team-alpha")
+      .send({ ...payload, priority: "Urgent", idempotencyKey: "key-124" })
+      .expect(400);
   });
 
   it("adds comments to visible tickets", async () => {
@@ -151,5 +158,44 @@ describe("portal API", () => {
       authorId: "u-admin",
       body: "We reopened this and are investigating the latest failure."
     });
+  });
+
+  it("blocks closing a ticket until story points are recorded", async () => {
+    const app = ticketingApp();
+    const admin = (r: request.Test) =>
+      r.set("x-user-id", "u-admin").set("x-user-name", "Morgan Admin").set("x-user-groups", "portal-admins");
+
+    // DEVOPS-1001 has no story points in the fixture.
+    await admin(request(app).patch("/api/admin/tickets/DEVOPS-1001")).send({ stage: "Closed" }).expect(400);
+
+    // Cancelling is exempt — abandoned work has no effort to estimate.
+    await admin(request(app).patch("/api/admin/tickets/DEVOPS-1001")).send({ stage: "Cancelled" }).expect(200);
+
+    // Points supplied in the same request are enough to let it close.
+    const closed = await admin(request(app).patch("/api/admin/tickets/DEVOPS-1001"))
+      .send({ stage: "Closed", storyPoints: 5 })
+      .expect(200);
+    expect(closed.body.ticket).toMatchObject({ stage: "Closed", storyPoints: 5 });
+
+    // DEVOPS-1003 already carries points, so it closes without resupplying them.
+    await admin(request(app).patch("/api/admin/tickets/DEVOPS-1003")).send({ stage: "Closed" }).expect(200);
+  });
+
+  it("accepts fractional story points but not junk", async () => {
+    const app = ticketingApp();
+    const admin = (r: request.Test) =>
+      r.set("x-user-id", "u-admin").set("x-user-name", "Morgan Admin").set("x-user-groups", "portal-admins");
+
+    const half = await admin(request(app).patch("/api/admin/tickets/DEVOPS-1001"))
+      .send({ storyPoints: 0.5 })
+      .expect(200);
+    expect(half.body.ticket.storyPoints).toBe(0.5);
+
+    // 0.5 is a real estimate, so it satisfies the close gate.
+    await admin(request(app).patch("/api/admin/tickets/DEVOPS-1001")).send({ stage: "Closed" }).expect(200);
+
+    await admin(request(app).patch("/api/admin/tickets/DEVOPS-1002")).send({ storyPoints: -1 }).expect(400);
+    await admin(request(app).patch("/api/admin/tickets/DEVOPS-1002")).send({ storyPoints: 5000 }).expect(400);
+    await admin(request(app).patch("/api/admin/tickets/DEVOPS-1002")).send({ storyPoints: "3" }).expect(400);
   });
 });

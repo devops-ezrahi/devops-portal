@@ -1,3 +1,4 @@
+import { RowDelete } from "../../../RowDelete";
 import type { WhiteningJob, WhiteningJobStatus } from "../../../../server/types";
 
 type Props = {
@@ -5,14 +6,16 @@ type Props = {
   selectedJobId: string | null;
   isAdmin: boolean;
   onSelect: (id: string) => void;
+  onDelete: (id: string) => void;
 };
 
 function statusClass(status: WhiteningJobStatus): string {
   switch (status) {
     case "pending": return "stage stage-submitted";
-    case "in-progress": return "stage stage-in-progress";
+    case "in-progress": return "stage stage-in-progress job-running";
     case "completed": return "stage stage-resolved";
     case "failed": return "stage stage-waiting-on-customer";
+    case "aborted": return "stage stage-aborted";
   }
 }
 
@@ -22,12 +25,13 @@ function statusLabel(status: WhiteningJobStatus): string {
     case "in-progress": return "In Progress";
     case "completed": return "Completed";
     case "failed": return "Failed";
+    case "aborted": return "Aborted";
   }
 }
 
-export function JobList({ jobs, selectedJobId, isAdmin, onSelect }: Props) {
+export function JobList({ jobs, selectedJobId, isAdmin, onSelect, onDelete }: Props) {
   if (jobs.length === 0) {
-    return <div className="empty-state">No jobs yet. Drop a packed .tgz above.</div>;
+    return <div className="empty-state">No jobs yet. Drop a pack above.</div>;
   }
 
   return (
@@ -38,11 +42,16 @@ export function JobList({ jobs, selectedJobId, isAdmin, onSelect }: Props) {
           className={`ticket-row${selectedJobId === job.id ? " selected" : ""}`}
           onClick={() => onSelect(job.id)}
         >
+          {/* A running job is Stopped first, not deleted out from under its log. */}
+          {job.status !== "pending" && job.status !== "in-progress" && (
+            <RowDelete label={job.id} onDelete={() => onDelete(job.id)} />
+          )}
           <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
           <strong>{job.team}/{job.project}</strong>
           <div className="ticket-row-meta">
-            <small>{isAdmin ? job.submittedByName : job.id}</small>
             <small>{job.archiveName}</small>
+            {/* Admins see who submitted it; users already know it's theirs. */}
+            <small dir="auto">{isAdmin ? job.submittedByName : job.id}</small>
           </div>
         </button>
       ))}

@@ -1,29 +1,14 @@
-import type { ArtifactoryJob, ArtifactoryJobStatus } from "../../../../server/types";
+import { RowDelete } from "../../../RowDelete";
+import { jobStatusClass, jobStatusLabel } from "../jobStatus";
+import type { ArtifactoryJob } from "../../../../server/types";
 
 type Props = {
   jobs: ArtifactoryJob[];
   selectedJobId: string | null;
   isAdmin: boolean;
   onSelect: (id: string) => void;
+  onDelete: (id: string) => void;
 };
-
-function statusClass(status: ArtifactoryJobStatus): string {
-  switch (status) {
-    case "pending": return "stage stage-submitted";
-    case "in-progress": return "stage stage-in-progress";
-    case "completed": return "stage stage-resolved";
-    case "failed": return "stage stage-waiting-on-customer";
-  }
-}
-
-function statusLabel(status: ArtifactoryJobStatus): string {
-  switch (status) {
-    case "pending": return "Pending";
-    case "in-progress": return "In Progress";
-    case "completed": return "Completed";
-    case "failed": return "Failed";
-  }
-}
 
 function jobSubtitle(job: ArtifactoryJob): string {
   if (job.kind === "url-copy" && job.sourceUrl) {
@@ -34,7 +19,7 @@ function jobSubtitle(job: ArtifactoryJob): string {
   return job.folderName ?? "";
 }
 
-export function JobList({ jobs, selectedJobId, isAdmin, onSelect }: Props) {
+export function JobList({ jobs, selectedJobId, isAdmin, onSelect, onDelete }: Props) {
   if (jobs.length === 0) {
     return <div className="empty-state">No jobs yet. Submit a copy or upload above.</div>;
   }
@@ -47,11 +32,16 @@ export function JobList({ jobs, selectedJobId, isAdmin, onSelect }: Props) {
           className={`ticket-row${selectedJobId === job.id ? " selected" : ""}`}
           onClick={() => onSelect(job.id)}
         >
-          <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
-          <strong>{job.kind === "url-copy" ? "URL Copy" : "Folder Upload"}</strong>
+          {/* A running job is Stopped first, not deleted out from under its log. */}
+          {job.status !== "pending" && job.status !== "in-progress" && (
+            <RowDelete label={job.id} onDelete={() => onDelete(job.id)} />
+          )}
+          <span className={jobStatusClass(job)}>{jobStatusLabel(job)}</span>
+          <strong>{job.name ?? (job.kind === "url-copy" ? "URL Copy" : "Folder Upload")}</strong>
           <div className="ticket-row-meta">
-            <small>{isAdmin ? job.submittedByName : job.id}</small>
-            <small>{jobSubtitle(job)}</small>
+            <small>{jobSubtitle(job) || job.id}</small>
+            {/* Admins see who submitted it; users already know it's theirs. */}
+            <small dir="auto">{isAdmin ? job.submittedByName : job.id}</small>
           </div>
         </button>
       ))}

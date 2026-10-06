@@ -1,5 +1,5 @@
 import { request, requestFormData } from "../../api";
-import type { WhiteningJob } from "../../../server/types";
+import type { WhiteningJob, WhiteningScenario } from "../../../server/types";
 
 export function submitUnpack(file: File) {
   const formData = new FormData();
@@ -13,4 +13,28 @@ export function listJobs() {
 
 export function getJob(id: string) {
   return request<{ job: WhiteningJob }>(`/api/whitening/jobs/${id}`);
+}
+
+export function cancelJob(id: string) {
+  return request<{ job: WhiteningJob }>(`/api/whitening/jobs/${id}/cancel`, { method: "POST" });
+}
+
+export function deleteJob(id: string) {
+  return request<{ ok: true }>(`/api/whitening/jobs/${id}`, { method: "DELETE" });
+}
+
+/** Answers a held job's preserve prompt: the paths whose repository version wins. */
+export function resolvePreserve(id: string, keep: string[]) {
+  return request<{ job: WhiteningJob }>(`/api/whitening/jobs/${id}/preserve`, {
+    method: "POST",
+    body: JSON.stringify({ keep }),
+  });
+}
+
+/** Dev only — the server route exists only when SSO is off. */
+export function simulateJob(scenario: WhiteningScenario) {
+  return request<{ job: WhiteningJob }>("/api/whitening/jobs/simulate", {
+    method: "POST",
+    body: JSON.stringify({ scenario }),
+  });
 }

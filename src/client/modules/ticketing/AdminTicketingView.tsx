@@ -1,14 +1,26 @@
+import { Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ListSizeToggle } from "../../ListSizeToggle";
 import {
   addAdminComment,
   getAdminTicket,
   getAssignees,
+  getRequestTypes,
   listAdminTickets,
   updateAdminTicket
 } from "./api";
+import { log, error as logError } from "../../log";
 import { AdminTicketDetail } from "./components/AdminTicketDetail";
-import { getTicketIdFromUrl, isDone, setTicketIdInUrl, stageClass, statusMessage } from "./utils";
-import type { AssigneeCandidate, PortalUser, TicketDetail, TicketSummary } from "../../../server/types";
+import { NewTicketModal } from "./components/NewTicketModal";
+import { SlaRemaining } from "./components/SlaRemaining";
+import { getTicketIdFromUrl, isDone, isOverdue, priorityClass, setTicketIdInUrl, stageClass, statusMessage } from "./utils";
+import type {
+  AssigneeCandidate,
+  PortalUser,
+  RequestTypeDefinition,
+  TicketDetail,
+  TicketSummary
+} from "../../../server/types";
 
 const POLL_INTERVAL_MS = 8000;
 
@@ -23,24 +35,39 @@ function TicketRow({
   isUnread: boolean;
   onOpen: (id: string) => void;
 }) {
+  const requesterLabel = ticket.requesterName || ticket.requesterId;
+  const assigneeLabel = ticket.assigneeId ? ticket.assigneeName || ticket.assigneeId : "Unassigned";
   return (
     <button
       className={[
         "ticket-row",
         isSelected && "selected",
-        isUnread && "unread"
+        isUnread && "unread",
+        isOverdue(ticket) && "overdue"
       ].filter(Boolean).join(" ")}
       onClick={() => onOpen(ticket.id)}
     >
       {isUnread && <span className="update-dot" aria-label="Updated" />}
-      <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
+      <span className="badge-row">
+        <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
+        <span className={priorityClass(ticket.priority)}>{ticket.priority}</span>
+        <SlaRemaining ticket={ticket} />
+      </span>
       <strong>{ticket.title}</strong>
       <div className="ticket-row-meta">
-        <small>{ticket.id}</small>
-        {ticket.assigneeId
-          ? <small className="ticket-row-assignee assigned">{ticket.assigneeName || ticket.assigneeId}</small>
-          : <small className="ticket-row-assignee unassigned">Unassigned</small>
-        }
+        {/* Id leads so an over-long owner name loses its tail, not the
+            reference someone needs to quote. */}
+        <small className="ticket-row-origin" title={`${ticket.id} — assigned to ${assigneeLabel}`}>
+          {ticket.id} ·{" "}
+          <span dir="auto" className={ticket.assigneeId ? "row-assignee" : "row-assignee unassigned"}>
+            {assigneeLabel}
+          </span>
+        </small>
+        {/* Right-hand slot is "who raised this" portal-wide — same as the
+            submitter on artifactory/whitening job rows. */}
+        <small className="ticket-row-requester" dir="auto" title={`Opened by ${requesterLabel}`}>
+          {requesterLabel}
+        </small>
       </div>
     </button>
   );
@@ -58,6 +85,8 @@ export function AdminTicketingView({
   const [assignees, setAssignees] = useState<AssigneeCandidate[]>([]);
   const [unreadIds, setUnreadIds] = useState<Set<string>>(() => new Set());
   const [showAll, setShowAll] = useState(false);
+  const [requestTypes, setRequestTypes] = useState<RequestTypeDefinition[]>([]);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
   const selectedIdRef = useRef<string | undefined>(undefined);
   const lastActivityRef = useRef<Map<string, string>>(new Map());
   const hasLoadedRef = useRef(false);
@@ -65,12 +94,29 @@ export function AdminTicketingView({
   selectedIdRef.current = selectedAdminTicket?.id;
 
   useEffect(() => {
-    refreshAdminTickets().catch((err: Error) => onError(err.message));
+    log("ticketing/admin", "queue mounted", { user: user.id, groups: user.groups });
+    refreshAdminTickets().catch((err: Error) => {
+      logError("ticketing/admin", "initial queue load failed", err);
+      onError(err.message);
+    });
     getAssignees()
-      .then((result) => setAssignees(result.assignees))
-      .catch((err: Error) => onError(err.message));
+      .then((result) => {
+        log("ticketing/admin", `assignees: ${result.assignees.length}`, result.assignees.map((a) => a.id));
+        setAssignees(result.assignees);
+      })
+      .catch((err: Error) => {
+        logError("ticketing/admin", "getAssignees failed", err);
+        onError(err.message);
+      });
+    getRequestTypes()
+      .then((catalog) => setRequestTypes(catalog.requestTypes))
+      .catch((err: Error) => {
+        logError("ticketing/admin", "getRequestTypes failed", err);
+        onError(err.message);
+      });
     const deepLinkedId = getTicketIdFromUrl();
     if (deepLinkedId) {
+      log("ticketing/admin", "deep link → opening ticket", deepLinkedId);
       openAdminTicket(deepLinkedId).catch((err: Error) => onError(err.message));
     }
   }, []);
@@ -80,15 +126,20 @@ export function AdminTicketingView({
   // ponytail: a few lines beats a WebSocket server for this team's traffic —
   // revisit only if "every few seconds" stops being live enough.
   useEffect(() => {
+    log("ticketing/admin", `polling every ${POLL_INTERVAL_MS}ms`, { watching: selectedAdminTicket?.id ?? "(queue only)" });
     const interval = window.setInterval(() => {
-      refreshAdminTickets().catch(() => undefined);
+      log("ticketing/admin", "poll tick");
+      refreshAdminTickets().catch((err: Error) => logError("ticketing/admin", "poll refresh failed", err));
       if (selectedAdminTicket) {
         getAdminTicket(selectedAdminTicket.id)
           .then((result) => setSelectedAdminTicket(result.ticket))
-          .catch(() => undefined);
+          .catch((err: Error) => logError("ticketing/admin", "poll ticket reload failed", selectedAdminTicket.id, err));
       }
     }, POLL_INTERVAL_MS);
-    return () => window.clearInterval(interval);
+    return () => {
+      log("ticketing/admin", "stopping poll");
+      window.clearInterval(interval);
+    };
   }, [selectedAdminTicket?.id]);
 
   // Diff against the last-seen activity timestamp per ticket so the unread
@@ -110,7 +161,9 @@ export function AdminTicketingView({
       })
       .map((t) => t.id);
     hasLoadedRef.current = true;
+    if (isFirstLoad) log("ticketing/admin", "first load — not flagging anything unread");
     if (changedIds.length > 0) {
+      log("ticketing/admin", "unread — changed since last seen", changedIds);
       setUnreadIds((current) => {
         const next = new Set(current);
         changedIds.forEach((id) => next.add(id));
@@ -122,14 +175,20 @@ export function AdminTicketingView({
 
   async function refreshAdminTickets() {
     const result = await listAdminTickets({});
+    log("ticketing/admin", `queue: ${result.tickets.length} tickets`, {
+      unassigned: result.tickets.filter((t) => !t.assigneeId).length,
+      rows: result.tickets.map((t) => `${t.id}:${t.stage}:${t.assigneeId ?? "-"}`),
+    });
     markChangedSinceLastSeen(result.tickets);
     setAdminTickets(result.tickets);
     if (selectedAdminTicket && !result.tickets.some((t) => t.id === selectedAdminTicket.id)) {
+      log("ticketing/admin", "selected ticket left the queue — clearing selection", selectedAdminTicket.id);
       setSelectedAdminTicket(null);
     }
   }
 
   async function openAdminTicket(id: string) {
+    log("ticketing/admin", "opening ticket", id);
     setUnreadIds((current) => {
       const next = new Set(current);
       next.delete(id);
@@ -141,6 +200,7 @@ export function AdminTicketingView({
   }
 
   async function reloadAdminTicket(id: string) {
+    log("ticketing/admin", "reloading ticket", id);
     const result = await getAdminTicket(id);
     setSelectedAdminTicket(result.ticket);
     await refreshAdminTickets();
@@ -154,57 +214,106 @@ export function AdminTicketingView({
   const activeTickets = useMemo(() => filteredTickets.filter((t) => !isDone(t)), [filteredTickets]);
   const doneTickets = useMemo(() => filteredTickets.filter(isDone), [filteredTickets]);
 
+  // An admin raising a ticket goes through the same POST /api/tickets the
+  // requester uses, so it lands in the queue owned by them and unassigned.
+  async function handleCreated(ticket: TicketDetail) {
+    log("ticketing/admin", "ticket created", { id: ticket.id, title: ticket.title });
+    setIsCreateOpen(false);
+    await openAdminTicket(ticket.id);
+    await refreshAdminTickets();
+  }
+
   function handleOpenTicket(id: string) {
     openAdminTicket(id).catch((err: Error) => onError(err.message));
   }
 
   return (
-    <div className="workspace-grid">
-      <div className="ticket-column">
-        <div className="ticket-list-header">
-          <h1>Queue</h1>
-          <button className="ghost-button" onClick={() => setShowAll((v) => !v)}>
-            {showAll ? "Mine & Unassigned" : "All tickets"}
-          </button>
-        </div>
-        <section className="ticket-list-panel" aria-label="Admin tickets">
-          <div className="ticket-list">
-            {activeTickets.map((ticket) => <TicketRow key={ticket.id} ticket={ticket} isSelected={selectedAdminTicket?.id === ticket.id} isUnread={unreadIds.has(ticket.id)} onOpen={handleOpenTicket} />)}
-            {activeTickets.length === 0 && <div className="empty-state">No tickets.</div>}
-          </div>
-        </section>
+    <>
+      <header className="topbar">
+        <h1>Tickets</h1>
+        <button
+          className="primary"
+          onClick={() => {
+            log("ticketing/admin", "opening new-ticket modal", { requestTypes: requestTypes.length });
+            setIsCreateOpen(true);
+          }}
+        >
+          <Plus size={18} aria-hidden="true" /> New
+        </button>
+      </header>
 
-        {doneTickets.length > 0 && (
-          <details className="ticket-list-panel done-panel" aria-label="Done admin tickets">
-            <summary>Done</summary>
+      <div className="workspace-grid">
+        <div className="ticket-column">
+          <div className="ticket-list-header">
+            {/* The heading carries the filter in full — it is left-anchored, so a
+                longer word grows rightwards into empty space. The button beside it is
+                right-anchored, so its label has to keep the same width across both
+                states or it leaps sideways on every switch; "Mine & Unassigned" against
+                "All tickets" moved it 84px. Same pair as every other module. */}
+            <ListSizeToggle />
+            <h2>{showAll ? "All Tickets" : "Mine & Unassigned"}</h2>
+            <button
+              className="ghost-button"
+              onClick={() => {
+                log("ticketing/admin", `filter → ${showAll ? "mine & unassigned" : "all tickets"}`);
+                setShowAll((v) => !v);
+              }}
+            >
+              {showAll ? "My tickets" : "All tickets"}
+            </button>
+          </div>
+          <section className="ticket-list-panel" aria-label="Admin tickets">
             <div className="ticket-list">
-              {doneTickets.map((ticket) => <TicketRow key={ticket.id} ticket={ticket} isSelected={selectedAdminTicket?.id === ticket.id} isUnread={unreadIds.has(ticket.id)} onOpen={handleOpenTicket} />)}
+              {activeTickets.map((ticket) => <TicketRow key={ticket.id} ticket={ticket} isSelected={selectedAdminTicket?.id === ticket.id} isUnread={unreadIds.has(ticket.id)} onOpen={handleOpenTicket} />)}
+              {activeTickets.length === 0 && <div className="empty-state">No tickets.</div>}
             </div>
-          </details>
-        )}
+          </section>
+  
+          {doneTickets.length > 0 && (
+            <details className="ticket-list-panel done-panel" aria-label="Done admin tickets">
+              <summary>Done</summary>
+              <div className="ticket-list">
+                {doneTickets.map((ticket) => <TicketRow key={ticket.id} ticket={ticket} isSelected={selectedAdminTicket?.id === ticket.id} isUnread={unreadIds.has(ticket.id)} onOpen={handleOpenTicket} />)}
+              </div>
+            </details>
+          )}
+        </div>
+  
+        <section className="detail-panel" aria-label="Ticket detail">
+          {selectedAdminTicket ? (
+            <AdminTicketDetail
+              key={selectedAdminTicket.id}
+              assignee={selectedAdminTicket.assigneeId}
+              assignees={assignees}
+              currentUserId={user.id}
+              currentUserName={user.displayName}
+              onAssigneeChange={async (assigneeId, assigneeName) => {
+                const ownerName = assigneeName || "Unassigned";
+                log("ticketing/admin", "reassigning ticket", selectedAdminTicket.id, {
+                  from: selectedAdminTicket.assigneeId ?? "-",
+                  to: assigneeId || "-",
+                  ownerName,
+                });
+                await updateAdminTicket(selectedAdminTicket.id, { assigneeId, assigneeName });
+                await addAdminComment(selectedAdminTicket.id, statusMessage(`Owner changed to ${ownerName}.`));
+                await reloadAdminTicket(selectedAdminTicket.id);
+              }}
+              onReload={() => reloadAdminTicket(selectedAdminTicket.id)}
+              ticket={selectedAdminTicket}
+            />
+          ) : (
+            <div className="empty-state">Select a ticket.</div>
+          )}
+        </section>
       </div>
 
-      <section className="detail-panel" aria-label="Ticket detail">
-        {selectedAdminTicket ? (
-          <AdminTicketDetail
-            key={selectedAdminTicket.id}
-            assignee={selectedAdminTicket.assigneeId}
-            assignees={assignees}
-            currentUserId={user.id}
-            currentUserName={user.displayName}
-            onAssigneeChange={async (assigneeId, assigneeName) => {
-              const ownerName = assigneeName || "Unassigned";
-              await updateAdminTicket(selectedAdminTicket.id, { assigneeId, assigneeName });
-              await addAdminComment(selectedAdminTicket.id, statusMessage(`Owner changed to ${ownerName}.`));
-              await reloadAdminTicket(selectedAdminTicket.id);
-            }}
-            onReload={() => reloadAdminTicket(selectedAdminTicket.id)}
-            ticket={selectedAdminTicket}
-          />
-        ) : (
-          <div className="empty-state">Select a ticket.</div>
-        )}
-      </section>
-    </div>
+      {isCreateOpen && (
+        <NewTicketModal
+          requestTypes={requestTypes}
+          onClose={() => setIsCreateOpen(false)}
+          onCreated={handleCreated}
+        />
+      )}
+    </>
   );
 }

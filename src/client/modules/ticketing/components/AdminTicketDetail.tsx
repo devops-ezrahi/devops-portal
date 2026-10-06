@@ -1,10 +1,13 @@
-import { Check, MessageSquarePlus, Pencil } from "lucide-react";
+import { LinkedText } from "./LinkedText";
+import { Check, ChevronDown, ChevronUp, MessageSquarePlus, Pencil } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { BusyIcon } from "../../../BusyIcon";
 import type { FormEvent } from "react";
+import { log, error as logError } from "../../../log";
 import { addAdminComment, updateAdminTicket } from "../api";
-import { stages } from "../config";
+import { priorityResponseHours, stages } from "../config";
 import type { AssigneeCandidate, CustomerStage, TicketDetail } from "../../../../server/types";
-import { formatDate, isStatusMessage, statusMessage, statusMessageText, stageClass } from "../utils";
+import { formatDate, isStatusMessage, priorityClass, statusMessage, statusMessageText, stageClass } from "../utils";
 
 export function AdminTicketDetail({
   assignee,
@@ -26,12 +29,16 @@ export function AdminTicketDetail({
   const [title, setTitle] = useState(ticket.title);
   const [description, setDescription] = useState(ticket.description);
   const [stage, setStage] = useState<CustomerStage>(ticket.stage);
+  const [storyPoints, setStoryPoints] = useState(ticket.storyPoints?.toString() ?? "");
   const [rawStatus, setRawStatus] = useState(ticket.rawStatus);
   const [teamGroups, setTeamGroups] = useState(ticket.teamGroups.join(", "));
   const [body, setBody] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  /** Which field's change is on its way to Jira — that one shows a spinner, and every field waits. */
+  const [saving, setSaving] = useState<null | "points" | "stage" | "edits" | "message" | "owner">(null);
+  const submitting = saving !== null;
   const [isEditing, setIsEditing] = useState(false);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
+  const pointsRef = useRef<HTMLInputElement>(null);
 
   function autoResizeDescription(el: HTMLTextAreaElement) {
     el.style.height = "auto";
@@ -48,27 +55,60 @@ export function AdminTicketDetail({
     setTitle(ticket.title);
     setDescription(ticket.description);
     setStage(ticket.stage);
+    setStoryPoints(ticket.storyPoints?.toString() ?? "");
     setRawStatus(ticket.rawStatus);
     setTeamGroups(ticket.teamGroups.join(", "));
     setBody("");
     setIsEditing(false);
   }, [ticket.id]);
 
+  const parsedPoints = storyPoints.trim() === "" ? undefined : Number(storyPoints);
+  const hasPoints = parsedPoints !== undefined && Number.isFinite(parsedPoints) && parsedPoints >= 0;
+
+  function step(by: number) {
+    setStoryPoints(String(Math.max(0, (Number(storyPoints) || 0) + by)));
+    // Stepping leaves the field focused, so the same blur that saves a typed
+    // value saves a stepped one — one request per edit, not per click.
+    pointsRef.current?.focus();
+  }
+
+  async function savePoints() {
+    if (parsedPoints === ticket.storyPoints) return;
+    if (!hasPoints) return log("ticketing/admin", "story points not a non-negative number — not saving", storyPoints);
+    setSaving("points");
+    log("ticketing/admin", "saving story points", ticket.id, parsedPoints);
+    try {
+      await updateAdminTicket(ticket.id, { storyPoints: parsedPoints });
+      await onReload();
+    } catch (err) {
+      logError("ticketing/admin", "saving story points failed", ticket.id, err);
+      throw err;
+    } finally {
+      setSaving(null);
+    }
+  }
+
   async function saveStage(newStage: CustomerStage) {
-    if (newStage === ticket.stage) return;
-    setSubmitting(true);
+    if (newStage === ticket.stage) return log("ticketing/admin", "stage unchanged — skipping save", newStage);
+    setSaving("stage");
+    log("ticketing/admin", "changing stage", ticket.id, `${ticket.stage} → ${newStage}`);
     try {
       await updateAdminTicket(ticket.id, {
         title,
         stage: newStage,
+        storyPoints: parsedPoints,
         rawStatus,
         description,
         teamGroups: teamGroups.split(",").map((g) => g.trim()).filter(Boolean)
       });
       await addAdminComment(ticket.id, statusMessage(`Stage changed to ${newStage}.`));
+      log("ticketing/admin", "stage saved", ticket.id, newStage);
       await onReload();
+    } catch (err) {
+      logError("ticketing/admin", "stage change failed", ticket.id, err);
+      throw err;
     } finally {
-      setSubmitting(false);
+      setSaving(null);
     }
   }
 
@@ -76,8 +116,9 @@ export function AdminTicketDetail({
     setIsEditing(false);
     const titleChanged = title !== ticket.title;
     const descriptionChanged = description !== ticket.description;
-    if (!titleChanged && !descriptionChanged) return;
-    setSubmitting(true);
+    if (!titleChanged && !descriptionChanged) return log("ticketing/admin", "no edits to save", ticket.id);
+    setSaving("edits");
+    log("ticketing/admin", "saving edits", ticket.id, { titleChanged, descriptionChanged });
     try {
       await updateAdminTicket(ticket.id, {
         title,
@@ -92,27 +133,62 @@ export function AdminTicketDetail({
       if (descriptionChanged) {
         await addAdminComment(ticket.id, statusMessage("Description updated."));
       }
+      log("ticketing/admin", "edits saved", ticket.id);
       await onReload();
+    } catch (err) {
+      logError("ticketing/admin", "saving edits failed", ticket.id, err);
+      throw err;
     } finally {
-      setSubmitting(false);
+      setSaving(null);
+    }
+  }
+
+  async function changeOwner(id: string, name: string) {
+    setSaving("owner");
+    try {
+      await onAssigneeChange(id, name);
+    } finally {
+      setSaving(null);
     }
   }
 
   async function submitResponse(event: FormEvent) {
     event.preventDefault();
-    setSubmitting(true);
+    setSaving("message");
+    log("ticketing/admin", "posting response", { ticket: ticket.id, chars: body.length });
     try {
       await addAdminComment(ticket.id, body);
+      log("ticketing/admin", "response posted", ticket.id);
       setBody("");
       await onReload();
+    } catch (err) {
+      logError("ticketing/admin", "addAdminComment failed", ticket.id, err);
+      throw err;
     } finally {
-      setSubmitting(false);
+      setSaving(null);
     }
   }
 
   return (
     <article className="ticket-detail">
-      <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
+      <div className="badge-row">
+        <span className={stageClass(ticket.stage)}>{ticket.stage}</span>
+        <span className={priorityClass(ticket.priority)} title={`Response within ${priorityResponseHours[ticket.priority]} hours`}>
+          {ticket.priority}
+        </span>
+        {ticket.url ? (
+          <a className="detail-id" href={ticket.url} target="_blank" rel="noreferrer" title="Open in Jira">
+            {ticket.id}
+          </a>
+        ) : (
+          <span className="detail-id">{ticket.id}</span>
+        )}
+      </div>
+
+      {/* A create that succeeded but did less than it was asked to. Not a
+          failure — the ticket is right there — so it reads as a warning, the
+          same shape an Artifactory job's dependencyFallback uses. */}
+      {ticket.notice && <div className="warn-banner">{ticket.notice}</div>}
 
       <div className="detail-title-row">
         {isEditing ? (
@@ -133,7 +209,10 @@ export function AdminTicketDetail({
           onClick={() => (isEditing ? saveEdits().catch(() => undefined) : setIsEditing(true))}
           disabled={submitting}
         >
-          {isEditing ? <Check size={16} aria-hidden="true" /> : <Pencil size={16} aria-hidden="true" />}
+          <BusyIcon
+            busy={saving === "edits"}
+            icon={isEditing ? <Check size={16} aria-hidden="true" /> : <Pencil size={16} aria-hidden="true" />}
+          />
         </button>
       </div>
 
@@ -149,22 +228,23 @@ export function AdminTicketDetail({
           disabled={submitting}
         />
       ) : (
-        <p className="description-text">{description}</p>
+        <p className="description-text"><LinkedText text={description} /></p>
       )}
 
       <div className="detail-heading">
-        <div>
-          <p>{ticket.id}</p>
-        </div>
         <label className="owner-select">
-          <span>Owner</span>
+          <span>Owner <BusyIcon busy={saving === "owner"} icon={null} /></span>
           <div className="owner-select-row">
             <select
               value={assignee}
+              disabled={submitting}
               onChange={(e) => {
                 const id = e.target.value;
-                const name = assignees.find((a) => a.id === id)?.displayName ?? "";
-                onAssigneeChange(id, name).catch(() => undefined);
+                // Falling through to the ticket's own name matters for the
+                // stale option below: picking it must not blank out the only
+                // name we have for someone missing from the roster.
+                const name = assignees.find((a) => a.id === id)?.displayName ?? (id === assignee ? ticket.assigneeName : "");
+                changeOwner(id, name).catch(() => undefined);
               }}
             >
               <option value="">Unassigned</option>
@@ -172,10 +252,12 @@ export function AdminTicketDetail({
                 // Assigned to someone not in the known-admins roster (e.g. they
                 // haven't logged in since the last restart) — keep them selectable
                 // instead of silently blanking the dropdown.
-                <option value={assignee}>{ticket.assigneeName || assignee}</option>
+                <option value={assignee} dir="auto">
+                  {ticket.assigneeName || assignee}
+                </option>
               )}
               {assignees.map((a) => (
-                <option key={a.id} value={a.id}>
+                <option key={a.id} value={a.id} dir="auto">
                   {a.displayName}
                   {a.id === currentUserId ? " (me)" : ""}
                 </option>
@@ -185,7 +267,8 @@ export function AdminTicketDetail({
               <button
                 type="button"
                 className="ghost-button me-button"
-                onClick={() => onAssigneeChange(currentUserId, currentUserName).catch(() => undefined)}
+                disabled={submitting}
+                onClick={() => changeOwner(currentUserId, currentUserName).catch(() => undefined)}
               >
                 Me
               </button>
@@ -196,19 +279,48 @@ export function AdminTicketDetail({
 
       <div className="admin-edit-form">
         <label>
-          <span>Stage</span>
+          <span>Story points <BusyIcon busy={saving === "points"} icon={null} /></span>
+          <div className="points-field">
+            <input
+              ref={pointsRef}
+              type="number"
+              min={0}
+              step="any"
+              value={storyPoints}
+              placeholder="—"
+              onChange={(e) => setStoryPoints(e.target.value)}
+              onBlur={() => savePoints().catch(() => undefined)}
+              disabled={submitting}
+            />
+            {/* The press must not blur the input: the blur would save the value
+                from before the step, and nothing would save the one after it. */}
+            <div className="points-step" onMouseDown={(e) => e.preventDefault()}>
+              <button type="button" aria-label="Increase story points" disabled={submitting} onClick={() => step(1)}>
+                <ChevronUp size={13} aria-hidden="true" />
+              </button>
+              <button type="button" aria-label="Decrease story points" disabled={submitting} onClick={() => step(-1)}>
+                <ChevronDown size={13} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        </label>
+        <label>
+          <span>Stage <BusyIcon busy={saving === "stage"} icon={null} /></span>
           <select
             value={stage}
             onChange={(e) => {
               const newStage = e.target.value as CustomerStage;
               setStage(newStage);
-              saveStage(newStage).catch(() => undefined);
+              saveStage(newStage).catch(() => setStage(ticket.stage));
             }}
             disabled={submitting}
           >
             {stages.filter(Boolean).map((option) => (
-              <option key={option} value={option}>
+              // Closing signs off the work, so it stays unselectable until an
+              // estimate exists. The server rejects it too — see router.ts.
+              <option key={option} value={option} disabled={option === "Closed" && !hasPoints}>
                 {option}
+                {option === "Closed" && !hasPoints ? " (needs story points)" : ""}
               </option>
             ))}
           </select>
@@ -226,9 +338,9 @@ export function AdminTicketDetail({
               </div>
             ) : (
               <div className="comment" key={comment.id}>
-                <strong>{comment.authorName}</strong>
+                <strong dir="auto">{comment.authorName}</strong>
                 <small>{formatDate(comment.createdAt)}</small>
-                <p>{comment.body}</p>
+                <p><LinkedText text={comment.body} /></p>
               </div>
             )
           )}
@@ -242,7 +354,7 @@ export function AdminTicketDetail({
             required
           />
           <button className="primary" disabled={submitting || !body.trim()}>
-            <MessageSquarePlus size={18} aria-hidden="true" /> Send
+            <BusyIcon busy={saving === "message"} icon={<MessageSquarePlus size={18} aria-hidden="true" />} /> Send
           </button>
         </form>
       </section>
