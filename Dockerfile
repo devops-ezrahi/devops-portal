@@ -16,8 +16,12 @@ COPY . .
 
 RUN npm run build
 
+# --format=esm has no `require`, so any CommonJS dep bundled in (e.g. `yaml`,
+# which does require('process')) crashes at startup with "Dynamic require of
+# ... is not supported". The banner gives the bundle a real require().
 RUN npx esbuild src/server/index-prod.ts \
     --bundle \
+    "--banner:js=import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" \
     --platform=node \
     --format=esm \
     --target=node20 \
