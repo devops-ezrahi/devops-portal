@@ -1,6 +1,6 @@
 import { mkdir, readFile, readdir, writeFile } from "fs/promises";
 import { dirname, join, resolve, sep } from "path";
-import { cloneAt, git, withCredentials } from "../../git";
+import { cloneAt, git, objectAt, withCredentials } from "../../git";
 import { log } from "../../log";
 import { createTmpDir, removeTmpDir } from "../../tmp";
 import { canOpenPullRequest, openPullRequest } from "../../pullRequest";
@@ -84,7 +84,7 @@ export async function pullValuesTree(
   repoUrl: string,
   requested: string,
   valuesPath: string
-): Promise<{ files: RepoFile[]; revision: string }> {
+): Promise<{ files: RepoFile[]; revision: string; sha: string }> {
   const dir = await createTmpDir("ag-");
   try {
     const { token, username } = valuesTokenFor(repoUrl);
@@ -101,8 +101,9 @@ export async function pullValuesTree(
       if (bytes > MAX_BYTES) break;
       files.push({ path: name, text });
     }
-    log.info("argocd", `pulled ${files.length} file(s)`, { repoUrl, revision, path: valuesPath || "." });
-    return { files, revision };
+    const sha = await objectAt(dir, valuesPath);
+    log.info("argocd", `pulled ${files.length} file(s)`, { repoUrl, revision, path: valuesPath || ".", sha });
+    return { files, revision, sha };
   } finally {
     await removeTmpDir(dir);
   }

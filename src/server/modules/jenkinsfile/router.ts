@@ -7,7 +7,8 @@ import { log } from "../../log";
 import { safeFilePath, safeRef, safeRepoUrl } from "../../repoGuards";
 import { pickableImages } from "./images";
 import { PipelineStore } from "./PipelineStore";
-import { pullJenkinsfile, pushJenkinsfile } from "./repoGit";
+import { jenkinsfileTokenFor, pullJenkinsfile, pushJenkinsfile } from "./repoGit";
+import { remoteObject, withCredentials } from "../../git";
 import type { JenkinsfilePipeline } from "../../types";
 
 /**
@@ -52,6 +53,9 @@ const pipelineBody = z.object({
       repoUrl: z.string().trim().max(300).transform((url) => normalizeRepoUrl(url, config.git.url)),
       revision: z.string().trim().max(100),
       path: z.string().trim().max(200),
+      // The git object id of the file/folder as last pulled — what the
+      // builder's "the repository changed" check compares the branch against.
+      sha: z.string().trim().regex(/^[0-9a-f]{0,64}$/).optional(),
     })
     .optional(),
   stages: z
@@ -271,6 +275,25 @@ export function createJenkinsfileRouter(store: PipelineStore = new PipelineStore
       // The result carries the branch actually read: a `main` the repo does
       // not have was read from its default branch.
       res.json({ ...result, repoUrl });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * What the connected Jenkinsfile is on the branch right now, as the object id
+   * a pull returns as `sha` — so an open pipeline can say "the repository
+   * changed since you pulled" without cloning anything (`remoteObject`).
+   */
+  router.post("/api/jenkinsfile/remote", async (req, res, next) => {
+    try {
+      const { repoUrl, revision, path } = pullBody.parse(req.body);
+      if (!path) {
+        res.json({ sha: "" });
+        return;
+      }
+      const { token, username } = jenkinsfileTokenFor(repoUrl);
+      res.json({ sha: await remoteObject(withCredentials(repoUrl, token, username), revision, path) });
     } catch (err) {
       next(err);
     }

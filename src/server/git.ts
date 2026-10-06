@@ -2,6 +2,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { redactSecrets } from "./redact";
 import { tokenFor } from "./repoGuards";
+import { createTmpDir, removeTmpDir } from "./tmp";
 
 const execFileAsync = promisify(execFile);
 
@@ -72,6 +73,57 @@ export async function cloneAt(authedUrl: string, revision: string, dir: string, 
     if (!head || head === revision) throw err;
     await git(["clone", "--depth", "1", "--branch", head, "--", authedUrl, dir], undefined, timeoutMs);
     return head;
+  }
+}
+
+/**
+ * The git object id of `path` in a checkout's `HEAD` — a blob for a file, a
+ * tree for a directory, the root tree for `""`. What a pull read is pinned by
+ * this rather than by the commit: a commit elsewhere in the repo leaves it
+ * alone, so only a change to the document's own file or folder reads as one.
+ */
+export async function objectAt(dir: string, path: string): Promise<string> {
+  return (await git(["rev-parse", `HEAD:${path.replace(/^\/+|\/+$/g, "")}`], dir).catch(() => "")).trim();
+}
+
+/** Branch head → object ids already resolved under it, per repo + branch. */
+const remoteCache = new Map<string, { commit: string; objects: Map<string, string> }>();
+
+/**
+ * What `objectAt` would say for `path` on the remote's `revision` right now,
+ * without a clone — so a builder can ask every few seconds whether its
+ * repository moved since it was pulled.
+ *
+ * One `ls-remote` per call; only when the branch head moved is anything
+ * fetched, and then a single commit with no file contents (`--filter=blob:none`
+ * — trees are enough to name a file's blob). A server that ignores the filter
+ * still answers, just with a bigger fetch. `""` when the branch is not there.
+ */
+export async function remoteObject(authedUrl: string, revision: string, path: string): Promise<string> {
+  const refs = await git(["ls-remote", "--", authedUrl, `refs/heads/${revision}`, `refs/tags/${revision}`], undefined, 20_000);
+  const commit = /^([0-9a-f]{40,64})\s/m.exec(refs)?.[1] ?? "";
+  if (!commit) return "";
+  const key = `${authedUrl}\0${revision}`;
+  let entry = remoteCache.get(key);
+  if (!entry || entry.commit !== commit) {
+    entry = { commit, objects: new Map() };
+    remoteCache.set(key, entry);
+  }
+  const cached = entry.objects.get(path);
+  if (cached !== undefined) return cached;
+
+  const dir = await createTmpDir("ag-");
+  try {
+    await git(["init", "--bare", "--quiet", dir]);
+    await git(["fetch", "--quiet", "--depth", "1", "--filter=blob:none", "--", authedUrl, commit], dir, 30_000).catch(() =>
+      // A server that will not hand out a commit by id still hands out the ref.
+      git(["fetch", "--quiet", "--depth", "1", "--filter=blob:none", "--", authedUrl, revision], dir, 30_000)
+    );
+    const id = (await git(["rev-parse", `FETCH_HEAD:${path.replace(/^\/+|\/+$/g, "")}`], dir).catch(() => "")).trim();
+    entry.objects.set(path, id);
+    return id;
+  } finally {
+    await removeTmpDir(dir);
   }
 }
 

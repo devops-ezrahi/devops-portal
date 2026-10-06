@@ -10,8 +10,9 @@ const updateTree = vi.fn();
 const deleteTree = vi.fn();
 const pullValues = vi.fn();
 const pushTree = vi.fn();
+const remoteValues = vi.fn(() => Promise.resolve({ sha: "" }));
 
-vi.mock("./api", () => ({ listTrees, createTree, updateTree, deleteTree, pullValues, pushTree }));
+vi.mock("./api", () => ({ listTrees, createTree, updateTree, deleteTree, pullValues, pushTree, remoteValues }));
 
 const { ArgocdView } = await import("./ArgocdView");
 
@@ -79,6 +80,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
   listTrees.mockResolvedValue({ trees: [], defaults, gitEnabled: true });
+  remoteValues.mockResolvedValue({ sha: "" });
   createTree.mockImplementation((input) => Promise.resolve({ tree: { ...saved(), ...input } }));
   updateTree.mockImplementation((id, input) => Promise.resolve({ tree: { ...saved(), ...input, id } }));
 });
@@ -639,6 +641,65 @@ describe("ArgocdView", () => {
     expect(document.querySelectorAll(".ag-file")).toHaveLength(generated.length);
     vi.useRealTimers();
   });
+  it("offers to pull when the values folder changed on its branch, and re-reads the diff", async () => {
+    const old = "a".repeat(40);
+    const moved = "b".repeat(40);
+    const tree = saved({
+      values: { repoUrl: defaults.valuesRepoUrl, revision: "main", path: "", sha: old },
+      releases: [{ id: "r1", name: "storefront", features: { image: { on: true, v: { repository: "nginx" } } } }],
+    });
+    const generated = buildTree(tree);
+    const upstream = generated.map((f, i) => ({ path: f.path, text: i === 0 ? "replicaCount: 9\n" : f.text }));
+    listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
+    // The baseline read at open is the branch as pulled; after the move, the moved one.
+    pullValues
+      .mockResolvedValueOnce({ files: generated, repoUrl: tree.values.repoUrl, revision: "main", sha: old })
+      .mockResolvedValue({ files: upstream, repoUrl: tree.values.repoUrl, revision: "main", sha: moved });
+    remoteValues.mockResolvedValue({ sha: moved });
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    view();
+    fireEvent.click(await screen.findByText("Dev User #1"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    expect(remoteValues).toHaveBeenCalledWith(tree.values.repoUrl, "main", "");
+    // The diff was re-read against the moved branch, not left on the old one.
+    expect(pullValues).toHaveBeenCalledTimes(2);
+    const banner = (await screen.findByText(/was updated since you pulled it/)).closest(".git-remote-changed") as HTMLElement;
+    expect(banner.textContent).toMatch(/Pulling replaces the 1 microservice here/);
+
+    await act(async () => {
+      fireEvent.click(within(banner).getByRole("button", { name: /Pull changes/ }));
+    });
+    expect(screen.queryByText(/was updated since you pulled it/)).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it("stays quiet when the branch moved to exactly what the tree already says", async () => {
+    const tree = saved({
+      values: { repoUrl: defaults.valuesRepoUrl, revision: "main", path: "", sha: "a".repeat(40) },
+      releases: [{ id: "r1", name: "storefront", features: { image: { on: true, v: { repository: "nginx" } } } }],
+    });
+    listTrees.mockResolvedValue({ trees: [tree], defaults, gitEnabled: true });
+    pullValues.mockResolvedValue({ files: buildTree(tree), repoUrl: tree.values.repoUrl, revision: "main", sha: "b".repeat(40) });
+    remoteValues.mockResolvedValue({ sha: "b".repeat(40) });
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    view();
+    fireEvent.click(await screen.findByText("Dev User #1"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(remoteValues).toHaveBeenCalled();
+    expect(screen.queryByText(/was updated since you pulled it/)).toBeNull();
+    vi.useRealTimers();
+  });
+
   it("wires a claim into the pod in one press, and then suggests it to a mount", async () => {
     view();
     await waitFor(() => expect(listTrees).toHaveBeenCalled());

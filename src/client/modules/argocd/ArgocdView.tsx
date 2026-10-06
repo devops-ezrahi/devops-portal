@@ -21,6 +21,7 @@ import {
   listTrees,
   pullValues,
   pushTree,
+  remoteValues,
   updateTree,
   type RepoFile,
   type TreeDefaults,
@@ -30,7 +31,8 @@ import { checkValues } from "./checks";
 import { BY_ID, featureForPath } from "./catalog";
 import { deepMerge, obj, shadowing, subtractDefaults } from "./values";
 import { buildTree, fileStem, releaseGroup, runs, slug } from "./tree";
-import { commitFiles } from "./diff";
+import { commitFiles, diffTree } from "./diff";
+import { retargeted, useRemoteSha } from "../../remoteWatch";
 import {
   SHARED_RELEASE_NAME,
   isEmptyTree,
@@ -64,6 +66,7 @@ import { ChartLine } from "./components/ChartLine";
 import { LayerGrid, type LayerCard } from "./components/LayerGrid";
 import { NewTreeDialog } from "./components/NewTreeDialog";
 import { CommitButton, gitBlocked, PushResult, RepoPanel, repoName, type PushState } from "./components/RepoPanel";
+import { RemoteChanged } from "../../RepoPanel";
 import { ReleaseGrid, type ReleaseCard } from "./components/ReleaseGrid";
 import { TreeList } from "./components/TreeList";
 import type { FeatureState } from "./catalog";
@@ -133,6 +136,10 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   /** What the connected branch holds right now — the preview diffs against it. */
   const [repoFiles, setRepoFiles] = useState<RepoFile[] | undefined>();
   const [comparing, setComparing] = useState(false);
+  /** The object id the diff baseline (`repoFiles`) was read at — see `useRemoteSha`. */
+  const [baselineSha, setBaselineSha] = useState("");
+  /** Bumped to re-read the baseline when the branch moves under an open tree. */
+  const [baselineTick, setBaselineTick] = useState(0);
   /** Why there is no diff, when there was meant to be one. */
   const [baselineError, setBaselineError] = useState("");
   /** Set by a press on a card's chip; the editor opens that feature and scrolls to it. */
@@ -281,6 +288,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
   const subPath = draft.values.path ?? "";
   useEffect(() => {
     setRepoFiles(undefined);
+    setBaselineSha("");
     setBaselineError("");
     setPullError("");
     if (!repoUrl.trim() || !revision.trim()) {
@@ -293,7 +301,10 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       void (async () => {
         try {
           const result = await pullValues(repoUrl, revision, subPath);
-          if (live) setRepoFiles(result.files);
+          if (live) {
+            setRepoFiles(result.files);
+            setBaselineSha(result.sha ?? "");
+          }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           log("argocd", "no baseline to diff against", { message });
@@ -307,7 +318,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       live = false;
       clearTimeout(timer);
     };
-  }, [repoUrl, revision, subPath]);
+  }, [repoUrl, revision, subPath, baselineTick]);
 
   // Admins get every tree from the server; the toggle narrows it back
   // client-side, same as every other list in the portal.
@@ -316,6 +327,59 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
     [trees, showAll, isAdmin, user.id]
   );
   const files = useMemo(() => buildTree(draft), [draft]);
+
+  /**
+   * Whether the values folder moved on its branch since this tree was pulled —
+   * `values.sha` is what the pull read, `remoteSha` what the branch has now.
+   * The banner offers the Pull and never pulls by itself: a pull replaces the
+   * whole tree on screen. A moved branch also re-reads the diff baseline, so
+   * the preview compares against what Commit would now land on.
+   */
+  const watchRef = useRef<HTMLDivElement>(null);
+  const remoteSha = useRemoteSha(
+    repoUrl.trim() && revision.trim() ? { repoUrl, revision, path: subPath } : null,
+    remoteValues,
+    watchRef
+  );
+  const pulledSha = draft.values.sha ?? "";
+  const remoteChanged = !!remoteSha && !!pulledSha && remoteSha !== pulledSha;
+  const refreshedFor = useRef("");
+
+  /** Record `sha` as what this tree was read from — if it still points at the same folder. */
+  function adoptRemote(sha: string, target: DraftTree["values"]) {
+    setDraft((prev) => (retargeted(prev.values, target) ? prev : { ...prev, values: { ...prev.values, sha } }));
+  }
+
+  useEffect(() => {
+    if (!remoteSha) return;
+    // Pulled before this check existed (or re-pointed since): nothing says
+    // what it was read from, and the branch as it is now is the best guess.
+    if (!pulledSha) {
+      adoptRemote(remoteSha, draft.values);
+      return;
+    }
+    // Once per move, so a baseline whose own sha somehow differs cannot loop.
+    if (baselineSha && remoteSha !== baselineSha && refreshedFor.current !== remoteSha) {
+      refreshedFor.current = remoteSha;
+      setBaselineTick((n) => n + 1);
+    }
+  }, [remoteSha, pulledSha, baselineSha]);
+
+  // The branch moved to exactly what this tree already generates — its own
+  // pull request merged — so there is nothing to pull.
+  const remoteMatches = useMemo(
+    () =>
+      remoteChanged &&
+      baselineSha === remoteSha &&
+      !!repoFiles &&
+      diffTree(files, repoFiles, !!subPath.trim()).every((e) => e.status === "unchanged"),
+    [remoteChanged, baselineSha, remoteSha, repoFiles, files, subPath]
+  );
+  useEffect(() => {
+    if (!remoteMatches) return;
+    log("argocd", "branch moved to what this tree already says", { sha: remoteSha.slice(0, 10) });
+    adoptRemote(remoteSha, draft.values);
+  }, [remoteMatches]);
   const namespace = layer === BASE ? undefined : draft.namespaces[layer];
   // A namespace's defaults only exist inside a namespace: base is the same in
   // every environment, so it has none to edit.
@@ -631,7 +695,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
    * one the root app records: the two normally agree, and when they do not, the
    * repo that was just cloned is the one this tree came out of.
    */
-  function handleConnect(imported: TreeImport, repoUrl: string, revision: string, path: string) {
+  function handleConnect(imported: TreeImport, repoUrl: string, revision: string, path: string, sha?: string) {
     undo.current = [];
     log("argocd", "connected a repository", {
       repoUrl,
@@ -651,7 +715,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       name: repoLabel(repoUrl),
       ...(imported.chart ? { chart: imported.chart } : {}),
       ...(imported.rootAppName ? { rootAppName: imported.rootAppName } : {}),
-      values: { repoUrl, revision, path },
+      values: { repoUrl, revision, path, ...(sha ? { sha } : {}) },
       releases: imported.releases,
       namespaces: imported.namespaces,
       imported: imported.imported,
@@ -675,6 +739,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
       const imported = importTree(result.files);
       // The clone the preview diffs against, already in hand — no second one.
       setRepoFiles(result.files);
+      setBaselineSha(result.sha ?? "");
       log("argocd", "pulled", { releases: imported.releases.length, warnings: imported.warnings.length });
       // The repo replaces what this tree holds, but not which repo it is: the
       // connection is the user's, and a pull must not be able to redirect where
@@ -684,7 +749,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
         ...(imported.chart ? { chart: imported.chart } : {}),
         // Not a redirect: a branch the repo lacks was read from its default,
         // and that is the one the next commit has to target.
-        values: { ...prev.values, revision: result.revision || prev.values.revision },
+        values: { ...prev.values, revision: result.revision || prev.values.revision, sha: result.sha || undefined },
         releases: imported.releases,
         namespaces: imported.namespaces,
         imported: imported.imported,
@@ -1155,7 +1220,7 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
               </button>
             </div>
 
-            <div className="ag-section ag-wiring">
+            <div className="ag-section ag-wiring" ref={watchRef}>
               {/* Read top to bottom: what renders this tree, then where the
                   tree goes. The chart comes first because it is the input and
                   the repo is the destination — but it is one quiet line,
@@ -1171,13 +1236,32 @@ export function ArgocdView({ user, isAdmin, refreshKey, onError }: ModuleViewPro
               <RepoPanel
                 tree={draft}
                 error={pullError || baselineError}
-                onChange={(values) => setDraft((p) => ({ ...p, values }))}
+                // Pointed somewhere else, the stored sha describes a folder this
+                // tree no longer reads from.
+                onChange={(values) =>
+                  setDraft((p) => ({ ...p, values: retargeted(p.values, values) ? { ...values, sha: undefined } : values }))
+                }
                 onPull={() => void handlePull()}
                 pulling={pulling}
                 gitEnabled={gitEnabled}
                 gitUrl={gitUrl}
                 releaseCount={draft.releases.length}
               />
+              {remoteChanged && !remoteMatches && (
+                <RemoteChanged
+                  what={subPath.trim() ? `values tree under ${subPath.trim()}/` : "values tree"}
+                  revision={revision}
+                  replaces={
+                    draft.releases.length
+                      ? `the ${draft.releases.length} microservice${draft.releases.length === 1 ? "" : "s"} here`
+                      : ""
+                  }
+                  pulling={pulling}
+                  blocked={gitBlocked(draft, gitEnabled)}
+                  onPull={() => void handlePull()}
+                  onDismiss={() => adoptRemote(remoteSha, draft.values)}
+                />
+              )}
               {notes && (
                 <details open className="ag-import-warnings ag-notes">
                   <summary>

@@ -7,7 +7,8 @@ import { log } from "../../log";
 import { TreeStore } from "./TreeStore";
 import { convertToUniversal, listWorkloads } from "./convert";
 import { pullValuesTree, pushValuesTree } from "./valuesGit";
-import { safeDirPath, safeRef, safeRepoUrl, safeTreePath } from "./valuesRepo";
+import { remoteObject, withCredentials } from "../../git";
+import { safeDirPath, safeRef, safeRepoUrl, safeTreePath, valuesTokenFor } from "./valuesRepo";
 import type { ArgocdTree } from "../../types";
 
 /**
@@ -36,6 +37,9 @@ const treeBody = z.object({
     repoUrl: z.string().trim().max(300).transform((url) => normalizeRepoUrl(url, config.git.url)),
     revision: z.string().trim().max(100),
     path: z.string().trim().max(200),
+    // The git object id of the file/folder as last pulled — what the
+    // builder's "the repository changed" check compares the branch against.
+    sha: z.string().trim().regex(/^[0-9a-f]{0,64}$/).optional(),
   }),
   rootAppName: z.string().trim().max(80),
   releases: z
@@ -314,7 +318,22 @@ export function createArgocdRouter(store: TreeStore = new TreeStore()): express.
       // that were sent — an SSH URL was rewritten above, a `main` the repo does
       // not have was read from its default branch — and the tree should record
       // what cloned.
-      res.json({ files: pulled.files, repoUrl, revision: pulled.revision });
+      res.json({ files: pulled.files, repoUrl, revision: pulled.revision, sha: pulled.sha });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * What the connected folder is on the branch right now, as the object id a
+   * pull returns as `sha` — so an open tree can say "the repository changed
+   * since you pulled" without cloning anything (`remoteObject`).
+   */
+  router.post("/api/argocd/remote", async (req, res, next) => {
+    try {
+      const { repoUrl, revision, path } = pullBody.parse(req.body);
+      const { token, username } = valuesTokenFor(repoUrl);
+      res.json({ sha: await remoteObject(withCredentials(repoUrl, token, username), revision, path) });
     } catch (err) {
       next(err);
     }

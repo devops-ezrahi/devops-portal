@@ -24,15 +24,16 @@ const updatePipeline = vi.fn((id: string, input: unknown) =>
   Promise.resolve({ pipeline: { ...saved, ...(input as object), id } as JenkinsfilePipeline })
 );
 
-const pullJenkinsfile = vi.fn(() =>
+const defaultPull = () =>
   Promise.resolve({
     path: "ci/Jenkinsfile",
     text: "@Library('jenkins-k8s-shared-library@main') _\n\ngenStage(title: 'Build', image: 'ubi8', commands: ['npm ci'])",
     candidates: ["ci/Jenkinsfile"],
     repoUrl: "https://github.com/org/checkout-service.git",
     revision: "main",
-  })
-);
+  });
+const pullJenkinsfile = vi.fn(defaultPull as (...args: unknown[]) => Promise<Record<string, unknown>>);
+const remoteJenkinsfile = vi.fn(() => Promise.resolve({ sha: "" }));
 const pushPipeline = vi.fn(() =>
   Promise.resolve({
     branch: "portal/jenkinsfile-jf-0002",
@@ -54,6 +55,7 @@ vi.mock("./api", () => ({
   updatePipeline,
   deletePipeline: vi.fn(),
   pullJenkinsfile,
+  remoteJenkinsfile,
   pushPipeline,
 }));
 
@@ -515,6 +517,51 @@ genStage(title: 'Build', image: 'python311', commands: ['npm ci'])`,
       "href",
       "https://github.com/org/checkout-service/pull/7"
     );
+  });
+
+  it("offers to pull when the connected Jenkinsfile changed on its branch", async () => {
+    const connected = {
+      ...saved,
+      repo: { repoUrl: "https://github.com/org/checkout-service.git", revision: "main", path: "ci/Jenkinsfile", sha: "a".repeat(40) },
+    };
+    listPipelines.mockImplementationOnce(() =>
+      Promise.resolve({ pipelines: [connected], sharedLibrary: "jenkins-k8s-shared-library", gitEnabled: true })
+    );
+    remoteJenkinsfile.mockImplementation(() => Promise.resolve({ sha: "b".repeat(40) }));
+    pullJenkinsfile.mockImplementation(() =>
+      Promise.resolve({
+        path: "ci/Jenkinsfile",
+        text: "genStage(title: 'Changed upstream', image: 'ubi8', commands: ['make'])",
+        candidates: ["ci/Jenkinsfile"],
+        repoUrl: "https://github.com/org/checkout-service.git",
+        revision: "main",
+        sha: "b".repeat(40),
+      })
+    );
+    try {
+      renderView();
+      await act(async () => {});
+      fireEvent.click(await screen.findByText(connected.name));
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+
+      expect(remoteJenkinsfile).toHaveBeenCalledWith(connected.repo.repoUrl, "main", "ci/Jenkinsfile");
+      const banner = (await screen.findByText(/was updated since you pulled it/)).closest(".git-remote-changed") as HTMLElement;
+      expect(banner.textContent).toMatch(/Pulling replaces the 2 stages here/);
+      await act(async () => {
+        fireEvent.click(within(banner).getByRole("button", { name: /Pull changes/ }));
+      });
+      expect(screen.getByText("Changed upstream")).toBeTruthy();
+      // The pull stored what it read, so the branch no longer differs.
+      expect(screen.queryByText(/was updated since you pulled it/)).toBeNull();
+      await settle();
+      const writes = updatePipeline.mock.calls as unknown as [string, { repo?: { sha?: string } }][];
+      expect(writes.at(-1)![1].repo?.sha).toBe("b".repeat(40));
+    } finally {
+      remoteJenkinsfile.mockImplementation(() => Promise.resolve({ sha: "" }));
+      pullJenkinsfile.mockImplementation(defaultPull);
+    }
   });
 
   it("says why the repository buttons cannot work when no credential is configured", async () => {
