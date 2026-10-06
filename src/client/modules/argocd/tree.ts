@@ -102,8 +102,26 @@ export function releaseGroup(tree: Pick<ArgocdTree, "namespaces">, releaseId: st
 }
 
 /** A values file always exists, even when it is empty: a missing valueFile fails the whole render. */
+/**
+ * The emitted YAML per document, keyed by its JSON. A keystroke changes one
+ * file, and re-emitting the other few hundred was most of what remained of
+ * buildTree's cost — `JSON.stringify` is native and far cheaper than `toYaml`.
+ * ponytail: cleared wholesale past 4000 entries.
+ */
+const emitted = new Map<string, string>();
+function emit(doc: Values): string {
+  const key = JSON.stringify(doc);
+  let yaml = emitted.get(key);
+  if (yaml === undefined) {
+    if (emitted.size > 4000) emitted.clear();
+    yaml = toYaml(doc, true);
+    emitted.set(key, yaml);
+  }
+  return yaml;
+}
+
 function valuesFile(path: string, doc: Values, header: string, note: string): GeneratedFile {
-  const body = Object.keys(doc).length ? toYaml(doc, true) : "{}";
+  const body = Object.keys(doc).length ? emit(doc) : "{}";
   return { path, text: `${header}\n${body}\n`, note };
 }
 

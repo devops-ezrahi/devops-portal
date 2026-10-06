@@ -34,12 +34,28 @@ export function buildValues(features: Record<string, FeatureState>, extraValues?
   return orderKeys(doc);
 }
 
+/**
+ * Parsed fragments by text. `buildValues` runs for every microservice in every
+ * namespace on every keystroke and parses each one's "Other settings" and extra
+ * values each time — the same few texts, over and over, and the single biggest
+ * cost of typing in a large tree. A copy is handed out, so a caller that
+ * changes what it got cannot change the next caller's answer.
+ * ponytail: cleared wholesale past 4000 entries.
+ */
+const parsed = new Map<string, Values | null>();
+
 /** A YAML fragment as an object, or null for empty/unparseable text. */
 export function parseValues(text: string | undefined): Values | null {
   if (!text?.trim()) return null;
-  // Read the way Helm reads a values file — see `parseHelm`.
-  const { doc } = parseHelm(text);
-  return isPlainObject(doc) ? doc : null;
+  let doc = parsed.get(text);
+  if (doc === undefined) {
+    // Read the way Helm reads a values file — see `parseHelm`.
+    const read = parseHelm(text).doc;
+    doc = isPlainObject(read) ? read : null;
+    if (parsed.size > 4000) parsed.clear();
+    parsed.set(text, doc);
+  }
+  return doc && structuredClone(doc);
 }
 
 /** Whether `extraValues` is text the writer will silently drop — the editor says so. */

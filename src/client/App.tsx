@@ -1,5 +1,5 @@
 import { ArrowUp, RefreshCcw } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import {
   getMe,
   setDevRole,
@@ -17,7 +17,7 @@ import { artifactoryModule } from "./modules/artifactory";
 import { jenkinsfileModule } from "./modules/jenkinsfile";
 import { ticketingModule } from "./modules/ticketing";
 import { whiteningModule } from "./modules/whitening";
-import type { PortalModule } from "./moduleTypes";
+import type { ModuleViewProps, PortalModule } from "./moduleTypes";
 import type { PortalUser } from "../server/types";
 // Inlined at bundle time and tree-shaken to the one string, so the running
 // build identifies itself with no endpoint, no fetch and no state. CI bumps
@@ -256,18 +256,16 @@ export function App() {
           modules
             .filter((mod) => visited.includes(mod.id))
             .map((mod) => (
-              <div key={mod.id} className="module-slot" hidden={mod.id !== activeModule.id}>
-                {errors[mod.id] && <div className="error-banner">{errors[mod.id]}</div>}
-                <mod.View
-                  user={user!}
-                  isAdmin={isAdmin}
-                  refreshKey={refreshKey}
-                  onError={(message) => {
-                    logError(mod.id, "error banner", message);
-                    setErrors((prev) => ({ ...prev, [mod.id]: message }));
-                  }}
-                />
-              </div>
+              <ModuleSlot
+                key={mod.id}
+                mod={mod}
+                hidden={mod.id !== activeModule.id}
+                error={errors[mod.id]}
+                user={user!}
+                isAdmin={isAdmin}
+                refreshKey={refreshKey}
+                setErrors={setErrors}
+              />
             ))
         )}
       </main>
@@ -275,6 +273,50 @@ export function App() {
     </div>
   );
 }
+
+/**
+ * One module, re-rendered only when something it is given changes. Modules stay
+ * mounted once visited, and the shell re-renders on every nav click — without
+ * `memo` and a stable `onError`, each click re-rendered every visited module,
+ * and ArgoCD regenerating its whole tree made every tab switch cost hundreds of
+ * milliseconds once it had been opened.
+ */
+const ModuleSlot = memo(function ModuleSlot({
+  mod,
+  hidden,
+  error,
+  user,
+  isAdmin,
+  refreshKey,
+  setErrors,
+}: {
+  mod: PortalModule;
+  hidden: boolean;
+  error: string | undefined;
+  user: PortalUser;
+  isAdmin: boolean;
+  refreshKey: number;
+  setErrors: Dispatch<SetStateAction<Record<string, string>>>;
+}) {
+  const onError = useCallback(
+    (message: string) => {
+      logError(mod.id, "error banner", message);
+      setErrors((prev) => ({ ...prev, [mod.id]: message }));
+    },
+    [mod.id, setErrors],
+  );
+  return (
+    <div className="module-slot" hidden={hidden}>
+      {error && <div className="error-banner">{error}</div>}
+      <MemoView View={mod.View} user={user} isAdmin={isAdmin} refreshKey={refreshKey} onError={onError} />
+    </div>
+  );
+});
+
+/** The View itself, kept out of the slot's re-render when only `hidden` flips. */
+const MemoView = memo(function MemoView({ View, ...props }: ModuleViewProps & { View: PortalModule["View"] }) {
+  return <View {...props} />;
+});
 
 /** Appears once the page is scrolled past a screen's worth; takes it back to the top. */
 function ScrollTopButton() {

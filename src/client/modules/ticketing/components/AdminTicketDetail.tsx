@@ -1,6 +1,7 @@
 import { LinkedText } from "./LinkedText";
 import { Check, ChevronDown, ChevronUp, MessageSquarePlus, Pencil } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { BusyIcon } from "../../../BusyIcon";
 import type { FormEvent } from "react";
 import { log, error as logError } from "../../../log";
 import { addAdminComment, updateAdminTicket } from "../api";
@@ -32,7 +33,9 @@ export function AdminTicketDetail({
   const [rawStatus, setRawStatus] = useState(ticket.rawStatus);
   const [teamGroups, setTeamGroups] = useState(ticket.teamGroups.join(", "));
   const [body, setBody] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  /** Which field's change is on its way to Jira — that one shows a spinner, and every field waits. */
+  const [saving, setSaving] = useState<null | "points" | "stage" | "edits" | "message" | "owner">(null);
+  const submitting = saving !== null;
   const [isEditing, setIsEditing] = useState(false);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const pointsRef = useRef<HTMLInputElement>(null);
@@ -72,7 +75,7 @@ export function AdminTicketDetail({
   async function savePoints() {
     if (parsedPoints === ticket.storyPoints) return;
     if (!hasPoints) return log("ticketing/admin", "story points not a non-negative number — not saving", storyPoints);
-    setSubmitting(true);
+    setSaving("points");
     log("ticketing/admin", "saving story points", ticket.id, parsedPoints);
     try {
       await updateAdminTicket(ticket.id, { storyPoints: parsedPoints });
@@ -81,13 +84,13 @@ export function AdminTicketDetail({
       logError("ticketing/admin", "saving story points failed", ticket.id, err);
       throw err;
     } finally {
-      setSubmitting(false);
+      setSaving(null);
     }
   }
 
   async function saveStage(newStage: CustomerStage) {
     if (newStage === ticket.stage) return log("ticketing/admin", "stage unchanged — skipping save", newStage);
-    setSubmitting(true);
+    setSaving("stage");
     log("ticketing/admin", "changing stage", ticket.id, `${ticket.stage} → ${newStage}`);
     try {
       await updateAdminTicket(ticket.id, {
@@ -105,7 +108,7 @@ export function AdminTicketDetail({
       logError("ticketing/admin", "stage change failed", ticket.id, err);
       throw err;
     } finally {
-      setSubmitting(false);
+      setSaving(null);
     }
   }
 
@@ -114,7 +117,7 @@ export function AdminTicketDetail({
     const titleChanged = title !== ticket.title;
     const descriptionChanged = description !== ticket.description;
     if (!titleChanged && !descriptionChanged) return log("ticketing/admin", "no edits to save", ticket.id);
-    setSubmitting(true);
+    setSaving("edits");
     log("ticketing/admin", "saving edits", ticket.id, { titleChanged, descriptionChanged });
     try {
       await updateAdminTicket(ticket.id, {
@@ -136,13 +139,22 @@ export function AdminTicketDetail({
       logError("ticketing/admin", "saving edits failed", ticket.id, err);
       throw err;
     } finally {
-      setSubmitting(false);
+      setSaving(null);
+    }
+  }
+
+  async function changeOwner(id: string, name: string) {
+    setSaving("owner");
+    try {
+      await onAssigneeChange(id, name);
+    } finally {
+      setSaving(null);
     }
   }
 
   async function submitResponse(event: FormEvent) {
     event.preventDefault();
-    setSubmitting(true);
+    setSaving("message");
     log("ticketing/admin", "posting response", { ticket: ticket.id, chars: body.length });
     try {
       await addAdminComment(ticket.id, body);
@@ -153,7 +165,7 @@ export function AdminTicketDetail({
       logError("ticketing/admin", "addAdminComment failed", ticket.id, err);
       throw err;
     } finally {
-      setSubmitting(false);
+      setSaving(null);
     }
   }
 
@@ -197,7 +209,10 @@ export function AdminTicketDetail({
           onClick={() => (isEditing ? saveEdits().catch(() => undefined) : setIsEditing(true))}
           disabled={submitting}
         >
-          {isEditing ? <Check size={16} aria-hidden="true" /> : <Pencil size={16} aria-hidden="true" />}
+          <BusyIcon
+            busy={saving === "edits"}
+            icon={isEditing ? <Check size={16} aria-hidden="true" /> : <Pencil size={16} aria-hidden="true" />}
+          />
         </button>
       </div>
 
@@ -218,17 +233,18 @@ export function AdminTicketDetail({
 
       <div className="detail-heading">
         <label className="owner-select">
-          <span>Owner</span>
+          <span>Owner <BusyIcon busy={saving === "owner"} icon={null} /></span>
           <div className="owner-select-row">
             <select
               value={assignee}
+              disabled={submitting}
               onChange={(e) => {
                 const id = e.target.value;
                 // Falling through to the ticket's own name matters for the
                 // stale option below: picking it must not blank out the only
                 // name we have for someone missing from the roster.
                 const name = assignees.find((a) => a.id === id)?.displayName ?? (id === assignee ? ticket.assigneeName : "");
-                onAssigneeChange(id, name).catch(() => undefined);
+                changeOwner(id, name).catch(() => undefined);
               }}
             >
               <option value="">Unassigned</option>
@@ -251,7 +267,8 @@ export function AdminTicketDetail({
               <button
                 type="button"
                 className="ghost-button me-button"
-                onClick={() => onAssigneeChange(currentUserId, currentUserName).catch(() => undefined)}
+                disabled={submitting}
+                onClick={() => changeOwner(currentUserId, currentUserName).catch(() => undefined)}
               >
                 Me
               </button>
@@ -262,7 +279,7 @@ export function AdminTicketDetail({
 
       <div className="admin-edit-form">
         <label>
-          <span>Story points</span>
+          <span>Story points <BusyIcon busy={saving === "points"} icon={null} /></span>
           <div className="points-field">
             <input
               ref={pointsRef}
@@ -288,7 +305,7 @@ export function AdminTicketDetail({
           </div>
         </label>
         <label>
-          <span>Stage</span>
+          <span>Stage <BusyIcon busy={saving === "stage"} icon={null} /></span>
           <select
             value={stage}
             onChange={(e) => {
@@ -337,7 +354,7 @@ export function AdminTicketDetail({
             required
           />
           <button className="primary" disabled={submitting || !body.trim()}>
-            <MessageSquarePlus size={18} aria-hidden="true" /> Send
+            <BusyIcon busy={saving === "message"} icon={<MessageSquarePlus size={18} aria-hidden="true" />} /> Send
           </button>
         </form>
       </section>

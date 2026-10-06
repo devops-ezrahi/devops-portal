@@ -31,6 +31,14 @@ export function Collapse({ open, children }: { open: boolean; children: ReactNod
     } else if (!open && shown) {
       setShown(false);
       setSettled(false);
+      // No transition to wait for (no stylesheet, as in tests): unmount now.
+      // A fold closed inside a hidden module never gets its `transitionend`
+      // and stays mounted at zero height until it is next opened — harmless.
+      const el = ref.current;
+      if (!el || !parseFloat(getComputedStyle(el).transitionDuration)) {
+        opened.current = false;
+        setAlive(false);
+      }
     } else if (!open && alive && !opened.current) {
       setAlive(false);
     }

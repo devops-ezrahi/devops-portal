@@ -68,6 +68,27 @@ export function diffTree(files: GeneratedFile[], repo: RepoFile[], deletes: bool
 }
 
 /**
+ * Text → result, remembered. `canonical` and `fingerprint` run over every file
+ * of the tree on every keystroke (the preview diff, and buildTree's "still as
+ * imported?" check), and all but the one file being edited are the same text as
+ * last time — re-parsing them was most of a keystroke's cost.
+ * ponytail: cleared wholesale past 4000 entries, an LRU if that ever thrashes.
+ */
+function byText<T>(fn: (text: string) => T): (text: string) => T {
+  const seen = new Map<string, T>();
+  return (text) => {
+    const hit = seen.get(text);
+    if (hit !== undefined || seen.has(text)) return hit as T;
+    if (seen.size > 4000) seen.clear();
+    const out = fn(text);
+    seen.set(text, out);
+    return out;
+  };
+}
+
+export const canonical = byText(canonicalOf);
+
+/**
  * A values file rewritten in one canonical order — keys sorted, comments gone.
  *
  * Two files that deploy the same thing have to *read* the same before a line
@@ -77,7 +98,7 @@ export function diffTree(files: GeneratedFile[], repo: RepoFile[], deletes: bool
  * `null` when the text will not parse — that is a real difference to report,
  * not one to normalise away.
  */
-export function canonical(text: string): string | null {
+function canonicalOf(text: string): string | null {
   const doc = parseValues(text);
   if (!doc) return null;
   return toYaml(sortKeys(doc) as Values, true);
@@ -150,7 +171,9 @@ export function diffLines(before: string, after: string): DiffLine[] {
  * when it does not parse. What `ArgocdTree.imported` keeps to tell "the rebuild
  * still writes what the repo has" from "this file was edited".
  */
-export function fingerprint(text: string): string {
+export const fingerprint = byText(fingerprintOf);
+
+function fingerprintOf(text: string): string {
   const s = canonical(text) ?? `raw:${text}`;
   // cyrb53 — 53 bits is plenty to tell one file's two states apart.
   let h1 = 0xdeadbeef;

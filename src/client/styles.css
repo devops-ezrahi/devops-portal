@@ -341,7 +341,7 @@ textarea {
    taken 400ms, so a fast one shows nothing. */
 @keyframes busy-hide { to { visibility: hidden } }
 @keyframes busy-show { to { visibility: visible } }
-.busy-icon { position: relative; display: inline-flex; width: 16px; height: 16px; flex: 0 0 auto }
+.busy-icon { position: relative; display: inline-flex; width: 16px; height: 16px; flex: 0 0 auto; vertical-align: -3px }
 .busy-icon > svg { animation: busy-hide 0s 400ms forwards }
 .busy-spinner {
   position: absolute;
@@ -361,7 +361,7 @@ textarea {
     transition-duration: 0.01ms !important;
   }
   .busy-spinner { animation-duration: 0s, 650ms !important }
-  .loading-state::after { animation-duration: 650ms !important }
+  .loading-state::after, .job-running::before { animation-duration: 650ms !important }
 }
 
 .fullpage-screen {
@@ -1289,6 +1289,21 @@ input[type="radio"]:focus:not(:focus-visible) {
 .stage-in-progress {
   background: rgb(var(--c-133a38));
   color: rgb(var(--c-9fe4dc));
+}
+
+/* A job badge (not a ticket's "In Progress" stage — nothing is running there)
+   carries a turning ring while the job runs. */
+.job-running::before {
+  content: '';
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 650ms linear infinite;
 }
 
 /* Between In Progress (teal) and Waiting on Customer (amber): the work is
@@ -6499,3 +6514,7 @@ label.ag-add { cursor: pointer }
 .color-hex:focus-within {
   border-color: rgb(var(--c-20c7bd));
 }
+
+/* A field label's spinner sits at the label's own small size. */
+.owner-select > span .busy-icon,
+.admin-edit-form label > span .busy-icon { width: 12px; height: 12px; margin-left: 4px; vertical-align: -1px }
