@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { importValues } from "./import";
 import { buildValues, parseValues } from "./build";
 import { toYaml } from "./yaml";
+import { MORE_KEY } from "./catalog";
 
 /**
  * Every feature whose value is a `name`-keyed map is edited as rows, and rows
@@ -379,4 +380,26 @@ describe("a file comes back exactly as it was read", () => {
       expect(parseValues(toYaml(buildValues(imported.features, imported.extraValues)))).toEqual(parseValues(text));
     });
   }
+});
+
+/** Values the chart gained after the catalog was transcribed open on their own cards, not in Other settings. */
+describe("newer chart values are fields", () => {
+  const text =
+    "service:\n  enabled: true\n  selector:\n    app: kafka\n  trafficDistribution: PreferClose\n" +
+    "ingress:\n  enabled: true\n  serviceName: web\n  hosts:\n    - host: a.b\n      paths:\n        - path: /api\n          pathType: Prefix\n          portNumber: 8080\n          serviceName: api-server\n";
+  const imported = importValues(text);
+
+  it("reads them into the Service and Ingress cards", () => {
+    expect(imported.warnings).toEqual([]);
+    expect(imported.extraValues).toBe("");
+    expect(imported.features.service.v.trafficDistribution).toBe("PreferClose");
+    expect(imported.features.service.v.selector).toEqual([{ k: "app", v: "kafka" }]);
+    expect(imported.features.ingress.v.serviceName).toBe("web");
+    expect(imported.features.service.v[MORE_KEY] ?? "").toBe("");
+    expect(imported.features.ingress.v[MORE_KEY] ?? "").toBe("");
+  });
+
+  it("writes them back unchanged", () => {
+    expect(parseValues(toYaml(buildValues(imported.features, imported.extraValues)))).toEqual(parseValues(text));
+  });
 });
