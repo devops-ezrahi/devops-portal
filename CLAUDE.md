@@ -973,6 +973,25 @@ to. Every caller passes `GIT_URL` in (the routers from `config`, the fields from
 the list response), because `gitUrl.ts` must stay import-free for the browser.
 `repoWebUrl` keeps a context path too (`/bitbucket/projects/P/repos/r/browse`).
 
+**Both builders notice when the branch moves under them.** A pull (and
+Connect) stores `sha` on the connection — `git rev-parse HEAD:<path>`, the
+object id of the Jenkinsfile or the values folder, not the commit, so an
+unrelated commit elsewhere in the repo does not count. `useRemoteSha`
+(`src/client/remoteWatch.ts`) then asks `POST /api/<module>/remote` every 30s
+and when the tab regains focus — the ticket views' poll, slower because a git
+host is somebody else's server — paused while the tab or the module is hidden.
+`remoteObject` (`git.ts`) answers it with one `ls-remote`, and only fetches
+(one commit, `--filter=blob:none`) when the branch head actually moved, cached
+per head. A different id puts `RemoteChanged` under the repo panel: **Pull
+changes** or **Keep mine** (which records the new id and stops asking). It
+never pulls by itself — a pull replaces everything on screen. Two quiet cases:
+a document with no `sha` yet (pulled before this existed, or re-pointed — any
+edit to URL/branch/path clears it) adopts the branch's id silently, and a
+branch that moved to exactly what the builder already generates (its own PR
+merged) is adopted silently too — the Jenkinsfile by comparing the text, ArgoCD
+by re-reading the diff baseline at the new id, which it does on any move so the
+preview compares against what Commit would now land on.
+
 **A branch the repo does not have falls back to its default.** Every builder
 pre-fills `main`, and most Bitbucket repos are on `master`. `cloneAt` (`git.ts`)
 retries a "Remote branch … not found" on the branch `git ls-remote --symref
@@ -1461,14 +1480,16 @@ and a new one connects from the repository panel as usual.
 
 **What the converter leaves out of base, and why the portal agrees.**
 
-- **No `nameOverride` anywhere.** The ms-applicationSet chart sets
-  `helm.releaseName` to the values file's name, so the chart's `fullname` is
-  already `<microservice>`. Before that, the Application name (`<ms>-<ns
-  suffix>`) was the release name, and every converted base carried
-  `nameOverride: <ms>` only to undo it. `fullnameOverride` stays: it pins a
-  running workload whose raw name differs from its file, so its Service and
-  PVCs are not renamed. `importTree` therefore names each release after its
-  **base file** — the file is the release — never after either override.
+- **No `nameOverride` anywhere.** The ms-applicationSet chart no longer sets
+  `helm.releaseName` (universal-chart 1.0.0-dev.10), so Argo CD names the Helm
+  release after the Application — `<ms>-<last word of the ns>[-variant]` — and
+  the converter pins every workload's real name with `fullnameOverride`, so its
+  Service and PVCs are not renamed. A portal-authored release with neither
+  override renders as `<ms>-<ns suffix>`; the `nameOverride` help says so.
+  Only a `nameSuffix` copy (a second Application set beside the original) pins
+  `releaseName` back to the unsuffixed name, so it renders the same objects.
+  `importTree` names each release after its **base file** — the file is the
+  microservice — never after either override.
 - **The image repository travels with its tag** into `<ns>/values/<ms>.yaml`,
   not into base as well. So base alone has no `image.repository`, and
   `checkValues(doc, inBase)` skips the "No image.repository" problem there;

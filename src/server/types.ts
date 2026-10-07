@@ -429,7 +429,7 @@ export type JenkinsfilePipeline = {
    * destination is the one the owner connected and not the one a request asks
    * for.
    */
-  repo?: { repoUrl: string; revision: string; path: string };
+  repo?: { repoUrl: string; revision: string; path: string; sha?: string };
   stages: JenkinsfileStage[];
   createdBy: string;
   createdByName: string;
@@ -533,7 +533,8 @@ export type ArgocdTree = {
    */
   chart: { repoUrl: string; path: string; appsetPath: string; revision: string };
   /** Where this generated tree is committed — the `$values` ref source. */
-  values: { repoUrl: string; revision: string; path: string };
+  /** `sha`: the git object id of `path` as last pulled — see `remoteObject`. */
+  values: { repoUrl: string; revision: string; path: string; sha?: string };
   /** The app-of-apps' name; `platform-root` unless someone renames it. */
   rootAppName: string;
   releases: ArgocdRelease[];

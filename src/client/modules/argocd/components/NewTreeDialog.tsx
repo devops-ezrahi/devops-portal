@@ -30,7 +30,7 @@ export function NewTreeDialog({
   onScratch: () => void;
   /** Start empty and convert plain manifests or a Helm chart into it. */
   onConvert: () => void;
-  onConnect: (imported: TreeImport, repoUrl: string, revision: string, path: string) => void;
+  onConnect: (imported: TreeImport, repoUrl: string, revision: string, path: string, sha?: string) => void;
   onClose: () => void;
   gitUrl: string;
 }) {
@@ -41,13 +41,13 @@ export function NewTreeDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   /** Held back once, so an import that drops something says so before it happens. */
-  const [pending, setPending] = useState<{ imported: TreeImport; repoUrl: string; revision: string } | null>(null);
+  const [pending, setPending] = useState<{ imported: TreeImport; repoUrl: string; revision: string; sha?: string } | null>(null);
 
   const rewritten = isSshUrl(repoUrl);
 
   async function handleConnect() {
     if (pending) {
-      onConnect(pending.imported, pending.repoUrl, pending.revision, path);
+      onConnect(pending.imported, pending.repoUrl, pending.revision, path, pending.sha);
       return;
     }
     setBusy(true);
@@ -61,8 +61,9 @@ export function NewTreeDialog({
       const imported = importTree(result.files);
       // The repo URL is the server's, not the field's: an SSH URL was rewritten
       // before the clone, and the tree should record what actually worked.
-      if (imported.warnings.length) setPending({ imported, repoUrl: result.repoUrl, revision: result.revision || revision });
-      else onConnect(imported, result.repoUrl, result.revision || revision, path);
+      if (imported.warnings.length)
+        setPending({ imported, repoUrl: result.repoUrl, revision: result.revision || revision, sha: result.sha });
+      else onConnect(imported, result.repoUrl, result.revision || revision, path, result.sha);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not read that repository");
     } finally {

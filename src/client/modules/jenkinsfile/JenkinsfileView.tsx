@@ -11,6 +11,7 @@ import {
   getImages,
   listPipelines,
   pullJenkinsfile,
+  remoteJenkinsfile,
   pushPipeline,
   updatePipeline,
   type PickableImage,
@@ -33,7 +34,8 @@ import { ParamsEditor, paramScope } from "./components/ParamsEditor";
 import { PipelineList } from "./components/PipelineList";
 import { ImagesContext } from "./components/ArgField";
 import { NewPipelineDialog, WarningList } from "./components/NewPipelineDialog";
-import { CommitButton, PushResult, type PushState } from "../../RepoPanel";
+import { CommitButton, PushResult, RemoteChanged, type PushState } from "../../RepoPanel";
+import { retargeted, useRemoteSha } from "../../remoteWatch";
 import { EMPTY_REPO, gitBlocked, RepoPanel } from "./components/RepoPanel";
 import { StageList } from "./components/StageList";
 
@@ -182,6 +184,48 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
     };
   }, [repo.repoUrl, repo.revision, repo.path]);
 
+  /**
+   * Whether the connected Jenkinsfile moved on its branch since it was pulled —
+   * `repo.sha` is what the pull read, `remoteSha` what the branch has now.
+   * The banner offers the Pull; it never pulls by itself, since a pull replaces
+   * every stage on screen.
+   */
+  const watchRef = useRef<HTMLDivElement>(null);
+  const remoteSha = useRemoteSha(repo.repoUrl.trim() && repo.path.trim() ? repo : null, remoteJenkinsfile, watchRef);
+  const remoteChanged = !!remoteSha && !!repo.sha && remoteSha !== repo.sha;
+  const codeRef = useRef("");
+
+  /** Record `sha` as what this pipeline was read from — if it still points at the same file. */
+  function adoptRemote(sha: string, target: NonNullable<DraftPipeline["repo"]>) {
+    setDraft((prev) => (prev.repo && !retargeted(prev.repo, target) ? { ...prev, repo: { ...prev.repo, sha } } : prev));
+  }
+
+  useEffect(() => {
+    if (!remoteSha || !draft.repo) return;
+    // Pulled before this check existed (or re-pointed since): nothing says
+    // what it was read from, and the branch as it is now is the best guess.
+    if (!draft.repo.sha) {
+      adoptRemote(remoteSha, draft.repo);
+      return;
+    }
+    if (!remoteChanged) return;
+    // The branch moved to exactly what this pipeline already generates — its
+    // own pull request merged — so there is nothing to pull.
+    let live = true;
+    const target = draft.repo;
+    pullJenkinsfile(target.repoUrl, target.revision, target.path)
+      .then((result) => {
+        if (live && result.sha === remoteSha && result.text.trim() === codeRef.current.trim()) {
+          log("jenkinsfile", "branch moved to what this pipeline already says", { sha: remoteSha.slice(0, 10) });
+          adoptRemote(remoteSha, target);
+        }
+      })
+      .catch((err: unknown) => logError("jenkinsfile", "reading the changed Jenkinsfile failed", err));
+    return () => {
+      live = false;
+    };
+  }, [remoteSha, remoteChanged]);
+
   // Admins get every pipeline from the server; the toggle narrows it back
   // client-side, same as the ticketing queue and the whitening job list.
   const visiblePipelines = useMemo(
@@ -189,6 +233,7 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
     [pipelines, showAll, isAdmin, user.id]
   );
   const code = useMemo(() => toGroovy(draft), [draft]);
+  codeRef.current = code;
   const usedParams = useMemo(() => usedParamNames(draft.stages), [draft.stages]);
   const errors = useMemo(() => {
     const all = validatePipeline(draft);
@@ -288,7 +333,12 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
         ...prev,
         // An empty path meant "find it"; what was found is where Commit writes.
         // A branch the repo lacks was read from its default — the one Commit has to target.
-        repo: prev.repo && { ...prev.repo, revision: result.revision || prev.repo.revision, path: prev.repo.path || result.path },
+        repo: prev.repo && {
+          ...prev.repo,
+          revision: result.revision || prev.repo.revision,
+          path: prev.repo.path || result.path,
+          sha: result.sha || undefined,
+        },
         library: parsed.pipeline.library,
         params: parsed.pipeline.params,
         stages: parsed.pipeline.stages,
@@ -555,17 +605,30 @@ export function JenkinsfileView({ user, isAdmin, refreshKey, onError }: ModuleVi
 
             {/* Always there, as in ArgoCD: unfolding it is how a pipeline is
                 connected — or re-pointed — mid-edit. */}
-            <div className="jf-section">
+            <div className="jf-section" ref={watchRef}>
               <RepoPanel
                 repo={repo}
                 gitUrl={gitUrl}
-                onChange={(next) => patchDraft({ repo: next })}
+                // Pointed somewhere else, the stored sha describes a file this
+                // pipeline no longer reads from.
+                onChange={(next) => patchDraft({ repo: retargeted(repo, next) ? { ...next, sha: undefined } : next })}
                 onPull={() => void handlePull()}
                 pulling={pulling}
                 gitEnabled={gitEnabled}
                 stageCount={draft.stages.length}
                 error={repoError}
               />
+              {remoteChanged && (
+                <RemoteChanged
+                  what={repo.path || "Jenkinsfile"}
+                  revision={repo.revision}
+                  replaces={draft.stages.length ? `the ${draft.stages.length} stage${draft.stages.length === 1 ? "" : "s"} here` : ""}
+                  pulling={pulling}
+                  blocked={gitBlocked(repo, gitEnabled)}
+                  onPull={() => void handlePull()}
+                  onDismiss={() => adoptRemote(remoteSha, repo)}
+                />
+              )}
               {pullNotes.length > 0 && (
                 <details open className="jf-import-warnings ag-notes">
                   <summary>

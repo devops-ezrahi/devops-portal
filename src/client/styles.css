@@ -1023,8 +1023,29 @@ input[type="radio"]:focus:not(:focus-visible) {
   display: grid;
 }
 
+/* minmax(0, …), not a bare 1fr: `1fr` is minmax(auto, 1fr), so one row whose
+   content cannot shrink (a long unbroken file name) widened the whole track
+   past the panel it sits in. */
 .ticket-list {
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* The list panel is the rows' edge. Without clipping, a row that came out
+   wider than the panel — the selected one, with its own background, is the
+   one that shows — painted straight across the column gap up to the detail
+   panel, and its square corners poked out of the panel's rounded ones.
+   `clip` rather than `hidden`: it makes no scroll container, so nothing about
+   scrolling or sticky positioning inside the panel changes. */
+.ticket-list-panel {
+  overflow: hidden;
+  overflow: clip;
+  /* Room for an unread ticket's 1px ring and the start of its glow. */
+  overflow-clip-margin: 4px;
+}
+
+.ticket-row > strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .ticket-row {
@@ -4712,6 +4733,37 @@ input.jf-title {
 .git-push-result.quiet { color: rgb(var(--c-8ea0a8)) }
 .git-push-result.warn  { color: rgb(var(--c-f0c674)) }
 .git-push-result.error { color: rgb(var(--c-ff8d95)) }
+
+/* "The repository moved since you pulled" — amber like a warning, but an offer
+   with its own buttons rather than a sentence, so it wraps under them on a
+   narrow column instead of squeezing them. */
+.git-remote-changed {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 9px 12px;
+  border: 1px solid rgb(var(--c-f0c674) / 45%);
+  border-radius: 8px;
+  background: rgb(var(--c-f0c674) / 8%);
+  color: rgb(var(--c-f0c674));
+  font-size: 13px;
+}
+
+.git-remote-changed > span:first-of-type {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.git-remote-changed code {
+  font-size: 12px;
+}
+
+.git-remote-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
 
 .ag-chart-line {
   display: grid;

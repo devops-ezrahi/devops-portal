@@ -46,7 +46,15 @@ export function pullValues(repoUrl: string, revision: string, path: string) {
   // `repoUrl` comes back because the server may have rewritten it — an SSH URL
   // is normalised to its https form before anything is cloned — and `revision`
   // because a branch the repo does not have is read from its default instead.
-  return request<{ files: RepoFile[]; repoUrl: string; revision: string }>("/api/argocd/pull", {
+  return request<{ files: RepoFile[]; repoUrl: string; revision: string; sha?: string }>("/api/argocd/pull", {
+    method: "POST",
+    body: JSON.stringify({ repoUrl, revision, path }),
+  });
+}
+
+/** What the connected folder is on the branch now — compared against the `sha` the last pull read. */
+export function remoteValues(repoUrl: string, revision: string, path: string) {
+  return request<{ sha: string }>("/api/argocd/remote", {
     method: "POST",
     body: JSON.stringify({ repoUrl, revision, path }),
   });

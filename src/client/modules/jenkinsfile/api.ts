@@ -44,10 +44,18 @@ export function deletePipeline(id: string) {
 export function pullJenkinsfile(repoUrl: string, revision: string, path: string) {
   // `repoUrl` comes back because the server may have rewritten it — an SSH URL
   // is normalised to its https form before anything is cloned.
-  return request<{ path: string; text: string; candidates: string[]; repoUrl: string; revision: string }>(
+  return request<{ path: string; text: string; candidates: string[]; repoUrl: string; revision: string; sha?: string }>(
     "/api/jenkinsfile/pull",
     { method: "POST", body: JSON.stringify({ repoUrl, revision, path }) }
   );
+}
+
+/** What the connected Jenkinsfile is on the branch now — compared against the `sha` the last pull read. */
+export function remoteJenkinsfile(repoUrl: string, revision: string, path: string) {
+  return request<{ sha: string }>("/api/jenkinsfile/remote", {
+    method: "POST",
+    body: JSON.stringify({ repoUrl, revision, path }),
+  });
 }
 
 /**

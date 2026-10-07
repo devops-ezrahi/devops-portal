@@ -81,8 +81,9 @@ export function importTree(files: RepoFile[]): TreeImport {
     own.forEach((w) => warnings.push(`${path}: ${w}`));
     const id = uid("r");
     idBySlug.set(slug, id);
-    // The file name *is* the release — the ApplicationSet names the Helm
-    // release after it — so neither override renames it (a fullnameOverride is
+    // The file name *is* the microservice — the ApplicationSet names each
+    // Application (and so the Helm release) after it — so neither override
+    // renames it here (a fullnameOverride is
     // the running workload's raw name, and may be templated). `file` keeps the
     // exact stem: `slug()` would turn `ms2.v2` into a second release.
     const release: ArgocdRelease = { id, name: slug, features, extraValues, file: slug, basePaths: [path] };

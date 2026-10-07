@@ -1040,6 +1040,10 @@ F({
     ),
     S("clusterIP", "clusterIP", { path: "service.clusterIP", placeholder: "None" }),
     S("externalName", "externalName", { path: "service.externalName", placeholder: "my.database.example.com" }),
+    KV("selector", "selector", {
+      hint: "An explicit pod selector instead of this release's own labels — for a Service in front of pods another release (or nothing the chart labels) runs.",
+    }),
+    SE("trafficDistribution", "trafficDistribution", ["", "PreferClose"], { path: "service.trafficDistribution" }),
     SE("sessionAffinity", "sessionAffinity", ["", "None", "ClientIP"], { path: "service.sessionAffinity" }),
     SE("externalTrafficPolicy", "externalTrafficPolicy", ["", "Cluster", "Local"], { path: "service.externalTrafficPolicy" }),
     B("publishNotReadyAddresses", "publishNotReadyAddresses", { path: "service.publishNotReadyAddresses" }),
@@ -1058,6 +1062,9 @@ F({
     if (p) o.ports = p;
     put(o, "clusterIP", v.clusterIP);
     put(o, "externalName", v.externalName);
+    const sel = kvOf(v.selector);
+    if (sel) o.selector = sel;
+    put(o, "trafficDistribution", v.trafficDistribution);
     put(o, "sessionAffinity", v.sessionAffinity);
     put(o, "externalTrafficPolicy", v.externalTrafficPolicy);
     if (v.publishNotReadyAddresses) o.publishNotReadyAddresses = true;
@@ -1079,6 +1086,8 @@ F({
       ports: mapRows(s.ports),
       clusterIP: s.clusterIP ?? "",
       externalName: s.externalName ?? "",
+      selector: pairsOf(s.selector),
+      trafficDistribution: s.trafficDistribution ?? "",
       sessionAffinity: s.sessionAffinity ?? "",
       externalTrafficPolicy: s.externalTrafficPolicy ?? "",
       publishNotReadyAddresses: !!s.publishNotReadyAddresses,
@@ -1162,6 +1171,10 @@ F({
   fields: [
     B("enabled", "enabled", { def: true, path: "ingress.enabled" }),
     S("className", "className", { placeholder: "nginx", path: "ingress.className" }),
+    S("serviceName", "serviceName", {
+      path: "ingress.serviceName",
+      hint: "Backend Service for every path that names none of its own. Default: this release's primary Service.",
+    }),
     KV("annotations", "annotations"),
     RW(
       "hosts",
@@ -1171,8 +1184,10 @@ F({
         { key: "path", label: "path", placeholder: "/" },
         { key: "pathType", label: "pathType", kind: "select", options: ["Prefix", "Exact", "ImplementationSpecific"] },
         { key: "portName", label: "portName", placeholder: "http" },
+        { key: "portNumber", label: "portNumber", kind: "number", placeholder: "8080" },
+        { key: "serviceName", label: "serviceName", placeholder: "api-server" },
       ],
-      { req: true, addLabel: "Add path" }
+      { req: true, addLabel: "Add path", hint: "portNumber points the path at a numbered Service port instead of portName. serviceName gives this one path its own backend." }
     ),
     RW(
       "tls",
@@ -1187,6 +1202,7 @@ F({
   emit: (v) => {
     const o: Values = { enabled: v.enabled !== false };
     put(o, "className", v.className);
+    put(o, "serviceName", v.serviceName);
     const a = kvOf(v.annotations);
     if (a) o.annotations = a;
     // Paths on the same host are grouped into one rule — they are added here as
@@ -1199,7 +1215,10 @@ F({
         h = { host: String(r.host), paths: [] };
         byHost.push(h);
       }
-      h.paths.push(clean({ path: r.path || "/", pathType: r.pathType || "Prefix", portName: r.portName }));
+      const portNumber = nz(r.portNumber) ? Number(r.portNumber) : undefined;
+      h.paths.push(
+        clean({ path: r.path || "/", pathType: r.pathType || "Prefix", portName: r.portName, portNumber, serviceName: r.serviceName })
+      );
     });
     if (byHost.length) o.hosts = byHost;
     const tls = rowsOf(v.tls)
@@ -1243,7 +1262,10 @@ F({
     S("path", "path", { path: "route.path", placeholder: "/" }),
     S("targetPort", "targetPort", { path: "route.targetPort", placeholder: "http" }),
     SE("termination", "tls.termination", ["edge", "passthrough", "reencrypt"], { def: "edge", path: "route.tls.termination" }),
-    SE("insecure", "tls.insecureEdgeTerminationPolicy", ["", "Redirect", "Allow", "None"], { def: "Redirect", path: "route.tls.insecureEdgeTerminationPolicy" }),
+    SE("insecure", "tls.insecureEdgeTerminationPolicy", ["", "Redirect", "Allow", "None"], {
+      path: "route.tls.insecureEdgeTerminationPolicy",
+      hint: "Rendered only when set — the chart no longer defaults it, so a Route that never had it does not start redirecting HTTP.",
+    }),
     KV("annotations", "annotations"),
   ],
   emit: (v) => {
@@ -2297,8 +2319,8 @@ F({
   keys: ["nameOverride", "fullnameOverride", "commonLabels", "commonAnnotations"],
   blurb: "The name every object in the release is built from, plus labels and annotations stamped onto all of them.",
   fields: [
-    S("nameOverride", "nameOverride", { ns: true, path: "nameOverride", placeholder: "checkout-api", hint: "Resource names become exactly this instead of the file name. Rarely needed — the ApplicationSet already names the release after its file." }),
-    S("fullnameOverride", "fullnameOverride", { ns: true, path: "fullnameOverride", hint: "Wins over nameOverride. Set when the running workload's name differs from the file name, so it is not renamed." }),
+    S("nameOverride", "nameOverride", { ns: true, path: "nameOverride", placeholder: "checkout-api", hint: "Resource names become exactly this instead of the release name. Argo CD names the release after its Application — the file name plus the namespace's last word (checkout in shop-prod is checkout-prod) — so set checkout here for objects called checkout." }),
+    S("fullnameOverride", "fullnameOverride", { ns: true, path: "fullnameOverride", hint: "Wins over nameOverride. Set when the running workload's name differs from the release name, so it is not renamed." }),
     KV("commonLabels", "commonLabels"),
     KV("commonAnnotations", "commonAnnotations"),
   ],
@@ -2316,7 +2338,7 @@ F({
     commonAnnotations: pairsOf(doc.commonAnnotations),
   }),
   notes: [
-    "The release is named after its values file (the ApplicationSet's helm.releaseName), so objects are already called <microservice> without either override.",
+    "The release is named after the Argo CD Application that deploys it — <microservice>-<last word of the namespace>, plus the variant folder (ms1-prd-yellow) — so objects carry that name unless one of these overrides it.",
     "Both are offered per namespace, not in base: the object names belong to an environment, and one in base is inherited everywhere and then overridden everywhere.",
   ],
 });

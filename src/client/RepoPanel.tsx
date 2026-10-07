@@ -6,6 +6,7 @@ import {
   ExternalLink,
   GitBranch,
   GitPullRequestArrow,
+  RefreshCw,
   TriangleAlert,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
@@ -83,6 +84,49 @@ export function PushResult({ push, what }: { push: PushState; what: string }) {
         <>The repository already matches this {what} — nothing to commit.</>
       )}
     </p>
+  );
+}
+
+/**
+ * The repository moved since this document was pulled (`useRemoteSha`). It
+ * offers the Pull — it never pulls on its own, because a pull replaces what is
+ * on screen — and a way to stop being asked about this change.
+ */
+export function RemoteChanged({
+  what,
+  revision,
+  replaces,
+  pulling,
+  blocked,
+  onPull,
+  onDismiss,
+}: {
+  /** What changed: "Jenkinsfile", "values tree". */
+  what: string;
+  revision: string;
+  /** What a pull would replace ("the 3 stages in this pipeline"), or "" when nothing. */
+  replaces: string;
+  pulling: boolean;
+  blocked: string;
+  onPull: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="git-remote-changed" role="status">
+      <RefreshCw size={15} aria-hidden="true" />
+      <span>
+        The {what} on <code>{revision}</code> was updated since you pulled it.
+        {replaces && <> Pulling replaces {replaces}.</>}
+      </span>
+      <span className="git-remote-actions">
+        <button type="button" className="primary" disabled={!!blocked || pulling} title={blocked || undefined} onClick={onPull}>
+          <BusyIcon busy={pulling} icon={<CloudDownload size={15} aria-hidden="true" />} /> {pulling ? "Pulling…" : "Pull changes"}
+        </button>
+        <button type="button" className="ghost-button" onClick={onDismiss} title="Keep what is here and stop asking about this change">
+          Keep mine
+        </button>
+      </span>
+    </div>
   );
 }
 

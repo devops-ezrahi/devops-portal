@@ -86,7 +86,7 @@ export function NewPipelineDialog({
       // The repo is the server's answer, not the field's: an SSH URL was
       // rewritten before the clone, and the path was very likely found rather
       // than typed — the pipeline must commit back to the file it read.
-      const repo: Repo = { repoUrl: result.repoUrl, revision: result.revision, path: result.path };
+      const repo: Repo = { repoUrl: result.repoUrl, revision: result.revision, path: result.path, sha: result.sha };
       if (parsed.warnings.length) setPending({ pipeline: parsed.pipeline, warnings: parsed.warnings, repo });
       else onImport(parsed.pipeline, parsed.warnings, repo);
     } catch (err) {

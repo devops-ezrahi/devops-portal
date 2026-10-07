@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, writeFile } from "fs/promises";
 import { dirname, join, resolve, sep } from "path";
 import { config } from "../../config";
-import { cloneAt, git, withCredentials } from "../../git";
+import { cloneAt, git, objectAt, withCredentials } from "../../git";
 import { githubRepo } from "../../github";
 import { canOpenPullRequest, openPullRequest } from "../../pullRequest";
 import { log } from "../../log";
@@ -119,7 +119,7 @@ function inside(root: string, full: string): boolean {
  * pattern-matching its own message.
  */
 export type PullResult =
-  | { path: string; text: string; candidates: string[]; revision: string }
+  | { path: string; text: string; candidates: string[]; revision: string; sha: string }
   | { problem: string; candidates: string[] };
 
 /**
@@ -157,7 +157,7 @@ export async function pullJenkinsfile(repoUrl: string, requested: string, wanted
       return { problem: `${chosen.path} is larger than ${MAX_TEXT / 1000} KB.`, candidates: chosen.candidates };
 
     log.info("jenkinsfile", `pulled ${chosen.path}`, { repoUrl, revision, bytes: text.length });
-    return { path: chosen.path, text, candidates: chosen.candidates, revision };
+    return { path: chosen.path, text, candidates: chosen.candidates, revision, sha: await objectAt(dir, chosen.path) };
   } finally {
     await removeTmpDir(dir);
   }
