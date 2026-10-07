@@ -6613,3 +6613,17 @@ label.ag-add { cursor: pointer }
 /* A field label's spinner sits at the label's own small size. */
 .owner-select > span .busy-icon,
 .admin-edit-form label > span .busy-icon { width: 12px; height: 12px; margin-left: 4px; vertical-align: -1px }
+
+/* The Convert dialog's one checkbox, a label and its `?` on one line. */
+.ag-exact-copy {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ag-exact-copy label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}

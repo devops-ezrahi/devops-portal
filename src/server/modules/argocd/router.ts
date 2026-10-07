@@ -161,6 +161,9 @@ const convertBody = z
       .min(1, "Pick at least one workload to convert")
       .max(1000)
       .optional(),
+    // The converter's --exact-copy: render the pod templates byte-for-byte as
+    // live, so the cutover restarts nothing. Off = cleaner values.
+    exactCopy: z.boolean().optional(),
   })
   .refine((b) => !!b.yaml || !!b.helm, "Nothing to convert — paste YAML, add a file or a chart");
 

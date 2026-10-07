@@ -1456,6 +1456,12 @@ and a new one connects from the repository panel as usual.
   keeps in `shared` only what two or more converted microservices use — one
   user takes it home, only unticked users drop it. A list that cannot be read
   is said under the field, and Convert takes all.
+- **Exact copy is a box, off by default** (`exactCopy` → the converter's
+  `--exact-copy`). Ticked, every pod template is written exactly as it runs —
+  list order, an empty `securityContext: {}` — so adopting the app restarts no
+  pods; unticked, the values are cleaner and the first sync rolls the pods
+  once. Only sent when ticked, so a tree on an older chart revision converts
+  as before; ticking it there says that converter has no such flag.
 - **An untouched convert commits the converter's bytes.** `mergeConverted`
   carries the import's `imported` texts, so the first Commit after a Convert
   does not rewrite every file's quoting and comments.

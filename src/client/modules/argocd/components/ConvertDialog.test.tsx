@@ -48,6 +48,19 @@ describe("ConvertDialog's workload picker", () => {
     expect(convertManifests.mock.calls[0][0].include).toEqual(["web", "report"]);
   });
 
+  it("asks for an exact copy only when the box is ticked", async () => {
+    open();
+    await screen.findByRole("list", { name: "Workloads to convert" });
+    fireEvent.click(screen.getByRole("button", { name: "Convert" }));
+    await waitFor(() => expect(convertManifests).toHaveBeenCalledTimes(1));
+    expect(convertManifests.mock.calls[0][0]).not.toHaveProperty("exactCopy");
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /Exact copy/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Convert" }));
+    await waitFor(() => expect(convertManifests).toHaveBeenCalledTimes(2));
+    expect(convertManifests.mock.calls[1][0].exactCopy).toBe(true);
+  });
+
   it("will not convert nothing", async () => {
     open();
     await screen.findByRole("list", { name: "Workloads to convert" });
