@@ -14,7 +14,8 @@ export const requestCatalog: RequestTypeDefinition[] = [
     ownerTeam: "devops-platform",
     fields: [
       { name: "title", label: "Summary", required: true },
-      { name: "description", label: "Request details", required: true }
+      // Optional: a name is often the whole request ("Open port 8443 on x").
+      { name: "description", label: "Request details", required: false }
     ]
   }
 ];
