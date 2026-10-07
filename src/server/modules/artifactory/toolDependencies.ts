@@ -188,7 +188,7 @@ export function stubPom(coords: MavenCoords): string {
     <dependency>
       <groupId>${coords.groupId}</groupId>
       <artifactId>${coords.artifactId}</artifactId>
-      <version>${coords.version}</version>
+      <version>${coords.version}</version>${coords.packaging === "pom" ? "\n      <type>pom</type>" : ""}
     </dependency>
   </dependencies>
 </project>
@@ -260,6 +260,12 @@ export async function resolveMavenDependencies(opts: {
   await writeFile(join(opts.root, "settings.xml"), mavenSettings(opts.repo, opts.token), {
     mode: 0o600,
   });
+  // An empty *global* settings file too. `-s` only replaces the user settings;
+  // the image's global one (`$MAVEN_HOME/conf/settings.xml`) is still merged in,
+  // and a mirror there for exactly `central` beats our `*` — so dependencies were
+  // fetched from whatever that names (the upload target's virtual repo, in the
+  // closed network) instead of the repository the URL was pasted from.
+  await writeFile(join(opts.root, "global-settings.xml"), "<settings/>\n");
   // ponytail: a per-job copy of the baked plugin cache. A shared cache under
   // DATA_DIR is the upgrade if the copy ever shows up in job times.
   await cp(BAKED_M2, localRepo, { recursive: true }).catch(() => {});
@@ -274,6 +280,8 @@ export async function resolveMavenDependencies(opts: {
       // transfer chatter out of the job log, which is all -ntp bought.
       "-s",
       join(opts.root, "settings.xml"),
+      "-gs",
+      join(opts.root, "global-settings.xml"),
       `-Dmaven.repo.local=${localRepo}`,
       `${DEPENDENCY_PLUGIN}:copy-dependencies`,
       // The layout classifyMaven reads, and each dependency's own pom beside
