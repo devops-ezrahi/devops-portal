@@ -133,6 +133,13 @@ export type ConvertInput = {
    * in it is named here. Absent = everything.
    */
   include?: string[];
+  /**
+   * `--exact-copy`: every pod template rendered exactly as it runs, list order
+   * and empty fields included, so adopting a live app restarts no pods. For
+   * apps that cannot take a restart; off, the values are cleaner and the first
+   * sync rolls the pods once.
+   */
+  exactCopy?: boolean;
 };
 
 /** What the picker lists: one row per workload the paste or chart holds. */
@@ -301,6 +308,7 @@ export async function convertToUniversal(input: ConvertInput): Promise<ConvertRe
     const groups = (input.envGroups ?? []).flatMap((g) => ["--env-group", g]);
     // Exact names (`=web`, not `web`, which would also take web-worker).
     if (input.include?.length) groups.push("--include", input.include.map((n) => `=${n}`).join(","));
+    if (input.exactCopy) groups.push("--exact-copy");
     const verify = await runChecked(
       python,
       [converter, "--input", join(dir, "in"), "--output", join(dir, "out"), "--chart", join(dir, "chart"), ...groups],
@@ -308,6 +316,10 @@ export async function convertToUniversal(input: ConvertInput): Promise<ConvertRe
       "The converter"
     );
     if (verify.failed && !(await access(join(dir, "out", "base")).then(() => true, () => false))) {
+      if (/unrecognized arguments:.*--exact-copy/.test(verify.tail))
+        throw new Error(
+          `${input.chartRepoUrl}@${input.chartRevision} has a converter without --exact-copy — it already renders an exact copy, so convert with the box unticked, or point the tree at a newer chart revision`
+        );
       if (/unrecognized arguments:.*--include/.test(verify.tail))
         throw new Error(
           `${input.chartRepoUrl}@${input.chartRevision} has a converter without --include, so a workload selection cannot be applied — convert everything, or point the tree at a newer chart revision`

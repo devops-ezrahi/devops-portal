@@ -4038,6 +4038,49 @@ code {
   color: rgb(var(--c-d19a66));
 }
 
+/* Light theme: the token colours. atom-one-dark (imported by every module that
+   highlights) paints with literal hexes rather than palette variables, so
+   theme.ts cannot move them, and its pastels sit on the light code background
+   at ~1.5:1. These are Atom One Light's, with the comment grey darkened to
+   pass 4.5:1. `.hljs` doubled to outrank the imported theme whatever order
+   the two stylesheets load in. */
+:root[data-theme="light"] .hljs.hljs { color: #383a42; }
+:root[data-theme="light"] .hljs .hljs-comment,
+:root[data-theme="light"] .hljs .hljs-quote { color: #696c77; }
+:root[data-theme="light"] .hljs .hljs-doctag,
+:root[data-theme="light"] .hljs .hljs-keyword,
+:root[data-theme="light"] .hljs .hljs-formula { color: #a626a4; }
+:root[data-theme="light"] .hljs .hljs-section,
+:root[data-theme="light"] .hljs .hljs-name,
+:root[data-theme="light"] .hljs .hljs-selector-tag,
+:root[data-theme="light"] .hljs .hljs-deletion,
+:root[data-theme="light"] .hljs .hljs-subst { color: #c8312a; }
+:root[data-theme="light"] .hljs .hljs-literal { color: #0170a6; }
+:root[data-theme="light"] .hljs .hljs-string,
+:root[data-theme="light"] .hljs .hljs-regexp,
+:root[data-theme="light"] .hljs .hljs-addition,
+:root[data-theme="light"] .hljs .hljs-attribute,
+:root[data-theme="light"] .hljs .hljs-meta .hljs-string { color: #3a7d36; }
+:root[data-theme="light"] .hljs .hljs-attr,
+:root[data-theme="light"] .hljs .hljs-variable,
+:root[data-theme="light"] .hljs .hljs-template-variable,
+:root[data-theme="light"] .hljs .hljs-type,
+:root[data-theme="light"] .hljs .hljs-selector-class,
+:root[data-theme="light"] .hljs .hljs-selector-attr,
+:root[data-theme="light"] .hljs .hljs-selector-pseudo,
+:root[data-theme="light"] .hljs .hljs-number,
+:root[data-theme="light"] .jf-code .hljs-symbol,
+:root[data-theme="light"] .jf-import-editor .hljs-symbol { color: #986801; }
+:root[data-theme="light"] .hljs .hljs-symbol,
+:root[data-theme="light"] .hljs .hljs-bullet,
+:root[data-theme="light"] .hljs .hljs-link,
+:root[data-theme="light"] .hljs .hljs-meta,
+:root[data-theme="light"] .hljs .hljs-selector-id,
+:root[data-theme="light"] .hljs .hljs-title { color: #3264d8; }
+:root[data-theme="light"] .hljs .hljs-built_in,
+:root[data-theme="light"] .hljs .hljs-title.class_,
+:root[data-theme="light"] .hljs .hljs-class .hljs-title { color: #a06a00; }
+
 .jf-code::-webkit-scrollbar { width: 6px; height: 6px }
 .jf-code::-webkit-scrollbar-track { background: transparent }
 .jf-code::-webkit-scrollbar-thumb { background: rgb(var(--c-203238)); border-radius: 999px }
@@ -6570,3 +6613,17 @@ label.ag-add { cursor: pointer }
 /* A field label's spinner sits at the label's own small size. */
 .owner-select > span .busy-icon,
 .admin-edit-form label > span .busy-icon { width: 12px; height: 12px; margin-left: 4px; vertical-align: -1px }
+
+/* The Convert dialog's one checkbox, a label and its `?` on one line. */
+.ag-exact-copy {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ag-exact-copy label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}

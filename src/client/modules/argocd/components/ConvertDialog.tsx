@@ -54,6 +54,8 @@ export function ConvertDialog({
   const [chartFile, setChartFile] = useState<File | null>(null);
   const [values, setValues] = useState("");
   const [envGroups, setEnvGroups] = useState("");
+  /** Off by default: cleaner values, one rollout at cutover. */
+  const [exactCopy, setExactCopy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [workloads, setWorkloads] = useState<Workload[] | null>(null);
@@ -146,6 +148,7 @@ export function ConvertDialog({
         namespace,
         ...(groups.length ? { envGroups: groups } : {}),
         ...(include ? { include } : {}),
+        ...(exactCopy ? { exactCopy } : {}),
         ...(source === "yaml"
           ? { yaml }
           : { helm: { archive: await base64Of(chartFile!), values: values || undefined } }),
@@ -221,6 +224,26 @@ export function ConvertDialog({
                 <TriangleAlert size={15} aria-hidden="true" /> “{badGroup}” is not a group — write key=token,token.
               </p>
             )}
+          </div>
+
+          <div className="field-block">
+            <span className="ag-exact-copy">
+              <label>
+                <input type="checkbox" checked={exactCopy} onChange={(e) => setExactCopy(e.target.checked)} /> Exact copy — no restart
+              </label>
+              <Help label="exact copy">
+                <p>
+                  For apps that cannot be restarted. Every pod template is written exactly as it runs now — the order of
+                  ports, env vars, mounts, volumes and sidecars, and empty fields the cluster stored — so taking the app
+                  over with Argo CD restarts no pods.
+                </p>
+                <p>
+                  Unticked, the values say only what the app needs and read cleaner, and the first sync rolls the pods
+                  once. Order that changes behaviour (init containers, envFrom, an env var read through{" "}
+                  <code>$(VAR)</code>) is kept either way.
+                </p>
+              </Help>
+            </span>
           </div>
 
           {source === "yaml" ? (

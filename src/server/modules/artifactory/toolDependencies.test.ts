@@ -236,3 +236,60 @@ describe("the maven project it hands to mvn", () => {
     expect(xml.match(/<id>source<\/id>/g)).toHaveLength(2);
   });
 });
+
+describe("a pom-packaged artifact (a parent or a BOM)", () => {
+  it("is read as packaging pom", async () => {
+    const { mavenCoordsFromPom } = await import("./packageTypes");
+    const xml =
+      "<project><groupId>org.apache.zookeeper</groupId><artifactId>parent</artifactId>" +
+      "<version>3.6.3</version><packaging>pom</packaging><modules><module>x</module></modules></project>";
+    expect(mavenCoordsFromPom(xml)).toEqual({
+      groupId: "org.apache.zookeeper",
+      artifactId: "parent",
+      version: "3.6.3",
+      packaging: "pom",
+    });
+  });
+
+  it("is depended on as a pom, not as a jar that does not exist", async () => {
+    const { stubPom } = await import("./toolDependencies");
+    expect(stubPom({ ...coords, packaging: "pom" })).toContain("<type>pom</type>");
+    expect(stubPom(coords)).not.toContain("<type>");
+  });
+});
+
+describe("the mvn command line", () => {
+  it("replaces the global settings too, so a mirror baked into the image cannot win", async () => {
+    // A fake `mvn` on PATH that records how it was called.
+    const bin = await mkdtemp(join(tmpdir(), "fake-mvn-"));
+    const record = join(bin, "args");
+    await writeFile(join(bin, "mvn"), `#!/bin/sh\necho "$@" >> "${record}"\necho "Apache Maven 3.9.0"\n`, {
+      mode: 0o755,
+    });
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}:${path}`;
+    try {
+      const { resolveMavenDependencies } = await import("./toolDependencies");
+      const root = join(bin, "job");
+      await resolveMavenDependencies({
+        coords,
+        repo: "https://source.example.com/artifactory/libs-release",
+        token: "",
+        root,
+        onLog: () => {},
+        signal: new AbortController().signal,
+      });
+      const { readFile } = await import("fs/promises");
+      const calls = (await readFile(record, "utf8")).trim().split("\n");
+      const run = calls.find((c) => c.includes("copy-dependencies"))!;
+      expect(run).toContain(`-s ${join(root, "settings.xml")}`);
+      expect(run).toContain(`-gs ${join(root, "global-settings.xml")}`);
+      expect((await readFile(join(root, "global-settings.xml"), "utf8")).trim()).toBe("<settings/>");
+      expect(await readFile(join(root, "settings.xml"), "utf8")).toContain(
+        "<url>https://source.example.com/artifactory/libs-release</url>"
+      );
+    } finally {
+      process.env.PATH = path;
+    }
+  });
+});

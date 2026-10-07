@@ -251,8 +251,12 @@ export function mavenPomUrl(sourceUrl: string): string | null {
   return mavenSiblingUrl(sourceUrl, "pom");
 }
 
-/** Maven coordinates, as read out of a pom. */
-export type MavenCoords = { groupId: string; artifactId: string; version: string };
+/**
+ * Maven coordinates, as read out of a pom. `packaging` only when the pom says
+ * something other than `jar` — a parent or a BOM is `pom`, and depending on one
+ * as a jar asks the repository for a file that does not exist.
+ */
+export type MavenCoords = { groupId: string; artifactId: string; version: string; packaging?: string };
 
 /**
  * Where the pom for these coordinates belongs, relative to the Maven repo root.
@@ -290,7 +294,8 @@ export function mavenCoordsFromPom(xml: string): MavenCoords | null {
   const groupId = pick("groupId", body) || (parent ? pick("groupId", parent[1]) : "");
   const version = pick("version", body) || (parent ? pick("version", parent[1]) : "");
   if (!groupId || !artifactId || !version) return null;
-  return { groupId, artifactId, version };
+  const packaging = pick("packaging", body);
+  return packaging && packaging !== "jar" ? { groupId, artifactId, version, packaging } : { groupId, artifactId, version };
 }
 
 /**

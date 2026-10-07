@@ -1,6 +1,6 @@
 import { Send } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, KeyboardEvent } from "react";
 import { log, warn, error as logError } from "../../../log";
 import { createTicket } from "../api";
 import { defaultPriority, priorities, priorityResponseHours } from "../config";
@@ -51,17 +51,26 @@ export function CreateTicketView({
     }
   }
 
+  // Ctrl+Enter (Cmd+Enter on a Mac) sends from any field — Enter alone stays a
+  // newline in the description. requestSubmit runs the same validation a click
+  // on Submit does, so an empty name still stops it.
+  function submitOnCtrlEnter(event: KeyboardEvent<HTMLFormElement>) {
+    if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey) || submitting) return;
+    event.preventDefault();
+    event.currentTarget.requestSubmit();
+  }
+
   return (
     <div className="create-grid">
       {selected && (
-        <form className="request-form" onSubmit={submit}>
+        <form className="request-form" onSubmit={submit} onKeyDown={submitOnCtrlEnter}>
           <label>
             <span>Ticket name</span>
             <input value={title} onChange={(e) => setTitle(e.target.value)} required />
           </label>
           <label>
-            <span>Description</span>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} required />
+            <span>Description <small className="field-hint">optional</small></span>
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} />
           </label>
           <label>
             <span>Priority</span>
@@ -78,7 +87,7 @@ export function CreateTicketView({
             </select>
             <small className="field-hint">Response within {priorityResponseHours[priority]} hours</small>
           </label>
-          <button className="primary" disabled={submitting}>
+          <button className="primary" disabled={submitting} title="Submit (Ctrl+Enter)">
             <Send size={18} aria-hidden="true" /> Submit
           </button>
         </form>

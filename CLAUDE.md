@@ -403,6 +403,14 @@ half-resolved tree is a broken offline install that gives no sign it is broken.
   resolve; runtime pods have been seen on 3.5.3. `MVN_PROGRESS_RE` already keeps
   the transfer chatter out of the job log, which is all the flag bought. The
   Dockerfile's own pre-warm dropped it for the same reason.
+- **mvn reads only our settings, global ones included.** `-s` replaces the
+  *user* settings, but the image's global `$MAVEN_HOME/conf/settings.xml` is
+  still merged in, and a mirror there for exactly `central` beats our
+  `<mirrorOf>*</mirrorOf>` — so a closed network's image resolved every
+  dependency from its own mirror (the upload target's virtual repo) instead of
+  the pasted source. `-gs` points at an empty `global-settings.xml` beside ours.
+  A pasted parent or BOM (`<packaging>pom</packaging>`) is depended on with
+  `<type>pom</type>`; as the default jar, mvn asked for `parent-3.6.3.jar`.
 - **Maven needs the pom**, so resolution only runs when `fetchMavenPom` found
   one, keyed on the pom's coordinates rather than the URL's.
   `-DoutputDirectory` is deliberately separate from `-Dmaven.repo.local`: only
@@ -1448,6 +1456,12 @@ and a new one connects from the repository panel as usual.
   keeps in `shared` only what two or more converted microservices use — one
   user takes it home, only unticked users drop it. A list that cannot be read
   is said under the field, and Convert takes all.
+- **Exact copy is a box, off by default** (`exactCopy` → the converter's
+  `--exact-copy`). Ticked, every pod template is written exactly as it runs —
+  list order, an empty `securityContext: {}` — so adopting the app restarts no
+  pods; unticked, the values are cleaner and the first sync rolls the pods
+  once. Only sent when ticked, so a tree on an older chart revision converts
+  as before; ticking it there says that converter has no such flag.
 - **An untouched convert commits the converter's bytes.** `mergeConverted`
   carries the import's `imported` texts, so the first Commit after a Convert
   does not rewrite every file's quoting and comments.
@@ -1486,8 +1500,6 @@ and a new one connects from the repository panel as usual.
   the converter pins every workload's real name with `fullnameOverride`, so its
   Service and PVCs are not renamed. A portal-authored release with neither
   override renders as `<ms>-<ns suffix>`; the `nameOverride` help says so.
-  Only a `nameSuffix` copy (a second Application set beside the original) pins
-  `releaseName` back to the unsuffixed name, so it renders the same objects.
   `importTree` names each release after its **base file** — the file is the
   microservice — never after either override.
 - **The image repository travels with its tag** into `<ns>/values/<ms>.yaml`,

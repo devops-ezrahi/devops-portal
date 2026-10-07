@@ -80,6 +80,8 @@ export type ConvertRequest = {
   helm?: { archive: string; values?: string };
   /** Workload names to convert — the picker's ticked rows. Absent = all of them. */
   include?: string[];
+  /** The converter's --exact-copy: render live pod templates exactly, so cutover restarts nothing. */
+  exactCopy?: boolean;
 };
 
 export type Workload = { kind: string; name: string; namespace: string };
