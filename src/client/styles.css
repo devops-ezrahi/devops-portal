@@ -506,7 +506,7 @@ textarea {
 .brand-version {
   position: absolute;
   top: calc(100% + 6px);
-  left: 0;
+  left: 50%;
   z-index: 20;
   padding: 4px 8px;
   border-radius: 6px;
@@ -517,14 +517,15 @@ textarea {
   font-weight: 600;
   white-space: nowrap;
   opacity: 0;
-  transform: translateY(-3px);
+  /* Centred under the title: half its own width back from the title's middle. */
+  transform: translate(-50%, -3px);
   pointer-events: none;
   transition: opacity 120ms var(--ease-out), transform 120ms var(--ease-out);
 }
 
 .brand:hover .brand-version {
   opacity: 1;
-  transform: translateY(0);
+  transform: translate(-50%, 0);
 }
 
 /* Stella. Three easter eggs, no logic depends on any of them. */
@@ -985,6 +986,7 @@ h3 {
 }
 
 .search input {
+  min-height: 36px;
   border: 0;
   padding-left: 0;
   outline: none;
@@ -1009,6 +1011,18 @@ button:focus-visible {
   outline-offset: 0;
   border-color: rgb(var(--c-20c7bd));
   box-shadow: 0 0 0 3px rgb(var(--c-20c7bd) / 16%);
+}
+
+/* The search box is the control; the bare input inside it is not, so the
+   ring goes round the whole box, icon included. */
+.search:focus-within {
+  border-color: rgb(var(--c-20c7bd));
+  box-shadow: 0 0 0 3px rgb(var(--c-20c7bd) / 16%);
+}
+
+.search input:focus {
+  outline: none;
+  box-shadow: none;
 }
 
 /* A clicked checkbox or radio keeps the ring until you click elsewhere, which reads as a

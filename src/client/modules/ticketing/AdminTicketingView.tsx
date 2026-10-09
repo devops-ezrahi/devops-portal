@@ -1,4 +1,4 @@
-import { Plus } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ListSizeToggle } from "../../ListSizeToggle";
 import {
@@ -23,6 +23,25 @@ import type {
 } from "../../../server/types";
 
 const POLL_INTERVAL_MS = 8000;
+
+/** Every word must appear somewhere in the row's text, in any order and case. */
+export function matchesQuery(ticket: TicketSummary, query: string): boolean {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return true;
+  const text = [
+    ticket.id,
+    ticket.title,
+    ticket.requestType,
+    ticket.requesterId,
+    ticket.requesterName,
+    ticket.assigneeId,
+    ticket.assigneeName,
+    ticket.stage,
+    ticket.priority,
+    ticket.rawStatus
+  ].join(" ").toLowerCase();
+  return words.every((w) => text.includes(w));
+}
 
 function TicketRow({
   ticket,
@@ -85,6 +104,7 @@ export function AdminTicketingView({
   const [assignees, setAssignees] = useState<AssigneeCandidate[]>([]);
   const [unreadIds, setUnreadIds] = useState<Set<string>>(() => new Set());
   const [showAll, setShowAll] = useState(false);
+  const [query, setQuery] = useState("");
   const [requestTypes, setRequestTypes] = useState<RequestTypeDefinition[]>([]);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const selectedIdRef = useRef<string | undefined>(undefined);
@@ -207,9 +227,9 @@ export function AdminTicketingView({
   }
 
   const filteredTickets = useMemo(() => {
-    if (showAll) return adminTickets;
-    return adminTickets.filter((t) => !t.assigneeId || t.assigneeId === user.id);
-  }, [adminTickets, showAll, user.id]);
+    const scoped = showAll ? adminTickets : adminTickets.filter((t) => !t.assigneeId || t.assigneeId === user.id);
+    return scoped.filter((t) => matchesQuery(t, query));
+  }, [adminTickets, showAll, user.id, query]);
 
   const activeTickets = useMemo(() => filteredTickets.filter((t) => !isDone(t)), [filteredTickets]);
   const doneTickets = useMemo(() => filteredTickets.filter(isDone), [filteredTickets]);
@@ -262,10 +282,23 @@ export function AdminTicketingView({
               {showAll ? "My tickets" : "All tickets"}
             </button>
           </div>
+          <label className="search">
+            <Search size={16} aria-hidden="true" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Escape") setQuery(""); }}
+              placeholder="Search id, title, people, type…"
+              aria-label="Search tickets"
+            />
+          </label>
           <section className="ticket-list-panel" aria-label="Admin tickets">
             <div className="ticket-list">
               {activeTickets.map((ticket) => <TicketRow key={ticket.id} ticket={ticket} isSelected={selectedAdminTicket?.id === ticket.id} isUnread={unreadIds.has(ticket.id)} onOpen={handleOpenTicket} />)}
-              {activeTickets.length === 0 && <div className="empty-state">No tickets.</div>}
+              {activeTickets.length === 0 && (
+                <div className="empty-state">{query.trim() ? "No tickets match." : "No tickets."}</div>
+              )}
             </div>
           </section>
   
